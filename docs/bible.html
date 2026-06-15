@@ -3,11 +3,53 @@
 <head>
 <meta charset="utf-8">
 <title>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</title>
+<style>
+.phase-tabs {
+  margin-top: 1.5rem;
+}
+
+.phase-tab-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.phase-tab {
+  border: 1px solid #999;
+  background: #f5f5f5;
+  color: #111;
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+}
+
+.phase-tab[aria-selected="true"] {
+  background: #111;
+  color: #fff;
+}
+
+.phase-panel {
+  border: 1px solid #bbb;
+  padding: 1rem;
+}
+
+.phase-panel[hidden] {
+  display: none;
+}
+
+.phase-panel h3 {
+  margin-top: 0;
+}
+
+.phase-panel h4 {
+  margin-top: 1.5rem;
+}
+</style>
 </head>
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.3 (rascunho evolutivo) <strong>Data:</strong> 2026-06-15 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.4 (rascunho evolutivo) <strong>Data:</strong> 2026-06-15 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -21,6 +63,7 @@
 <tr><td>0.1</td><td>2026-06-12</td><td>Estrutura inicial, conceitos fundamentais, arquitetura de alto nível, questões em aberto</td></tr>
 <tr><td>0.2</td><td>2026-06-12</td><td>Resolução de Q1/Q2/Q6: estratégia interno→produto, clustering desde o início, modelo de execução híbrido (reativo + proativo). ADR-001 detalhado e aceite. Novo §1.3, §4.5, §5.6, §5.7</td></tr>
 <tr><td>0.3</td><td>2026-06-15</td><td>Resolução de Q4/Q5/Q7/Q8/Q9/Q10: primeiro cliente interno Engenharia/Delivery, hosting híbrido Docker Compose→Kubernetes, <code>Microsoft.Extensions.AI</code>, PostgreSQL com vector store futuro, GitOps/YAML, contratos inter-unidades e baseline europeu de RGPD. ADR-002 e ADR-003 aceites. Correção da separação entre árvore organizacional lógica e supervisão técnica Akka</td></tr>
+<tr><td>0.4</td><td>2026-06-15</td><td>Roadmap detalhado por tabs HTML com subfases, user stories, critérios de aceitação e tarefas. Decisão de frontend: React + TypeScript sobre ASP.NET Core REST/SignalR. ADR-005 aceite</td></tr>
 </tbody>
 </table>
 
@@ -230,7 +273,7 @@
 <tr><td>Actor model</td><td><strong>Akka.NET</strong> (ADR-001 — aceite)</td><td><strong>Akka.Cluster + Cluster Sharding desde a F0</strong> (decisão Q2), Akka.Persistence para event sourcing</td></tr>
 <tr><td>Persistência</td><td>PostgreSQL (event journal + snapshots + read models + audit/registry/budgets)</td><td>Via Akka.Persistence.PostgreSql na F0; vector store separado para memória semântica em F1/F2 — ADR-003</td></tr>
 <tr><td>Camada de AI</td><td><code>Microsoft.Extensions.AI</code> + camada HIVE</td><td>Contrato comum para chat/streaming/tool calls; HIVE trata políticas, custos, auditoria, fallback e routing — ADR-002</td></tr>
-<tr><td>API / UI</td><td>ASP.NET Core (REST + SignalR para tempo real)</td><td>Consola de administração e &quot;organograma vivo&quot;</td></tr>
+<tr><td>API / UI</td><td>ASP.NET Core API (REST + SignalR) + React + TypeScript</td><td>Consola de administração e &quot;organograma vivo&quot;; React consome a API pública e eventos SignalR — ADR-005</td></tr>
 <tr><td>Conectores</td><td>Plugins (assemblies) com contrato comum</td><td>Email (SMTP/IMAP/Graph), Teams/Slack, HTTP, ficheiros, calendário</td></tr>
 <tr><td>Observabilidade</td><td>OpenTelemetry + dashboards</td><td>Métricas de custos, latência, filas</td></tr>
 </tbody>
@@ -337,6 +380,12 @@
 <li>Akka.Management/Cluster.Bootstrap é o caminho de produção previsto;</li>
 <li>manifests/Helm ficam fora da F0 estrita, mas a arquitetura não assume endereços fixos nem single-node.</li>
 </ul>
+
+<h3>5.9 Frontend Web: React + TypeScript <em>(decisão — ADR-005)</em></h3>
+
+<p>A Web UI é implementada em <strong>React + TypeScript</strong>, consumindo a API pública ASP.NET Core por REST e SignalR. O backend não expõe atalhos privados para a UI: qualquer operação disponível na consola deve passar pelos mesmos contratos públicos que integrações externas poderão usar.</p>
+
+<p>Esta decisão privilegia uma UI operacional rica e iterável: organograma vivo, inbox humana, aprovações, dashboards, diffs de YAML, edição visual futura e componentes de graph/flow. Angular fica como alternativa descartada para a F0/F1 por impor mais estrutura e cerimónia do que a fase inicial precisa; Blazor continua possível para ferramentas internas pontuais, mas não é a base da consola principal.</p>
 
 <hr>
 
@@ -519,11 +568,656 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </thead>
 <tbody>
 <tr><td><strong>F0 — Núcleo</strong></td><td>Prova de conceito <strong>já em cluster</strong> para Engenharia/Delivery</td><td>Docker Compose com 1–3 nós Akka + PostgreSQL, Akka.Cluster + Sharding de posições, serialização versionada, SBR, persistência PostgreSQL, organização em YAML/GitOps, PositionActor + AiAgentActor, 1 provider via <code>Microsoft.Extensions.AI</code>, comunicação vertical, scheduler com <code>Pulse</code>, audit log</td></tr>
-<tr><td><strong>F1 — Organização mínima viável</strong></td><td>Equipa de delivery real a funcionar</td><td>Multi-provider + gateway (rate limit, fallback), contratos de comunicação horizontal, HumanProxyActor + conector email/issue tracker, Web UI read-only (organograma + inbox + aprovações) sobre API pública, subscrições de eventos, roles de nó</td></tr>
+<tr><td><strong>F1 — Organização mínima viável</strong></td><td>Equipa de delivery real a funcionar</td><td>Multi-provider + gateway (rate limit, fallback), contratos de comunicação horizontal, HumanProxyActor + conector email/issue tracker, Web UI React + TypeScript read-only (organograma + inbox + aprovações) sobre API pública, subscrições de eventos, roles de nó</td></tr>
 <tr><td><strong>F2 — Operação</strong></td><td>Robustez e escala</td><td>Multi-nó em produção (K8s), batch processing, budgets/custos, memória de longo prazo (vector store), conectores Teams/Slack/ficheiros, edição controlada da organização com export/import YAML</td></tr>
 <tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias</td></tr>
 </tbody>
 </table>
+
+<div class="phase-tabs" id="roadmap-phase-tabs">
+<div class="phase-tab-list" role="tablist" aria-label="Detalhe por fase">
+<button class="phase-tab" id="phase-tab-f0" type="button" role="tab" aria-selected="true" aria-controls="phase-panel-f0" data-phase-tab="phase-panel-f0">F0 — Núcleo</button>
+<button class="phase-tab" id="phase-tab-f1" type="button" role="tab" aria-selected="false" aria-controls="phase-panel-f1" data-phase-tab="phase-panel-f1">F1 — Organização mínima viável</button>
+<button class="phase-tab" id="phase-tab-f2" type="button" role="tab" aria-selected="false" aria-controls="phase-panel-f2" data-phase-tab="phase-panel-f2">F2 — Operação</button>
+<button class="phase-tab" id="phase-tab-f3" type="button" role="tab" aria-selected="false" aria-controls="phase-panel-f3" data-phase-tab="phase-panel-f3">F3 — Maturidade</button>
+</div>
+
+<section class="phase-panel" id="phase-panel-f0" role="tabpanel" aria-labelledby="phase-tab-f0">
+<h3>F0 — Núcleo</h3>
+<p><strong>Objetivo:</strong> provar o núcleo distribuído para Engenharia/Delivery num ambiente local reproduzível, com cluster Akka real, persistência PostgreSQL, organização em YAML/GitOps, mensagens verticais, scheduler e um primeiro agente AI.</p>
+<p><strong>Critério de saída:</strong> um utilizador consegue correr o sistema em Docker Compose, carregar uma organização de delivery a partir de YAML, enviar uma diretiva de triagem para uma posição sharded, obter relatório auditado, e observar o estado persistido após restart.</p>
+
+<h4>F0.1 — Fundação do runtime e ambiente local</h4>
+<article>
+<h5>US-F0-01 — Estrutura de solução executável</h5>
+<p><strong>Como</strong> developer, <strong>quero</strong> uma solução .NET organizada por responsabilidades, <strong>para</strong> evoluir o núcleo sem misturar domínio, runtime, API e infraestrutura.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>A solution contém projetos separados para domínio, atores, infraestrutura, API e testes.</li>
+<li>O arranque local cria um processo Akka configurado por role.</li>
+<li>Logging, configuração e health checks mínimos existem desde o primeiro executável.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar solution e projetos base.</li>
+<li>Definir convenções de namespaces, configuração e dependency injection.</li>
+<li>Adicionar logging estruturado e health endpoint mínimo.</li>
+<li>Criar testes de arranque para validar composição básica.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F0-02 — Ambiente Docker Compose reproduzível</h5>
+<p><strong>Como</strong> developer/operator, <strong>quero</strong> correr HIVE localmente com 1–3 nós e PostgreSQL, <strong>para</strong> testar clustering e persistência sem Kubernetes.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Docker Compose sobe PostgreSQL e pelo menos um nó HIVE.</li>
+<li>É possível alternar entre cluster de 1 nó e 3 nós por configuração.</li>
+<li>Os roles <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code> são configuráveis.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar Dockerfile da aplicação.</li>
+<li>Criar <code>docker-compose.yml</code> com PostgreSQL e nós HIVE.</li>
+<li>Adicionar variáveis de ambiente para roles, portas e connection strings.</li>
+<li>Documentar comando local de arranque.</li>
+</ul>
+</article>
+
+<h4>F0.2 — Contratos de domínio e mensagens</h4>
+<article>
+<h5>US-F0-03 — Protocolo organizacional versionável</h5>
+<p><strong>Como</strong> developer, <strong>quero</strong> mensagens organizacionais tipadas e versionáveis, <strong>para</strong> preservar compatibilidade entre nós do cluster e eventos persistidos.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Existem tipos para <code>Directive</code>, <code>Report</code>, <code>Escalation</code>, <code>Memo</code>, <code>PeerRequest</code>, <code>PeerResponse</code>, <code>ApprovalRequest</code>, <code>ApprovalDecision</code>, <code>Pulse</code> e <code>EventTrigger</code>.</li>
+<li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem, destino, prioridade, thread/correlation id e timestamps.</li>
+<li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar value objects (<code>OrganizationId</code>, <code>PositionId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>MessageId</code>).</li>
+<li>Definir contratos imutáveis das mensagens.</li>
+<li>Escolher e configurar serialização versionável para Akka.</li>
+<li>Criar testes de round-trip e compatibilidade de serialização.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F0-04 — Validação de routing vertical</h5>
+<p><strong>Como</strong> arquiteto da plataforma, <strong>quero</strong> validar regras de comunicação vertical, <strong>para</strong> impedir saltos indevidos na cadeia de comando.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Diretivas descendentes só são aceites entre superior e subordinado direto.</li>
+<li>Relatórios e escalamentos sobem para o superior direto.</li>
+<li>Violações são rejeitadas e auditadas.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar serviço de consulta de relações organizacionais.</li>
+<li>Adicionar validador de mensagens verticais.</li>
+<li>Registar eventos de rejeição no audit log.</li>
+<li>Cobrir casos válidos e inválidos em testes.</li>
+</ul>
+</article>
+
+<h4>F0.3 — Registry GitOps e PositionActor persistente</h4>
+<article>
+<h5>US-F0-05 — Organização carregada a partir de YAML</h5>
+<p><strong>Como</strong> operator, <strong>quero</strong> definir a organização em YAML versionado, <strong>para</strong> rever mudanças por Git e materializar o registry em runtime.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Um ficheiro YAML descreve organização, unidades, posições, ocupantes, prompts, schedules, autoridade e relações de comando.</li>
+<li>O import valida unicidade, referências, liderança por unidade e <code>OrganizationId</code> obrigatório.</li>
+<li>O registry resultante é consultável por API interna.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir schema YAML inicial.</li>
+<li>Implementar parser e validador.</li>
+<li>Criar organização exemplo de Engenharia/Delivery.</li>
+<li>Persistir read model do registry em PostgreSQL.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F0-06 — PositionActor sharded e persistente</h5>
+<p><strong>Como</strong> runtime HIVE, <strong>quero</strong> que cada posição seja uma entidade sharded persistente, <strong>para</strong> mover trabalho entre nós sem perder estado.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li><code>PositionActor</code> usa <code>entityId = OrganizationId/PositionId</code>.</li>
+<li>Inbox, estado de tarefas e histórico recente sobrevivem a restart.</li>
+<li>Passivation funciona para posições inativas sem perder mensagens persistidas.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Configurar Akka.Cluster Sharding.</li>
+<li>Configurar Akka.Persistence PostgreSQL journal e snapshots.</li>
+<li>Implementar eventos de estado do <code>PositionActor</code>.</li>
+<li>Testar restart, replay e passivation.</li>
+</ul>
+</article>
+
+<h4>F0.4 — Agente AI e gateway mínimo</h4>
+<article>
+<h5>US-F0-07 — Gateway AI com <code>Microsoft.Extensions.AI</code></h5>
+<p><strong>Como</strong> agente AI, <strong>quero</strong> invocar um provider através de uma camada HIVE, <strong>para</strong> aplicar orçamento, auditoria e routing sem conhecer SDKs concretos.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Existe adapter de provider real ou stub configurável para testes.</li>
+<li>Chamadas registam modelo, tokens/custo quando disponível, duração, posição e thread.</li>
+<li>Falhas retornam erro estruturado e auditado.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar <code>AiGateway</code> e contrato HIVE sobre <code>Microsoft.Extensions.AI</code>.</li>
+<li>Implementar provider stub determinístico para testes.</li>
+<li>Implementar adapter inicial para um provider real configurável.</li>
+<li>Adicionar medição de duração e evento de custo.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F0-08 — AiAgentActor processa diretiva vertical</h5>
+<p><strong>Como</strong> líder de delivery, <strong>quero</strong> enviar uma diretiva de triagem a um agente, <strong>para</strong> receber uma resposta estruturada ou escalamento.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>O agente monta contexto com prompt de identidade, diretiva, memória recente e ferramentas autorizadas.</li>
+<li>A resposta do provider é convertida em <code>Report</code>, <code>Escalation</code> ou nova <code>Directive</code> permitida.</li>
+<li>Limites de iterações, timeout e budget são aplicados.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar <code>AiAgentActor</code> como ocupante filho ou entidade associada à posição.</li>
+<li>Criar prompt inicial para triagem de bugs.</li>
+<li>Implementar interpretação de resposta em mensagens organizacionais.</li>
+<li>Adicionar testes com provider stub.</li>
+</ul>
+</article>
+
+<h4>F0.5 — Scheduler, audit log e vertical slice</h4>
+<article>
+<h5>US-F0-09 — Scheduler entrega <code>Pulse</code> idempotente</h5>
+<p><strong>Como</strong> plataforma, <strong>quero</strong> entregar rotinas agendadas como mensagens, <strong>para</strong> suportar proatividade declarada sem loops contínuos.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Schedules do YAML geram <code>Pulse(scheduleId, payload)</code> para a posição correta.</li>
+<li>O identificador do pulse é determinístico por posição, schedule e janela temporal.</li>
+<li>Reentregas não duplicam trabalho concluído.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar scheduler mínimo persistente ou adapter inicial definido por ADR-004.</li>
+<li>Adicionar cálculo de janela e idempotency key.</li>
+<li>Persistir estado de entrega de pulses.</li>
+<li>Testar reentrega após restart.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F0-10 — Vertical slice de triagem de bug</h5>
+<p><strong>Como</strong> equipa de delivery, <strong>quero</strong> demonstrar uma triagem completa de bug, <strong>para</strong> validar mensagens, agente, persistência e auditoria numa só jornada.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Uma entrada de bug é transformada numa <code>Directive</code> para uma posição de triagem.</li>
+<li>O agente classifica severidade, identifica informação em falta e devolve <code>Report</code> ou <code>Escalation</code>.</li>
+<li>Todos os eventos ficam no audit log e podem ser consultados após restart.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar comando/API mínima para submeter bug de exemplo.</li>
+<li>Ligar fluxo <code>Directive → AiAgentActor → Report/Escalation</code>.</li>
+<li>Expor consulta simples do audit log por <code>ThreadId</code>.</li>
+<li>Adicionar teste end-to-end em ambiente local.</li>
+</ul>
+</article>
+</section>
+
+<section class="phase-panel" id="phase-panel-f1" role="tabpanel" aria-labelledby="phase-tab-f1" hidden>
+<h3>F1 — Organização mínima viável</h3>
+<p><strong>Objetivo:</strong> colocar uma equipa de delivery real a trabalhar com HIVE, incluindo humanos, conectores, UI React + TypeScript read-only, comunicação horizontal controlada, multi-provider e aprovações.</p>
+<p><strong>Critério de saída:</strong> pedidos reais entram por conector, são triados por agentes, aparecem na UI, podem pedir aprovação humana, interagem por contratos entre unidades e produzem relatórios de progresso auditáveis.</p>
+
+<h4>F1.1 — API pública e UI operacional read-only</h4>
+<article>
+<h5>US-F1-01 — Organograma vivo consultável</h5>
+<p><strong>Como</strong> líder de delivery, <strong>quero</strong> ver unidades, posições e estado atual, <strong>para</strong> perceber quem está idle, a trabalhar, bloqueado ou à espera de humano.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>A UI React + TypeScript consome apenas a API pública.</li>
+<li>O organograma mostra unidades, posições, ocupantes e estado.</li>
+<li>Estados são atualizados em tempo real via SignalR ou polling controlado.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir endpoints REST do registry e estado das posições.</li>
+<li>Implementar SignalR para alterações relevantes.</li>
+<li>Criar vista React read-only do organograma.</li>
+<li>Adicionar testes de API para contratos públicos.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F1-02 — Inbox e aprovações humanas</h5>
+<p><strong>Como</strong> pessoa real na organização, <strong>quero</strong> ver mensagens e aprovações pendentes, <strong>para</strong> responder ao sistema como qualquer outro ocupante.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>A inbox mostra diretivas, pedidos, relatórios e aprovações atribuídas à pessoa.</li>
+<li>Uma decisão humana gera <code>ApprovalDecision</code> auditado.</li>
+<li>Prazos e lembretes são visíveis.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Expor API de inbox por posição/pessoa.</li>
+<li>Implementar ações de resposta e aprovação.</li>
+<li>Adicionar persistência de estado de leitura/resposta.</li>
+<li>Testar fluxo <code>ApprovalRequest → ApprovalDecision</code>.</li>
+</ul>
+</article>
+
+<h4>F1.2 — HumanProxy e conectores prioritários</h4>
+<article>
+<h5>US-F1-03 — HumanProxyActor com canal humano inicial</h5>
+<p><strong>Como</strong> plataforma, <strong>quero</strong> representar pessoas reais por atores-proxy, <strong>para</strong> encaminhar mensagens e respostas com latência humana.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>O proxy entrega mensagens por email ou canal configurado.</li>
+<li>Respostas humanas são convertidas em mensagens organizacionais.</li>
+<li>Timeouts, lembretes e ausência básica são tratados por política.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar <code>HumanProxyActor</code>.</li>
+<li>Criar adapter outbound para email ou canal escolhido.</li>
+<li>Criar parser inbound para respostas correlacionadas.</li>
+<li>Adicionar política inicial de lembretes e timeout.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F1-04 — Conector de issue tracker/API HTTP</h5>
+<p><strong>Como</strong> equipa de delivery, <strong>quero</strong> receber e atualizar issues por conector, <strong>para</strong> ligar HIVE ao trabalho real sem copiar dados manualmente.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Entradas do issue tracker geram mensagens organizacionais com origem externa marcada como não-fidedigna.</li>
+<li>Atualizações aprovadas podem ser enviadas de volta ao sistema externo.</li>
+<li>Escopos e permissões do conector são configuráveis.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir contrato <code>IConnector</code> para HTTP/issue tracker.</li>
+<li>Implementar inbound mapping para bug/pedido.</li>
+<li>Implementar outbound mapping para comentário/status.</li>
+<li>Adicionar testes de prompt injection e autorização de escopo.</li>
+</ul>
+</article>
+
+<h4>F1.3 — Gateway AI multi-provider</h4>
+<article>
+<h5>US-F1-05 — Fallback e rate limiting por provider</h5>
+<p><strong>Como</strong> operator, <strong>quero</strong> controlar limites e fallback de providers, <strong>para</strong> manter serviço mesmo com falhas ou rate limits externos.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Cada provider tem fila, limite e circuit breaker configurável.</li>
+<li>Fallback respeita a cadeia definida na posição.</li>
+<li>Eventos de fallback são auditados e atribuídos a custo/latência.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar filas por provider no <code>ai-gateway</code>.</li>
+<li>Adicionar retry com backoff e circuit breaker.</li>
+<li>Implementar fallback configurado por posição.</li>
+<li>Criar métricas de sucesso, falha, latência e custo.</li>
+</ul>
+</article>
+
+<h4>F1.4 — Comunicação horizontal e eventos</h4>
+<article>
+<h5>US-F1-06 — Contratos explícitos entre unidades</h5>
+<p><strong>Como</strong> arquiteto organizacional, <strong>quero</strong> declarar canais entre unidades, <strong>para</strong> permitir colaboração horizontal sem abrir comunicação irrestrita.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>YAML define <code>allowed_peer_channels</code>, tipos de pedido, limites e regra de escalamento.</li>
+<li>Pedidos fora de contrato são recusados e auditados.</li>
+<li>Conflitos ou recusas podem ser mediados pelos líderes.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Estender schema YAML com contratos inter-unidades.</li>
+<li>Implementar validação de <code>PeerRequest</code> e <code>Memo</code> entre unidades.</li>
+<li>Adicionar fluxo de mediação por líder.</li>
+<li>Criar testes de contrato permitido, recusado e mediado.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F1-07 — Subscrições de eventos de delivery</h5>
+<p><strong>Como</strong> líder de equipa, <strong>quero</strong> que agentes reajam a prazos, bloqueios e budgets, <strong>para</strong> reduzir acompanhamento manual.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Posições subscrevem eventos por configuração.</li>
+<li>Eventos relevantes geram <code>EventTrigger</code> auditado.</li>
+<li>Triggers respeitam working hours e budget proativo.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar event bus de domínio a partir do audit log/read models.</li>
+<li>Adicionar subscriptions ao registry.</li>
+<li>Entregar <code>EventTrigger</code> via sharding.</li>
+<li>Testar deadline approaching, bloqueio prolongado e budget threshold.</li>
+</ul>
+</article>
+
+<h4>F1.5 — Segurança e baseline europeu</h4>
+<article>
+<h5>US-F1-08 — Minimização e classificação de dados</h5>
+<p><strong>Como</strong> responsável de compliance, <strong>quero</strong> classificar dados e minimizar contexto enviado a LLMs, <strong>para</strong> cumprir o baseline europeu de RGPD.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Dados externos recebem classificação mínima (<code>public</code>, <code>internal</code>, <code>personal</code>, <code>sensitive</code>).</li>
+<li>Contexto enviado ao provider exclui campos não necessários.</li>
+<li>Políticas por conector controlam retenção e envio a providers.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Adicionar modelo de classificação de dados.</li>
+<li>Implementar filtros de contexto antes do <code>ai-gateway</code>.</li>
+<li>Adicionar redaction/tombstone para pedidos de apagamento.</li>
+<li>Produzir checklist de revisão DPA/provider antes de produção.</li>
+</ul>
+</article>
+</section>
+
+<section class="phase-panel" id="phase-panel-f2" role="tabpanel" aria-labelledby="phase-tab-f2" hidden>
+<h3>F2 — Operação</h3>
+<p><strong>Objetivo:</strong> transformar a organização mínima viável num sistema operacionalmente robusto, escalável e preparado para produção multi-nó, com custos, batch, memória longa e conectores adicionais.</p>
+<p><strong>Critério de saída:</strong> HIVE corre em Kubernetes, opera com budgets e métricas, suporta batch e memória semântica, integra canais de equipa e permite edição controlada da organização com export/import YAML.</p>
+
+<h4>F2.1 — Deployment e escala em Kubernetes</h4>
+<article>
+<h5>US-F2-01 — Perfil Kubernetes production-ready</h5>
+<p><strong>Como</strong> operator, <strong>quero</strong> instalar HIVE em Kubernetes, <strong>para</strong> escalar roles independentemente e operar com resiliência.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Roles <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code> têm deployments separados.</li>
+<li>Akka.Management/Cluster.Bootstrap faz discovery sem seed nodes fixos.</li>
+<li>Readiness/liveness e graceful shutdown funcionam por role.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar manifests ou Helm chart inicial.</li>
+<li>Configurar service discovery e bootstrap Akka.</li>
+<li>Definir recursos, probes e política de rolling update.</li>
+<li>Executar teste multi-nó com rebalanceamento de shards.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F2-02 — Observabilidade operacional</h5>
+<p><strong>Como</strong> operator, <strong>quero</strong> métricas, logs e traces distribuídos, <strong>para</strong> diagnosticar latência, filas, custos e falhas de atores.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>OpenTelemetry cobre API, atores, gateway AI, conectores e PostgreSQL.</li>
+<li>Dashboards mostram mensagens/min, latência, filas, falhas e custo.</li>
+<li>Uma diretiva pode ser seguida por <code>ThreadId</code>/<code>DirectiveId</code>.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Instrumentar spans e métricas principais.</li>
+<li>Adicionar correlação de logs por thread/directive.</li>
+<li>Criar dashboards iniciais.</li>
+<li>Definir alertas para filas, budget e falhas de provider.</li>
+</ul>
+</article>
+
+<h4>F2.2 — Custos, budgets e batch</h4>
+<article>
+<h5>US-F2-03 — Budgets operacionais por posição/unidade</h5>
+<p><strong>Como</strong> gestor de delivery, <strong>quero</strong> controlar custos por posição e unidade, <strong>para</strong> evitar consumo inesperado de AI.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Budgets diários/mensais podem ser configurados por organização, unidade e posição.</li>
+<li>Consumo reativo e proativo é separado.</li>
+<li>Ao atingir limite, o sistema corta, degrada ou escala conforme política.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar agregador <code>cost-tracker</code> robusto.</li>
+<li>Adicionar políticas de corte/degradação/escalamento.</li>
+<li>Expor dashboard de custos.</li>
+<li>Criar testes de limites e concorrência.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F2-04 — Processamento batch de baixo custo</h5>
+<p><strong>Como</strong> operator, <strong>quero</strong> enviar trabalho diferido por batch, <strong>para</strong> reduzir custo em tarefas não interativas.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Posições podem declarar <code>processing: batch</code> e <code>batch_window</code>.</li>
+<li>O gateway agrupa pedidos compatíveis por provider/modelo/janela.</li>
+<li>Resultados batch são correlacionados de volta ao <code>ThreadId</code> original.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar fila batch persistente.</li>
+<li>Implementar submissão e polling por provider compatível.</li>
+<li>Tratar falhas parciais e reprocessamento.</li>
+<li>Adicionar métricas de poupança e latência batch.</li>
+</ul>
+</article>
+
+<h4>F2.3 — Memória longa e conectores de equipa</h4>
+<article>
+<h5>US-F2-05 — Memória semântica em vector store separado</h5>
+<p><strong>Como</strong> agente de delivery, <strong>quero</strong> recuperar conhecimento relevante de histórico e documentos, <strong>para</strong> responder com melhor contexto sem receber dumps completos.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Eventos/documentos auditados alimentam índice semântico derivado.</li>
+<li>Retrieval respeita permissões, tenant e classificação de dados.</li>
+<li>Resultados usados no prompt são citáveis e auditáveis.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Escolher vector store para F2.</li>
+<li>Implementar pipeline de embeddings derivado do audit log/documentos.</li>
+<li>Adicionar serviço de retrieval com filtros de autorização.</li>
+<li>Testar minimização de contexto e explicabilidade de fontes.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F2-06 — Conectores Teams/Slack/ficheiros</h5>
+<p><strong>Como</strong> equipa, <strong>quero</strong> interagir com HIVE nos canais onde já trabalho, <strong>para</strong> reduzir fricção operacional.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Teams ou Slack suportam notificações, respostas e aprovações básicas.</li>
+<li>Conector de ficheiros/SharePoint/Drive permite leitura controlada de documentos.</li>
+<li>Todo conteúdo externo é marcado como dados não-fidedignos.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Implementar adapters de chat corporativo prioritários.</li>
+<li>Implementar conector de ficheiros com escopos por caminho/repositório.</li>
+<li>Adicionar mapeamento de mensagens externas para mensagens organizacionais.</li>
+<li>Testar permissões, retenção e prompt injection.</li>
+</ul>
+</article>
+
+<h4>F2.4 — Administração controlada</h4>
+<article>
+<h5>US-F2-07 — Edição controlada com export/import YAML</h5>
+<p><strong>Como</strong> administrador, <strong>quero</strong> editar a organização pela UI sem perder GitOps, <strong>para</strong> facilitar operação mantendo revisão e auditabilidade.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>A UI propõe alterações e valida o schema antes de aplicar.</li>
+<li>Alterações podem ser exportadas para YAML.</li>
+<li>Import de YAML mostra diff e impacto antes da ativação.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Criar editor de posições, schedules, autoridade e contratos.</li>
+<li>Implementar validação e diff de configuração.</li>
+<li>Adicionar fluxo de aprovação de mudanças organizacionais.</li>
+<li>Garantir migração segura de registry/read models.</li>
+</ul>
+</article>
+</section>
+
+<section class="phase-panel" id="phase-panel-f3" role="tabpanel" aria-labelledby="phase-tab-f3" hidden>
+<h3>F3 — Maturidade</h3>
+<p><strong>Objetivo:</strong> evoluir HIVE de solução interna robusta para plataforma/framework reutilizável por terceiros, com editor visual completo, ecossistema de conectores, métricas avançadas e maturidade de produto.</p>
+<p><strong>Critério de saída:</strong> terceiros conseguem modelar organizações, instalar conectores, operar métricas avançadas, gerir substituições e preparar cenários de produto com documentação e APIs estáveis.</p>
+
+<h4>F3.1 — Editor visual e modelação avançada</h4>
+<article>
+<h5>US-F3-01 — Editor visual da organização</h5>
+<p><strong>Como</strong> administrador de plataforma, <strong>quero</strong> modelar organizações visualmente, <strong>para</strong> criar e alterar unidades, posições e relações sem editar YAML manualmente.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>O editor cria, move e remove unidades/posições com validação imediata.</li>
+<li>Alterações geram diff, histórico e export YAML.</li>
+<li>O editor impede estados inválidos, como unidade sem liderança.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Desenhar modelo visual de organograma editável.</li>
+<li>Implementar validações de domínio no frontend e backend.</li>
+<li>Adicionar histórico e rollback de alterações organizacionais.</li>
+<li>Testar import/export em organizações grandes.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-02 — Templates de organizações e prompts</h5>
+<p><strong>Como</strong> utilizador de produto, <strong>quero</strong> começar por templates, <strong>para</strong> criar rapidamente uma organização de delivery, suporte, marketing ou operações.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Templates incluem unidades, posições, prompts, autoridade e schedules base.</li>
+<li>O utilizador pode adaptar template antes de ativar.</li>
+<li>Templates são versionados e testados.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir formato de template.</li>
+<li>Criar template Engenharia/Delivery como primeiro template oficial.</li>
+<li>Adicionar validação automática de templates.</li>
+<li>Documentar criação de templates por terceiros.</li>
+</ul>
+</article>
+
+<h4>F3.2 — Ecossistema de conectores</h4>
+<article>
+<h5>US-F3-03 — Marketplace/registry de conectores</h5>
+<p><strong>Como</strong> integrador, <strong>quero</strong> descobrir e instalar conectores, <strong>para</strong> estender HIVE sem alterar o núcleo.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Conectores declaram manifesto, capacidades, schemas de configuração e permissões.</li>
+<li>Instalação valida compatibilidade de versão e permissões pedidas.</li>
+<li>Conectores podem ser ativados/desativados por organização.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir manifesto público de conector.</li>
+<li>Implementar registry local de conectores.</li>
+<li>Criar fluxo de instalação/ativação.</li>
+<li>Adicionar testes de compatibilidade e isolamento.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-04 — SDK de conectores</h5>
+<p><strong>Como</strong> developer externo, <strong>quero</strong> um SDK e documentação de conectores, <strong>para</strong> criar integrações seguras e previsíveis.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>SDK inclui interfaces, exemplos, testes contractuais e guia de segurança.</li>
+<li>Conectores externos passam por suite de conformidade.</li>
+<li>O contrato <code>IConnector</code> mantém compatibilidade versionada.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Extrair SDK público mínimo.</li>
+<li>Criar conector exemplo end-to-end.</li>
+<li>Publicar testes contractuais reutilizáveis.</li>
+<li>Documentar boas práticas de prompt injection e RGPD.</li>
+</ul>
+</article>
+
+<h4>F3.3 — Métricas avançadas e rituais organizacionais</h4>
+<article>
+<h5>US-F3-05 — Métricas avançadas de eficácia organizacional</h5>
+<p><strong>Como</strong> gestor, <strong>quero</strong> métricas sobre fluxo de trabalho e colaboração, <strong>para</strong> melhorar a organização em vez de apenas observar infraestrutura.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Dashboards mostram lead time, taxa de bloqueios, escalamentos, retrabalho e custo por resultado.</li>
+<li>Métricas podem ser filtradas por unidade, posição, tipo de tarefa e período.</li>
+<li>Dados pessoais são minimizados ou agregados conforme política.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Definir eventos analíticos derivados.</li>
+<li>Criar read models de métricas avançadas.</li>
+<li>Implementar dashboards e exportação.</li>
+<li>Validar anonimização/agregação para compliance.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-06 — Reuniões de equipa assíncronas</h5>
+<p><strong>Como</strong> líder de equipa, <strong>quero</strong> executar reuniões assíncronas estruturadas, <strong>para</strong> recolher progresso, bloqueios e decisões sem sincronização manual.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Uma reunião envia pedidos estruturados aos membros da unidade.</li>
+<li>Respostas são agregadas em relatório com decisões e bloqueios.</li>
+<li>Ausências e não-respostas seguem política de lembrete/escalamento.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar mensagem <code>TeamMeeting</code> ou equivalente.</li>
+<li>Implementar broadcast dentro de unidade com agregação.</li>
+<li>Adicionar templates de reunião de delivery.</li>
+<li>Testar prazos, lembretes e relatório agregado.</li>
+</ul>
+</article>
+
+<h4>F3.4 — Gestão de pessoas, substituições e produto</h4>
+<article>
+<h5>US-F3-07 — Substituições, férias e delegação temporária</h5>
+<p><strong>Como</strong> gestor de equipa, <strong>quero</strong> configurar substituições temporárias, <strong>para</strong> manter o fluxo de trabalho quando uma pessoa ou agente está indisponível.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Posições aceitam períodos de ausência e substituto.</li>
+<li>Mensagens são delegadas conforme política, preservando auditoria.</li>
+<li>Retorno da ausência reverte delegação sem perder histórico.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar calendário de disponibilidade por posição/ocupante.</li>
+<li>Implementar regras de delegação temporária.</li>
+<li>Adicionar UI para configurar ausências.</li>
+<li>Testar escalamentos e conflitos de substituição.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-08 — Preparação para produto/framework</h5>
+<p><strong>Como</strong> equipa de produto, <strong>quero</strong> estabilizar APIs, documentação e limites de extensibilidade, <strong>para</strong> permitir adoção por terceiros.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>APIs públicas têm versionamento e documentação.</li>
+<li>ADRs principais estão completos e navegáveis.</li>
+<li>O modelo mantém fronteira de <code>OrganizationId</code>, sem exigir SaaS completo na v1.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Rever contratos públicos e versionamento.</li>
+<li>Publicar documentação de arquitetura, API e conectores.</li>
+<li>Definir política de compatibilidade e depreciação.</li>
+<li>Preparar checklist de segurança/compliance para adopters externos.</li>
+</ul>
+</article>
+</section>
+</div>
 
 <hr>
 
@@ -572,6 +1266,7 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 <tr><td>ADR-002</td><td>Camada de abstração de AI (própria vs. Microsoft.Extensions.AI vs. Semantic Kernel)</td><td><strong>Aceite (v0.3)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-003</td><td>Estratégia de persistência (PostgreSQL event sourcing)</td><td><strong>Aceite (v0.3)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-004</td><td>Implementação do scheduler (Akka.Quartz.Actor vs. scheduler próprio persistente)</td><td>Aberto</td></tr>
+<tr><td>ADR-005</td><td>Frontend Web UI (React vs. Angular vs. Blazor)</td><td><strong>Aceite (v0.4)</strong> — detalhe abaixo</td></tr>
 </tbody>
 </table>
 
@@ -681,6 +1376,55 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 
 <hr>
 
-<p><em>Próxima iteração (v0.4): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e definição do primeiro vertical slice de Engenharia/Delivery para F0.</em></p>
+<h3>ADR-005: React + TypeScript como base da Web UI</h3>
+
+<p><strong>Estado:</strong> Aceite · <strong>Data:</strong> 2026-06-15 · <strong>Contexto:</strong> a consola HIVE precisa de uma UI operacional rica para organograma vivo, inbox humana, aprovações, dashboards, diffs de YAML, edição visual futura e interação em tempo real via SignalR.</p>
+
+<h4>Opções consideradas</h4>
+
+<table>
+<thead>
+<tr><th>Opção</th><th>Vantagens</th><th>Limitações</th></tr>
+</thead>
+<tbody>
+<tr><td>React + TypeScript</td><td>Ecossistema forte para graph/flow UI, dashboards e componentes; boa integração com REST/OpenAPI e SignalR; permite iteração rápida da experiência</td><td>Exige decisões explícitas de estrutura, routing, estado e design system</td></tr>
+<tr><td>Angular</td><td>Framework completo, convenções fortes, adequado a equipas grandes e ambientes enterprise padronizados</td><td>Mais cerimónia e rigidez para uma fase inicial que precisa iterar produto e UX rapidamente</td></tr>
+<tr><td>Blazor</td><td>Stack full .NET, menor distância entre backend e frontend, boa integração com SignalR</td><td>Ecossistema e flexibilidade visual inferiores para organogramas, flows, dashboards e diffs avançados</td></tr>
+</tbody>
+</table>
+
+<h4>Decisão e fundamentação</h4>
+
+<p>Adotamos <strong>React + TypeScript</strong> para a consola principal. O backend continua em ASP.NET Core, expondo REST e SignalR como contratos públicos. A UI não deve chamar APIs internas privadas nem depender de atalhos de servidor; a consola é um cliente da plataforma, tal como integrações externas futuras.</p>
+
+<p>A escolha favorece flexibilidade de produto, componentes visuais maduros e uma experiência operacional rica. Angular seria uma boa escolha se a prioridade principal fosse padronização enterprise rígida desde o primeiro dia; para HIVE, React dá melhor equilíbrio entre velocidade de iteração e capacidade visual.</p>
+
+<h4>Consequências</h4>
+
+<ul>
+<li>(+) Melhor ecossistema para organograma vivo, visualização de fluxos, dashboards, editores e diffs.</li>
+<li>(+) Contratos frontend/backend ficam claros via REST/OpenAPI e SignalR.</li>
+<li>(+) A UI pode evoluir como aplicação separada sem contaminar o núcleo Akka/domain.</li>
+<li>(−) A equipa terá de definir convenções próprias para estrutura de frontend, gestão de estado, testes e design system.</li>
+<li>Revisitar se: a equipa ficar exclusivamente .NET e a velocidade operacional pesar mais do que a riqueza visual da consola.</li>
+</ul>
+
+<hr>
+
+<p><em>Próxima iteração (v0.5): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<script>
+document.querySelectorAll('[data-phase-tab]').forEach(function (tab) {
+  tab.addEventListener('click', function () {
+    var targetId = tab.getAttribute('data-phase-tab');
+    document.querySelectorAll('[data-phase-tab]').forEach(function (candidate) {
+      candidate.setAttribute('aria-selected', candidate === tab ? 'true' : 'false');
+    });
+    document.querySelectorAll('.phase-panel').forEach(function (panel) {
+      panel.hidden = panel.id !== targetId;
+    });
+  });
+});
+</script>
 </body>
 </html>
+

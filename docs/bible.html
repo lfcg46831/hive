@@ -599,11 +599,20 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Criar solution e projetos base.</li>
-<li>Definir convenções de namespaces, configuração e dependency injection.</li>
-<li>Adicionar logging estruturado e health endpoint mínimo.</li>
-<li>Criar testes de arranque para validar composição básica.</li>
+<li><strong>US-F0-01-T01</strong> — Criar a solution .NET raiz <code>Hive.sln</code>.</li>
+<li><strong>US-F0-01-T02</strong> — Criar projetos base: <code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code>, <code>Hive.Api</code>, <code>Hive.Worker</code> e <code>Hive.Tests</code>.</li>
+<li><strong>US-F0-01-T03</strong> — Definir referências entre projetos, mantendo domínio sem dependências de Akka, ASP.NET Core ou infraestrutura.</li>
+<li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, env vars, roles do nó e connection strings).</li>
+<li><strong>US-F0-01-T05</strong> — Implementar bootstrap comum de dependency injection e configuração.</li>
+<li><strong>US-F0-01-T06</strong> — Implementar host executável mínimo capaz de arrancar como role <code>agents</code>, <code>gateway</code>, <code>connectors</code> ou <code>api</code>.</li>
+<li><strong>US-F0-01-T07</strong> — Configurar logging estruturado comum para todos os hosts.</li>
+<li><strong>US-F0-01-T08</strong> — Adicionar health checks mínimos: processo vivo, configuração carregada e dependências obrigatórias presentes.</li>
+<li><strong>US-F0-01-T09</strong> — Criar endpoint/API mínima de diagnóstico para expor versão, role ativa e estado de arranque.</li>
+<li><strong>US-F0-01-T10</strong> — Criar testes de composição que validam arranque, DI, configuração obrigatória e isolamento do domínio.</li>
+<li><strong>US-F0-01-T11</strong> — Adicionar documentação curta de como correr o host localmente antes do Docker Compose.</li>
+<li><strong>US-F0-01-T12</strong> — Definir convenções iniciais de namespaces, pastas, naming e boundaries entre projetos.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> a solution compila, o host arranca numa role configurada, a API/diagnóstico responde, logging e health checks existem, e os testes garantem que a composição base não está quebrada.</p>
 </article>
 
 <article>

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.13 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.14 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -109,6 +109,7 @@
 <tr><td>0.11</td><td>2026-06-18</td><td>Reconciliação entre auditoria imutável e direito ao apagamento RGPD: eventos append-only evitam PII direta e apontam para dados redatáveis ou cifrados</td></tr>
 <tr><td>0.12</td><td>2026-06-18</td><td>Classificação de <code>ApprovalRequest</code>/<code>ApprovalDecision</code> como canal de governança com routing baseado em política e validação própria</td></tr>
 <tr><td>0.13</td><td>2026-06-18</td><td>Adição de <code>US-F3-09</code> para billing/licenciamento, alinhando os adiamentos de §1.3 e §13 com o backlog F3</td></tr>
+<tr><td>0.14</td><td>2026-06-18</td><td>Adição de <code>US-F3-10</code> para isolamento multi-tenant forte, alinhando §13 com o backlog F3</td></tr>
 </tbody>
 </table>
 
@@ -657,7 +658,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><strong>F0 — Núcleo</strong></td><td>Prova de conceito <strong>já em cluster</strong> para Engenharia/Delivery</td><td>Docker Compose com 1–3 nós Akka + PostgreSQL, Akka.Cluster + Sharding de posições, serialização versionada, SBR, persistência PostgreSQL, organização em YAML/GitOps, PositionActor + AiAgentActor, 1 provider via <code>Microsoft.Extensions.AI</code>, comunicação vertical, scheduler com <code>Pulse</code>, audit log</td></tr>
 <tr><td><strong>F1 — Organização mínima viável</strong></td><td>Equipa de delivery real a funcionar</td><td>Multi-provider + gateway (rate limit, fallback), contratos de comunicação horizontal, HumanProxyActor + conector email/issue tracker, Web UI React + TypeScript read-only (organograma + inbox + aprovações) sobre API pública, subscrições de eventos, roles de nó</td></tr>
 <tr><td><strong>F2 — Operação</strong></td><td>Robustez e escala</td><td>Multi-nó em produção (K8s), batch processing, budgets/custos, memória de longo prazo (vector store), conectores Teams/Slack/ficheiros, edição controlada da organização com export/import YAML</td></tr>
-<tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias, billing/licenciamento</td></tr>
+<tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias, billing/licenciamento, isolamento multi-tenant forte</td></tr>
 </tbody>
 </table>
 
@@ -1203,8 +1204,8 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <section class="phase-panel" id="phase-panel-f3" role="tabpanel" aria-labelledby="phase-tab-f3" hidden>
 <h3>F3 — Maturidade</h3>
-<p><strong>Objetivo:</strong> evoluir HIVE de solução interna robusta para plataforma/framework reutilizável por terceiros, com editor visual completo, ecossistema de conectores, métricas avançadas, billing/licenciamento e maturidade de produto.</p>
-<p><strong>Critério de saída:</strong> terceiros conseguem modelar organizações, instalar conectores, operar métricas avançadas, gerir substituições, preparar cenários de produto com documentação/APIs estáveis e configurar um modelo básico de planos/licenciamento.</p>
+<p><strong>Objetivo:</strong> evoluir HIVE de solução interna robusta para plataforma/framework reutilizável por terceiros, com editor visual completo, ecossistema de conectores, métricas avançadas, billing/licenciamento, isolamento multi-tenant forte e maturidade de produto.</p>
+<p><strong>Critério de saída:</strong> terceiros conseguem modelar organizações, instalar conectores, operar métricas avançadas, gerir substituições, preparar cenários de produto com documentação/APIs estáveis, configurar um modelo básico de planos/licenciamento e operar tenants com fronteiras fortes de dados, segredos e execução.</p>
 
 <h4>F3.1 — Editor visual e modelação avançada</h4>
 <article>
@@ -1372,6 +1373,27 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Adicionar API/admin UI para consultar plano, uso, limites, estado da licença e alertas.</li>
 <li>Definir integração futura com provider externo de pagamentos/faturação sem acoplar F3 ao vendor escolhido.</li>
 <li>Testar limites, períodos de graça, downgrade/upgrade de plano e isolamento por <code>OrganizationId</code>.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-10 — Isolamento multi-tenant forte</h5>
+<p><strong>Como</strong> operador de produto, <strong>quero</strong> isolamento forte entre tenants, <strong>para</strong> hospedar múltiplas organizações sem fuga de dados, mensagens, segredos, custos ou conectores entre clientes.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Cada pedido, mensagem, ator, read model, métrica, custo e conector é executado com contexto de tenant/organização obrigatório.</li>
+<li>Dados, segredos, credenciais de providers, conectores, índices vetoriais e artefactos exportáveis são isolados por <code>OrganizationId</code> e perfil de isolamento.</li>
+<li>O produto suporta pelo menos dois perfis: isolamento partilhado com salvaguardas técnicas fortes e isolamento dedicado para tenants que exigem fronteira de infraestrutura própria.</li>
+<li>Tentativas de acesso, routing, retrieval, billing ou administração cross-tenant são rejeitadas e auditadas.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar <code>TenantId</code>/<code>OrganizationId</code>, perfis de isolamento e relação com planos/licenças.</li>
+<li>Implementar contexto obrigatório de tenant em autenticação, autorização, API pública, atores, mensagens e jobs internos.</li>
+<li>Aplicar isolamento em persistência, read models, audit log, vector store, cost-tracker, billing e registry de conectores.</li>
+<li>Separar segredos, credenciais de providers e configurações de conectores por tenant, com rotação e revogação independentes.</li>
+<li>Definir estratégia para tenants dedicados: base de dados/schema/storage/keys separados e política de migração entre perfis.</li>
+<li>Criar suite de testes cross-tenant para mensagens, queries, SignalR, retrieval, billing, conectores, export/import e operações administrativas.</li>
 </ul>
 </article>
 </section>
@@ -1604,7 +1626,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.14): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.15): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

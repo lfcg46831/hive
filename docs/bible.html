@@ -654,11 +654,20 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Modelar value objects (<code>OrganizationId</code>, <code>PositionId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>MessageId</code>).</li>
-<li>Definir contratos imutáveis das mensagens.</li>
-<li>Escolher e configurar serialização versionável para Akka.</li>
-<li>Criar testes de round-trip e compatibilidade de serialização.</li>
+<li><strong>US-F0-03-T01</strong> — Modelar value objects de identidade: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
+<li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem, destino, prioridade, timestamps, deadline, thread/correlation id e versão de schema.</li>
+<li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
+<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para <code>Directive</code>, <code>Report</code>, <code>Escalation</code>, <code>Memo</code>, <code>PeerRequest</code>, <code>PeerResponse</code>, <code>ApprovalRequest</code>, <code>ApprovalDecision</code>, <code>Pulse</code> e <code>EventTrigger</code>.</li>
+<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, referências permitidas e relação com <code>ThreadId</code>/<code>DirectiveId</code>.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes ou sem <code>OrganizationId</code>.</li>
+<li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
+<li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
+<li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo de mensagem suportado.</li>
+<li><strong>US-F0-03-T10</strong> — Criar testes de round-trip de serialização/deserialização para todos os tipos de mensagem.</li>
+<li><strong>US-F0-03-T11</strong> — Criar testes de compatibilidade que validam leitura de payloads de versões anteriores e rejeição controlada de versões desconhecidas.</li>
+<li><strong>US-F0-03-T12</strong> — Documentar exemplos canónicos de cada mensagem e as regras de evolução do protocolo.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> todos os tipos de mensagem organizacional existem como contratos imutáveis, validam campos obrigatórios, incluem metadados comuns e <code>OrganizationId</code>, têm serialização versionável configurada, e os testes provam round-trip e compatibilidade básica de schema.</p>
 </article>
 
 <article>

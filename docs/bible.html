@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.11 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.12 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -107,6 +107,7 @@
 <tr><td>0.9</td><td>2026-06-18</td><td>Fecho do ADR-004: scheduler da F0 implementado com <code>Akka.Quartz.Actor</code>, removendo decisão aberta do caminho crítico</td></tr>
 <tr><td>0.10</td><td>2026-06-18</td><td>Clarificação da memória de curto prazo como estado recuperável via <code>Akka.Persistence</code>, não estado efémero só-em-memória</td></tr>
 <tr><td>0.11</td><td>2026-06-18</td><td>Reconciliação entre auditoria imutável e direito ao apagamento RGPD: eventos append-only evitam PII direta e apontam para dados redatáveis ou cifrados</td></tr>
+<tr><td>0.12</td><td>2026-06-18</td><td>Classificação de <code>ApprovalRequest</code>/<code>ApprovalDecision</code> como canal de governança com routing baseado em política e validação própria</td></tr>
 </tbody>
 </table>
 
@@ -188,6 +189,7 @@
 <tr><td><strong>Prompt de Identidade</strong></td><td>A &quot;ficha de função&quot; do agente: quem é, o que faz, como comunica, o que pode e não pode decidir, a quem reporta.</td></tr>
 <tr><td><strong>Canal Vertical</strong></td><td>Comunicação ao longo da cadeia de comando. Os tipos de mensagem vertical são definidos exclusivamente na taxonomia canónica do §9.</td></tr>
 <tr><td><strong>Canal Horizontal</strong></td><td>Comunicação entre pares da mesma unidade ou entre unidades, quando autorizada. Os tipos de mensagem horizontal são definidos exclusivamente na taxonomia canónica do §9.</td></tr>
+<tr><td><strong>Canal de Governança</strong></td><td>Comunicação para controlo de alçadas, aprovações e políticas. O routing é resolvido por políticas de autoridade, não pela cadeia vertical nem por contratos horizontais.</td></tr>
 <tr><td><strong>Conector</strong></td><td>Adaptador entre o sistema e o mundo exterior: email, chat corporativo, APIs, ficheiros, web, calendário, etc.</td></tr>
 <tr><td><strong>Provider de AI</strong></td><td>Serviço de inferência (Anthropic, OpenAI, Azure OpenAI, modelos locais via Ollama/vLLM, etc.). Vários podem coexistir em paralelo.</td></tr>
 <tr><td><strong>Mensagem Organizacional</strong></td><td>Mensagem tipada trocada entre posições/ocupantes/conectores. A lista canónica de tipos, direção e função vive no §9.</td></tr>
@@ -250,7 +252,16 @@
 <li>Comunicação horizontal <strong>entre unidades diferentes</strong> é permitida apenas por <strong>contratos explícitos entre unidades</strong> (<code>allowed_peer_channels</code>, tipos de pedido, limites e regras de escalamento). Líderes mediam quando não existe contrato, há recusa, ou surge conflito. <em>(Decisão Q4.)</em></li>
 </ul>
 
-<h3>4.4 Padrões de trabalho</h3>
+<h3>4.4 Comunicação de Governança (Aprovações)</h3>
+
+<ul>
+<li><code>ApprovalRequest</code> e <code>ApprovalDecision</code> não são mensagens verticais nem horizontais: pertencem ao <strong>canal de governança</strong>.</li>
+<li>Um <code>ApprovalRequest</code> é emitido quando a política da posição exige aprovação (<code>requires_human_approval</code> ou política equivalente). O destinatário é resolvido pelo <code>registry</code>/política de autoridade para uma posição, pessoa ou papel aprovador autorizado.</li>
+<li>Um <code>ApprovalDecision</code> só é aceite se vier do aprovador autorizado, referenciar o <code>ApprovalRequest</code> original e pertencer ao mesmo <code>ThreadId</code>. Decisões não autorizadas, duplicadas, expiradas ou sem pedido correlacionado são rejeitadas e auditadas.</li>
+<li>Se o aprovador configurado estiver ausente ou a decisão expirar, a política define substituição, lembrete ou escalamento; não há fallback implícito para comunicação vertical/horizontal.</li>
+</ul>
+
+<h3>4.5 Padrões de trabalho</h3>
 
 <table>
 <thead>
@@ -266,7 +277,7 @@
 </tbody>
 </table>
 
-<h3>4.5 Ritmo organizacional: agentes híbridos <em>(decisão — resolve Q6)</em></h3>
+<h3>4.6 Ritmo organizacional: agentes híbridos <em>(decisão — resolve Q6)</em></h3>
 
 <p>Os agentes são <strong>reativos por omissão e proativos por agenda</strong>. Tal como um colaborador real, um agente não age apenas quando recebe uma ordem — também tem rotinas:</p>
 
@@ -290,7 +301,7 @@
 <li><strong>Horário de funcionamento.</strong> Cada posição tem <code>working_hours</code>; fora delas, só atividade marcada como crítica.</li>
 </ol>
 
-<h3>4.6 Definição da organização: GitOps + registry <em>(decisão — resolve Q7)</em></h3>
+<h3>4.7 Definição da organização: GitOps + registry <em>(decisão — resolve Q7)</em></h3>
 
 <p>Na F0/F1, a definição da organização usa um modelo híbrido:</p>
 
@@ -466,7 +477,7 @@ occupant:
       max_eur_per_day: 5.00
       max_calls_per_hour: 60
       proactive_max_eur_per_day: 1.00   # budget separado para rotinas (Q6)
-  schedule:                             # proatividade declarada (§4.5)
+  schedule:                             # proatividade declarada (§4.6)
     - id: relatorio-diario
       cron: &quot;0 0 18 * * MON-FRI&quot;
       timezone: Europe/Lisbon
@@ -574,8 +585,8 @@ occupant:
 <tr><td><code>Memo</code></td><td>Horizontal</td><td>Entre pares</td><td>Informação assíncrona que não exige resposta formal.</td><td>Quando uma posição comunica contexto, aviso ou nota a outra posição autorizada.</td></tr>
 <tr><td><code>PeerRequest</code></td><td>Horizontal</td><td>Entre pares</td><td>Pedido de ajuda, informação ou colaboração que espera resposta.</td><td>Quando uma posição precisa de contributo de outra posição autorizada.</td></tr>
 <tr><td><code>PeerResponse</code></td><td>Horizontal</td><td>Entre pares</td><td>Resposta a um <code>PeerRequest</code>.</td><td>Quando uma posição responde, recusa ou clarifica um pedido de par.</td></tr>
-<tr><td><code>ApprovalRequest</code></td><td>Governança</td><td>Para aprovador autorizado</td><td>Pedido de aprovação humana ou organizacional para uma ação.</td><td>Quando uma política exige aprovação antes de executar uma ação.</td></tr>
-<tr><td><code>ApprovalDecision</code></td><td>Governança</td><td>Do aprovador autorizado</td><td>Decisão de aprovação ou rejeição, com razão opcional.</td><td>Quando uma pessoa ou posição autorizada responde a um <code>ApprovalRequest</code>.</td></tr>
+<tr><td><code>ApprovalRequest</code></td><td>Governança</td><td>Requerente → aprovador autorizado por política</td><td>Pedido de aprovação humana ou organizacional para uma ação.</td><td>Quando uma política de autoridade exige aprovação antes de executar uma ação.</td></tr>
+<tr><td><code>ApprovalDecision</code></td><td>Governança</td><td>Aprovador autorizado → requerente/thread original</td><td>Decisão de aprovação ou rejeição, com razão opcional.</td><td>Quando uma pessoa, posição ou papel autorizado responde ao <code>ApprovalRequest</code> correlacionado.</td></tr>
 <tr><td><code>Pulse</code></td><td>Sistema / scheduler</td><td>Sistema → posição</td><td>Disparo agendado idempotente para proatividade declarada.</td><td>Quando um schedule configurado deve ativar uma rotina de posição.</td></tr>
 <tr><td><code>EventTrigger</code></td><td>Sistema / eventos</td><td>Sistema → posição</td><td>Disparo por subscrição de evento de domínio.</td><td>Quando uma posição subscreveu eventos como prazo próximo, bloqueio ou budget threshold.</td></tr>
 </tbody>
@@ -600,12 +611,12 @@ record Escalation(... , string Issue, string Context, string[] OptionsConsidered
 record Memo(... , string Body) : OrgMessage;          // horizontal
 record PeerRequest(... , string Ask) : OrgMessage;    // horizontal, espera resposta
 record PeerResponse(... , MessageId InReplyTo, string Body) : OrgMessage;
-record ApprovalRequest(... , string Action, string Justification) : OrgMessage;
-record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;
+record ApprovalRequest(... , string Action, string Justification, ApprovalPolicyRef Policy) : OrgMessage;
+record ApprovalDecision(... , MessageId RequestId, bool Approved, string? Reason) : OrgMessage;
 record Pulse(... , string ScheduleId, string Payload) : OrgMessage;
 record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code></pre>
 
-<p>Regras de encaminhamento (verticalidade, permissões horizontais) são validadas pelo <code>PositionActor</code> e violações são auditadas.</p>
+<p>Regras de encaminhamento (verticalidade, permissões horizontais e governança de aprovações) são validadas pelo <code>PositionActor</code> e violações são auditadas.</p>
 
 <hr>
 
@@ -747,30 +758,32 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </article>
 
 <article>
-<h5>US-F0-04 — Validação de routing vertical</h5>
-<p><strong>Como</strong> arquiteto da plataforma, <strong>quero</strong> validar regras de comunicação vertical, <strong>para</strong> impedir saltos indevidos na cadeia de comando.</p>
+<h5>US-F0-04 — Validação de routing vertical e governança</h5>
+<p><strong>Como</strong> arquiteto da plataforma, <strong>quero</strong> validar regras de comunicação vertical e de aprovações, <strong>para</strong> impedir saltos indevidos na cadeia de comando e decisões por aprovadores não autorizados.</p>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li>Diretivas descendentes só são aceites entre superior e subordinado direto.</li>
 <li>Relatórios e escalamentos sobem para o superior direto.</li>
+<li><code>ApprovalRequest</code> é encaminhado apenas para aprovador autorizado pela política de autoridade.</li>
+<li><code>ApprovalDecision</code> só é aceite se vier do aprovador autorizado e referenciar o pedido original.</li>
 <li>Violações são rejeitadas e auditadas.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-04-T01</strong> — Definir contrato de consulta de relações organizacionais para obter superior direto, subordinados diretos e pertença a unidade.</li>
 <li><strong>US-F0-04-T02</strong> — Implementar serviço read-only de relações organizacionais baseado no registry materializado.</li>
-<li><strong>US-F0-04-T03</strong> — Definir matriz de routing vertical por tipo de mensagem: <code>Directive</code>, <code>Report</code> e <code>Escalation</code>.</li>
+<li><strong>US-F0-04-T03</strong> — Definir matriz de routing por canal: vertical (<code>Directive</code>, <code>Report</code>, <code>Escalation</code>) e governança (<code>ApprovalRequest</code>, <code>ApprovalDecision</code>).</li>
 <li><strong>US-F0-04-T04</strong> — Implementar validador para diretivas descendentes, aceitando apenas superior direto → subordinado direto.</li>
 <li><strong>US-F0-04-T05</strong> — Implementar validador para relatórios ascendentes, aceitando apenas subordinado direto → superior direto.</li>
 <li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios e decisões fora da alçada.</li>
-<li><strong>US-F0-04-T07</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário e <code>ThreadId</code>.</li>
-<li><strong>US-F0-04-T08</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
-<li><strong>US-F0-04-T09</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia esperada e cadeia recebida.</li>
-<li><strong>US-F0-04-T10</strong> — Criar testes para diretiva válida, diretiva com salto de nível, diretiva lateral indevida e destinatário inexistente.</li>
-<li><strong>US-F0-04-T11</strong> — Criar testes para relatório/escalamento válido, relatório para nível errado e escalamento sem contexto obrigatório.</li>
-<li><strong>US-F0-04-T12</strong> — Documentar exemplos de routing vertical permitido e rejeitado para a organização de Engenharia/Delivery.</li>
+<li><strong>US-F0-04-T07</strong> — Implementar validador para <code>ApprovalRequest</code>/<code>ApprovalDecision</code>, incluindo resolução de aprovador autorizado, correlação com o pedido original e rejeição de decisões duplicadas, expiradas ou não autorizadas.</li>
+<li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, política aplicada e <code>ThreadId</code>.</li>
+<li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
+<li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
+<li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, aprovação válida e decisão por aprovador não autorizado.</li>
+<li><strong>US-F0-04-T12</strong> — Documentar exemplos de routing vertical e de governança permitido/rejeitado para a organização de Engenharia/Delivery.</li>
 </ul>
-<p><strong>Critério de conclusão:</strong> o routing vertical é validado contra o registry, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
+<p><strong>Critério de conclusão:</strong> o routing vertical e de governança é validado contra o registry/políticas de autoridade, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, aprovações só circulam entre requerente e aprovador autorizado, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
 </article>
 
 <h4>F0.3 — Registry GitOps e PositionActor persistente</h4>
@@ -925,14 +938,15 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <ul>
 <li>A inbox mostra diretivas, pedidos, relatórios e aprovações atribuídas à pessoa.</li>
 <li>Uma decisão humana gera <code>ApprovalDecision</code> auditado.</li>
+<li>A UI só permite decidir <code>ApprovalRequest</code> em que a pessoa/posição é aprovadora autorizada pela política.</li>
 <li>Prazos e lembretes são visíveis.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li>Expor API de inbox por posição/pessoa.</li>
-<li>Implementar ações de resposta e aprovação.</li>
+<li>Implementar ações de resposta e aprovação, aplicando a autorização de governança definida em §4.4.</li>
 <li>Adicionar persistência de estado de leitura/resposta.</li>
-<li>Testar fluxo <code>ApprovalRequest → ApprovalDecision</code>.</li>
+<li>Testar fluxo <code>ApprovalRequest → ApprovalDecision</code> para aprovador autorizado e rejeição para aprovador não autorizado.</li>
 </ul>
 </article>
 
@@ -1367,8 +1381,8 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td>Q3</td><td>Supervisão Akka = comando organizacional?</td><td>Topologia de atores</td><td><strong>Resolvida (v0.2)</strong>: separadas — sharding torna a árvore organizacional lógica. Ver §5.7</td></tr>
 <tr><td>Q4</td><td>Política de comunicação horizontal <strong>entre unidades</strong>: livre, mediada, ou por contrato?</td><td>Protocolo de mensagens</td><td><strong>Resolvida (v0.3)</strong>: contratos explícitos entre unidades. Ver §4.3</td></tr>
 <tr><td>Q5</td><td>Abstração de AI: própria, <code>Microsoft.Extensions.AI</code>, ou Semantic Kernel?</td><td>ADR-002</td><td><strong>Resolvida (v0.3)</strong>: <code>Microsoft.Extensions.AI</code> + camada HIVE. Ver ADR-002</td></tr>
-<tr><td>Q6</td><td>Agentes proativos vs. reativos</td><td>Modelo de execução e custos</td><td><strong>Resolvida (v0.2)</strong>: híbrido com scheduler. Ver §4.5 e §5.6</td></tr>
-<tr><td>Q7</td><td>Formato de definição da organização: YAML/ficheiros (GitOps) vs. base de dados + UI? Ambos?</td><td>UX de administração</td><td><strong>Resolvida (v0.3)</strong>: YAML/GitOps como source of truth em F0/F1, importado para registry/read models. Ver §4.6</td></tr>
+<tr><td>Q6</td><td>Agentes proativos vs. reativos</td><td>Modelo de execução e custos</td><td><strong>Resolvida (v0.2)</strong>: híbrido com scheduler. Ver §4.6 e §5.6</td></tr>
+<tr><td>Q7</td><td>Formato de definição da organização: YAML/ficheiros (GitOps) vs. base de dados + UI? Ambos?</td><td>UX de administração</td><td><strong>Resolvida (v0.3)</strong>: YAML/GitOps como source of truth em F0/F1, importado para registry/read models. Ver §4.7</td></tr>
 <tr><td>Q8</td><td>Requisitos de RGPD/compliance concretos (sector do utilizador final)?</td><td>§10</td><td><strong>Resolvida (v0.3)</strong>: baseline europeu. Ver §10</td></tr>
 <tr><td>Q9</td><td>Ambiente de hosting: Kubernetes disponível? On-prem ou cloud (qual)?</td><td>§5.7, discovery do cluster</td><td><strong>Resolvida (v0.3)</strong>: Docker Compose em F0, Kubernetes-ready por abstração de configuração/discovery. Ver §5.8</td></tr>
 <tr><td>Q10</td><td>Qual é o <strong>caso de uso interno concreto</strong> (primeiro cliente)? Que organização, que funções, que conectores prioritários?</td><td>Valida todo o desenho; define a F1</td><td><strong>Resolvida (v0.3)</strong>: Engenharia/Delivery. Ver §1.4</td></tr>
@@ -1568,7 +1582,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.12): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.13): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

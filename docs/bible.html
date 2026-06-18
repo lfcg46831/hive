@@ -681,11 +681,20 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Implementar serviço de consulta de relações organizacionais.</li>
-<li>Adicionar validador de mensagens verticais.</li>
-<li>Registar eventos de rejeição no audit log.</li>
-<li>Cobrir casos válidos e inválidos em testes.</li>
+<li><strong>US-F0-04-T01</strong> — Definir contrato de consulta de relações organizacionais para obter superior direto, subordinados diretos e pertença a unidade.</li>
+<li><strong>US-F0-04-T02</strong> — Implementar serviço read-only de relações organizacionais baseado no registry materializado.</li>
+<li><strong>US-F0-04-T03</strong> — Definir matriz de routing vertical por tipo de mensagem: <code>Directive</code>, <code>Report</code> e <code>Escalation</code>.</li>
+<li><strong>US-F0-04-T04</strong> — Implementar validador para diretivas descendentes, aceitando apenas superior direto → subordinado direto.</li>
+<li><strong>US-F0-04-T05</strong> — Implementar validador para relatórios ascendentes, aceitando apenas subordinado direto → superior direto.</li>
+<li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios e decisões fora da alçada.</li>
+<li><strong>US-F0-04-T07</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário e <code>ThreadId</code>.</li>
+<li><strong>US-F0-04-T08</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
+<li><strong>US-F0-04-T09</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia esperada e cadeia recebida.</li>
+<li><strong>US-F0-04-T10</strong> — Criar testes para diretiva válida, diretiva com salto de nível, diretiva lateral indevida e destinatário inexistente.</li>
+<li><strong>US-F0-04-T11</strong> — Criar testes para relatório/escalamento válido, relatório para nível errado e escalamento sem contexto obrigatório.</li>
+<li><strong>US-F0-04-T12</strong> — Documentar exemplos de routing vertical permitido e rejeitado para a organização de Engenharia/Delivery.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> o routing vertical é validado contra o registry, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
 </article>
 
 <h4>F0.3 — Registry GitOps e PositionActor persistente</h4>

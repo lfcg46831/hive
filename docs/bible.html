@@ -49,7 +49,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.4 (rascunho evolutivo) <strong>Data:</strong> 2026-06-15 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.5 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -64,6 +64,7 @@
 <tr><td>0.2</td><td>2026-06-12</td><td>Resolução de Q1/Q2/Q6: estratégia interno→produto, clustering desde o início, modelo de execução híbrido (reativo + proativo). ADR-001 detalhado e aceite. Novo §1.3, §4.5, §5.6, §5.7</td></tr>
 <tr><td>0.3</td><td>2026-06-15</td><td>Resolução de Q4/Q5/Q7/Q8/Q9/Q10: primeiro cliente interno Engenharia/Delivery, hosting híbrido Docker Compose→Kubernetes, <code>Microsoft.Extensions.AI</code>, PostgreSQL com vector store futuro, GitOps/YAML, contratos inter-unidades e baseline europeu de RGPD. ADR-002 e ADR-003 aceites. Correção da separação entre árvore organizacional lógica e supervisão técnica Akka</td></tr>
 <tr><td>0.4</td><td>2026-06-15</td><td>Roadmap detalhado por tabs HTML com subfases, user stories, critérios de aceitação e tarefas. Decisão de frontend: React + TypeScript sobre ASP.NET Core REST/SignalR. ADR-005 aceite</td></tr>
+<tr><td>0.5</td><td>2026-06-18</td><td>Consolidação da taxonomia de mensagens numa tabela canónica em §9; glossário, princípios e US-F0-03 passam a referenciar essa fonte única</td></tr>
 </tbody>
 </table>
 
@@ -143,13 +144,11 @@
 <tr><td><strong>Agente AI</strong></td><td>Ocupante artificial: um ator com configuração de AI (provider, modelo, parâmetros) e uma prompt de identidade.</td></tr>
 <tr><td><strong>Pessoa Real</strong></td><td>Ocupante humano: um ator-proxy que encaminha mensagens de/para a pessoa através de conectores (email, Teams, app, etc.).</td></tr>
 <tr><td><strong>Prompt de Identidade</strong></td><td>A &quot;ficha de função&quot; do agente: quem é, o que faz, como comunica, o que pode e não pode decidir, a quem reporta.</td></tr>
-<tr><td><strong>Canal Vertical</strong></td><td>Comunicação ao longo da cadeia de comando: diretivas (descem), relatórios/escalamentos (sobem).</td></tr>
-<tr><td><strong>Canal Horizontal</strong></td><td>Comunicação entre pares da mesma unidade (ou entre unidades, se autorizada).</td></tr>
+<tr><td><strong>Canal Vertical</strong></td><td>Comunicação ao longo da cadeia de comando. Os tipos de mensagem vertical são definidos exclusivamente na taxonomia canónica do §9.</td></tr>
+<tr><td><strong>Canal Horizontal</strong></td><td>Comunicação entre pares da mesma unidade ou entre unidades, quando autorizada. Os tipos de mensagem horizontal são definidos exclusivamente na taxonomia canónica do §9.</td></tr>
 <tr><td><strong>Conector</strong></td><td>Adaptador entre o sistema e o mundo exterior: email, chat corporativo, APIs, ficheiros, web, calendário, etc.</td></tr>
 <tr><td><strong>Provider de AI</strong></td><td>Serviço de inferência (Anthropic, OpenAI, Azure OpenAI, modelos locais via Ollama/vLLM, etc.). Vários podem coexistir em paralelo.</td></tr>
-<tr><td><strong>Diretiva</strong></td><td>Mensagem vertical descendente: tarefa, ordem ou política emitida por um superior.</td></tr>
-<tr><td><strong>Relatório</strong></td><td>Mensagem vertical ascendente: resultado, progresso ou escalamento.</td></tr>
-<tr><td><strong>Memorando</strong></td><td>Mensagem horizontal entre pares.</td></tr>
+<tr><td><strong>Mensagem Organizacional</strong></td><td>Mensagem tipada trocada entre posições/ocupantes/conectores. A lista canónica de tipos, direção e função vive no §9.</td></tr>
 </tbody>
 </table>
 
@@ -161,7 +160,7 @@
 <li><strong>Tudo é um ator.</strong> Posições, unidades, conectores, o registo de providers — tudo vive como atores com supervisão.</li>
 <li><strong>Posição ≠ Ocupante.</strong> A estrutura organizacional é independente de quem (ou o quê) ocupa cada lugar. Trocar um agente por uma pessoa é trocar o ocupante, não a posição.</li>
 <li><strong>Comunicação exclusivamente por mensagens.</strong> Nenhum ator acede ao estado de outro. Isto vale também para humanos: uma pessoa &quot;fala&quot; com o sistema através do seu ator-proxy.</li>
-<li><strong>Protocolo de mensagens organizacional.</strong> As mensagens não são texto livre entre atores — são tipos estruturados (Diretiva, Relatório, Memorando, Pedido, Resposta) com metadados (remetente, destinatário, prioridade, prazo, correlação, thread).</li>
+<li><strong>Protocolo de mensagens organizacional.</strong> As mensagens não são texto livre entre atores — seguem a taxonomia canónica do §9 e carregam metadados comuns (remetente, destinatário, prioridade, prazo, correlação, thread e versão de schema).</li>
 <li><strong>Neutralidade de provider.</strong> A camada de AI é uma abstração; nenhum ator conhece detalhes do provider. Configuração por posição, hot-swap possível.</li>
 <li><strong>Supervisão e resiliência.</strong> Falhas de um agente (timeout do provider, resposta inválida, exceção) são tratadas pela hierarquia de supervisão Akka.NET — restart, escalamento, ou notificação ao superior organizacional.</li>
 <li><strong>Auditabilidade total.</strong> Toda a comunicação é registada (event sourcing). A organização tem &quot;memória institucional&quot; reconstruível.</li>
@@ -196,14 +195,14 @@
 <h3>4.2 Comunicação Vertical (Comando)</h3>
 
 <ul>
-<li><strong>Descendente — Diretivas.</strong> Um superior emite uma <code>Diretiva</code> para um subordinado direto. Diretivas podem ser decompostas: o líder de unidade recebe uma diretiva e parte-a em sub-diretivas para a sua equipa (delegação em cascata).</li>
-<li><strong>Ascendente — Relatórios e Escalamentos.</strong> Subordinados enviam <code>Relatórios</code> (progresso, conclusão) e <code>Escalamentos</code> (bloqueios, decisões fora da sua alçada). Regra: um ator só comunica verticalmente com o seu superior direto — não salta níveis, exceto por mecanismos de exceção definidos por política de auditoria/compliance (ex.: canal de denúncia).</li>
+<li><strong>Descendente — diretivas.</strong> Um superior emite <code>Directive</code> para um subordinado direto. Diretivas podem ser decompostas: o líder de unidade recebe uma diretiva e parte-a em sub-diretivas para a sua equipa (delegação em cascata).</li>
+<li><strong>Ascendente — relatórios e escalamentos.</strong> Subordinados enviam <code>Report</code> (progresso, conclusão) e <code>Escalation</code> (bloqueios, decisões fora da sua alçada). Regra: um ator só comunica verticalmente com o seu superior direto — não salta níveis, exceto por mecanismos de exceção definidos por política de auditoria/compliance (ex.: canal de denúncia).</li>
 </ul>
 
 <h3>4.3 Comunicação Horizontal (Colaboração)</h3>
 
 <ul>
-<li>Pares da mesma unidade trocam <code>Memorandos</code> e <code>Pedidos</code> livremente.</li>
+<li>Pares da mesma unidade trocam mensagens horizontais canónicas (<code>Memo</code>, <code>PeerRequest</code> e <code>PeerResponse</code>) livremente.</li>
 <li>Comunicação horizontal <strong>entre unidades diferentes</strong> é permitida apenas por <strong>contratos explícitos entre unidades</strong> (<code>allowed_peer_channels</code>, tipos de pedido, limites e regras de escalamento). Líderes mediam quando não existe contrato, há recusa, ou surge conflito. <em>(Decisão Q4.)</em></li>
 </ul>
 
@@ -232,7 +231,7 @@
 <tr><th>Tipo de atividade</th><th>Disparo</th><th>Exemplos</th></tr>
 </thead>
 <tbody>
-<tr><td><strong>Reativa</strong></td><td>Mensagem organizacional recebida</td><td>Executar diretiva, responder a pedido de par, processar email externo</td></tr>
+<tr><td><strong>Reativa</strong></td><td>Mensagem organizacional recebida</td><td>Executar uma <code>Directive</code>, responder a um <code>PeerRequest</code>, processar email externo</td></tr>
 <tr><td><strong>Proativa agendada</strong></td><td>Agenda da posição (cron-like)</td><td>Relatório diário ao superior, verificação matinal da inbox externa, monitorização semanal de KPIs</td></tr>
 <tr><td><strong>Proativa por evento</strong></td><td>Subscrição de eventos do sistema</td><td>Prazo de uma diretiva a aproximar-se, par bloqueado há &gt;24h, budget a 80%</td></tr>
 </tbody>
@@ -324,7 +323,7 @@
 <p>Ciclo de vida de processamento de uma mensagem:</p>
 
 <ol>
-<li>Recebe mensagem organizacional (Diretiva/Memorando/Pedido/...).</li>
+<li>Recebe mensagem organizacional de acordo com a taxonomia canónica do §9.</li>
 <li>Monta o contexto: prompt de identidade + memória relevante + a mensagem + ferramentas disponíveis (conectores autorizados).</li>
 <li>Envia pedido ao <code>ai-gateway</code> (que resolve provider/modelo/parâmetros da sua configuração).</li>
 <li>Interpreta a resposta: pode ser (a) resposta direta, (b) uso de ferramenta/conector, (c) envio de novas mensagens organizacionais (delegar, perguntar a um par, escalar), (d) pedido de aprovação humana.</li>
@@ -468,7 +467,7 @@ occupant:
 <li><strong>Missão e responsabilidades</strong> — o que faz e porquê.</li>
 <li><strong>Competências e estilo</strong> — tom, idioma (ex.: português europeu), formatos preferidos.</li>
 <li><strong>Alçada de decisão</strong> — espelho legível da secção <code>authority</code> da configuração.</li>
-<li><strong>Protocolo de comunicação</strong> — quando usar Diretiva vs. Memorando vs. Escalamento; etiqueta organizacional.</li>
+<li><strong>Protocolo de comunicação</strong> — quando usar os tipos da taxonomia canónica do §9; etiqueta organizacional.</li>
 <li><strong>Limites e segurança</strong> — o que nunca pode fazer.</li>
 </ol>
 
@@ -512,14 +511,38 @@ occupant:
 
 <hr>
 
-<h2>9. Protocolo de Mensagens (esboço)</h2>
+<h2>9. Protocolo de Mensagens</h2>
+
+<p>A tabela seguinte é a <strong>taxonomia canónica</strong> dos tipos de mensagem organizacional. Outras secções devem referenciar esta tabela em vez de manter listas próprias.</p>
+
+<table>
+<thead>
+<tr><th>Tipo</th><th>Canal / origem</th><th>Direção</th><th>Função</th><th>Quando usar</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Directive</code></td><td>Vertical</td><td>Descendente</td><td>Tarefa, ordem ou política emitida por um superior.</td><td>Quando uma posição superior delega ou instrui um subordinado direto.</td></tr>
+<tr><td><code>Report</code></td><td>Vertical</td><td>Ascendente</td><td>Resultado, progresso ou estado de uma diretiva.</td><td>Quando uma posição reporta progresso, conclusão ou bloqueio ao superior direto.</td></tr>
+<tr><td><code>Escalation</code></td><td>Vertical</td><td>Ascendente</td><td>Pedido de decisão, desbloqueio ou exceção fora da alçada da posição.</td><td>Quando a posição não tem autoridade, informação ou capacidade para decidir sozinha.</td></tr>
+<tr><td><code>Memo</code></td><td>Horizontal</td><td>Entre pares</td><td>Informação assíncrona que não exige resposta formal.</td><td>Quando uma posição comunica contexto, aviso ou nota a outra posição autorizada.</td></tr>
+<tr><td><code>PeerRequest</code></td><td>Horizontal</td><td>Entre pares</td><td>Pedido de ajuda, informação ou colaboração que espera resposta.</td><td>Quando uma posição precisa de contributo de outra posição autorizada.</td></tr>
+<tr><td><code>PeerResponse</code></td><td>Horizontal</td><td>Entre pares</td><td>Resposta a um <code>PeerRequest</code>.</td><td>Quando uma posição responde, recusa ou clarifica um pedido de par.</td></tr>
+<tr><td><code>ApprovalRequest</code></td><td>Governança</td><td>Para aprovador autorizado</td><td>Pedido de aprovação humana ou organizacional para uma ação.</td><td>Quando uma política exige aprovação antes de executar uma ação.</td></tr>
+<tr><td><code>ApprovalDecision</code></td><td>Governança</td><td>Do aprovador autorizado</td><td>Decisão de aprovação ou rejeição, com razão opcional.</td><td>Quando uma pessoa ou posição autorizada responde a um <code>ApprovalRequest</code>.</td></tr>
+<tr><td><code>Pulse</code></td><td>Sistema / scheduler</td><td>Sistema → posição</td><td>Disparo agendado idempotente para proatividade declarada.</td><td>Quando um schedule configurado deve ativar uma rotina de posição.</td></tr>
+<tr><td><code>EventTrigger</code></td><td>Sistema / eventos</td><td>Sistema → posição</td><td>Disparo por subscrição de evento de domínio.</td><td>Quando uma posição subscreveu eventos como prazo próximo, bloqueio ou budget threshold.</td></tr>
+</tbody>
+</table>
+
+<p>Esboço C# alinhado com a taxonomia canónica:</p>
 
 <pre><code class="language-csharp">abstract record OrgMessage(
     MessageId Id,
+    OrganizationId OrganizationId,
     PositionRef From,
     PositionRef To,
     ThreadId Thread,          // correlação de conversas
     Priority Priority,
+    int SchemaVersion,
     DateTimeOffset SentAt,
     DateTimeOffset? Deadline);
 
@@ -530,7 +553,9 @@ record Memo(... , string Body) : OrgMessage;          // horizontal
 record PeerRequest(... , string Ask) : OrgMessage;    // horizontal, espera resposta
 record PeerResponse(... , MessageId InReplyTo, string Body) : OrgMessage;
 record ApprovalRequest(... , string Action, string Justification) : OrgMessage;
-record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code></pre>
+record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;
+record Pulse(... , string ScheduleId, string Payload) : OrgMessage;
+record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code></pre>
 
 <p>Regras de encaminhamento (verticalidade, permissões horizontais) são validadas pelo <code>PositionActor</code> e violações são auditadas.</p>
 
@@ -648,7 +673,7 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 <p><strong>Como</strong> developer, <strong>quero</strong> mensagens organizacionais tipadas e versionáveis, <strong>para</strong> preservar compatibilidade entre nós do cluster e eventos persistidos.</p>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
-<li>Existem tipos para <code>Directive</code>, <code>Report</code>, <code>Escalation</code>, <code>Memo</code>, <code>PeerRequest</code>, <code>PeerResponse</code>, <code>ApprovalRequest</code>, <code>ApprovalDecision</code>, <code>Pulse</code> e <code>EventTrigger</code>.</li>
+<li>Existem contratos imutáveis para todos os tipos definidos na taxonomia canónica do §9.</li>
 <li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem, destino, prioridade, thread/correlation id e timestamps.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
@@ -657,13 +682,13 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 <li><strong>US-F0-03-T01</strong> — Modelar value objects de identidade: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
 <li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem, destino, prioridade, timestamps, deadline, thread/correlation id e versão de schema.</li>
 <li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
-<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para <code>Directive</code>, <code>Report</code>, <code>Escalation</code>, <code>Memo</code>, <code>PeerRequest</code>, <code>PeerResponse</code>, <code>ApprovalRequest</code>, <code>ApprovalDecision</code>, <code>Pulse</code> e <code>EventTrigger</code>.</li>
+<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
 <li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, referências permitidas e relação com <code>ThreadId</code>/<code>DirectiveId</code>.</li>
 <li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes ou sem <code>OrganizationId</code>.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
-<li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo de mensagem suportado.</li>
-<li><strong>US-F0-03-T10</strong> — Criar testes de round-trip de serialização/deserialização para todos os tipos de mensagem.</li>
+<li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
+<li><strong>US-F0-03-T10</strong> — Criar testes de round-trip de serialização/deserialização para todos os tipos da taxonomia canónica.</li>
 <li><strong>US-F0-03-T11</strong> — Criar testes de compatibilidade que validam leitura de payloads de versões anteriores e rejeição controlada de versões desconhecidas.</li>
 <li><strong>US-F0-03-T12</strong> — Documentar exemplos canónicos de cada mensagem e as regras de evolução do protocolo.</li>
 </ul>
@@ -1456,7 +1481,7 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 
 <hr>
 
-<p><em>Próxima iteração (v0.5): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.6): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 document.querySelectorAll('[data-phase-tab]').forEach(function (tab) {
   tab.addEventListener('click', function () {

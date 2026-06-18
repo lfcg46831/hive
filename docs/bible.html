@@ -4,6 +4,42 @@
 <meta charset="utf-8">
 <title>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</title>
 <style>
+.document-tabs {
+  margin: 1.25rem 0 1.5rem;
+}
+
+.document-tab-list {
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  margin-bottom: 1rem;
+}
+
+.document-tab {
+  background: #fff;
+  border: 1px solid #777;
+  color: #111;
+  cursor: pointer;
+  font: inherit;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.65rem;
+  text-align: left;
+}
+
+.document-tab[aria-selected="true"] {
+  background: #111;
+  color: #fff;
+}
+
+.document-tab:focus-visible {
+  outline: 2px solid #111;
+  outline-offset: 2px;
+}
+
+.document-panel[hidden] {
+  display: none;
+}
+
 .phase-tabs {
   margin-top: 1.5rem;
 }
@@ -49,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.5 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.6 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -65,6 +101,7 @@
 <tr><td>0.3</td><td>2026-06-15</td><td>Resolução de Q4/Q5/Q7/Q8/Q9/Q10: primeiro cliente interno Engenharia/Delivery, hosting híbrido Docker Compose→Kubernetes, <code>Microsoft.Extensions.AI</code>, PostgreSQL com vector store futuro, GitOps/YAML, contratos inter-unidades e baseline europeu de RGPD. ADR-002 e ADR-003 aceites. Correção da separação entre árvore organizacional lógica e supervisão técnica Akka</td></tr>
 <tr><td>0.4</td><td>2026-06-15</td><td>Roadmap detalhado por tabs HTML com subfases, user stories, critérios de aceitação e tarefas. Decisão de frontend: React + TypeScript sobre ASP.NET Core REST/SignalR. ADR-005 aceite</td></tr>
 <tr><td>0.5</td><td>2026-06-18</td><td>Consolidação da taxonomia de mensagens numa tabela canónica em §9; glossário, princípios e US-F0-03 passam a referenciar essa fonte única</td></tr>
+<tr><td>0.6</td><td>2026-06-18</td><td>Adição de tabs de navegação para as secções 1–15 do documento, mantendo o conteúdo existente e as tabs internas do roadmap</td></tr>
 </tbody>
 </table>
 
@@ -1481,8 +1518,113 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.6): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.7): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
+(function () {
+  function isDocumentHeading(node) {
+    return node &&
+      node.nodeType === Node.ELEMENT_NODE &&
+      node.tagName === 'H2' &&
+      /^([1-9]|1[0-5])\.\s/.test(node.textContent);
+  }
+
+  function isScript(node) {
+    return node &&
+      node.nodeType === Node.ELEMENT_NODE &&
+      node.tagName === 'SCRIPT';
+  }
+
+  function activateDocumentTab(tab, shouldFocus) {
+    var targetId = tab.getAttribute('aria-controls');
+    document.querySelectorAll('[data-document-tab]').forEach(function (candidate) {
+      candidate.setAttribute('aria-selected', candidate === tab ? 'true' : 'false');
+      candidate.tabIndex = candidate === tab ? 0 : -1;
+    });
+    document.querySelectorAll('.document-panel').forEach(function (panel) {
+      panel.hidden = panel.id !== targetId;
+    });
+    if (shouldFocus) {
+      tab.focus();
+    }
+  }
+
+  var headings = Array.prototype.slice.call(document.querySelectorAll('body > h2')).filter(isDocumentHeading);
+  if (headings.length === 0) {
+    return;
+  }
+
+  var tabs = document.createElement('div');
+  tabs.className = 'document-tabs';
+  tabs.id = 'document-section-tabs';
+
+  var tabList = document.createElement('div');
+  tabList.className = 'document-tab-list';
+  tabList.setAttribute('role', 'tablist');
+  tabList.setAttribute('aria-label', 'Secções do documento');
+  tabs.appendChild(tabList);
+
+  headings[0].parentNode.insertBefore(tabs, headings[0]);
+
+  headings.forEach(function (heading, index) {
+    var number = heading.textContent.match(/^(\d+)\./)[1];
+    var panelId = 'document-section-panel-' + number;
+    var tabId = 'document-section-tab-' + number;
+    var panel = document.createElement('section');
+    panel.className = 'document-panel';
+    panel.id = panelId;
+    panel.setAttribute('role', 'tabpanel');
+    panel.setAttribute('aria-labelledby', tabId);
+    panel.hidden = index !== 0;
+
+    heading.parentNode.insertBefore(panel, heading);
+
+    var node = heading;
+    while (node && !isScript(node) && !(node !== heading && isDocumentHeading(node))) {
+      var next = node.nextSibling;
+      panel.appendChild(node);
+      node = next;
+    }
+
+    var tab = document.createElement('button');
+    tab.className = 'document-tab';
+    tab.id = tabId;
+    tab.type = 'button';
+    tab.setAttribute('role', 'tab');
+    tab.setAttribute('aria-selected', index === 0 ? 'true' : 'false');
+    tab.setAttribute('aria-controls', panelId);
+    tab.setAttribute('data-document-tab', panelId);
+    tab.tabIndex = index === 0 ? 0 : -1;
+    tab.textContent = heading.textContent;
+
+    tab.addEventListener('click', function () {
+      activateDocumentTab(tab, false);
+    });
+
+    tab.addEventListener('keydown', function (event) {
+      var allTabs = Array.prototype.slice.call(document.querySelectorAll('[data-document-tab]'));
+      var currentIndex = allTabs.indexOf(tab);
+      var nextIndex = currentIndex;
+
+      if (event.key === 'ArrowRight') {
+        nextIndex = (currentIndex + 1) % allTabs.length;
+      } else if (event.key === 'ArrowLeft') {
+        nextIndex = (currentIndex - 1 + allTabs.length) % allTabs.length;
+      } else if (event.key === 'Home') {
+        nextIndex = 0;
+      } else if (event.key === 'End') {
+        nextIndex = allTabs.length - 1;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      activateDocumentTab(allTabs[nextIndex], true);
+    });
+
+    tabList.appendChild(tab);
+  });
+})();
+
 document.querySelectorAll('[data-phase-tab]').forEach(function (tab) {
   tab.addEventListener('click', function () {
     var targetId = tab.getAttribute('data-phase-tab');

@@ -709,11 +709,20 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Definir schema YAML inicial.</li>
-<li>Implementar parser e validador.</li>
-<li>Criar organização exemplo de Engenharia/Delivery.</li>
-<li>Persistir read model do registry em PostgreSQL.</li>
+<li><strong>US-F0-05-T01</strong> — Definir schema YAML inicial para organização, unidades, posições, ocupantes, prompts, schedules, subscriptions, autoridade e relações de comando.</li>
+<li><strong>US-F0-05-T02</strong> — Definir convenções de ficheiros e pastas para configuração GitOps da organização.</li>
+<li><strong>US-F0-05-T03</strong> — Criar modelo tipado de configuração carregada a partir do YAML.</li>
+<li><strong>US-F0-05-T04</strong> — Implementar parser YAML com mensagens de erro legíveis, incluindo caminho do ficheiro e localização do campo inválido quando possível.</li>
+<li><strong>US-F0-05-T05</strong> — Validar unicidade de <code>OrganizationId</code>, unidades, posições, ocupantes, schedules e subscriptions.</li>
+<li><strong>US-F0-05-T06</strong> — Validar referências cruzadas: liderança da unidade, superior direto, posição ocupada, prompt referenciada, schedules e ferramentas autorizadas.</li>
+<li><strong>US-F0-05-T07</strong> — Validar regras estruturais: cada unidade tem exatamente uma posição de liderança, não há ciclos na árvore organizacional e todas as posições pertencem a uma unidade.</li>
+<li><strong>US-F0-05-T08</strong> — Criar organização exemplo de Engenharia/Delivery com unidades, posições, prompts, autoridade e schedules mínimos para o vertical slice F0.</li>
+<li><strong>US-F0-05-T09</strong> — Implementar import idempotente que materializa a configuração validada no registry/read model.</li>
+<li><strong>US-F0-05-T10</strong> — Persistir registry/read model em PostgreSQL com versão da configuração, hash/fingerprint e timestamp de import.</li>
+<li><strong>US-F0-05-T11</strong> — Expor API interna read-only para consultar organização, unidades, posições, relações de comando e configuração de posição.</li>
+<li><strong>US-F0-05-T12</strong> — Criar testes para YAML válido, YAML inválido, referências quebradas, ciclos, liderança em falta/duplicada e import idempotente.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> uma organização de Engenharia/Delivery definida em YAML é carregada, validada semanticamente, materializada em PostgreSQL como registry/read model, consultável por API interna, e o import é idempotente e testado para casos válidos e inválidos.</p>
 </article>
 
 <article>

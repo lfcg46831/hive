@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.8 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.9 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -104,6 +104,7 @@
 <tr><td>0.6</td><td>2026-06-18</td><td>Adição de tabs de navegação para as secções 1–15 do documento, mantendo o conteúdo existente e as tabs internas do roadmap</td></tr>
 <tr><td>0.7</td><td>2026-06-18</td><td>Clarificação da semântica de bloqueios: bloqueio acionável é sempre <code>Escalation</code>; <code>ReportKind</code> fica limitado a progresso e conclusão</td></tr>
 <tr><td>0.8</td><td>2026-06-18</td><td>Separação explícita entre prioridade relativa de conectores (<code>P0</code>–<code>P2</code>) e fases de entrega (<code>F0</code>–<code>F3</code>), com fase alvo na tabela de conectores</td></tr>
+<tr><td>0.9</td><td>2026-06-18</td><td>Fecho do ADR-004: scheduler da F0 implementado com <code>Akka.Quartz.Actor</code>, removendo decisão aberta do caminho crítico</td></tr>
 </tbody>
 </table>
 
@@ -387,7 +388,7 @@
 <p>O subsistema <code>scheduler</code> (em <code>system-services</code>) materializa a decisão Q6:</p>
 
 <ul>
-<li><strong>Agendas persistentes</strong> — expressões cron-like por posição, guardadas com o estado da posição (sobrevivem a restarts e a movimentação de shards). Implementação: Akka.Quartz.Actor ou scheduler próprio sobre Akka.Persistence — <em>decisão ADR-004</em>.</li>
+<li><strong>Agendas persistentes</strong> — expressões cron-like por posição, materializadas pelo scheduler coordinator com <code>Akka.Quartz.Actor</code> (ADR-004). A configuração vem do YAML/registry; a idempotência e auditoria dos <code>Pulse</code> ficam no domínio HIVE sobre PostgreSQL.</li>
 <li><strong>Entrega como mensagem</strong> — no disparo, o scheduler envia um <code>Pulse(scheduleId, payload)</code> ao <code>PositionActor</code> via sharding; do ponto de vista do agente, é apenas mais uma mensagem na inbox, com a mesma prioridade/auditoria que as restantes.</li>
 <li><strong>Subscrições de eventos</strong> — o <code>audit-log</code>/event bus publica eventos de domínio (prazo próximo, escalamento pendente, budget); posições subscrevem por configuração e recebem <code>EventTrigger</code>.</li>
 <li><strong>Idempotência</strong> — pulsos carregam identificador determinístico (posição + schedule + janela) para que reentregas em failover de cluster não dupliquem trabalho.</li>
@@ -861,7 +862,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Implementar scheduler mínimo persistente ou adapter inicial definido por ADR-004.</li>
+<li>Implementar adapter inicial de scheduler com <code>Akka.Quartz.Actor</code>, conforme ADR-004.</li>
 <li>Adicionar cálculo de janela e idempotency key.</li>
 <li>Persistir estado de entrega de pulses.</li>
 <li>Testar reentrega após restart.</li>
@@ -1379,7 +1380,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td>ADR-001</td><td>Adoção de Akka.NET como substrato de actor model</td><td><strong>Aceite (v0.2)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-002</td><td>Camada de abstração de AI (própria vs. Microsoft.Extensions.AI vs. Semantic Kernel)</td><td><strong>Aceite (v0.3)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-003</td><td>Estratégia de persistência (PostgreSQL event sourcing)</td><td><strong>Aceite (v0.3)</strong> — detalhe abaixo</td></tr>
-<tr><td>ADR-004</td><td>Implementação do scheduler (Akka.Quartz.Actor vs. scheduler próprio persistente)</td><td>Aberto</td></tr>
+<tr><td>ADR-004</td><td>Implementação do scheduler com <code>Akka.Quartz.Actor</code></td><td><strong>Aceite (v0.9)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-005</td><td>Frontend Web UI (React vs. Angular vs. Blazor)</td><td><strong>Aceite (v0.4)</strong> — detalhe abaixo</td></tr>
 </tbody>
 </table>
@@ -1490,6 +1491,41 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
+<h3>ADR-004: <code>Akka.Quartz.Actor</code> como scheduler da F0</h3>
+
+<p><strong>Estado:</strong> Aceite · <strong>Data:</strong> 2026-06-18 · <strong>Contexto:</strong> a F0 inclui <code>US-F0-09</code>, que precisa de entregar <code>Pulse</code> idempotentes a posições sharded a partir de schedules definidos em YAML. Esta decisão tem de estar fechada antes do início da F0 para não deixar o scheduler no caminho crítico sem implementação definida.</p>
+
+<h4>Opções consideradas</h4>
+
+<table>
+<thead>
+<tr><th>Opção</th><th>Vantagens</th><th>Limitações</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Akka.Quartz.Actor</code></td><td>Integra scheduling cron-like com atores Akka, entrega mensagens diretamente no runtime escolhido e reduz código próprio na F0</td><td>Exige adapter HIVE para materializar schedules do registry, garantir idempotência e isolar detalhes do Quartz</td></tr>
+<tr><td>Scheduler próprio sobre Akka.Persistence</td><td>Controlo total do modelo de persistência, replay e deduplicação</td><td>Mais código crítico antes de validar o produto; risco elevado para F0</td></tr>
+<tr><td>Quartz.NET direto fora de Akka</td><td>Ecossistema maduro e configuração conhecida</td><td>Cria fronteira paralela ao runtime de atores e aumenta o trabalho de integração com sharding, auditoria e supervisão</td></tr>
+</tbody>
+</table>
+
+<h4>Decisão e fundamentação</h4>
+
+<p>Adotamos <strong><code>Akka.Quartz.Actor</code></strong> para a F0. O scheduler coordinator materializa schedules vindos do YAML/registry e usa <code>Akka.Quartz.Actor</code> para disparar mensagens <code>Pulse</code> para o <code>PositionActor</code> correto via sharding.</p>
+
+<p>A decisão separa responsabilidades: o disparo temporal fica na biblioteca de scheduling; a semântica organizacional continua no HIVE. O <code>Pulse</code> tem identificador determinístico por posição, schedule e janela temporal, e a idempotência/auditoria são persistidas no domínio HIVE sobre PostgreSQL. Assim, restarts e reentregas não duplicam trabalho concluído.</p>
+
+<h4>Consequências</h4>
+
+<ul>
+<li>(+) Remove uma decisão aberta do caminho crítico da F0.</li>
+<li>(+) Evita construir um scheduler próprio antes de validar o vertical slice.</li>
+<li>(+) Mantém o modelo mental Akka: schedules entregam mensagens a atores, não chamam serviços externos ao runtime organizacional.</li>
+<li>(−) Será necessário criar um adapter HIVE para carregar schedules do registry, recalcular materializações quando a configuração muda e aplicar idempotência.</li>
+<li>Revisitar se: a semântica de scheduling exigir garantias temporais ou operacionais que <code>Akka.Quartz.Actor</code> não suporte confortavelmente em cluster.</li>
+</ul>
+
+<hr>
+
 <h3>ADR-005: React + TypeScript como base da Web UI</h3>
 
 <p><strong>Estado:</strong> Aceite · <strong>Data:</strong> 2026-06-15 · <strong>Contexto:</strong> a consola HIVE precisa de uma UI operacional rica para organograma vivo, inbox humana, aprovações, dashboards, diffs de YAML, edição visual futura e interação em tempo real via SignalR.</p>
@@ -1525,7 +1561,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.9): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.10): aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

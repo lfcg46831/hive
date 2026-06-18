@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.17 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.18 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -113,6 +113,7 @@
 <tr><td>0.15</td><td>2026-06-18</td><td>Clarificação da liderança obrigatória da unidade raiz e do escalamento de topo para <code>OrganizationOwner</code>/kill switch</td></tr>
 <tr><td>0.16</td><td>2026-06-18</td><td>Correções de runtime .NET, budgets proativos, timezone/horário, duplicação Q3 e estabilização de HIVE como codename técnico</td></tr>
 <tr><td>0.17</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-06</code> para <code>PositionActor</code> sharded, persistente, recuperável e passivável</td></tr>
+<tr><td>0.18</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-07</code> para gateway AI mínimo sobre <code>Microsoft.Extensions.AI</code>, provider stub/real, políticas, custos e auditoria</td></tr>
 </tbody>
 </table>
 
@@ -867,11 +868,22 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Criar <code>AiGateway</code> e contrato HIVE sobre <code>Microsoft.Extensions.AI</code>.</li>
-<li>Implementar provider stub determinístico para testes.</li>
-<li>Implementar adapter inicial para um provider real configurável.</li>
-<li>Adicionar medição de duração e evento de custo.</li>
+<li><strong>US-F0-07-T01</strong> — Definir contrato HIVE do gateway: <code>AiGatewayRequest</code>, <code>AiGatewayResponse</code>, <code>AiGatewayError</code>, metadados de provider/modelo, <code>OrganizationId</code>, <code>PositionId</code>, <code>ThreadId</code> e <code>MessageId</code>.</li>
+<li><strong>US-F0-07-T02</strong> — Criar serviço/ator <code>AiGateway</code> como fronteira única entre agentes HIVE e <code>Microsoft.Extensions.AI</code>, sem expor SDKs concretos ao domínio.</li>
+<li><strong>US-F0-07-T03</strong> — Mapear configuração de AI da posição a partir do registry: provider, modelo, parâmetros, timeout, modo de processamento, fallback declarado para futuro e limites de custo/chamadas.</li>
+<li><strong>US-F0-07-T04</strong> — Implementar provider stub determinístico compatível com o contrato do gateway, com respostas configuráveis para sucesso, erro, timeout, custo/tokens e tool-call simulado.</li>
+<li><strong>US-F0-07-T05</strong> — Implementar adapter inicial para um provider real configurável via <code>Microsoft.Extensions.AI</code>, mantendo chaves/segredos fora do domínio e carregados por configuração segura.</li>
+<li><strong>US-F0-07-T06</strong> — Normalizar mensagens de entrada para o formato esperado pelo provider: system prompt, histórico permitido, conteúdo da diretiva, ferramentas autorizadas e parâmetros do modelo.</li>
+<li><strong>US-F0-07-T07</strong> — Normalizar respostas do provider para uma resposta HIVE estável, incluindo texto, tool calls, finish reason, uso de tokens, metadados de custo quando disponíveis e conteúdo bruto redatável para auditoria.</li>
+<li><strong>US-F0-07-T08</strong> — Aplicar políticas antes da chamada: provider/modelo autorizado para a posição, budget disponível, máximo de tokens, timeout, modo interativo/batch permitido e ferramentas autorizadas.</li>
+<li><strong>US-F0-07-T09</strong> — Implementar timeout, cancelamento e erro estruturado para falhas de provider, credenciais ausentes, configuração inválida, quota excedida, resposta inválida e budget insuficiente.</li>
+<li><strong>US-F0-07-T10</strong> — Medir duração, provider, modelo, tokens, custo estimado/real e resultado da chamada, emitindo evento de custo/auditoria correlacionado com <code>ThreadId</code> e posição.</li>
+<li><strong>US-F0-07-T11</strong> — Criar envelope de auditoria que regista pedido, resposta, erro, redactions aplicadas e razão de rejeição sem persistir segredos nem PII desnecessária.</li>
+<li><strong>US-F0-07-T12</strong> — Expor API interna para <code>AiAgentActor</code> invocar o gateway com contrato assíncrono, propagando correlation id, cancellation token e razão estruturada de falha.</li>
+<li><strong>US-F0-07-T13</strong> — Criar testes unitários do gateway para mapeamento de requests/responses, política de orçamento, timeout, erros estruturados, redaction e normalização de tokens/custo.</li>
+<li><strong>US-F0-07-T14</strong> — Criar testes de integração com provider stub e, quando configurado por segredo local, um provider real opcional, garantindo que a suite default não depende de rede externa.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> o <code>AiGateway</code> oferece uma fronteira HIVE estável sobre <code>Microsoft.Extensions.AI</code>, resolve configuração por posição, suporta stub determinístico e um provider real configurável, aplica políticas mínimas de autorização/budget/timeout, normaliza respostas e erros, emite custos/auditoria correlacionados e tem testes unitários e integração sem dependência obrigatória de rede externa.</p>
 </article>
 
 <article>
@@ -1647,7 +1659,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.18): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.19): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

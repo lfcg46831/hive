@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.7 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.8 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -103,6 +103,7 @@
 <tr><td>0.5</td><td>2026-06-18</td><td>Consolidação da taxonomia de mensagens numa tabela canónica em §9; glossário, princípios e US-F0-03 passam a referenciar essa fonte única</td></tr>
 <tr><td>0.6</td><td>2026-06-18</td><td>Adição de tabs de navegação para as secções 1–15 do documento, mantendo o conteúdo existente e as tabs internas do roadmap</td></tr>
 <tr><td>0.7</td><td>2026-06-18</td><td>Clarificação da semântica de bloqueios: bloqueio acionável é sempre <code>Escalation</code>; <code>ReportKind</code> fica limitado a progresso e conclusão</td></tr>
+<tr><td>0.8</td><td>2026-06-18</td><td>Separação explícita entre prioridade relativa de conectores (<code>P0</code>–<code>P2</code>) e fases de entrega (<code>F0</code>–<code>F3</code>), com fase alvo na tabela de conectores</td></tr>
 </tbody>
 </table>
 
@@ -151,7 +152,7 @@
 <li><strong>Documentação como produto.</strong> Esta bíblia evolui para a documentação de arquitetura pública; decisões registam-se em ADRs desde já.</li>
 </ol>
 
-<p>O que fica explicitamente adiado: billing/licenciamento, isolamento forte entre tenants (infra dedicada vs. partilhada), marketplace. São P2/F3, mas o modelo de dados já não os bloqueia.</p>
+<p>O que fica explicitamente adiado: billing/licenciamento, isolamento forte entre tenants (infra dedicada vs. partilhada), marketplace. Ficam para <strong>F3</strong> no roadmap e têm prioridade relativa baixa, mas o modelo de dados já não os bloqueia.</p>
 
 <h3>1.4 Primeiro cliente interno: Engenharia/Delivery <em>(decisão — resolve Q10)</em></h3>
 
@@ -164,7 +165,7 @@
 <li><strong>Reporting de bloqueios e progresso</strong> — produzir <code>Report</code> de progresso para líderes de delivery e <code>Escalation</code> quando há bloqueios ou decisões fora da alçada do agente.</li>
 </ol>
 
-<p>Este caso de uso guia a F0/F1: os conectores prioritários são issue trackers/APIs HTTP, email ou canal equivalente para entrada humana, e Web UI para organograma, inbox, aprovações e estado de trabalho.</p>
+<p>Este caso de uso guia a F0/F1: os conectores de primeira integração em F1 são issue trackers/APIs HTTP, email ou canal equivalente para entrada humana, e Web UI para organograma, inbox, aprovações e estado de trabalho.</p>
 
 <hr>
 
@@ -532,18 +533,20 @@ occupant:
 
 <p>Contrato comum (<code>IConnector</code>): identificação, capacidades (inbound/outbound), esquema de configuração, mapeamento mensagem externa ↔ mensagem organizacional.</p>
 
+<p><strong>Notação:</strong> <code>P0</code>–<code>P2</code> indica prioridade relativa dentro do catálogo de conectores, não a fase de entrega. As fases do roadmap são sempre indicadas por <code>F0</code>–<code>F3</code>. Um conector <code>P0</code> pode ter primeira entrega em <code>F1</code>, porque <code>F0</code> valida o núcleo distribuído sem dependência de conectores reais.</p>
+
 <table>
 <thead>
-<tr><th>Conector</th><th>Direção</th><th>Casos de uso</th><th>Prioridade</th></tr>
+<tr><th>Conector</th><th>Direção</th><th>Casos de uso</th><th>Prioridade relativa</th><th>Primeira fase alvo</th></tr>
 </thead>
 <tbody>
-<tr><td>Email (SMTP/IMAP ou MS Graph)</td><td>In/Out</td><td>Canal principal para pessoas reais; receção de pedidos externos</td><td>P0</td></tr>
-<tr><td>Teams / Slack</td><td>In/Out</td><td>Canal interativo para pessoas</td><td>P1</td></tr>
-<tr><td>HTTP/REST genérico</td><td>Out</td><td>Agentes atuam sobre APIs externas</td><td>P0</td></tr>
-<tr><td>Webhooks</td><td>In</td><td>Sistemas externos despoletam trabalho</td><td>P1</td></tr>
-<tr><td>Ficheiros / SharePoint / Drive</td><td>In/Out</td><td>Documentos</td><td>P1</td></tr>
-<tr><td>Calendário</td><td>In/Out</td><td>Agendamento, prazos</td><td>P2</td></tr>
-<tr><td>Web UI própria</td><td>In/Out</td><td>Consola: organograma vivo, inbox humana, aprovações</td><td>P0</td></tr>
+<tr><td>Email (SMTP/IMAP ou MS Graph)</td><td>In/Out</td><td>Canal principal para pessoas reais; receção de pedidos externos</td><td><code>P0</code></td><td><code>F1</code></td></tr>
+<tr><td>Teams / Slack</td><td>In/Out</td><td>Canal interativo para pessoas</td><td><code>P1</code></td><td><code>F2</code></td></tr>
+<tr><td>HTTP/REST genérico</td><td>Out</td><td>Agentes atuam sobre APIs externas</td><td><code>P0</code></td><td><code>F1</code></td></tr>
+<tr><td>Webhooks</td><td>In</td><td>Sistemas externos despoletam trabalho</td><td><code>P1</code></td><td><code>F1</code></td></tr>
+<tr><td>Ficheiros / SharePoint / Drive</td><td>In/Out</td><td>Documentos</td><td><code>P1</code></td><td><code>F2</code></td></tr>
+<tr><td>Calendário</td><td>In/Out</td><td>Agendamento, prazos</td><td><code>P2</code></td><td><code>F3</code></td></tr>
+<tr><td>Web UI própria</td><td>In/Out</td><td>Consola: organograma vivo, inbox humana, aprovações</td><td><code>P0</code></td><td><code>F1</code></td></tr>
 </tbody>
 </table>
 
@@ -1522,7 +1525,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.8): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.9): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

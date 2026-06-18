@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.9 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.10 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -105,6 +105,7 @@
 <tr><td>0.7</td><td>2026-06-18</td><td>Clarificação da semântica de bloqueios: bloqueio acionável é sempre <code>Escalation</code>; <code>ReportKind</code> fica limitado a progresso e conclusão</td></tr>
 <tr><td>0.8</td><td>2026-06-18</td><td>Separação explícita entre prioridade relativa de conectores (<code>P0</code>–<code>P2</code>) e fases de entrega (<code>F0</code>–<code>F3</code>), com fase alvo na tabela de conectores</td></tr>
 <tr><td>0.9</td><td>2026-06-18</td><td>Fecho do ADR-004: scheduler da F0 implementado com <code>Akka.Quartz.Actor</code>, removendo decisão aberta do caminho crítico</td></tr>
+<tr><td>0.10</td><td>2026-06-18</td><td>Clarificação da memória de curto prazo como estado recuperável via <code>Akka.Persistence</code>, não estado efémero só-em-memória</td></tr>
 </tbody>
 </table>
 
@@ -354,7 +355,7 @@
 <p>O <code>PositionActor</code> é o coração do modelo:</p>
 
 <ul>
-<li>Mantém o <strong>estado da posição</strong>: inbox organizacional, tarefas em curso, histórico recente.</li>
+<li>Mantém o <strong>estado persistido da posição</strong>: inbox organizacional, tarefas em curso, memória de curto prazo e histórico recente recuperável.</li>
 <li>Encaminha o trabalho para o seu <strong>ocupante</strong> (ator-filho): <code>AiAgentActor</code> ou <code>HumanProxyActor</code>.</li>
 <li>Aplica <strong>políticas da posição</strong>: o que pode decidir sozinho, o que exige aprovação, budget de AI, horário de funcionamento.</li>
 <li>Sobrevive à troca de ocupante (a inbox e o histórico pertencem à posição, não ao ocupante).</li>
@@ -369,7 +370,7 @@
 <li>Monta o contexto: prompt de identidade + memória relevante + a mensagem + ferramentas disponíveis (conectores autorizados).</li>
 <li>Envia pedido ao <code>ai-gateway</code> (que resolve provider/modelo/parâmetros da sua configuração).</li>
 <li>Interpreta a resposta: pode ser (a) resposta direta, (b) uso de ferramenta/conector, (c) envio de novas mensagens organizacionais (delegar, perguntar a um par, escalar), (d) pedido de aprovação humana.</li>
-<li>Atualiza memória e emite eventos de auditoria.</li>
+<li>Atualiza memória persistida e emite eventos de auditoria.</li>
 </ol>
 
 <p>O agente funciona em <strong>loop agêntico</strong> — pode iterar (ferramenta → resultado → nova inferência) até concluir, dentro de limites configurados (máx. iterações, budget, timeout).</p>
@@ -403,7 +404,7 @@
 <li><strong>Roles de nó.</strong> Nós com papéis distintos: <code>agents</code> (sharding de posições), <code>gateway</code> (AI gateway e filas por provider), <code>connectors</code> (singletons de conectores stateful, ex.: ligação IMAP), <code>api</code> (ASP.NET Core + SignalR). Permite escalar cada preocupação independentemente.</li>
 <li><strong>Cluster Singletons</strong> onde a unicidade importa: cada conector inbound, o cost-tracker agregador, o scheduler coordinator.</li>
 <li><strong>Split Brain Resolver</strong> configurado desde a F0 (estratégia <em>keep majority</em>); sem ele, partições de rede corrompem o estado organizacional.</li>
-<li><strong>Persistência obrigatória.</strong> Sem estado apenas-em-memória: todo o estado de posição é Akka.Persistence (event sourcing) + snapshots, porque qualquer ator pode ser movido de nó a qualquer momento.</li>
+<li><strong>Persistência obrigatória.</strong> Sem estado apenas-em-memória: todo o estado de posição, incluindo memória de curto prazo, é Akka.Persistence (event sourcing) + snapshots, porque qualquer ator pode ser movido de nó a qualquer momento. Estado efémero é permitido apenas como cache derivável ou contexto temporário de uma mensagem em processamento; nunca é fonte de verdade.</li>
 <li><strong>Hosting F0:</strong> Docker Compose local com 1–3 nós Akka e PostgreSQL, mantendo configuração/discovery abstraídos para suportar Kubernetes com Akka.Management/Cluster.Bootstrap quando houver infraestrutura. <em>(Decisão Q9.)</em></li>
 </ol>
 
@@ -522,11 +523,13 @@ occupant:
 <tr><th>Camada</th><th>Conteúdo</th><th>Implementação</th></tr>
 </thead>
 <tbody>
-<tr><td>Curto prazo</td><td>Conversa/tarefa atual</td><td>Estado do ator</td></tr>
+<tr><td>Curto prazo</td><td>Conversa/tarefa atual, inbox e contexto operacional recente</td><td>Estado persistido do <code>PositionActor</code> via Akka.Persistence + snapshots; reconstituível após restart, passivation ou rebalance de cluster</td></tr>
 <tr><td>Médio prazo</td><td>Histórico recente da posição, decisões</td><td>Akka.Persistence (event sourcing) + sumarização periódica</td></tr>
 <tr><td>Longo prazo</td><td>Conhecimento institucional, documentos</td><td>Vector store (P1) + pesquisa no audit-log</td></tr>
 </tbody>
 </table>
+
+<p><strong>Clarificação:</strong> &quot;curto prazo&quot; descreve a janela temporal da informação, não o seu grau de durabilidade. O estado pode estar materializado em memória enquanto o ator está ativo, mas deve ser reconstruível a partir de eventos/snapshots. Só caches deriváveis e variáveis temporárias dentro do processamento de uma única mensagem podem perder-se sem impacto funcional.</p>
 
 <hr>
 
@@ -801,7 +804,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li><code>PositionActor</code> usa <code>entityId = OrganizationId/PositionId</code>.</li>
-<li>Inbox, estado de tarefas e histórico recente sobrevivem a restart.</li>
+<li>Inbox, estado de tarefas, memória de curto prazo e histórico recente sobrevivem a restart.</li>
 <li>Passivation funciona para posições inativas sem perder mensagens persistidas.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
@@ -1561,7 +1564,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.10): aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.11): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.18 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.19 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -114,6 +114,7 @@
 <tr><td>0.16</td><td>2026-06-18</td><td>Correções de runtime .NET, budgets proativos, timezone/horário, duplicação Q3 e estabilização de HIVE como codename técnico</td></tr>
 <tr><td>0.17</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-06</code> para <code>PositionActor</code> sharded, persistente, recuperável e passivável</td></tr>
 <tr><td>0.18</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-07</code> para gateway AI mínimo sobre <code>Microsoft.Extensions.AI</code>, provider stub/real, políticas, custos e auditoria</td></tr>
+<tr><td>0.19</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-08</code> para processamento de diretiva vertical pelo <code>AiAgentActor</code>, com contexto, loop limitado, interpretação e mensagens resultantes válidas</td></tr>
 </tbody>
 </table>
 
@@ -897,11 +898,22 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Implementar <code>AiAgentActor</code> como ocupante filho ou entidade associada à posição.</li>
-<li>Criar prompt inicial para triagem de bugs.</li>
-<li>Implementar interpretação de resposta em mensagens organizacionais.</li>
-<li>Adicionar testes com provider stub.</li>
+<li><strong>US-F0-08-T01</strong> — Definir o contrato entre <code>PositionActor</code> e <code>AiAgentActor</code> para processar uma <code>Directive</code>, incluindo identidade da posição, ocupante, <code>ThreadId</code>, <code>DirectiveId</code>, limites e contexto persistido.</li>
+<li><strong>US-F0-08-T02</strong> — Implementar <code>AiAgentActor</code> como ocupante filho gerido pelo <code>PositionActor</code>, sem possuir inbox ou estado de tarefa como fonte de verdade.</li>
+<li><strong>US-F0-08-T03</strong> — Definir a máquina de estados mínima do processamento: recebido, contexto montado, pedido ao <code>AiGateway</code>, resposta interpretada, resultado emitido, falhado ou escalado.</li>
+<li><strong>US-F0-08-T04</strong> — Montar contexto de execução com prompt de identidade, diretiva, memória curta relevante, histórico recente permitido, políticas da posição, ferramentas autorizadas e relações organizacionais necessárias.</li>
+<li><strong>US-F0-08-T05</strong> — Criar prompt/template inicial para triagem de bugs, exigindo saída estruturada que indique intenção: <code>Report</code>, <code>Escalation</code> ou <code>Directive</code> descendente permitida.</li>
+<li><strong>US-F0-08-T06</strong> — Invocar o <code>AiGateway</code> com contrato assíncrono, propagando correlation id, cancellation token, timeout, budget disponível, limites de tokens e máximo de iterações.</li>
+<li><strong>US-F0-08-T07</strong> — Implementar interpretação estrita da resposta do provider para uma decisão HIVE tipada, rejeitando ou escalando respostas vazias, malformadas, ambíguas ou fora do schema esperado.</li>
+<li><strong>US-F0-08-T08</strong> — Converter decisões válidas em mensagens organizacionais canónicas: <code>Report</code> com <code>ReportKind</code> <code>Progress</code>/<code>Done</code>, <code>Escalation</code> para bloqueios/decisões fora da alçada, ou <code>Directive</code> apenas para subordinado direto permitido.</li>
+<li><strong>US-F0-08-T09</strong> — Aplicar validação de routing e autoridade antes de emitir qualquer mensagem resultante, reutilizando as regras de <code>US-F0-04</code> e rejeitando saltos de nível ou aprovações implícitas.</li>
+<li><strong>US-F0-08-T10</strong> — Implementar loop agêntico limitado para tool calls ou pedidos de nova inferência, executando apenas ferramentas autorizadas, registando cada iteração e parando por conclusão, timeout, budget ou máximo de iterações.</li>
+<li><strong>US-F0-08-T11</strong> — Atualizar memória curta e estado de tarefa através do <code>PositionActor</code> após resultado aceite, garantindo que o estado recuperável continua a pertencer à posição.</li>
+<li><strong>US-F0-08-T12</strong> — Emitir auditoria estruturada para contexto usado, chamada ao gateway, decisão interpretada, mensagens produzidas, limites aplicados e razões de escalamento/falha, respeitando redaction.</li>
+<li><strong>US-F0-08-T13</strong> — Criar testes unitários com provider stub para montagem de contexto, prompt de triagem, interpretação de respostas, limites de iteração/budget/timeout, routing inválido e outputs malformados.</li>
+<li><strong>US-F0-08-T14</strong> — Criar testes de integração para o fluxo <code>Directive → PositionActor → AiAgentActor → AiGateway stub → Report/Escalation/Directive</code>, validando persistência de estado, auditoria e correlação por <code>ThreadId</code>/<code>DirectiveId</code>.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> o <code>AiAgentActor</code> processa uma <code>Directive</code> vertical através do <code>AiGateway</code>, monta contexto controlado, respeita limites de iteração/timeout/budget, interpreta respostas em mensagens organizacionais canónicas, valida routing/autoridade antes de emitir resultados, atualiza estado persistido via <code>PositionActor</code>, audita a jornada e tem testes unitários e integração para sucesso, escalamento, erro e rejeição de output inválido.</p>
 </article>
 
 <h4>F0.5 — Scheduler, audit log e vertical slice</h4>
@@ -1659,7 +1671,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.19): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.20): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

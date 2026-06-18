@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.10 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.11 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -106,6 +106,7 @@
 <tr><td>0.8</td><td>2026-06-18</td><td>Separação explícita entre prioridade relativa de conectores (<code>P0</code>–<code>P2</code>) e fases de entrega (<code>F0</code>–<code>F3</code>), com fase alvo na tabela de conectores</td></tr>
 <tr><td>0.9</td><td>2026-06-18</td><td>Fecho do ADR-004: scheduler da F0 implementado com <code>Akka.Quartz.Actor</code>, removendo decisão aberta do caminho crítico</td></tr>
 <tr><td>0.10</td><td>2026-06-18</td><td>Clarificação da memória de curto prazo como estado recuperável via <code>Akka.Persistence</code>, não estado efémero só-em-memória</td></tr>
+<tr><td>0.11</td><td>2026-06-18</td><td>Reconciliação entre auditoria imutável e direito ao apagamento RGPD: eventos append-only evitam PII direta e apontam para dados redatáveis ou cifrados</td></tr>
 </tbody>
 </table>
 
@@ -204,7 +205,7 @@
 <li><strong>Protocolo de mensagens organizacional.</strong> As mensagens não são texto livre entre atores — seguem a taxonomia canónica do §9 e carregam metadados comuns (remetente, destinatário, prioridade, prazo, correlação, thread e versão de schema).</li>
 <li><strong>Neutralidade de provider.</strong> A camada de AI é uma abstração; nenhum ator conhece detalhes do provider. Configuração por posição, hot-swap possível.</li>
 <li><strong>Supervisão e resiliência.</strong> Falhas de um agente (timeout do provider, resposta inválida, exceção) são tratadas pela hierarquia de supervisão Akka.NET — restart, escalamento, ou notificação ao superior organizacional.</li>
-<li><strong>Auditabilidade total.</strong> Toda a comunicação é registada (event sourcing). A organização tem &quot;memória institucional&quot; reconstruível.</li>
+<li><strong>Auditabilidade total.</strong> Toda a comunicação é registada (event sourcing). A organização tem &quot;memória institucional&quot; reconstruível, com a reconciliação RGPD descrita em §10.</li>
 <li><strong>Humanos têm latência.</strong> O sistema assume que respostas humanas demoram horas/dias; o desenho de timeouts, lembretes e delegação tem isso em conta.</li>
 <li><strong>Custos são uma dimensão de primeira classe.</strong> Cada chamada a um provider tem custo; o sistema mede, limita (budgets por posição/unidade) e reporta.</li>
 </ol>
@@ -617,8 +618,10 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>Auditoria imutável</strong> de todas as mensagens e chamadas a AI (event sourcing).</li>
 <li><strong>Segredos</strong> (API keys, credenciais de conectores) em vault, nunca em prompts.</li>
 <li><strong>Kill switch</strong> por agente, unidade ou organização.</li>
-<li><strong>RGPD baseline europeu</strong>: classificação de dados, minimização de contexto enviado para LLMs, políticas por conector, retenção configurável, direito ao apagamento por redaction/tombstone, e revisão de DPA/providers antes de produção.</li>
+<li><strong>RGPD baseline europeu</strong>: classificação de dados, minimização de contexto enviado para LLMs, políticas por conector, retenção configurável, direito ao apagamento por redaction de payloads/chaves com tombstone auditável, e revisão de DPA/providers antes de produção.</li>
 </ul>
+
+<p><strong>Auditoria imutável vs. direito ao apagamento:</strong> o event log append-only não deve ser usado como repositório primário de dados pessoais apagáveis. Eventos imutáveis guardam metadados mínimos, identificadores estáveis, hashes e referências para payloads externos; conteúdo pessoal deve viver em stores redatáveis ou cifrado com chaves descartáveis. Um pedido de apagamento gera eventos compensatórios (<code>RedactionRequested</code>, <code>PersonalDataRedacted</code>) e remove/redige o payload referenciado ou destrói a chave de cifragem, tornando o conteúdo irrecuperável para leitura e replay. O tombstone preserva a prova auditável de que o apagamento ocorreu; não apaga fisicamente eventos antigos do journal, por isso a regra de desenho é não escrever PII direta no log imutável salvo quando houver obrigação legal explícita de retenção.</p>
 
 <hr>
 
@@ -1035,12 +1038,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Dados externos recebem classificação mínima (<code>public</code>, <code>internal</code>, <code>personal</code>, <code>sensitive</code>).</li>
 <li>Contexto enviado ao provider exclui campos não necessários.</li>
 <li>Políticas por conector controlam retenção e envio a providers.</li>
+<li>Pedidos de apagamento redigem payloads referenciados ou destroem chaves de cifragem sem reescrever o journal append-only.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li>Adicionar modelo de classificação de dados.</li>
 <li>Implementar filtros de contexto antes do <code>ai-gateway</code>.</li>
-<li>Adicionar redaction/tombstone para pedidos de apagamento.</li>
+<li>Adicionar redaction/tombstone para pedidos de apagamento, mantendo tombstones no journal e removendo/redigindo apenas payloads ou chaves apagáveis.</li>
 <li>Produzir checklist de revisão DPA/provider antes de produção.</li>
 </ul>
 </article>
@@ -1564,7 +1568,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.11): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.12): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

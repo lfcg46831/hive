@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.15 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.16 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -111,6 +111,7 @@
 <tr><td>0.13</td><td>2026-06-18</td><td>Adição de <code>US-F3-09</code> para billing/licenciamento, alinhando os adiamentos de §1.3 e §13 com o backlog F3</td></tr>
 <tr><td>0.14</td><td>2026-06-18</td><td>Adição de <code>US-F3-10</code> para isolamento multi-tenant forte, alinhando §13 com o backlog F3</td></tr>
 <tr><td>0.15</td><td>2026-06-18</td><td>Clarificação da liderança obrigatória da unidade raiz e do escalamento de topo para <code>OrganizationOwner</code>/kill switch</td></tr>
+<tr><td>0.16</td><td>2026-06-18</td><td>Correções de runtime .NET, budgets proativos, timezone/horário, duplicação Q3 e estabilização de HIVE como codename técnico</td></tr>
 </tbody>
 </table>
 
@@ -154,6 +155,7 @@
 <ol>
 <li><strong>Fronteira de tenant desde o dia zero.</strong> Toda a entidade do domínio (posição, mensagem, evento, custo) carrega um <code>OrganizationId</code>, mesmo que na v1 exista apenas uma organização por deployment. Migrar para multi-tenancy torna-se uma mudança de hosting, não de modelo de dados.</li>
 <li><strong>Nada hard-coded ao caso interno.</strong> O caso de uso interno é o <em>primeiro cliente</em> da plataforma, não a plataforma: estruturas, prompts, conectores e políticas vivem em configuração/plugins, nunca em código do núcleo.</li>
+<li><strong>Codename técnico estável.</strong> HIVE deixa de ser apenas placeholder textual: é o nome de código usado em repositório, solution, namespaces e pacotes internos durante F0/F1. A marca comercial ou nome público pode mudar depois via configuração/display name; renomear <code>Hive.*</code> só acontece por ADR explícito, porque implica refactor transversal.</li>
 <li><strong>Conectores como plugins com contrato público estável</strong> (<code>IConnector</code>) — o ecossistema de extensão é o principal ativo de produto futuro.</li>
 <li><strong>API pública desde a F1.</strong> A Web UI consome a mesma API REST/SignalR que um terceiro consumiria; não existem &quot;atalhos internos&quot;.</li>
 <li><strong>Documentação como produto.</strong> Esta bíblia evolui para a documentação de arquitetura pública; decisões registam-se em ADRs desde já.</li>
@@ -237,7 +239,7 @@
 └── Departamento de Engenharia (Unidade)
     └── ...</code></pre>
 
-<p>A <strong>Organização</strong> é também a <strong>Unidade raiz</strong>. Cada <strong>Unidade</strong>, incluindo a raiz, tem exatamente uma posição de liderança (o &quot;comandante&quot; da unidade). No exemplo, o <code>CEO</code> é a liderança da raiz e, por isso, é a única posição sem superior organizacional direto. A árvore organizacional é <strong>lógica</strong>, mantida no <code>registry</code> e nas referências das mensagens. Não se espelha fisicamente na árvore de atores Akka.NET: os <code>PositionActor</code> são entidades sharded e podem viver em qualquer nó do cluster. A hierarquia de comando é uma relação de domínio; a supervisão técnica Akka trata falhas de processo. <em>(Decisão Q3 — ver §5.7.)</em></p>
+<p>A <strong>Organização</strong> é também a <strong>Unidade raiz</strong>. Cada <strong>Unidade</strong>, incluindo a raiz, tem exatamente uma posição de liderança (o &quot;comandante&quot; da unidade). No exemplo, o <code>CEO</code> é a liderança da raiz e, por isso, é a única posição sem superior organizacional direto. A separação entre esta árvore de comando e a topologia técnica de atores/sharding é definida em §5.7. <em>(Decisão Q3.)</em></p>
 
 <h3>4.2 Comunicação Vertical (Comando)</h3>
 
@@ -301,8 +303,8 @@
 <ol>
 <li><strong>Toda a proatividade é declarada.</strong> A agenda faz parte da configuração da posição (<code>schedule:</code>), visível e auditável — nenhum agente &quot;decide sozinho&quot; ter novas rotinas.</li>
 <li><strong>Pulsos, não loops.</strong> O agente não corre em contínuo; o scheduler entrega-lhe um <code>Pulse</code> (mensagem como outra qualquer) no momento agendado. Entre pulsos, o ator está passivo (e pode ser hibernado pelo cluster).</li>
-<li><strong>Budget separado.</strong> A atividade proativa consome um budget próprio, distinto do reativo, para que rotinas nunca canibalizem a capacidade de resposta a ordens.</li>
-<li><strong>Horário de funcionamento.</strong> Cada posição tem <code>working_hours</code>; fora delas, só atividade marcada como crítica.</li>
+<li><strong>Budget separado.</strong> A atividade proativa consome um budget próprio, distinto e aditivo face ao budget reativo, para que rotinas nunca canibalizem a capacidade de resposta a ordens. Quando existir teto global, este é declarado explicitamente como <code>total_max_eur_per_day</code>.</li>
+<li><strong>Horário de funcionamento.</strong> Cada posição tem <code>timezone</code> e <code>working_hours</code>; o intervalo usa semântica <code>[start, end)</code>, ou seja, a hora de fim é exclusiva. Fora dele, só atividade marcada como crítica.</li>
 </ol>
 
 <h3>4.7 Definição da organização: GitOps + registry <em>(decisão — resolve Q7)</em></h3>
@@ -327,7 +329,7 @@
 <tr><th>Camada</th><th>Tecnologia</th><th>Notas</th></tr>
 </thead>
 <tbody>
-<tr><td>Runtime</td><td>.NET 8/9</td><td>LTS</td></tr>
+<tr><td>Runtime</td><td>.NET 8 LTS; .NET 9 STS opcional</td><td>Base recomendada: .NET 8 LTS. .NET 9 não é LTS; só usar se a equipa aceitar a cadência STS/upgrade.</td></tr>
 <tr><td>Actor model</td><td><strong>Akka.NET</strong> (ADR-001 — aceite)</td><td><strong>Akka.Cluster + Cluster Sharding desde a F0</strong> (decisão Q2), Akka.Persistence para event sourcing</td></tr>
 <tr><td>Persistência</td><td>PostgreSQL (event journal + snapshots + read models + audit/registry/budgets)</td><td>Via Akka.Persistence.PostgreSql na F0; vector store separado para memória semântica em F1/F2 — ADR-003</td></tr>
 <tr><td>Camada de AI</td><td><code>Microsoft.Extensions.AI</code> + camada HIVE</td><td>Contrato comum para chat/streaming/tool calls; HIVE trata políticas, custos, auditoria, fallback e routing — ADR-002</td></tr>
@@ -464,6 +466,7 @@
 <h3>6.2 Configuração por posição/agente</h3>
 
 <pre><code class="language-yaml">position: redator-a
+timezone: Europe/Lisbon
 occupant:
   type: ai-agent
   ai:
@@ -477,18 +480,20 @@ occupant:
       - provider: openai
         model: gpt-4.1
     budget:
-      max_eur_per_day: 5.00
+      reactive_max_eur_per_day: 5.00
+      proactive_max_eur_per_day: 1.00   # aditivo; total possível neste exemplo = 6.00 EUR/dia
+      total_max_eur_per_day: 6.00        # teto global opcional e explícito
       max_calls_per_hour: 60
-      proactive_max_eur_per_day: 1.00   # budget separado para rotinas (Q6)
   schedule:                             # proatividade declarada (§4.6)
     - id: relatorio-diario
-      cron: &quot;0 0 18 * * MON-FRI&quot;
-      timezone: Europe/Lisbon
+      cron: &quot;0 55 17 * * MON-FRI&quot;       # 17:55 local; 18:00 já fica fora do horário
       instruction: &quot;Compilar e enviar relatório diário de progresso ao superior&quot;
   subscriptions:
     - event: directive-deadline-approaching
       within: PT4H
-  working_hours: &quot;09:00-18:00 Europe/Lisbon&quot;
+  working_hours:
+    start: &quot;09:00&quot;
+    end: &quot;18:00&quot;                         # exclusivo: intervalo [09:00, 18:00)
   identity_prompt_ref: prompts/redator-a-v3.md
   tools:                          # conectores/ferramentas autorizados
     - connector: http
@@ -499,6 +504,8 @@ occupant:
     can_decide: [&quot;conteudo-blog&quot;, &quot;respostas-redes-sociais&quot;]
     must_escalate: [&quot;compromissos-orcamentais&quot;, &quot;comunicacao-externa-oficial&quot;]
     requires_human_approval: [&quot;publicacao-final&quot;]</code></pre>
+
+<p>Neste exemplo, o budget reativo é 5 EUR/dia e o proativo é 1 EUR/dia adicional; o teto global explícito impede que a soma ultrapasse 6 EUR/dia. O campo <code>timezone</code> pertence à posição e é herdado por <code>schedule</code> e <code>working_hours</code>; <code>working_hours.end</code> é exclusivo, portanto 18:00 já está fora do horário normal.</p>
 
 <h3>6.3 AI Gateway</h3>
 
@@ -683,6 +690,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li>A solution contém projetos separados para domínio, atores, infraestrutura, API e testes.</li>
+<li>O codename técnico <code>Hive</code> é usado de forma consistente em solution, namespaces e projetos internos.</li>
 <li>O arranque local cria um processo Akka configurado por role.</li>
 <li>Logging, configuração e health checks mínimos existem desde o primeiro executável.</li>
 </ul>
@@ -699,9 +707,9 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-01-T09</strong> — Criar endpoint/API mínima de diagnóstico para expor versão, role ativa e estado de arranque.</li>
 <li><strong>US-F0-01-T10</strong> — Criar testes de composição que validam arranque, DI, configuração obrigatória e isolamento do domínio.</li>
 <li><strong>US-F0-01-T11</strong> — Adicionar documentação curta de como correr o host localmente antes do Docker Compose.</li>
-<li><strong>US-F0-01-T12</strong> — Definir convenções iniciais de namespaces, pastas, naming e boundaries entre projetos.</li>
+<li><strong>US-F0-01-T12</strong> — Definir convenções iniciais de namespaces, pastas, naming e boundaries entre projetos, tratando <code>Hive</code> como codename técnico estável.</li>
 </ul>
-<p><strong>Critério de conclusão:</strong> a solution compila, o host arranca numa role configurada, a API/diagnóstico responde, logging e health checks existem, e os testes garantem que a composição base não está quebrada.</p>
+<p><strong>Critério de conclusão:</strong> a solution compila, o host arranca numa role configurada, a API/diagnóstico responde, logging e health checks existem, namespaces/projetos usam <code>Hive</code> de forma consistente, e os testes garantem que a composição base não está quebrada.</p>
 </article>
 
 <article>
@@ -1627,7 +1635,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.16): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.17): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

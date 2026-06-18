@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.14 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.15 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -110,6 +110,7 @@
 <tr><td>0.12</td><td>2026-06-18</td><td>Classificação de <code>ApprovalRequest</code>/<code>ApprovalDecision</code> como canal de governança com routing baseado em política e validação própria</td></tr>
 <tr><td>0.13</td><td>2026-06-18</td><td>Adição de <code>US-F3-09</code> para billing/licenciamento, alinhando os adiamentos de §1.3 e §13 com o backlog F3</td></tr>
 <tr><td>0.14</td><td>2026-06-18</td><td>Adição de <code>US-F3-10</code> para isolamento multi-tenant forte, alinhando §13 com o backlog F3</td></tr>
+<tr><td>0.15</td><td>2026-06-18</td><td>Clarificação da liderança obrigatória da unidade raiz e do escalamento de topo para <code>OrganizationOwner</code>/kill switch</td></tr>
 </tbody>
 </table>
 
@@ -183,6 +184,7 @@
 </thead>
 <tbody>
 <tr><td><strong>Organização</strong></td><td>A instância raiz do sistema — equivalente a uma empresa. Contém a hierarquia completa de unidades e posições.</td></tr>
+<tr><td><strong>OrganizationOwner</strong></td><td>Pessoa ou grupo humano fora da cadeia de comando operacional, obrigatório por organização. Recebe escalamentos de topo, opera o kill switch e responde por decisões que excedem a posição líder da raiz.</td></tr>
 <tr><td><strong>Unidade</strong></td><td>Agrupamento estrutural (departamento, equipa, célula). Forma a árvore organizacional.</td></tr>
 <tr><td><strong>Posição</strong></td><td>Um lugar na estrutura (ex.: &quot;Analista de Marketing Sénior&quot;). Tem responsabilidades, permissões e relações definidas. Uma posição é ocupada por um <strong>Ocupante</strong>.</td></tr>
 <tr><td><strong>Ocupante</strong></td><td>Quem ocupa uma posição: um <strong>Agente AI</strong> ou uma <strong>Pessoa Real</strong>. A posição é estável; o ocupante pode mudar (substituir um agente por uma pessoa, ou vice-versa, sem alterar a estrutura).</td></tr>
@@ -222,9 +224,8 @@
 
 <p>A organização é uma árvore:</p>
 
-<pre><code>Organização (raiz)
-├── Direção Geral (Unidade)
-│   └── CEO (Posição) ← Agente ou Pessoa
+<pre><code>Organização (raiz / Unidade raiz)
+├── CEO (Posição, liderança da raiz) ← Agente ou Pessoa
 ├── Departamento de Marketing (Unidade)
 │   ├── Diretor de Marketing (Posição)
 │   ├── Equipa de Conteúdos (Unidade)
@@ -236,13 +237,14 @@
 └── Departamento de Engenharia (Unidade)
     └── ...</code></pre>
 
-<p>Cada <strong>Unidade</strong> tem exatamente uma posição de liderança (o &quot;comandante&quot; da unidade). A árvore organizacional é <strong>lógica</strong>, mantida no <code>registry</code> e nas referências das mensagens. Não se espelha fisicamente na árvore de atores Akka.NET: os <code>PositionActor</code> são entidades sharded e podem viver em qualquer nó do cluster. A hierarquia de comando é uma relação de domínio; a supervisão técnica Akka trata falhas de processo. <em>(Decisão Q3 — ver §5.7.)</em></p>
+<p>A <strong>Organização</strong> é também a <strong>Unidade raiz</strong>. Cada <strong>Unidade</strong>, incluindo a raiz, tem exatamente uma posição de liderança (o &quot;comandante&quot; da unidade). No exemplo, o <code>CEO</code> é a liderança da raiz e, por isso, é a única posição sem superior organizacional direto. A árvore organizacional é <strong>lógica</strong>, mantida no <code>registry</code> e nas referências das mensagens. Não se espelha fisicamente na árvore de atores Akka.NET: os <code>PositionActor</code> são entidades sharded e podem viver em qualquer nó do cluster. A hierarquia de comando é uma relação de domínio; a supervisão técnica Akka trata falhas de processo. <em>(Decisão Q3 — ver §5.7.)</em></p>
 
 <h3>4.2 Comunicação Vertical (Comando)</h3>
 
 <ul>
 <li><strong>Descendente — diretivas.</strong> Um superior emite <code>Directive</code> para um subordinado direto. Diretivas podem ser decompostas: o líder de unidade recebe uma diretiva e parte-a em sub-diretivas para a sua equipa (delegação em cascata).</li>
 <li><strong>Ascendente — relatórios e escalamentos.</strong> Subordinados enviam <code>Report</code> (progresso, conclusão) e <code>Escalation</code> (bloqueios acionáveis, decisões fora da sua alçada). Regra: um ator só comunica verticalmente com o seu superior direto — não salta níveis, exceto por mecanismos de exceção definidos por política de auditoria/compliance (ex.: canal de denúncia).</li>
+<li><strong>Topo da cadeia — owner humano.</strong> A posição líder da unidade raiz (ex.: <code>CEO</code>) não tem superior organizacional direto. Um <code>Escalation</code> emitido por essa posição é encaminhado para o <code>OrganizationOwner</code> configurado e para a política de kill switch; não é tratado como salto vertical. Se o risco for crítico, a política pode pausar agente, unidade ou organização, sempre com auditoria.</li>
 </ul>
 
 <p><strong>Regra de desambiguação:</strong> um bloqueio que impede avanço, exige decisão ou requer desbloqueio por outra posição é sempre uma <code>Escalation</code>. <code>Report</code> não tem estado <code>Blocked</code>; pode mencionar riscos ou contexto, mas não representa pedido de desbloqueio.</p>
@@ -339,9 +341,8 @@
 
 <pre><code>/user
 ├── organization                      (ator raiz da organização)
-│   ├── unit-direcao
-│   │   └── pos-ceo                   (PositionActor)
-│   │       └── occupant              (AiAgentActor | HumanProxyActor)
+│   ├── pos-ceo                       (PositionActor, líder da unidade raiz)
+│   │   └── occupant                  (AiAgentActor | HumanProxyActor)
 │   ├── unit-marketing
 │   │   ├── pos-diretor-mkt
 │   │   ├── unit-conteudos
@@ -583,7 +584,7 @@ occupant:
 <tbody>
 <tr><td><code>Directive</code></td><td>Vertical</td><td>Descendente</td><td>Tarefa, ordem ou política emitida por um superior.</td><td>Quando uma posição superior delega ou instrui um subordinado direto.</td></tr>
 <tr><td><code>Report</code></td><td>Vertical</td><td>Ascendente</td><td>Progresso ou conclusão de uma diretiva.</td><td>Quando uma posição informa progresso ou conclusão ao superior direto sem pedir desbloqueio.</td></tr>
-<tr><td><code>Escalation</code></td><td>Vertical</td><td>Ascendente</td><td>Pedido de decisão, desbloqueio ou exceção fora da alçada da posição.</td><td>Quando a posição não tem autoridade, informação ou capacidade para decidir sozinha, incluindo bloqueios acionáveis.</td></tr>
+<tr><td><code>Escalation</code></td><td>Vertical</td><td>Ascendente</td><td>Pedido de decisão, desbloqueio ou exceção fora da alçada da posição.</td><td>Quando a posição não tem autoridade, informação ou capacidade para decidir sozinha, incluindo bloqueios acionáveis. Se a origem for a liderança da raiz, o destino é o <code>OrganizationOwner</code>/kill switch definido pela política de topo.</td></tr>
 <tr><td><code>Memo</code></td><td>Horizontal</td><td>Entre pares</td><td>Informação assíncrona que não exige resposta formal.</td><td>Quando uma posição comunica contexto, aviso ou nota a outra posição autorizada.</td></tr>
 <tr><td><code>PeerRequest</code></td><td>Horizontal</td><td>Entre pares</td><td>Pedido de ajuda, informação ou colaboração que espera resposta.</td><td>Quando uma posição precisa de contributo de outra posição autorizada.</td></tr>
 <tr><td><code>PeerResponse</code></td><td>Horizontal</td><td>Entre pares</td><td>Resposta a um <code>PeerRequest</code>.</td><td>Quando uma posição responde, recusa ou clarifica um pedido de par.</td></tr>
@@ -765,27 +766,27 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li>Diretivas descendentes só são aceites entre superior e subordinado direto.</li>
-<li>Relatórios e escalamentos sobem para o superior direto.</li>
+<li>Relatórios e escalamentos sobem para o superior direto; escalamentos da liderança da raiz seguem para o <code>OrganizationOwner</code>/kill switch.</li>
 <li><code>ApprovalRequest</code> é encaminhado apenas para aprovador autorizado pela política de autoridade.</li>
 <li><code>ApprovalDecision</code> só é aceite se vier do aprovador autorizado e referenciar o pedido original.</li>
 <li>Violações são rejeitadas e auditadas.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li><strong>US-F0-04-T01</strong> — Definir contrato de consulta de relações organizacionais para obter superior direto, subordinados diretos e pertença a unidade.</li>
+<li><strong>US-F0-04-T01</strong> — Definir contrato de consulta de relações organizacionais para obter superior direto, subordinados diretos, liderança da unidade raiz, <code>OrganizationOwner</code> e pertença a unidade.</li>
 <li><strong>US-F0-04-T02</strong> — Implementar serviço read-only de relações organizacionais baseado no registry materializado.</li>
 <li><strong>US-F0-04-T03</strong> — Definir matriz de routing por canal: vertical (<code>Directive</code>, <code>Report</code>, <code>Escalation</code>) e governança (<code>ApprovalRequest</code>, <code>ApprovalDecision</code>).</li>
 <li><strong>US-F0-04-T04</strong> — Implementar validador para diretivas descendentes, aceitando apenas superior direto → subordinado direto.</li>
 <li><strong>US-F0-04-T05</strong> — Implementar validador para relatórios ascendentes, aceitando apenas subordinado direto → superior direto.</li>
-<li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios e decisões fora da alçada.</li>
+<li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios, decisões fora da alçada e o caso de topo sem superior direto.</li>
 <li><strong>US-F0-04-T07</strong> — Implementar validador para <code>ApprovalRequest</code>/<code>ApprovalDecision</code>, incluindo resolução de aprovador autorizado, correlação com o pedido original e rejeição de decisões duplicadas, expiradas ou não autorizadas.</li>
 <li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, política aplicada e <code>ThreadId</code>.</li>
 <li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
 <li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
-<li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, aprovação válida e decisão por aprovador não autorizado.</li>
+<li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, escalamento de topo para <code>OrganizationOwner</code>, aprovação válida e decisão por aprovador não autorizado.</li>
 <li><strong>US-F0-04-T12</strong> — Documentar exemplos de routing vertical e de governança permitido/rejeitado para a organização de Engenharia/Delivery.</li>
 </ul>
-<p><strong>Critério de conclusão:</strong> o routing vertical e de governança é validado contra o registry/políticas de autoridade, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, aprovações só circulam entre requerente e aprovador autorizado, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
+<p><strong>Critério de conclusão:</strong> o routing vertical e de governança é validado contra o registry/políticas de autoridade, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, escalamentos da liderança da raiz são encaminhados para o <code>OrganizationOwner</code>/kill switch, aprovações só circulam entre requerente e aprovador autorizado, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
 </article>
 
 <h4>F0.3 — Registry GitOps e PositionActor persistente</h4>
@@ -795,7 +796,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li>Um ficheiro YAML descreve organização, unidades, posições, ocupantes, prompts, schedules, autoridade e relações de comando.</li>
-<li>O import valida unicidade, referências, liderança por unidade e <code>OrganizationId</code> obrigatório.</li>
+<li>O import valida unicidade, referências, liderança por unidade incluindo a unidade raiz, <code>OrganizationOwner</code> e <code>OrganizationId</code> obrigatório.</li>
 <li>O registry resultante é consultável por API interna.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
@@ -805,13 +806,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-05-T03</strong> — Criar modelo tipado de configuração carregada a partir do YAML.</li>
 <li><strong>US-F0-05-T04</strong> — Implementar parser YAML com mensagens de erro legíveis, incluindo caminho do ficheiro e localização do campo inválido quando possível.</li>
 <li><strong>US-F0-05-T05</strong> — Validar unicidade de <code>OrganizationId</code>, unidades, posições, ocupantes, schedules e subscriptions.</li>
-<li><strong>US-F0-05-T06</strong> — Validar referências cruzadas: liderança da unidade, superior direto, posição ocupada, prompt referenciada, schedules e ferramentas autorizadas.</li>
-<li><strong>US-F0-05-T07</strong> — Validar regras estruturais: cada unidade tem exatamente uma posição de liderança, não há ciclos na árvore organizacional e todas as posições pertencem a uma unidade.</li>
+<li><strong>US-F0-05-T06</strong> — Validar referências cruzadas: liderança da unidade, superior direto, liderança da raiz, <code>OrganizationOwner</code>, posição ocupada, prompt referenciada, schedules e ferramentas autorizadas.</li>
+<li><strong>US-F0-05-T07</strong> — Validar regras estruturais: cada unidade, incluindo a unidade raiz, tem exatamente uma posição de liderança, não há ciclos na árvore organizacional e todas as posições pertencem a uma unidade.</li>
 <li><strong>US-F0-05-T08</strong> — Criar organização exemplo de Engenharia/Delivery com unidades, posições, prompts, autoridade e schedules mínimos para o vertical slice F0.</li>
 <li><strong>US-F0-05-T09</strong> — Implementar import idempotente que materializa a configuração validada no registry/read model.</li>
 <li><strong>US-F0-05-T10</strong> — Persistir registry/read model em PostgreSQL com versão da configuração, hash/fingerprint e timestamp de import.</li>
 <li><strong>US-F0-05-T11</strong> — Expor API interna read-only para consultar organização, unidades, posições, relações de comando e configuração de posição.</li>
-<li><strong>US-F0-05-T12</strong> — Criar testes para YAML válido, YAML inválido, referências quebradas, ciclos, liderança em falta/duplicada e import idempotente.</li>
+<li><strong>US-F0-05-T12</strong> — Criar testes para YAML válido, YAML inválido, referências quebradas, ciclos, liderança em falta/duplicada, liderança raiz ausente, <code>OrganizationOwner</code> ausente e import idempotente.</li>
 </ul>
 <p><strong>Critério de conclusão:</strong> uma organização de Engenharia/Delivery definida em YAML é carregada, validada semanticamente, materializada em PostgreSQL como registry/read model, consultável por API interna, e o import é idempotente e testado para casos válidos e inválidos.</p>
 </article>
@@ -1626,7 +1627,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.15): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.16): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

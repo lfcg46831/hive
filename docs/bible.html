@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.16 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.17 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -112,6 +112,7 @@
 <tr><td>0.14</td><td>2026-06-18</td><td>Adição de <code>US-F3-10</code> para isolamento multi-tenant forte, alinhando §13 com o backlog F3</td></tr>
 <tr><td>0.15</td><td>2026-06-18</td><td>Clarificação da liderança obrigatória da unidade raiz e do escalamento de topo para <code>OrganizationOwner</code>/kill switch</td></tr>
 <tr><td>0.16</td><td>2026-06-18</td><td>Correções de runtime .NET, budgets proativos, timezone/horário, duplicação Q3 e estabilização de HIVE como codename técnico</td></tr>
+<tr><td>0.17</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-06</code> para <code>PositionActor</code> sharded, persistente, recuperável e passivável</td></tr>
 </tbody>
 </table>
 
@@ -836,11 +837,22 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Configurar Akka.Cluster Sharding.</li>
-<li>Configurar Akka.Persistence PostgreSQL journal e snapshots.</li>
-<li>Implementar eventos de estado do <code>PositionActor</code>.</li>
-<li>Testar restart, replay e passivation.</li>
+<li><strong>US-F0-06-T01</strong> — Definir o contrato de identidade sharded do <code>PositionActor</code>: <code>OrganizationId</code>, <code>PositionId</code>, <code>entityId = OrganizationId/PositionId</code>, nome da entidade sharded e regras de serialização.</li>
+<li><strong>US-F0-06-T02</strong> — Modelar comandos internos do <code>PositionActor</code>: aceitar mensagem, abrir/atualizar tarefa, concluir tarefa, atualizar memória curta, alterar ocupante e pedir passivation.</li>
+<li><strong>US-F0-06-T03</strong> — Modelar eventos persistidos e snapshots: mensagem recebida, tarefa criada/atualizada/concluída, memória curta atualizada, ocupante alterado, mensagem despachada e posição passivada.</li>
+<li><strong>US-F0-06-T04</strong> — Configurar Akka.Cluster Sharding para <code>PositionActor</code>, incluindo extractor/resolver de entity id, roles de nó <code>agents</code>, estratégia de passivation e <em>remember entities</em> para posições com agenda ativa.</li>
+<li><strong>US-F0-06-T05</strong> — Configurar Akka.Persistence PostgreSQL para journal e snapshots do <code>PositionActor</code>, com serializers versionáveis para comandos, eventos e snapshots.</li>
+<li><strong>US-F0-06-T06</strong> — Implementar recuperação por replay/snapshot para reconstruir inbox, tarefas em curso, memória curta, histórico recente, ocupante atual e ids de mensagens já processadas.</li>
+<li><strong>US-F0-06-T07</strong> — Implementar aceitação idempotente de mensagens usando <code>MessageId</code>/<code>ThreadId</code>, rejeitando duplicados sem duplicar eventos, trabalho ou auditoria.</li>
+<li><strong>US-F0-06-T08</strong> — Carregar configuração da posição a partir do registry no arranque/reativação e validar que a versão da configuração é compatível com o estado persistido.</li>
+<li><strong>US-F0-06-T09</strong> — Encaminhar mensagens aceites para o ocupante atual (<code>AiAgentActor</code> ou <code>HumanProxyActor</code>), mantendo inbox, tarefas e histórico como estado da posição.</li>
+<li><strong>US-F0-06-T10</strong> — Publicar eventos de audit/read model apenas depois de persistência confirmada, incluindo recuperação, reativação e rejeições por duplicado ou configuração inválida.</li>
+<li><strong>US-F0-06-T11</strong> — Implementar passivation segura para posições inativas, garantindo que mensagens persistidas, tarefas abertas e posições com agenda/subscrição ativa não se perdem nem ficam inacessíveis.</li>
+<li><strong>US-F0-06-T12</strong> — Criar testes unitários para transições de estado, idempotência, aplicação de eventos, snapshots, validação de configuração e troca de ocupante.</li>
+<li><strong>US-F0-06-T13</strong> — Criar testes de integração com PostgreSQL para restart, replay completo, restore por snapshot, compatibilidade de serialização e reentrega de mensagens.</li>
+<li><strong>US-F0-06-T14</strong> — Criar testes multi-nó para sharding, rebalance, passivation/reativação, routing por <code>entityId</code> e sobrevivência a restart de nó.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> o <code>PositionActor</code> corre como entidade sharded por <code>OrganizationId/PositionId</code>, persiste e recupera inbox, tarefas, memória curta e histórico, aceita mensagens de forma idempotente, sobrevive a restart/rebalance/passivation sem perda de estado, publica auditoria/read models depois da persistência e tem testes unitários, integração PostgreSQL e multi-nó para os caminhos críticos.</p>
 </article>
 
 <h4>F0.4 — Agente AI e gateway mínimo</h4>
@@ -1635,7 +1647,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.17): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.18): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

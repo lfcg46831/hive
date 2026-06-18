@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.6 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.7 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -102,6 +102,7 @@
 <tr><td>0.4</td><td>2026-06-15</td><td>Roadmap detalhado por tabs HTML com subfases, user stories, critérios de aceitação e tarefas. Decisão de frontend: React + TypeScript sobre ASP.NET Core REST/SignalR. ADR-005 aceite</td></tr>
 <tr><td>0.5</td><td>2026-06-18</td><td>Consolidação da taxonomia de mensagens numa tabela canónica em §9; glossário, princípios e US-F0-03 passam a referenciar essa fonte única</td></tr>
 <tr><td>0.6</td><td>2026-06-18</td><td>Adição de tabs de navegação para as secções 1–15 do documento, mantendo o conteúdo existente e as tabs internas do roadmap</td></tr>
+<tr><td>0.7</td><td>2026-06-18</td><td>Clarificação da semântica de bloqueios: bloqueio acionável é sempre <code>Escalation</code>; <code>ReportKind</code> fica limitado a progresso e conclusão</td></tr>
 </tbody>
 </table>
 
@@ -160,7 +161,7 @@
 <li><strong>Triagem de bugs e pedidos</strong> — receber entradas externas/internas, classificar severidade, pedir contexto em falta e encaminhar para a posição correta.</li>
 <li><strong>Conversão de pedidos em tarefas</strong> — transformar requisitos, bugs ou pedidos operacionais em diretivas/tarefas estruturadas com contexto, prioridade, prazo e critérios de conclusão.</li>
 <li><strong>Acompanhamento de progresso</strong> — recolher relatórios, detetar bloqueios, lembrar prazos e agregar estado por equipa/unidade.</li>
-<li><strong>Reporting de bloqueios e progresso</strong> — produzir relatórios ascendentes para líderes de delivery e escalar decisões fora da alçada do agente.</li>
+<li><strong>Reporting de bloqueios e progresso</strong> — produzir <code>Report</code> de progresso para líderes de delivery e <code>Escalation</code> quando há bloqueios ou decisões fora da alçada do agente.</li>
 </ol>
 
 <p>Este caso de uso guia a F0/F1: os conectores prioritários são issue trackers/APIs HTTP, email ou canal equivalente para entrada humana, e Web UI para organograma, inbox, aprovações e estado de trabalho.</p>
@@ -233,8 +234,10 @@
 
 <ul>
 <li><strong>Descendente — diretivas.</strong> Um superior emite <code>Directive</code> para um subordinado direto. Diretivas podem ser decompostas: o líder de unidade recebe uma diretiva e parte-a em sub-diretivas para a sua equipa (delegação em cascata).</li>
-<li><strong>Ascendente — relatórios e escalamentos.</strong> Subordinados enviam <code>Report</code> (progresso, conclusão) e <code>Escalation</code> (bloqueios, decisões fora da sua alçada). Regra: um ator só comunica verticalmente com o seu superior direto — não salta níveis, exceto por mecanismos de exceção definidos por política de auditoria/compliance (ex.: canal de denúncia).</li>
+<li><strong>Ascendente — relatórios e escalamentos.</strong> Subordinados enviam <code>Report</code> (progresso, conclusão) e <code>Escalation</code> (bloqueios acionáveis, decisões fora da sua alçada). Regra: um ator só comunica verticalmente com o seu superior direto — não salta níveis, exceto por mecanismos de exceção definidos por política de auditoria/compliance (ex.: canal de denúncia).</li>
 </ul>
+
+<p><strong>Regra de desambiguação:</strong> um bloqueio que impede avanço, exige decisão ou requer desbloqueio por outra posição é sempre uma <code>Escalation</code>. <code>Report</code> não tem estado <code>Blocked</code>; pode mencionar riscos ou contexto, mas não representa pedido de desbloqueio.</p>
 
 <h3>4.3 Comunicação Horizontal (Colaboração)</h3>
 
@@ -558,8 +561,8 @@ occupant:
 </thead>
 <tbody>
 <tr><td><code>Directive</code></td><td>Vertical</td><td>Descendente</td><td>Tarefa, ordem ou política emitida por um superior.</td><td>Quando uma posição superior delega ou instrui um subordinado direto.</td></tr>
-<tr><td><code>Report</code></td><td>Vertical</td><td>Ascendente</td><td>Resultado, progresso ou estado de uma diretiva.</td><td>Quando uma posição reporta progresso, conclusão ou bloqueio ao superior direto.</td></tr>
-<tr><td><code>Escalation</code></td><td>Vertical</td><td>Ascendente</td><td>Pedido de decisão, desbloqueio ou exceção fora da alçada da posição.</td><td>Quando a posição não tem autoridade, informação ou capacidade para decidir sozinha.</td></tr>
+<tr><td><code>Report</code></td><td>Vertical</td><td>Ascendente</td><td>Progresso ou conclusão de uma diretiva.</td><td>Quando uma posição informa progresso ou conclusão ao superior direto sem pedir desbloqueio.</td></tr>
+<tr><td><code>Escalation</code></td><td>Vertical</td><td>Ascendente</td><td>Pedido de decisão, desbloqueio ou exceção fora da alçada da posição.</td><td>Quando a posição não tem autoridade, informação ou capacidade para decidir sozinha, incluindo bloqueios acionáveis.</td></tr>
 <tr><td><code>Memo</code></td><td>Horizontal</td><td>Entre pares</td><td>Informação assíncrona que não exige resposta formal.</td><td>Quando uma posição comunica contexto, aviso ou nota a outra posição autorizada.</td></tr>
 <tr><td><code>PeerRequest</code></td><td>Horizontal</td><td>Entre pares</td><td>Pedido de ajuda, informação ou colaboração que espera resposta.</td><td>Quando uma posição precisa de contributo de outra posição autorizada.</td></tr>
 <tr><td><code>PeerResponse</code></td><td>Horizontal</td><td>Entre pares</td><td>Resposta a um <code>PeerRequest</code>.</td><td>Quando uma posição responde, recusa ou clarifica um pedido de par.</td></tr>
@@ -584,7 +587,7 @@ occupant:
     DateTimeOffset? Deadline);
 
 record Directive(... , string Objective, string Context, DirectiveId? Parent) : OrgMessage;
-record Report(... , DirectiveId About, ReportKind Kind /* Progress|Done|Blocked */, string Body) : OrgMessage;
+record Report(... , DirectiveId About, ReportKind Kind /* Progress|Done */, string Body) : OrgMessage;
 record Escalation(... , string Issue, string Context, string[] OptionsConsidered) : OrgMessage;
 record Memo(... , string Body) : OrgMessage;          // horizontal
 record PeerRequest(... , string Ask) : OrgMessage;    // horizontal, espera resposta
@@ -712,16 +715,17 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <ul>
 <li>Existem contratos imutáveis para todos os tipos definidos na taxonomia canónica do §9.</li>
 <li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem, destino, prioridade, thread/correlation id e timestamps.</li>
+<li><code>ReportKind</code> inclui apenas <code>Progress</code> e <code>Done</code>; bloqueios acionáveis usam <code>Escalation</code>.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-03-T01</strong> — Modelar value objects de identidade: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
 <li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem, destino, prioridade, timestamps, deadline, thread/correlation id e versão de schema.</li>
-<li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
+<li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
 <li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, referências permitidas e relação com <code>ThreadId</code>/<code>DirectiveId</code>.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes ou sem <code>OrganizationId</code>.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code> ou com <code>ReportKind</code> fora de <code>Progress</code>/<code>Done</code>.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -729,7 +733,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-03-T11</strong> — Criar testes de compatibilidade que validam leitura de payloads de versões anteriores e rejeição controlada de versões desconhecidas.</li>
 <li><strong>US-F0-03-T12</strong> — Documentar exemplos canónicos de cada mensagem e as regras de evolução do protocolo.</li>
 </ul>
-<p><strong>Critério de conclusão:</strong> todos os tipos de mensagem organizacional existem como contratos imutáveis, validam campos obrigatórios, incluem metadados comuns e <code>OrganizationId</code>, têm serialização versionável configurada, e os testes provam round-trip e compatibilidade básica de schema.</p>
+<p><strong>Critério de conclusão:</strong> todos os tipos de mensagem organizacional existem como contratos imutáveis, validam campos obrigatórios, incluem metadados comuns e <code>OrganizationId</code>, mantêm <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, têm serialização versionável configurada, e os testes provam round-trip e compatibilidade básica de schema.</p>
 </article>
 
 <article>
@@ -1518,7 +1522,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.7): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.8): ADR-004 (scheduler), aprofundamento da memória dos agentes (§7.2), protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

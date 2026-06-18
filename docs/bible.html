@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.12 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.13 (rascunho evolutivo) <strong>Data:</strong> 2026-06-18 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> O nome &quot;HIVE&quot; é um placeholder de trabalho — a definir.</p>
 
 <hr>
 
@@ -108,6 +108,7 @@
 <tr><td>0.10</td><td>2026-06-18</td><td>Clarificação da memória de curto prazo como estado recuperável via <code>Akka.Persistence</code>, não estado efémero só-em-memória</td></tr>
 <tr><td>0.11</td><td>2026-06-18</td><td>Reconciliação entre auditoria imutável e direito ao apagamento RGPD: eventos append-only evitam PII direta e apontam para dados redatáveis ou cifrados</td></tr>
 <tr><td>0.12</td><td>2026-06-18</td><td>Classificação de <code>ApprovalRequest</code>/<code>ApprovalDecision</code> como canal de governança com routing baseado em política e validação própria</td></tr>
+<tr><td>0.13</td><td>2026-06-18</td><td>Adição de <code>US-F3-09</code> para billing/licenciamento, alinhando os adiamentos de §1.3 e §13 com o backlog F3</td></tr>
 </tbody>
 </table>
 
@@ -656,7 +657,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><strong>F0 — Núcleo</strong></td><td>Prova de conceito <strong>já em cluster</strong> para Engenharia/Delivery</td><td>Docker Compose com 1–3 nós Akka + PostgreSQL, Akka.Cluster + Sharding de posições, serialização versionada, SBR, persistência PostgreSQL, organização em YAML/GitOps, PositionActor + AiAgentActor, 1 provider via <code>Microsoft.Extensions.AI</code>, comunicação vertical, scheduler com <code>Pulse</code>, audit log</td></tr>
 <tr><td><strong>F1 — Organização mínima viável</strong></td><td>Equipa de delivery real a funcionar</td><td>Multi-provider + gateway (rate limit, fallback), contratos de comunicação horizontal, HumanProxyActor + conector email/issue tracker, Web UI React + TypeScript read-only (organograma + inbox + aprovações) sobre API pública, subscrições de eventos, roles de nó</td></tr>
 <tr><td><strong>F2 — Operação</strong></td><td>Robustez e escala</td><td>Multi-nó em produção (K8s), batch processing, budgets/custos, memória de longo prazo (vector store), conectores Teams/Slack/ficheiros, edição controlada da organização com export/import YAML</td></tr>
-<tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias</td></tr>
+<tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias, billing/licenciamento</td></tr>
 </tbody>
 </table>
 
@@ -1202,8 +1203,8 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <section class="phase-panel" id="phase-panel-f3" role="tabpanel" aria-labelledby="phase-tab-f3" hidden>
 <h3>F3 — Maturidade</h3>
-<p><strong>Objetivo:</strong> evoluir HIVE de solução interna robusta para plataforma/framework reutilizável por terceiros, com editor visual completo, ecossistema de conectores, métricas avançadas e maturidade de produto.</p>
-<p><strong>Critério de saída:</strong> terceiros conseguem modelar organizações, instalar conectores, operar métricas avançadas, gerir substituições e preparar cenários de produto com documentação e APIs estáveis.</p>
+<p><strong>Objetivo:</strong> evoluir HIVE de solução interna robusta para plataforma/framework reutilizável por terceiros, com editor visual completo, ecossistema de conectores, métricas avançadas, billing/licenciamento e maturidade de produto.</p>
+<p><strong>Critério de saída:</strong> terceiros conseguem modelar organizações, instalar conectores, operar métricas avançadas, gerir substituições, preparar cenários de produto com documentação/APIs estáveis e configurar um modelo básico de planos/licenciamento.</p>
 
 <h4>F3.1 — Editor visual e modelação avançada</h4>
 <article>
@@ -1350,6 +1351,27 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Publicar documentação de arquitetura, API e conectores.</li>
 <li>Definir política de compatibilidade e depreciação.</li>
 <li>Preparar checklist de segurança/compliance para adopters externos.</li>
+</ul>
+</article>
+
+<article>
+<h5>US-F3-09 — Billing e licenciamento de produto</h5>
+<p><strong>Como</strong> equipa de produto, <strong>quero</strong> definir planos, licenças e medição de uso, <strong>para</strong> transformar HIVE numa oferta comercial sem contaminar o núcleo organizacional.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>Existem conceitos de plano, licença, entitlement e limites por organização.</li>
+<li>Uso faturável é derivado de métricas/audit log/cost-tracker sem expor dados pessoais desnecessários.</li>
+<li>O enforcement de limites distingue soft limits, hard limits e períodos de graça.</li>
+<li>O modelo suporta deployment interno sem billing ativo e produto externo com billing/licenciamento configurável.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li>Modelar entidades de billing/licenciamento: <code>Plan</code>, <code>License</code>, <code>Entitlement</code>, quotas e estado de subscrição.</li>
+<li>Definir eventos e read models de usage metering a partir de chamadas AI, conectores, posições ativas e organizações.</li>
+<li>Implementar política de enforcement desacoplada do domínio core, com modo disabled para deployments internos.</li>
+<li>Adicionar API/admin UI para consultar plano, uso, limites, estado da licença e alertas.</li>
+<li>Definir integração futura com provider externo de pagamentos/faturação sem acoplar F3 ao vendor escolhido.</li>
+<li>Testar limites, períodos de graça, downgrade/upgrade de plano e isolamento por <code>OrganizationId</code>.</li>
 </ul>
 </article>
 </section>
@@ -1582,7 +1604,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.13): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.14): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

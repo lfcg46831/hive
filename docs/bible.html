@@ -626,11 +626,20 @@ record ApprovalDecision(... , bool Approved, string? Reason) : OrgMessage;</code
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Criar Dockerfile da aplicação.</li>
-<li>Criar <code>docker-compose.yml</code> com PostgreSQL e nós HIVE.</li>
-<li>Adicionar variáveis de ambiente para roles, portas e connection strings.</li>
-<li>Documentar comando local de arranque.</li>
+<li><strong>US-F0-02-T01</strong> — Criar Dockerfile multi-stage para build e runtime da aplicação .NET.</li>
+<li><strong>US-F0-02-T02</strong> — Definir imagem runtime com variáveis de ambiente para role, portas, ambiente, connection string e configuração Akka.</li>
+<li><strong>US-F0-02-T03</strong> — Criar <code>docker-compose.yml</code> base com PostgreSQL e um nó HIVE.</li>
+<li><strong>US-F0-02-T04</strong> — Criar perfil/override para cluster local de 3 nós HIVE.</li>
+<li><strong>US-F0-02-T05</strong> — Configurar roles de nó <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code> por serviço ou variável de ambiente.</li>
+<li><strong>US-F0-02-T06</strong> — Configurar rede Docker interna, nomes DNS estáveis e portas expostas apenas onde necessário.</li>
+<li><strong>US-F0-02-T07</strong> — Configurar volume persistente para PostgreSQL e volume opcional para logs locais.</li>
+<li><strong>US-F0-02-T08</strong> — Adicionar health checks Docker para PostgreSQL e nós HIVE.</li>
+<li><strong>US-F0-02-T09</strong> — Configurar readiness do nó HIVE para só ficar saudável quando a configuração obrigatória estiver carregada.</li>
+<li><strong>US-F0-02-T10</strong> — Adicionar ficheiro <code>.env.example</code> com valores locais seguros e sem segredos reais.</li>
+<li><strong>US-F0-02-T11</strong> — Documentar comandos para arrancar, parar, limpar volumes e alternar entre 1 nó e 3 nós.</li>
+<li><strong>US-F0-02-T12</strong> — Criar teste/smoke check local que valida API saudável, PostgreSQL acessível e número esperado de nós configurados.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> um developer consegue arrancar HIVE localmente com Docker Compose em modo 1 nó ou 3 nós, PostgreSQL persiste dados entre restarts, os roles são configuráveis, health checks reportam estado correto, e a documentação reproduz o fluxo sem passos implícitos.</p>
 </article>
 
 <h4>F0.2 — Contratos de domínio e mensagens</h4>

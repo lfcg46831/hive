@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.27 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.28 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -123,6 +123,7 @@
 <tr><td>0.25</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-06</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 <tr><td>0.26</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-09</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 <tr><td>0.27</td><td>2026-06-19</td><td>Adição da regra operacional de decomposição de tarefas por esforço Fibonacci em subsecção própria do roadmap</td></tr>
+<tr><td>0.28</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-10</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 </tbody>
 </table>
 
@@ -720,7 +721,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05</code>=8, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
 <tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=8, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>71</strong></td></tr>
 <tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=3, <code>T03b</code>=3, <code>T03c</code>=2, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>73</strong></td></tr>
-<tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06</code>=8, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>66</strong></td></tr>
+<tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>66</strong></td></tr>
 <tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>580</strong></td></tr>
 </tbody>
 </table>
@@ -1055,15 +1056,33 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-10-T03</strong> — Mapear a entrada de bug para uma <code>Directive</code> canónica de triagem, com <code>OrganizationId</code>, posição de destino, <code>ThreadId</code>, <code>DirectiveId</code>, prioridade, contexto e critérios de conclusão.</li>
 <li><strong>US-F0-10-T04</strong> — Configurar no YAML/registry uma organização de Engenharia/Delivery com posição de triagem, ocupante <code>AiAgentActor</code>, prompt de triagem, provider stub e autoridade mínima para responder ou escalar.</li>
 <li><strong>US-F0-10-T05</strong> — Encaminhar a <code>Directive</code> para o <code>PositionActor</code> sharded da posição de triagem, validando routing vertical, persistência da inbox e aceitação idempotente.</li>
-<li><strong>US-F0-10-T06</strong> — Executar o fluxo <code>PositionActor → AiAgentActor → AiGateway stub</code>, montando contexto com diretiva, prompt, memória curta e ferramentas autorizadas.</li>
+<li><strong>US-F0-10-T06</strong> — Executar o fluxo <code>PositionActor → AiAgentActor → AiGateway stub</code>, montando contexto com diretiva, prompt, memória curta e ferramentas autorizadas.
+<ul>
+<li><strong>US-F0-10-T06a</strong> — Definir o contrato de execução do vertical slice entre <code>PositionActor</code> e <code>AiAgentActor</code>, incluindo identidade, correlação, limites e estado de tarefa.</li>
+<li><strong>US-F0-10-T06b</strong> — Montar o contexto de triagem e invocar o <code>AiGateway</code> stub com prompt, diretiva, memória curta e ferramentas autorizadas.</li>
+<li><strong>US-F0-10-T06c</strong> — Interpretar a resposta determinística do stub e devolver o resultado ao <code>PositionActor</code> com correlação preservada.</li>
+</ul>
+</li>
 <li><strong>US-F0-10-T07</strong> — Configurar cenários determinísticos no provider stub: bug triável com <code>Report</code>, bug com informação em falta, bug bloqueado por decisão externa e falha controlada do provider.</li>
 <li><strong>US-F0-10-T08</strong> — Converter a decisão do agente em <code>Report</code> de progresso/conclusão ou <code>Escalation</code> para bloqueio/decisão fora da alçada, mantendo <code>ReportKind</code> sem estado <code>Blocked</code>.</li>
 <li><strong>US-F0-10-T09</strong> — Persistir todos os eventos relevantes no audit log: submissão, criação da diretiva, aceitação pela posição, chamada ao gateway, decisão do agente, mensagem resultante e custos/latência.</li>
 <li><strong>US-F0-10-T10</strong> — Criar read model/consulta simples por <code>ThreadId</code> e <code>DirectiveId</code> para reconstruir a jornada ponta-a-ponta após restart.</li>
-<li><strong>US-F0-10-T11</strong> — Garantir que restart do host ou rebalance do cluster não duplica a diretiva, a chamada ao provider stub, o <code>Report</code>/<code>Escalation</code> nem eventos de auditoria.</li>
+<li><strong>US-F0-10-T11</strong> — Garantir que restart do host ou rebalance do cluster não duplica a diretiva, a chamada ao provider stub, o <code>Report</code>/<code>Escalation</code> nem eventos de auditoria.
+<ul>
+<li><strong>US-F0-10-T11a</strong> — Definir chaves idempotentes e pontos de persistência para submissão, diretiva, chamada ao provider stub, mensagem resultante e auditoria.</li>
+<li><strong>US-F0-10-T11b</strong> — Implementar guards de recuperação para retomar ou ignorar passos já concluídos após restart, rebalance ou reentrega.</li>
+<li><strong>US-F0-10-T11c</strong> — Auditar supressões de duplicados com razão estruturada sem criar novos eventos funcionais duplicados.</li>
+</ul>
+</li>
 <li><strong>US-F0-10-T12</strong> — Expor comando de demonstração/documentação curta para correr o vertical slice em Docker Compose 1 nó e 3 nós, com dados seed reproduzíveis.</li>
 <li><strong>US-F0-10-T13</strong> — Criar teste end-to-end local para o caminho feliz: bug submetido → diretiva persistida → agente responde com <code>Report</code> → audit log consultável após restart.</li>
-<li><strong>US-F0-10-T14</strong> — Criar testes end-to-end para caminhos alternativos: informação em falta, escalamento acionável, provider stub falha, reentrega/restart e rejeição de mensagem inválida.</li>
+<li><strong>US-F0-10-T14</strong> — Criar testes end-to-end para caminhos alternativos: informação em falta, escalamento acionável, provider stub falha, reentrega/restart e rejeição de mensagem inválida.
+<ul>
+<li><strong>US-F0-10-T14a</strong> — Testar caminhos de informação em falta e escalamento acionável, confirmando mensagens canónicas e auditoria correlacionada.</li>
+<li><strong>US-F0-10-T14b</strong> — Testar falha controlada do provider stub e rejeição de mensagem inválida, confirmando erro estruturado e ausência de estado parcial incoerente.</li>
+<li><strong>US-F0-10-T14c</strong> — Testar reentrega/restart do vertical slice, confirmando que diretiva, chamada ao stub, mensagem resultante e auditoria não são duplicadas.</li>
+</ul>
+</li>
 </ul>
 <p><strong>Critério de conclusão:</strong> o vertical slice F0 corre em Docker Compose, carrega a organização de Engenharia/Delivery, aceita um bug de exemplo, cria uma <code>Directive</code> de triagem, processa-a por <code>PositionActor</code>/<code>AiAgentActor</code>/<code>AiGateway</code> stub, produz <code>Report</code> ou <code>Escalation</code> canónico, persiste e audita toda a jornada, permite consulta por <code>ThreadId</code>/<code>DirectiveId</code> após restart e tem testes end-to-end para sucesso, escalamento, falha e idempotência.</p>
 </article>
@@ -1808,7 +1827,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.28): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.29): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

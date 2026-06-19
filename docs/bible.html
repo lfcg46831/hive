@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.29 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.31 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -125,6 +125,8 @@
 <tr><td>0.27</td><td>2026-06-19</td><td>Adição da regra operacional de decomposição de tarefas por esforço Fibonacci em subsecção própria do roadmap</td></tr>
 <tr><td>0.28</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-10</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 <tr><td>0.29</td><td>2026-06-19</td><td>Normalização da F0 pela regra 12.1, decompondo todas as tarefas restantes de esforço 8 e preservando totais</td></tr>
+<tr><td>0.30</td><td>2026-06-19</td><td>Clarificação do escopo de <code>US-F0-01-T03</code> como referências entre projetos e testes de boundary, sem runtime/packages/DI</td></tr>
+<tr><td>0.31</td><td>2026-06-19</td><td>Definição de nós do cluster, roles de execução, topologias e contrato de configuração em §5.10; clarificação do escopo de <code>US-F0-01-T04</code></td></tr>
 </tbody>
 </table>
 
@@ -459,6 +461,51 @@
 
 <p>Esta decisão privilegia uma UI operacional rica e iterável: organograma vivo, inbox humana, aprovações, dashboards, diffs de YAML, edição visual futura e componentes de graph/flow. Angular fica como alternativa descartada para a F0/F1 por impor mais estrutura e cerimónia do que a fase inicial precisa; Blazor continua possível para ferramentas internas pontuais, mas não é a base da consola principal.</p>
 
+<h3>5.10 Nós do cluster e roles de execução</h3>
+
+<p>Um <strong>nó</strong> é uma instância executável que participa no <code>Akka.Cluster</code>, com endereço, configuração e ciclo de vida próprios. Em desenvolvimento pode ser um processo ou contentor Docker; em produção será normalmente um pod Kubernetes. Um nó de cluster não é uma unidade organizacional, posição ou ator: aloja atores e serviços, mas não representa um elemento da hierarquia empresarial.</p>
+
+<p>Uma <strong>role de nó</strong> é uma etiqueta de capacidade declarada no arranque e anunciada ao cluster. Determina que workloads podem executar nesse nó e permite escalá-los ou isolá-los por função. Não é uma role de utilizador, uma permissão de segurança nem uma posição organizacional. Um nó pode acumular várias roles; as roles são configuração de deployment e não mudam dinamicamente durante a vida do processo.</p>
+
+<table>
+<thead>
+<tr><th>Role</th><th>Responsabilidade</th><th>Workloads principais</th></tr>
+</thead>
+<tbody>
+<tr><td><code>agents</code></td><td>Executar posições e agentes da organização.</td><td><code>PositionActor</code>, <code>AiAgentActor</code> e entidades distribuídas por Cluster Sharding.</td></tr>
+<tr><td><code>gateway</code></td><td>Mediar chamadas aos providers de AI.</td><td>AI gateway, políticas de provider routing, rate limit, fallback, custos e normalização.</td></tr>
+<tr><td><code>connectors</code></td><td>Integrar o cluster com sistemas externos.</td><td>Conectores inbound/outbound, incluindo email, HTTP, issue trackers e canais futuros.</td></tr>
+<tr><td><code>api</code></td><td>Expor contratos públicos do HIVE.</td><td>ASP.NET Core REST, SignalR, health/readiness e backend da Web UI.</td></tr>
+</tbody>
+</table>
+
+<p>As roles condicionam a <strong>colocação técnica</strong> dos workloads, não a comunicação organizacional. Por exemplo, posições de departamentos diferentes podem estar alojadas no mesmo nó <code>agents</code>, e uma posição pode ser reativada noutro nó com essa role após passivation, rebalance ou falha. A identidade e a hierarquia da posição mantêm-se independentes do nó físico.</p>
+
+<p>Topologias de referência:</p>
+
+<ul>
+<li><strong>Desenvolvimento com um nó:</strong> a única instância declara <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code>.</li>
+<li><strong>Validação F0 com três nós:</strong> todos podem declarar <code>agents</code>; as roles <code>api</code>, <code>gateway</code> e <code>connectors</code> são distribuídas entre as instâncias para validar placement, sharding e tolerância à saída de um nó.</li>
+<li><strong>Produção:</strong> deployments separados por role permitem escalar agentes, gateway, conectores e API de forma independente. Uma instância pode manter mais de uma role quando a dimensão ou o custo operacional não justificam separação.</li>
+</ul>
+
+<p>O contrato inicial em <code>appsettings</code> representa as roles como uma lista de nomes canónicos em minúsculas:</p>
+
+<pre><code class="language-json">{
+  "Hive": {
+    "Node": {
+      "Roles": ["agents", "api"]
+    }
+  }
+}</code></pre>
+
+<p>A configuração equivalente por variáveis de ambiente segue a convenção hierárquica de .NET:</p>
+
+<pre><code>HIVE__NODE__ROLES__0=agents
+HIVE__NODE__ROLES__1=api</code></pre>
+
+<p>O arranque deve falhar de forma explícita se não existir pelo menos uma role válida ou se for indicado um nome desconhecido. Na F0, os únicos valores canónicos são <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code>. A <code>US-F0-01-T04</code> define este modelo e o contrato das fontes de configuração; a <code>US-F0-01-T05</code> faz binding, validação e registo no bootstrap comum; a <code>US-F0-01-T06</code> aplica as roles ao runtime Akka e inicia apenas os workloads correspondentes.</p>
+
 <hr>
 
 <h2>6. Camada de AI Multi-Provider</h2>
@@ -742,8 +789,8 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <ul>
 <li><strong>US-F0-01-T01</strong> — Criar a solution .NET raiz <code>Hive.sln</code>.</li>
 <li><strong>US-F0-01-T02</strong> — Criar projetos base: <code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code>, <code>Hive.Api</code>, <code>Hive.Worker</code> e <code>Hive.Tests</code>.</li>
-<li><strong>US-F0-01-T03</strong> — Definir referências entre projetos, mantendo domínio sem dependências de Akka, ASP.NET Core ou infraestrutura.</li>
-<li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, env vars, roles do nó e connection strings).</li>
+<li><strong>US-F0-01-T03</strong> — Definir apenas os <code>ProjectReference</code> mínimos entre projetos e testes de boundary/arquitetura que provem que <code>Hive.Domain</code> não depende de Akka, ASP.NET Core, infraestrutura ou bootstrap. Não introduzir ainda packages de runtime, configuração Akka, bootstrap de dependency injection ou hosts executáveis; esses pertencem às tarefas seguintes.</li>
+<li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, contrato de env vars, connection strings e roles do nó definidas no §5.10), sem aplicar ainda as roles ao runtime Akka nem implementar o bootstrap de DI.</li>
 <li><strong>US-F0-01-T05</strong> — Implementar bootstrap comum de dependency injection e configuração.</li>
 <li><strong>US-F0-01-T06</strong> — Implementar host executável mínimo capaz de arrancar como role <code>agents</code>, <code>gateway</code>, <code>connectors</code> ou <code>api</code>.</li>
 <li><strong>US-F0-01-T07</strong> — Configurar logging estruturado comum para todos os hosts.</li>
@@ -1864,7 +1911,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.30): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.32): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

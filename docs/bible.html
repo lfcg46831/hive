@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.22 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.23 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -118,6 +118,7 @@
 <tr><td>0.20</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F0-09</code> para scheduler com <code>Akka.Quartz.Actor</code>, entrega de <code>Pulse</code> idempotente, persistência de entrega e recuperação após restart</td></tr>
 <tr><td>0.21</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F0-10</code> para vertical slice de triagem de bug, ligando submissão, diretiva, agente, gateway, persistência e auditoria ponta-a-ponta</td></tr>
 <tr><td>0.22</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-01</code> para organograma vivo read-only com API pública, estado de posições, React + TypeScript e atualizações por SignalR/polling</td></tr>
+<tr><td>0.23</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-02</code> para inbox humana, ações de resposta, aprovações por governança, prazos/lembretes, UI React e testes de autorização</td></tr>
 </tbody>
 </table>
 
@@ -1026,11 +1027,22 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Expor API de inbox por posição/pessoa.</li>
-<li>Implementar ações de resposta e aprovação, aplicando a autorização de governança definida em §4.4.</li>
-<li>Adicionar persistência de estado de leitura/resposta.</li>
-<li>Testar fluxo <code>ApprovalRequest → ApprovalDecision</code> para aprovador autorizado e rejeição para aprovador não autorizado.</li>
+<li><strong>US-F1-02-T01</strong> — Definir DTOs públicos de inbox para mensagens atribuídas a pessoa/posição: tipo, origem, destino, <code>ThreadId</code>, prioridade, prazo, estado de leitura, estado de resposta e metadados de aprovação.</li>
+<li><strong>US-F1-02-T02</strong> — Definir endpoints REST públicos para listar inbox por pessoa, posição e organização, com filtros por tipo de mensagem, estado, prazo, prioridade e aprovação pendente.</li>
+<li><strong>US-F1-02-T03</strong> — Criar read model de inbox a partir de mensagens organizacionais, audit log e estado persistido do <code>PositionActor</code>, sem consultar estado interno de atores diretamente.</li>
+<li><strong>US-F1-02-T04</strong> — Implementar autorização de leitura para garantir que uma pessoa só vê mensagens atribuídas às suas posições, papéis autorizados ou delegações ativas.</li>
+<li><strong>US-F1-02-T05</strong> — Modelar persistência de estado de interação humana: lida, não lida, em resposta, respondida, decisão pendente, decisão emitida, expirada e delegada.</li>
+<li><strong>US-F1-02-T06</strong> — Implementar ações públicas de inbox: marcar como lida/não lida, iniciar resposta, guardar rascunho, enviar resposta textual e anexar razão estruturada quando aplicável.</li>
+<li><strong>US-F1-02-T07</strong> — Implementar ação de resposta que converte input humano em mensagem organizacional válida, preservando <code>ThreadId</code>, remetente, posição ocupada e auditoria.</li>
+<li><strong>US-F1-02-T08</strong> — Implementar fluxo de aprovação humana: resolver <code>ApprovalRequest</code>, validar aprovador autorizado pela política de §4.4 e gerar <code>ApprovalDecision</code> aprovado/rejeitado com razão opcional.</li>
+<li><strong>US-F1-02-T09</strong> — Rejeitar decisões não autorizadas, duplicadas, expiradas ou sem pedido correlacionado, devolvendo erro estruturado e evento de auditoria.</li>
+<li><strong>US-F1-02-T10</strong> — Expor prazos, lembretes, estado de expiração e substituição/delegação prevista, consumindo políticas existentes sem implementar ainda calendário avançado F3.</li>
+<li><strong>US-F1-02-T11</strong> — Implementar eventos SignalR/polling para novas mensagens, alterações de leitura/resposta, aprovações pendentes, decisões emitidas e prazos próximos.</li>
+<li><strong>US-F1-02-T12</strong> — Criar UI React + TypeScript de inbox com lista, detalhe, filtros, badges de prazo/prioridade, formulário de resposta e painel de aprovação/rejeição.</li>
+<li><strong>US-F1-02-T13</strong> — Criar testes de API/contrato para listagem, autorização por pessoa/posição, estado de leitura/resposta, geração de <code>ApprovalDecision</code> e rejeições de governança.</li>
+<li><strong>US-F1-02-T14</strong> — Criar testes de frontend para inbox vazia, mensagens atribuídas, resposta humana, aprovação autorizada, decisão não autorizada, prazos/lembretes e atualização em tempo real.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> a consola React + TypeScript mostra uma inbox humana consumindo apenas API pública, lista mensagens e aprovações atribuídas à pessoa/posição autorizada, permite responder e emitir <code>ApprovalDecision</code> apenas quando a política de governança permite, mostra prazos/lembretes, persiste estado de leitura/resposta, audita ações e rejeições, atualiza por SignalR ou polling e tem testes de API/contrato e frontend para caminhos autorizados e não autorizados.</p>
 </article>
 
 <h4>F1.2 — HumanProxy e conectores prioritários</h4>
@@ -1707,7 +1719,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.23): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.24): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

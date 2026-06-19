@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.20 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.21 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -116,6 +116,7 @@
 <tr><td>0.18</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-07</code> para gateway AI mínimo sobre <code>Microsoft.Extensions.AI</code>, provider stub/real, políticas, custos e auditoria</td></tr>
 <tr><td>0.19</td><td>2026-06-18</td><td>Detalhe das tarefas de <code>US-F0-08</code> para processamento de diretiva vertical pelo <code>AiAgentActor</code>, com contexto, loop limitado, interpretação e mensagens resultantes válidas</td></tr>
 <tr><td>0.20</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F0-09</code> para scheduler com <code>Akka.Quartz.Actor</code>, entrega de <code>Pulse</code> idempotente, persistência de entrega e recuperação após restart</td></tr>
+<tr><td>0.21</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F0-10</code> para vertical slice de triagem de bug, ligando submissão, diretiva, agente, gateway, persistência e auditoria ponta-a-ponta</td></tr>
 </tbody>
 </table>
 
@@ -958,11 +959,22 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li>Criar comando/API mínima para submeter bug de exemplo.</li>
-<li>Ligar fluxo <code>Directive → AiAgentActor → Report/Escalation</code>.</li>
-<li>Expor consulta simples do audit log por <code>ThreadId</code>.</li>
-<li>Adicionar teste end-to-end em ambiente local.</li>
+<li><strong>US-F0-10-T01</strong> — Definir payload mínimo de bug para o vertical slice: título, descrição, severidade reportada, origem, passos de reprodução, ambiente, anexos textuais opcionais e metadados de correlação.</li>
+<li><strong>US-F0-10-T02</strong> — Criar comando/API mínima para submeter bug de exemplo em ambiente local, sem depender de conectores F1 externos.</li>
+<li><strong>US-F0-10-T03</strong> — Mapear a entrada de bug para uma <code>Directive</code> canónica de triagem, com <code>OrganizationId</code>, posição de destino, <code>ThreadId</code>, <code>DirectiveId</code>, prioridade, contexto e critérios de conclusão.</li>
+<li><strong>US-F0-10-T04</strong> — Configurar no YAML/registry uma organização de Engenharia/Delivery com posição de triagem, ocupante <code>AiAgentActor</code>, prompt de triagem, provider stub e autoridade mínima para responder ou escalar.</li>
+<li><strong>US-F0-10-T05</strong> — Encaminhar a <code>Directive</code> para o <code>PositionActor</code> sharded da posição de triagem, validando routing vertical, persistência da inbox e aceitação idempotente.</li>
+<li><strong>US-F0-10-T06</strong> — Executar o fluxo <code>PositionActor → AiAgentActor → AiGateway stub</code>, montando contexto com diretiva, prompt, memória curta e ferramentas autorizadas.</li>
+<li><strong>US-F0-10-T07</strong> — Configurar cenários determinísticos no provider stub: bug triável com <code>Report</code>, bug com informação em falta, bug bloqueado por decisão externa e falha controlada do provider.</li>
+<li><strong>US-F0-10-T08</strong> — Converter a decisão do agente em <code>Report</code> de progresso/conclusão ou <code>Escalation</code> para bloqueio/decisão fora da alçada, mantendo <code>ReportKind</code> sem estado <code>Blocked</code>.</li>
+<li><strong>US-F0-10-T09</strong> — Persistir todos os eventos relevantes no audit log: submissão, criação da diretiva, aceitação pela posição, chamada ao gateway, decisão do agente, mensagem resultante e custos/latência.</li>
+<li><strong>US-F0-10-T10</strong> — Criar read model/consulta simples por <code>ThreadId</code> e <code>DirectiveId</code> para reconstruir a jornada ponta-a-ponta após restart.</li>
+<li><strong>US-F0-10-T11</strong> — Garantir que restart do host ou rebalance do cluster não duplica a diretiva, a chamada ao provider stub, o <code>Report</code>/<code>Escalation</code> nem eventos de auditoria.</li>
+<li><strong>US-F0-10-T12</strong> — Expor comando de demonstração/documentação curta para correr o vertical slice em Docker Compose 1 nó e 3 nós, com dados seed reproduzíveis.</li>
+<li><strong>US-F0-10-T13</strong> — Criar teste end-to-end local para o caminho feliz: bug submetido → diretiva persistida → agente responde com <code>Report</code> → audit log consultável após restart.</li>
+<li><strong>US-F0-10-T14</strong> — Criar testes end-to-end para caminhos alternativos: informação em falta, escalamento acionável, provider stub falha, reentrega/restart e rejeição de mensagem inválida.</li>
 </ul>
+<p><strong>Critério de conclusão:</strong> o vertical slice F0 corre em Docker Compose, carrega a organização de Engenharia/Delivery, aceita um bug de exemplo, cria uma <code>Directive</code> de triagem, processa-a por <code>PositionActor</code>/<code>AiAgentActor</code>/<code>AiGateway</code> stub, produz <code>Report</code> ou <code>Escalation</code> canónico, persiste e audita toda a jornada, permite consulta por <code>ThreadId</code>/<code>DirectiveId</code> após restart e tem testes end-to-end para sucesso, escalamento, falha e idempotência.</p>
 </article>
 </section>
 
@@ -1683,7 +1695,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.21): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.22): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

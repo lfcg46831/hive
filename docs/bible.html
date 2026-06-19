@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.24 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.25 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -120,6 +120,7 @@
 <tr><td>0.22</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-01</code> para organograma vivo read-only com API pública, estado de posições, React + TypeScript e atualizações por SignalR/polling</td></tr>
 <tr><td>0.23</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-02</code> para inbox humana, ações de resposta, aprovações por governança, prazos/lembretes, UI React e testes de autorização</td></tr>
 <tr><td>0.24</td><td>2026-06-19</td><td>Classificação inicial do esforço das tarefas da F0 em escala Fibonacci, com totais por user story</td></tr>
+<tr><td>0.25</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-06</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 </tbody>
 </table>
 
@@ -704,7 +705,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
 <tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
 <tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09</code>=8, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
-<tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=8, <code>T05</code>=8, <code>T06</code>=8, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=5, <code>T13</code>=8, <code>T14</code>=8</td><td><strong>91</strong></td></tr>
+<tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>91</strong></td></tr>
 <tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05</code>=8, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
 <tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=8, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>71</strong></td></tr>
 <tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=8, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>73</strong></td></tr>
@@ -869,17 +870,53 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-06-T01</strong> — Definir o contrato de identidade sharded do <code>PositionActor</code>: <code>OrganizationId</code>, <code>PositionId</code>, <code>entityId = OrganizationId/PositionId</code>, nome da entidade sharded e regras de serialização.</li>
 <li><strong>US-F0-06-T02</strong> — Modelar comandos internos do <code>PositionActor</code>: aceitar mensagem, abrir/atualizar tarefa, concluir tarefa, atualizar memória curta, alterar ocupante e pedir passivation.</li>
 <li><strong>US-F0-06-T03</strong> — Modelar eventos persistidos e snapshots: mensagem recebida, tarefa criada/atualizada/concluída, memória curta atualizada, ocupante alterado, mensagem despachada e posição passivada.</li>
-<li><strong>US-F0-06-T04</strong> — Configurar Akka.Cluster Sharding para <code>PositionActor</code>, incluindo extractor/resolver de entity id, roles de nó <code>agents</code>, estratégia de passivation e <em>remember entities</em> para posições com agenda ativa.</li>
-<li><strong>US-F0-06-T05</strong> — Configurar Akka.Persistence PostgreSQL para journal e snapshots do <code>PositionActor</code>, com serializers versionáveis para comandos, eventos e snapshots.</li>
-<li><strong>US-F0-06-T06</strong> — Implementar recuperação por replay/snapshot para reconstruir inbox, tarefas em curso, memória curta, histórico recente, ocupante atual e ids de mensagens já processadas.</li>
+<li><strong>US-F0-06-T04</strong> — Configurar Akka.Cluster Sharding para <code>PositionActor</code>, incluindo extractor/resolver de entity id, roles de nó <code>agents</code>, estratégia de passivation e <em>remember entities</em> para posições com agenda ativa.
+<ul>
+<li><strong>US-F0-06-T04a</strong> — Definir entity type, <code>entityId</code>, shard message extractor/resolver e convenções de serialização para mensagens sharded.</li>
+<li><strong>US-F0-06-T04b</strong> — Inicializar Cluster Sharding nos hosts com role <code>agents</code>, garantindo nomes estáveis de entidade e arranque idempotente.</li>
+<li><strong>US-F0-06-T04c</strong> — Configurar passivation inicial e <em>remember entities</em> apenas para posições com agenda/subscrição ativa.</li>
+</ul>
+</li>
+<li><strong>US-F0-06-T05</strong> — Configurar Akka.Persistence PostgreSQL para journal e snapshots do <code>PositionActor</code>, com serializers versionáveis para comandos, eventos e snapshots.
+<ul>
+<li><strong>US-F0-06-T05a</strong> — Configurar plugins de journal/snapshot PostgreSQL, connection strings, tabelas/migrations iniciais e health check de persistência.</li>
+<li><strong>US-F0-06-T05b</strong> — Ligar serializers versionáveis a comandos, eventos e snapshots do <code>PositionActor</code>, sem serialização .NET por omissão.</li>
+<li><strong>US-F0-06-T05c</strong> — Criar smoke check local que persiste e recupera um evento/snapshot mínimo do <code>PositionActor</code>.</li>
+</ul>
+</li>
+<li><strong>US-F0-06-T06</strong> — Implementar recuperação por replay/snapshot para reconstruir inbox, tarefas em curso, memória curta, histórico recente, ocupante atual e ids de mensagens já processadas.
+<ul>
+<li><strong>US-F0-06-T06a</strong> — Definir o estado recuperável do <code>PositionActor</code> e o reducer de eventos para inbox, tarefas, memória curta, histórico, ocupante e mensagens processadas.</li>
+<li><strong>US-F0-06-T06b</strong> — Implementar replay e restore por snapshot com reconstrução determinística do estado antes de aceitar novas mensagens.</li>
+<li><strong>US-F0-06-T06c</strong> — Validar no arranque que ids já processados e tarefas abertas são restaurados sem duplicar trabalho após restart.</li>
+</ul>
+</li>
 <li><strong>US-F0-06-T07</strong> — Implementar aceitação idempotente de mensagens usando <code>MessageId</code>/<code>ThreadId</code>, rejeitando duplicados sem duplicar eventos, trabalho ou auditoria.</li>
 <li><strong>US-F0-06-T08</strong> — Carregar configuração da posição a partir do registry no arranque/reativação e validar que a versão da configuração é compatível com o estado persistido.</li>
 <li><strong>US-F0-06-T09</strong> — Encaminhar mensagens aceites para o ocupante atual (<code>AiAgentActor</code> ou <code>HumanProxyActor</code>), mantendo inbox, tarefas e histórico como estado da posição.</li>
 <li><strong>US-F0-06-T10</strong> — Publicar eventos de audit/read model apenas depois de persistência confirmada, incluindo recuperação, reativação e rejeições por duplicado ou configuração inválida.</li>
-<li><strong>US-F0-06-T11</strong> — Implementar passivation segura para posições inativas, garantindo que mensagens persistidas, tarefas abertas e posições com agenda/subscrição ativa não se perdem nem ficam inacessíveis.</li>
+<li><strong>US-F0-06-T11</strong> — Implementar passivation segura para posições inativas, garantindo que mensagens persistidas, tarefas abertas e posições com agenda/subscrição ativa não se perdem nem ficam inacessíveis.
+<ul>
+<li><strong>US-F0-06-T11a</strong> — Definir critérios de inatividade e guard rails que impedem passivation de posições com tarefas críticas ou entrega pendente.</li>
+<li><strong>US-F0-06-T11b</strong> — Implementar protocolo de passivation com drain/stash de mensagens em voo e persistência confirmada antes de parar a entidade.</li>
+<li><strong>US-F0-06-T11c</strong> — Validar reativação por mensagem, schedule ou subscrição sem perda de endereçabilidade via Cluster Sharding.</li>
+</ul>
+</li>
 <li><strong>US-F0-06-T12</strong> — Criar testes unitários para transições de estado, idempotência, aplicação de eventos, snapshots, validação de configuração e troca de ocupante.</li>
-<li><strong>US-F0-06-T13</strong> — Criar testes de integração com PostgreSQL para restart, replay completo, restore por snapshot, compatibilidade de serialização e reentrega de mensagens.</li>
-<li><strong>US-F0-06-T14</strong> — Criar testes multi-nó para sharding, rebalance, passivation/reativação, routing por <code>entityId</code> e sobrevivência a restart de nó.</li>
+<li><strong>US-F0-06-T13</strong> — Criar testes de integração com PostgreSQL para restart, replay completo, restore por snapshot, compatibilidade de serialização e reentrega de mensagens.
+<ul>
+<li><strong>US-F0-06-T13a</strong> — Testar restart com replay completo e restore por snapshot para inbox, tarefas, memória curta e histórico recente.</li>
+<li><strong>US-F0-06-T13b</strong> — Testar compatibilidade de serialização com fixtures versionadas de eventos e snapshots persistidos.</li>
+<li><strong>US-F0-06-T13c</strong> — Testar reentrega de mensagens com <code>MessageId</code>/<code>ThreadId</code> persistidos, confirmando idempotência após restart.</li>
+</ul>
+</li>
+<li><strong>US-F0-06-T14</strong> — Criar testes multi-nó para sharding, rebalance, passivation/reativação, routing por <code>entityId</code> e sobrevivência a restart de nó.
+<ul>
+<li><strong>US-F0-06-T14a</strong> — Criar fixture multi-nó com roles, Cluster Sharding e entidades <code>PositionActor</code> distribuídas por <code>entityId</code>.</li>
+<li><strong>US-F0-06-T14b</strong> — Testar routing por <code>entityId</code> e rebalance entre nós sem duplicação de entidade ativa.</li>
+<li><strong>US-F0-06-T14c</strong> — Testar passivation/reativação e sobrevivência a restart de nó com estado recuperado e mensagens não duplicadas.</li>
+</ul>
+</li>
 </ul>
 <p><strong>Critério de conclusão:</strong> o <code>PositionActor</code> corre como entidade sharded por <code>OrganizationId/PositionId</code>, persiste e recupera inbox, tarefas, memória curta e histórico, aceita mensagens de forma idempotente, sobrevive a restart/rebalance/passivation sem perda de estado, publica auditoria/read models depois da persistência e tem testes unitários, integração PostgreSQL e multi-nó para os caminhos críticos.</p>
 </article>
@@ -1742,7 +1779,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.25): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.26): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

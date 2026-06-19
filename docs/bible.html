@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.28 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.29 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -124,6 +124,7 @@
 <tr><td>0.26</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-09</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 <tr><td>0.27</td><td>2026-06-19</td><td>Adição da regra operacional de decomposição de tarefas por esforço Fibonacci em subsecção própria do roadmap</td></tr>
 <tr><td>0.28</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-10</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
+<tr><td>0.29</td><td>2026-06-19</td><td>Normalização da F0 pela regra 12.1, decompondo todas as tarefas restantes de esforço 8 e preservando totais</td></tr>
 </tbody>
 </table>
 
@@ -715,11 +716,11 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><code>US-F0-01</code></td><td><code>T01</code>=1, <code>T02</code>=2, <code>T03</code>=2, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=2, <code>T10</code>=5, <code>T11</code>=1, <code>T12</code>=2</td><td><strong>31</strong></td></tr>
 <tr><td><code>US-F0-02</code></td><td><code>T01</code>=3, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=1, <code>T11</code>=1, <code>T12</code>=5</td><td><strong>34</strong></td></tr>
 <tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
-<tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
-<tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09</code>=8, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
+<tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
+<tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09a</code>=3, <code>T09b</code>=3, <code>T09c</code>=2, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
 <tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>91</strong></td></tr>
-<tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05</code>=8, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
-<tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=8, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>71</strong></td></tr>
+<tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
+<tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=5, <code>T09</code>=5, <code>T10a</code>=3, <code>T10b</code>=3, <code>T10c</code>=2, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>71</strong></td></tr>
 <tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=3, <code>T03b</code>=3, <code>T03c</code>=2, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>73</strong></td></tr>
 <tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>66</strong></td></tr>
 <tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>580</strong></td></tr>
@@ -830,7 +831,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-04-T04</strong> — Implementar validador para diretivas descendentes, aceitando apenas superior direto → subordinado direto.</li>
 <li><strong>US-F0-04-T05</strong> — Implementar validador para relatórios ascendentes, aceitando apenas subordinado direto → superior direto.</li>
 <li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios, decisões fora da alçada e o caso de topo sem superior direto.</li>
-<li><strong>US-F0-04-T07</strong> — Implementar validador para <code>ApprovalRequest</code>/<code>ApprovalDecision</code>, incluindo resolução de aprovador autorizado, correlação com o pedido original e rejeição de decisões duplicadas, expiradas ou não autorizadas.</li>
+<li><strong>US-F0-04-T07</strong> — Implementar validador para <code>ApprovalRequest</code>/<code>ApprovalDecision</code>, incluindo resolução de aprovador autorizado, correlação com o pedido original e rejeição de decisões duplicadas, expiradas ou não autorizadas.
+<ul>
+<li><strong>US-F0-04-T07a</strong> — Resolver o aprovador autorizado a partir da política de autoridade, requerente, destino, tipo de aprovação e contexto organizacional.</li>
+<li><strong>US-F0-04-T07b</strong> — Validar <code>ApprovalRequest</code> e <code>ApprovalDecision</code> contra correlação, estado do pedido original, expiração e permissões do aprovador.</li>
+<li><strong>US-F0-04-T07c</strong> — Rejeitar decisões duplicadas, expiradas ou não autorizadas com razão estruturada reutilizável pela auditoria.</li>
+</ul>
+</li>
 <li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, política aplicada e <code>ThreadId</code>.</li>
 <li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
 <li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
@@ -860,7 +867,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-05-T06</strong> — Validar referências cruzadas: liderança da unidade, superior direto, liderança da raiz, <code>OrganizationOwner</code>, posição ocupada, prompt referenciada, schedules e ferramentas autorizadas.</li>
 <li><strong>US-F0-05-T07</strong> — Validar regras estruturais: cada unidade, incluindo a unidade raiz, tem exatamente uma posição de liderança, não há ciclos na árvore organizacional e todas as posições pertencem a uma unidade.</li>
 <li><strong>US-F0-05-T08</strong> — Criar organização exemplo de Engenharia/Delivery com unidades, posições, prompts, autoridade e schedules mínimos para o vertical slice F0.</li>
-<li><strong>US-F0-05-T09</strong> — Implementar import idempotente que materializa a configuração validada no registry/read model.</li>
+<li><strong>US-F0-05-T09</strong> — Implementar import idempotente que materializa a configuração validada no registry/read model.
+<ul>
+<li><strong>US-F0-05-T09a</strong> — Calcular versão/hash da configuração validada e plano determinístico de alterações para o registry/read model.</li>
+<li><strong>US-F0-05-T09b</strong> — Aplicar upserts transacionais para unidades, posições, ocupantes, autoridade, schedules e relações de comando.</li>
+<li><strong>US-F0-05-T09c</strong> — Validar que reimportar a mesma configuração não cria duplicados nem altera timestamps funcionais desnecessariamente.</li>
+</ul>
+</li>
 <li><strong>US-F0-05-T10</strong> — Persistir registry/read model em PostgreSQL com versão da configuração, hash/fingerprint e timestamp de import.</li>
 <li><strong>US-F0-05-T11</strong> — Expor API interna read-only para consultar organização, unidades, posições, relações de comando e configuração de posição.</li>
 <li><strong>US-F0-05-T12</strong> — Criar testes para YAML válido, YAML inválido, referências quebradas, ciclos, liderança em falta/duplicada, liderança raiz ausente, <code>OrganizationOwner</code> ausente e import idempotente.</li>
@@ -949,7 +962,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-07-T02</strong> — Criar serviço/ator <code>AiGateway</code> como fronteira única entre agentes HIVE e <code>Microsoft.Extensions.AI</code>, sem expor SDKs concretos ao domínio.</li>
 <li><strong>US-F0-07-T03</strong> — Mapear configuração de AI da posição a partir do registry: provider, modelo, parâmetros, timeout, modo de processamento, fallback declarado para futuro e limites de custo/chamadas.</li>
 <li><strong>US-F0-07-T04</strong> — Implementar provider stub determinístico compatível com o contrato do gateway, com respostas configuráveis para sucesso, erro, timeout, custo/tokens e tool-call simulado.</li>
-<li><strong>US-F0-07-T05</strong> — Implementar adapter inicial para um provider real configurável via <code>Microsoft.Extensions.AI</code>, mantendo chaves/segredos fora do domínio e carregados por configuração segura.</li>
+<li><strong>US-F0-07-T05</strong> — Implementar adapter inicial para um provider real configurável via <code>Microsoft.Extensions.AI</code>, mantendo chaves/segredos fora do domínio e carregados por configuração segura.
+<ul>
+<li><strong>US-F0-07-T05a</strong> — Definir binding de configuração segura, factory do provider e separação entre segredos, parâmetros de modelo e defaults da posição.</li>
+<li><strong>US-F0-07-T05b</strong> — Implementar adapter real sobre <code>Microsoft.Extensions.AI</code>, mapeando request, resposta, erro, timeout e cancellation para contratos HIVE.</li>
+<li><strong>US-F0-07-T05c</strong> — Tornar o provider real opcional na suite default, com ativação explícita por configuração local e sem dependência obrigatória de rede externa.</li>
+</ul>
+</li>
 <li><strong>US-F0-07-T06</strong> — Normalizar mensagens de entrada para o formato esperado pelo provider: system prompt, histórico permitido, conteúdo da diretiva, ferramentas autorizadas e parâmetros do modelo.</li>
 <li><strong>US-F0-07-T07</strong> — Normalizar respostas do provider para uma resposta HIVE estável, incluindo texto, tool calls, finish reason, uso de tokens, metadados de custo quando disponíveis e conteúdo bruto redatável para auditoria.</li>
 <li><strong>US-F0-07-T08</strong> — Aplicar políticas antes da chamada: provider/modelo autorizado para a posição, budget disponível, máximo de tokens, timeout, modo interativo/batch permitido e ferramentas autorizadas.</li>
@@ -980,14 +999,32 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-08-T04</strong> — Montar contexto de execução com prompt de identidade, diretiva, memória curta relevante, histórico recente permitido, políticas da posição, ferramentas autorizadas e relações organizacionais necessárias.</li>
 <li><strong>US-F0-08-T05</strong> — Criar prompt/template inicial para triagem de bugs, exigindo saída estruturada que indique intenção: <code>Report</code>, <code>Escalation</code> ou <code>Directive</code> descendente permitida.</li>
 <li><strong>US-F0-08-T06</strong> — Invocar o <code>AiGateway</code> com contrato assíncrono, propagando correlation id, cancellation token, timeout, budget disponível, limites de tokens e máximo de iterações.</li>
-<li><strong>US-F0-08-T07</strong> — Implementar interpretação estrita da resposta do provider para uma decisão HIVE tipada, rejeitando ou escalando respostas vazias, malformadas, ambíguas ou fora do schema esperado.</li>
+<li><strong>US-F0-08-T07</strong> — Implementar interpretação estrita da resposta do provider para uma decisão HIVE tipada, rejeitando ou escalando respostas vazias, malformadas, ambíguas ou fora do schema esperado.
+<ul>
+<li><strong>US-F0-08-T07a</strong> — Definir schema de saída do agente e tipos de decisão HIVE aceites para <code>Report</code>, <code>Escalation</code> e <code>Directive</code> descendente.</li>
+<li><strong>US-F0-08-T07b</strong> — Implementar parser/validador estrito que transforma respostas válidas em decisão tipada e rejeita respostas vazias, malformadas ou ambíguas.</li>
+<li><strong>US-F0-08-T07c</strong> — Mapear falhas de interpretação para erro estruturado ou escalamento, com razão auditável e sem emitir mensagem organizacional inválida.</li>
+</ul>
+</li>
 <li><strong>US-F0-08-T08</strong> — Converter decisões válidas em mensagens organizacionais canónicas: <code>Report</code> com <code>ReportKind</code> <code>Progress</code>/<code>Done</code>, <code>Escalation</code> para bloqueios/decisões fora da alçada, ou <code>Directive</code> apenas para subordinado direto permitido.</li>
 <li><strong>US-F0-08-T09</strong> — Aplicar validação de routing e autoridade antes de emitir qualquer mensagem resultante, reutilizando as regras de <code>US-F0-04</code> e rejeitando saltos de nível ou aprovações implícitas.</li>
-<li><strong>US-F0-08-T10</strong> — Implementar loop agêntico limitado para tool calls ou pedidos de nova inferência, executando apenas ferramentas autorizadas, registando cada iteração e parando por conclusão, timeout, budget ou máximo de iterações.</li>
+<li><strong>US-F0-08-T10</strong> — Implementar loop agêntico limitado para tool calls ou pedidos de nova inferência, executando apenas ferramentas autorizadas, registando cada iteração e parando por conclusão, timeout, budget ou máximo de iterações.
+<ul>
+<li><strong>US-F0-08-T10a</strong> — Definir estado de iteração, limites de execução, condições de paragem e tipos de tool call permitidos no vertical slice F0.</li>
+<li><strong>US-F0-08-T10b</strong> — Implementar execução de tool calls ou nova inferência apenas quando autorizadas pela posição e pelo budget disponível.</li>
+<li><strong>US-F0-08-T10c</strong> — Auditar cada iteração e parar de forma determinística por conclusão, timeout, budget excedido ou máximo de iterações.</li>
+</ul>
+</li>
 <li><strong>US-F0-08-T11</strong> — Atualizar memória curta e estado de tarefa através do <code>PositionActor</code> após resultado aceite, garantindo que o estado recuperável continua a pertencer à posição.</li>
 <li><strong>US-F0-08-T12</strong> — Emitir auditoria estruturada para contexto usado, chamada ao gateway, decisão interpretada, mensagens produzidas, limites aplicados e razões de escalamento/falha, respeitando redaction.</li>
 <li><strong>US-F0-08-T13</strong> — Criar testes unitários com provider stub para montagem de contexto, prompt de triagem, interpretação de respostas, limites de iteração/budget/timeout, routing inválido e outputs malformados.</li>
-<li><strong>US-F0-08-T14</strong> — Criar testes de integração para o fluxo <code>Directive → PositionActor → AiAgentActor → AiGateway stub → Report/Escalation/Directive</code>, validando persistência de estado, auditoria e correlação por <code>ThreadId</code>/<code>DirectiveId</code>.</li>
+<li><strong>US-F0-08-T14</strong> — Criar testes de integração para o fluxo <code>Directive → PositionActor → AiAgentActor → AiGateway stub → Report/Escalation/Directive</code>, validando persistência de estado, auditoria e correlação por <code>ThreadId</code>/<code>DirectiveId</code>.
+<ul>
+<li><strong>US-F0-08-T14a</strong> — Criar fixture de integração com <code>PositionActor</code>, <code>AiAgentActor</code> e <code>AiGateway</code> stub configurável por cenário.</li>
+<li><strong>US-F0-08-T14b</strong> — Testar caminhos válidos para <code>Report</code>, <code>Escalation</code> e <code>Directive</code> descendente, validando persistência e auditoria.</li>
+<li><strong>US-F0-08-T14c</strong> — Testar output inválido, routing rejeitado e recuperação por restart, confirmando correlação por <code>ThreadId</code>/<code>DirectiveId</code>.</li>
+</ul>
+</li>
 </ul>
 <p><strong>Critério de conclusão:</strong> o <code>AiAgentActor</code> processa uma <code>Directive</code> vertical através do <code>AiGateway</code>, monta contexto controlado, respeita limites de iteração/timeout/budget, interpreta respostas em mensagens organizacionais canónicas, valida routing/autoridade antes de emitir resultados, atualiza estado persistido via <code>PositionActor</code>, audita a jornada e tem testes unitários e integração para sucesso, escalamento, erro e rejeição de output inválido.</p>
 </article>
@@ -1827,7 +1864,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.29): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.30): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.26 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.27 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -122,6 +122,7 @@
 <tr><td>0.24</td><td>2026-06-19</td><td>Classificação inicial do esforço das tarefas da F0 em escala Fibonacci, com totais por user story</td></tr>
 <tr><td>0.25</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-06</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
 <tr><td>0.26</td><td>2026-06-19</td><td>Decomposição das tarefas de esforço 8 da <code>US-F0-09</code> em subtarefas menores, mantendo a estimativa total da user story</td></tr>
+<tr><td>0.27</td><td>2026-06-19</td><td>Adição da regra operacional de decomposição de tarefas por esforço Fibonacci em subsecção própria do roadmap</td></tr>
 </tbody>
 </table>
 
@@ -679,6 +680,15 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td><strong>F3 — Maturidade</strong></td><td>Plataforma</td><td>Editor visual da organização, marketplace de conectores, métricas avançadas, reuniões de equipa, substituições/férias, billing/licenciamento, isolamento multi-tenant forte</td></tr>
 </tbody>
 </table>
+
+<h3>12.1 Regra de estimativa e decomposição</h3>
+<p>Regra operacional para classificar e decompor tarefas estimadas com escala Fibonacci:</p>
+<ul>
+<li><code>1</code>–<code>3</code>: tarefa implementável diretamente.</li>
+<li><code>5</code>: aceitável se tiver critério de aceitação claro.</li>
+<li><code>8</code>: dividir em subtarefas técnicas ou validações separadas.</li>
+<li><code>13</code>: não entra no sprint/fase sem virar user story/subfase própria.</li>
+</ul>
 
 <div class="phase-tabs" id="roadmap-phase-tabs">
 <div class="phase-tab-list" role="tablist" aria-label="Detalhe por fase">
@@ -1798,7 +1808,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.27): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.28): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

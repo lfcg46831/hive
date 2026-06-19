@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.23 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.24 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -119,6 +119,7 @@
 <tr><td>0.21</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F0-10</code> para vertical slice de triagem de bug, ligando submissão, diretiva, agente, gateway, persistência e auditoria ponta-a-ponta</td></tr>
 <tr><td>0.22</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-01</code> para organograma vivo read-only com API pública, estado de posições, React + TypeScript e atualizações por SignalR/polling</td></tr>
 <tr><td>0.23</td><td>2026-06-19</td><td>Detalhe das tarefas de <code>US-F1-02</code> para inbox humana, ações de resposta, aprovações por governança, prazos/lembretes, UI React e testes de autorização</td></tr>
+<tr><td>0.24</td><td>2026-06-19</td><td>Classificação inicial do esforço das tarefas da F0 em escala Fibonacci, com totais por user story</td></tr>
 </tbody>
 </table>
 
@@ -689,6 +690,28 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <h3>F0 — Núcleo</h3>
 <p><strong>Objetivo:</strong> provar o núcleo distribuído para Engenharia/Delivery num ambiente local reproduzível, com cluster Akka real, persistência PostgreSQL, organização em YAML/GitOps, mensagens verticais, scheduler e um primeiro agente AI.</p>
 <p><strong>Critério de saída:</strong> um utilizador consegue correr o sistema em Docker Compose, carregar uma organização de delivery a partir de YAML, enviar uma diretiva de triagem para uma posição sharded, obter relatório auditado, e observar o estado persistido após restart.</p>
+
+<h4>F0.0 — Estimativa inicial de esforço</h4>
+<p>Escala Fibonacci relativa para tarefas da F0: <code>1</code> trivial/repetível, <code>2</code> pequeno, <code>3</code> médio, <code>5</code> complexo, <code>8</code> muito complexo ou integrador, <code>13</code> grande demais para a fase atual e deve ser dividido antes de implementação.</p>
+
+<table>
+<thead>
+<tr><th>User story</th><th>Esforço por tarefa</th><th>Total</th></tr>
+</thead>
+<tbody>
+<tr><td><code>US-F0-01</code></td><td><code>T01</code>=1, <code>T02</code>=2, <code>T03</code>=2, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=2, <code>T10</code>=5, <code>T11</code>=1, <code>T12</code>=2</td><td><strong>31</strong></td></tr>
+<tr><td><code>US-F0-02</code></td><td><code>T01</code>=3, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=1, <code>T11</code>=1, <code>T12</code>=5</td><td><strong>34</strong></td></tr>
+<tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
+<tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
+<tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09</code>=8, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
+<tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=8, <code>T05</code>=8, <code>T06</code>=8, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=5, <code>T13</code>=8, <code>T14</code>=8</td><td><strong>91</strong></td></tr>
+<tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05</code>=8, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
+<tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=8, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=8, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>71</strong></td></tr>
+<tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=8, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>73</strong></td></tr>
+<tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06</code>=8, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=8, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=8</td><td><strong>66</strong></td></tr>
+<tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>580</strong></td></tr>
+</tbody>
+</table>
 
 <h4>F0.1 — Fundação do runtime e ambiente local</h4>
 <article>
@@ -1719,7 +1742,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.24): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.25): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

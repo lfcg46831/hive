@@ -26,8 +26,11 @@
 # Scope kept deliberately narrow; later tasks layer on top of these same nodes:
 #   * US-F0-02-T05  distinct roles per node (here every node keeps its image
 #                   default role, so the three are interchangeable api nodes).
-#   * US-F0-02-T08  Docker health checks for the nodes.
 #   * US-F0-02-T09  readiness gated on mandatory configuration.
+#
+# Health checks (US-F0-02-T08): the seed `api` inherits the base node liveness
+# check (curl `/health/live`) by compose merge; the two added nodes declare the
+# identical check below so every HIVE node in the cluster is probed the same way.
 
 services:
   # Promote the base single node into the cluster seed. The hostname must be the
@@ -53,6 +56,13 @@ services:
       hive-net:
         aliases:
           - api2
+    # Same node liveness check as the base `api` (US-F0-02-T08).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
       - postgres
       - api
@@ -70,6 +80,13 @@ services:
       hive-net:
         aliases:
           - api3
+    # Same node liveness check as the base `api` (US-F0-02-T08).
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     depends_on:
       - postgres
       - api

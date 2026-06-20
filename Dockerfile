@@ -52,6 +52,15 @@ FROM mcr.microsoft.com/dotnet/aspnet:${DOTNET_VERSION} AS final
 ARG APP_DLL=Hive.Api.dll
 ENV APP_DLL=${APP_DLL}
 WORKDIR /app
+
+# Install a minimal HTTP client for the Docker Compose health checks (US-F0-02-T08).
+# The aspnet base image ships without curl/wget, but the node health check has to
+# probe the HTTP /health endpoints (§11.1), so curl is added here. Done before the
+# publish copy so the layer is cached independently of application changes.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/publish ./
 
 # -----------------------------------------------------------------------------

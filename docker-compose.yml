@@ -8,10 +8,19 @@
 # Deliberately layered on by later tasks, so they are kept out of this base file:
 #   * US-F0-02-T04  three-node cluster via a compose override/profile.
 #   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
-#   * US-F0-02-T08  Docker health checks for PostgreSQL and HIVE nodes.
 #   * US-F0-02-T09  readiness gated on mandatory configuration being loaded.
 #   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
 #                   self-contained base.
+#
+# Health checks (US-F0-02-T08)
+# ----------------------------
+# Each container declares a Docker health check so the orchestrator can tell a
+# live container from a broken one. PostgreSQL uses `pg_isready` (shipped in the
+# image) to confirm the server accepts connections; the HIVE node probes its own
+# liveness endpoint `/health/live` (§11.1) with curl (added to the runtime image
+# in the Dockerfile for this purpose). This task adds the LIVENESS-level checks
+# only; gating readiness on mandatory configuration (probing `/health/ready`) and
+# wiring `depends_on` start-up ordering on these checks is US-F0-02-T09.
 #
 # Persistence (US-F0-02-T07)
 # --------------------------
@@ -66,6 +75,15 @@ services:
       hive-net:
         aliases:
           - postgres
+    # Liveness check (US-F0-02-T08): the server accepts connections. `pg_isready`
+    # ships in the postgres image; `$$` escapes the variable so Compose passes it
+    # through and it expands to the container's POSTGRES_USER/DB at runtime.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   # Single HIVE node: the Hive.Api host (default Dockerfile target). It serves
   # /health and /diagnostics on 8080 and self-seeds a one-node cluster. The
@@ -89,6 +107,17 @@ services:
       hive-net:
         aliases:
           - api
+    # Liveness check (US-F0-02-T08): the node's process is alive and serving. It
+    # probes the `/health/live` endpoint (§11.1) on the in-container HTTP port
+    # 8080 with curl (added to the runtime image in the Dockerfile). `-f` makes
+    # curl exit non-zero on a 5xx (the `live` tag returns 503 when unhealthy), so
+    # the container is marked unhealthy. Readiness gating is layered in T09.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
     # Optional local logs (US-F0-02-T07): the host logs structured JSON to stdout
     # (collected by Compose), so no log directory is mounted by default. To keep
     # logs on a managed volume — e.g. once a file sink exists — uncomment the

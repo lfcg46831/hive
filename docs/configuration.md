@@ -88,13 +88,31 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-The base file declares an explicit internal network and port policy (US-F0-02-T06, see below) and a named persistent PostgreSQL volume (US-F0-02-T07, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10).
+The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), and Docker health checks for PostgreSQL and the HIVE node (US-F0-02-T08, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10).
 
 ### Persistent storage
 
 PostgreSQL stores its data directory in the named volume `hive-pgdata` (mounted at `/var/lib/postgresql/data`), declared in the base `docker-compose.yml` (US-F0-02-T07). This replaces the image's implicit anonymous volume so the backing store survives container recreation and `docker compose down`, and is a named, inspectable target (`docker volume inspect <project>_hive-pgdata`). The data is removed only by an explicit `docker compose down -v` (or `docker volume rm`). The same volume backs every F0 subsystem (journal/snapshots, registry, audit log, read models, budgets, scheduler idempotency), since they share one database.
 
 A second named volume for local logs is defined but kept optional and disabled by default: both hosts emit structured JSON to stdout (collected by Compose, see Logging above), so there is no on-disk log path to persist. The `hive-logs` volume and its mount on the `api` service are left commented in the base file, ready to enable if a file log sink is ever added.
+
+### Health checks
+
+Every container in the base `docker-compose.yml` declares a Docker health check (US-F0-02-T08) so the orchestrator can distinguish a live container from a broken one and surface it as `healthy`/`unhealthy` in `docker compose ps`.
+
+| Service | Check | How |
+| --- | --- | --- |
+| `postgres` | Server accepts connections | `pg_isready` (ships in the image), run against `127.0.0.1` with the container's `POSTGRES_USER`/`POSTGRES_DB`. |
+| `api` (and `api2`/`api3`) | Node process is alive and serving | `curl -fsS http://127.0.0.1:8080/health/live`, the `live` endpoint from §11.1. `-f` makes curl fail on the 503 the endpoint returns when unhealthy. |
+
+All checks use the same cadence: `interval: 10s`, `timeout: 5s`, `retries: 5`, with a `start_period` grace (30s for PostgreSQL, 40s for the node to cover .NET cold start) during which failures don't count against the container. The runtime image installs `curl` (the aspnet base ships no HTTP client) precisely so the node check can probe its own HTTP endpoint. The three-node override gives the added nodes (`api2`, `api3`) the identical node check; the seed `api` inherits the base one by compose merge.
+
+This task adds liveness-level checks only. Gating a node's reported health on mandatory configuration being loaded — probing `/health/ready` and wiring `depends_on` start-up ordering on these checks — is US-F0-02-T09.
+
+```powershell
+# After `docker compose up`, watch health status resolve to healthy:
+docker compose ps
+```
 
 ### Three-node cluster
 

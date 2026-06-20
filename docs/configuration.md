@@ -195,6 +195,24 @@ docker compose down --volumes --remove-orphans
 docker compose -f docker-compose.yml -f docker-compose.cluster.yml down --volumes --remove-orphans
 ```
 
+### Local stack smoke check
+
+After the selected topology is running and its containers have become healthy, run the non-mutating smoke check from the repository root. The command validates the resolved node count, Docker health for PostgreSQL and every expected HIVE node, PostgreSQL connectivity through `pg_isready`, and API readiness over HTTP. It does not start, stop, rebuild, or clean the stack.
+
+One-node topology:
+
+```powershell
+./scripts/Test-LocalStack.ps1 -ExpectedNodes 1
+```
+
+Three-node topology:
+
+```powershell
+./scripts/Test-LocalStack.ps1 -ExpectedNodes 3
+```
+
+The command exits `0` only when every check passes and exits non-zero with the failed invariant otherwise. Pass the node count matching the Compose file set used to start the environment.
+
 The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below), and the local environment-variable contract from `.env.example` (US-F0-02-T10). Per-service roles remain optional through the `docker-compose.roles.yml` override (US-F0-02-T05).
 
 ### Persistent storage

@@ -56,3 +56,6 @@ CodeCoverage/
 TestResult.xml
 nunit-*.xml
 .vs/
+
+# Local Git worktrees
+.worktrees/

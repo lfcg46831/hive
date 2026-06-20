@@ -58,3 +58,29 @@ HIVE__NODE__ROLES__3=connectors
 At least one role is required. Values are recognized after `Trim` with case-insensitive comparison, but the bound values are not rewritten. Empty entries, unknown values, and duplicates after trimming and case-insensitive comparison stop host startup with an error that identifies `Hive:Node:Roles` and the offending values.
 
 T05 binds and validates roles only. Applying roles to Akka.Cluster and activating matching workloads belongs to US-F0-01-T06.
+
+## Cluster
+
+The `IRoleWorkload` seam and the `Hive:Cluster`/`ActorSystem` contract are defined in `docs/bible.html` (§5.10). This section is the operational reference for configuring the cluster binding.
+
+The `ActorSystem` is named `hive`; seed-node URIs depend on this name. The `Hive:Cluster` section configures the cluster connection:
+
+```jsonc
+"Hive": {
+  "Cluster": {
+    "Hostname": "",
+    "Port": 0,
+    "SeedNodes": []
+  }
+}
+```
+
+When `SeedNodes` is empty the node self-seeds and forms a single-node cluster, which lets either executable start standalone. Multi-node topologies (US-F0-02) supply hostname, port, and seed nodes through the standard .NET hierarchical environment variables:
+
+```text
+HIVE__CLUSTER__HOSTNAME=node-a
+HIVE__CLUSTER__PORT=8081
+HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@node-a:8081
+```
+
+The cluster roles mirror `Hive:Node:Roles`; the host starts only the `IRoleWorkload` implementations whose role the node declares and stops them in reverse order.

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.51 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.52 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -147,6 +147,7 @@
 <tr><td>0.49</td><td>2026-06-20</td><td>Definição do contrato de identidade de <code>US-F0-03-T01</code>: identificadores estruturais legíveis baseados em <code>string</code>, identificadores de mensagens distribuídos baseados em <code>Guid</code>, validação explícita e ausência de conversões implícitas</td></tr>
 <tr><td>0.50</td><td>2026-06-20</td><td>Definição do contrato de referências de endpoint de <code>US-F0-03-T02</code>: envelope baseado em <code>EndpointRef</code> tipado para posições, <code>OrganizationOwner</code> e endpoints de sistema, com matriz explícita de combinações permitidas por mensagem</td></tr>
 <tr><td>0.51</td><td>2026-06-21</td><td>Clarificação da dependência entre <code>US-F0-03-T02</code> e <code>T03</code>: <code>Priority</code> permanece propriedade de <code>T03</code>, mas é implementada primeiro em <code>T03a</code> para desbloquear o envelope; os restantes tipos partilhados ficam em <code>T03b</code></td></tr>
+<tr><td>0.52</td><td>2026-06-21</td><td>Definição do contrato fechado de <code>Priority</code>: níveis <code>Low</code>, <code>Normal</code>, <code>High</code> e <code>Critical</code>, ordenação explícita, representação wire textual, validação de valores desconhecidos e separação da política de mailbox Akka</td></tr>
 </tbody>
 </table>
 
@@ -789,7 +790,41 @@ enum SystemEndpointKind
 </tbody>
 </table>
 
-<h3>9.3 Taxonomia canónica</h3>
+<h3>9.3 Prioridade das mensagens <em>(contrato)</em></h3>
+
+<p><code>Priority</code> é um conjunto fechado de quatro níveis organizacionais. Não aceita um número arbitrário nem expõe uma escala configurável por organização, para que produtores, consumidores, UI, conectores e eventos persistidos partilhem a mesma semântica.</p>
+
+<pre><code class="language-csharp">enum Priority
+{
+    Low = 1,
+    Normal = 2,
+    High = 3,
+    Critical = 4
+}</code></pre>
+
+<table>
+<thead>
+<tr><th>Nível</th><th>Valor wire canónico</th><th>Rank semântico</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Low</code></td><td><code>low</code></td><td>1 — menor prioridade</td></tr>
+<tr><td><code>Normal</code></td><td><code>normal</code></td><td>2 — prioridade regular</td></tr>
+<tr><td><code>High</code></td><td><code>high</code></td><td>3 — prioridade elevada</td></tr>
+<tr><td><code>Critical</code></td><td><code>critical</code></td><td>4 — maior prioridade</td></tr>
+</tbody>
+</table>
+
+<ul>
+<li><strong>Ordenação:</strong> a comparação semântica é <code>Critical &gt; High &gt; Normal &gt; Low</code>. Quando um componente ordena mensagens por prioridade, processa primeiro o rank mais alto e preserva a ordem de aceitação entre mensagens do mesmo nível.</li>
+<li><strong>Wire e persistência:</strong> a representação canónica é o nome textual em minúsculas. Os inteiros <code>1</code>–<code>4</code> são ranks explícitos do modelo em memória e não são aceites como representação wire. Renomear, remover ou adicionar níveis exige evolução explícita do schema.</li>
+<li><strong>Validação:</strong> prioridade é obrigatória no envelope. Valor ausente, <code>0</code>, inteiro não definido, texto desconhecido ou diferença de capitalização fora da representação canónica são rejeitados de forma controlada.</li>
+<li><strong>Default:</strong> APIs/factories de criação podem assumir <code>Normal</code> quando o chamador omite a prioridade antes de construir a mensagem. A desserialização nunca aplica esse default silenciosamente: um payload wire sem prioridade é inválido.</li>
+<li><strong>Independência temporal:</strong> <code>Deadline</code> não promove nem despromove automaticamente a prioridade. Políticas de prazo podem produzir alertas ou <code>Escalation</code>, mas não reescrevem o envelope original.</li>
+<li><strong>Governança:</strong> <code>Critical</code> não contorna routing, autorização, aprovações, budgets, working hours nem kill switch, e não interrompe automaticamente trabalho já em execução.</li>
+<li><strong>Runtime:</strong> este contrato define semântica e comparação, não obriga T02/T03a a configurar uma priority mailbox. O mapeamento para prioridades internas e políticas de fairness/anti-starvation da mailbox Akka pertence à infraestrutura e deve preservar esta ordem sem alterar o contrato wire.</li>
+</ul>
+
+<h3>9.4 Taxonomia canónica</h3>
 
 <p>A tabela seguinte é a <strong>taxonomia canónica</strong> dos tipos de mensagem organizacional. Outras secções devem referenciar esta tabela em vez de manter listas próprias.</p>
 
@@ -1005,7 +1040,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem e destino como união discriminada <code>EndpointRef</code>, prioridade, timestamps, deadline, thread/correlation id e versão de schema; incluir as variantes iniciais <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e <code>SystemEndpointRef</code>, limitando os endpoints de sistema da F0 a <code>Scheduler</code> e <code>DomainEvents</code>. Esta tarefa depende de <code>T01</code> e de <code>T03a</code>, mas não exige a conclusão de <code>T03b</code>.</li>
 <li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados do protocolo.
 <ul>
-<li><strong>US-F0-03-T03a</strong> — Definir <code>Priority</code> no namespace partilhado definitivo do domínio, com contrato imutável e validação própria; executar esta subtarefa antes de <code>T02</code>. Este trabalho pertence a <code>T03</code>, não cria um tipo temporário dentro de <code>T02</code> e não permite marcar <code>T03</code> como concluída.</li>
+<li><strong>US-F0-03-T03a</strong> — Definir <code>Priority</code> no namespace partilhado definitivo do domínio conforme §9.3: níveis fechados <code>Low=1</code>, <code>Normal=2</code>, <code>High=3</code> e <code>Critical=4</code>; representação wire textual em minúsculas; ordenação semântica explícita; rejeição de valores ausentes, numéricos ou desconhecidos; e default <code>Normal</code> apenas nas APIs/factories de criação. Executar esta subtarefa antes de <code>T02</code>. Este trabalho pertence a <code>T03</code>, não cria um tipo temporário dentro de <code>T02</code>, não configura ainda a mailbox Akka e não permite marcar <code>T03</code> como concluída.</li>
 <li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados: <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
 </ul>
 </li>
@@ -2158,7 +2193,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.52): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.53): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

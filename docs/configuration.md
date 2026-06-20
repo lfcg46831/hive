@@ -1,12 +1,12 @@
 # HIVE Configuration
 
-The canonical product and architecture decisions remain in `docs/bible.html`. This document is the operational reference for the configuration contract introduced by US-F0-01-T04.
+The canonical product and architecture decisions remain in `docs/bible.html`. This document is the operational reference for the configuration contract implemented by US-F0-01-T04 and its common bootstrap implemented by US-F0-01-T05.
 
 ## Sources and precedence
 
-The executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json` and then by environment variables when the common bootstrap is implemented in US-F0-01-T05.
+Both executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json`, environment variables, and command-line values according to the default host builders.
 
-T04 defines the data contract only. It does not bind or validate options, register dependency injection services, configure PostgreSQL consumers, or apply roles to Akka.Cluster.
+`Hive.Api` and `Hive.Worker` call the same bootstrap from `Hive.Infrastructure.Configuration`. It binds the `Hive` section to `HiveOptions`, registers it in dependency injection, and validates node roles when the host starts.
 
 ## PostgreSQL
 
@@ -16,7 +16,7 @@ Both executables declare an empty `ConnectionStrings:PostgreSql` value. Supply a
 ConnectionStrings__PostgreSql=Host=localhost;Port=5432;Database=hive;Username={user};Password={secret}
 ```
 
-The same F0 database serves journal/snapshots, registry, audit log, read models, budgets, and scheduler idempotency. Each subsystem retains ownership of its schemas, tables, and migrations.
+The same F0 database serves journal/snapshots, registry, audit log, read models, budgets, and scheduler idempotency. Each subsystem retains ownership of its schemas, tables, and migrations. T05 does not validate or open this connection; PostgreSQL consumers are introduced with their owning subsystems.
 
 ## Node roles
 
@@ -38,4 +38,6 @@ HIVE__NODE__ROLES__2=gateway
 HIVE__NODE__ROLES__3=connectors
 ```
 
-Startup rejection of missing or unknown roles belongs to US-F0-01-T05. Runtime workload placement belongs to US-F0-01-T06.
+At least one role is required. Values are recognized after `Trim` with case-insensitive comparison, but the bound values are not rewritten. Empty entries, unknown values, and duplicates after trimming and case-insensitive comparison stop host startup with an error that identifies `Hive:Node:Roles` and the offending values.
+
+T05 binds and validates roles only. Applying roles to Akka.Cluster and activating matching workloads belongs to US-F0-01-T06.

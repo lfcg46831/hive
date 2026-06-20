@@ -135,6 +135,7 @@
 <tr><td>0.37</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T06</code>: host Akka mínimo configurado por role (Akka.Cluster real via <code>Akka.Hosting</code>/<code>Akka.Cluster.Hosting</code>, roles do cluster espelham <code>Hive:Node:Roles</code>, self-seed single-node por omissão e contrato <code>Hive:Cluster</code> hostname/port/seed) e seam de ativação de workloads por role (<code>IRoleWorkload</code>) agnóstico ao mecanismo, validado com workloads fake sem atores placeholder</td></tr>
 <tr><td>0.38</td><td>2026-06-20</td><td>Promoção a contrato em §5.10 do seam <code>IRoleWorkload</code> como fronteira de integração dos workloads por role e do contrato de configuração <code>Hive:Cluster</code>/nome do <code>ActorSystem</code>; registo da questão em aberto Q11 (ordem de arranque <code>ActorSystem</code> vs. workloads, adiada para <code>US-F0-06</code>)</td></tr>
 <tr><td>0.39</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T07</code>: logging estruturado comum a ambos os executáveis no bootstrap partilhado (JSON console com scopes e timestamps UTC), níveis ainda controlados pela secção <code>Logging</code>, e encaminhamento dos logs do <code>ActorSystem</code> Akka pelo <code>ILoggerFactory</code> comum; OpenTelemetry/tracing continuam reservados a fases posteriores</td></tr>
+<tr><td>0.40</td><td>2026-06-20</td><td>Promoção a contrato em §11.1 da taxonomia de health checks (tags <code>live</code>/<code>ready</code>) e da regra de gating da readiness pela configuração obrigatória; registo da implementação de <code>US-F0-01-T08</code>: health checks mínimos comuns a ambos os executáveis no bootstrap partilhado — liveness do processo (<code>live</code>), configuração carregada com roles ativas e dependências obrigatórias presentes (connection string PostgreSQL) como readiness (<code>ready</code>); o endpoint de diagnóstico que os expõe por tag fica para <code>US-F0-01-T09</code></td></tr>
 </tbody>
 </table>
 
@@ -743,6 +744,14 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Métricas: mensagens/min, latência por provider, custo por posição/dia, taxa de escalamentos, tarefas concluídas vs. falhadas.</li>
 <li>Tracing distribuído de uma diretiva ao longo da cascata de delegação (correlação por <code>ThreadId</code>/<code>DirectiveId</code>).</li>
 </ul>
+
+<h3>11.1 Health e readiness <em>(contrato)</em></h3>
+<p>Cada host executável expõe dois tipos de verificação de saúde, distinguidos por tag:</p>
+<ul>
+<li><code>live</code> — liveness: o processo está vivo e responsivo. Mantém-se saudável enquanto o host conseguir executar a verificação; um processo morto ou em deadlock é sinalizado pela verificação não correr, não por um resultado <em>unhealthy</em>.</li>
+<li><code>ready</code> — readiness: o nó consegue servir trabalho. Só reporta saudável quando a configuração obrigatória está carregada — incluindo as roles ativas (<code>Hive:Node:Roles</code>) e as dependências externas obrigatórias (na F0, <code>ConnectionStrings:PostgreSql</code>). Enquanto uma dependência obrigatória não estiver presente, o nó fica deliberadamente <em>not-ready</em>.</li>
+</ul>
+<p>Endpoints de diagnóstico e health checks de orquestração selecionam as verificações por estas tags: o endpoint mínimo de diagnóstico (<code>US-F0-01-T09</code>) e os health checks do Docker Compose (<code>US-F0-02-T08</code>/<code>US-F0-02-T09</code>) assentam neste contrato, incluindo o gating de readiness pela configuração obrigatória. Novas dependências obrigatórias (por exemplo, o check de persistência em <code>US-F0-06-T05a</code>) estendem o conjunto <code>ready</code> sem alterar a semântica das tags. Observabilidade mais rica — métricas, tracing e correlação por <code>ThreadId</code>/<code>DirectiveId</code> — fica reservada a fases posteriores.</p>
 
 <hr>
 

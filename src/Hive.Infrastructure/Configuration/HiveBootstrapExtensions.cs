@@ -1,3 +1,4 @@
+using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Logging;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +23,8 @@ public static class HiveBootstrapExtensions
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
+
+        builder.Services.AddHiveHealthChecks();
 
         return builder;
     }

@@ -84,3 +84,17 @@ HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@node-a:8081
 ```
 
 The cluster roles mirror `Hive:Node:Roles`; the host starts only the `IRoleWorkload` implementations whose role the node declares and stops them in reverse order.
+
+## Health checks
+
+Both executables register the same minimal health checks through the shared bootstrap (US-F0-01-T08). `AddHiveBootstrap` calls `AddHiveHealthChecks` from `Hive.Infrastructure.Diagnostics`, so the two hosts cannot drift and every check is resolved from dependency injection. The checks are split into liveness and readiness by tag:
+
+| Check | Tag | Healthy when |
+| --- | --- | --- |
+| `process` | `live` | The host can run the check at all — the process is alive and responsive. |
+| `configuration` | `ready` | The typed `Hive` options are loaded with at least one active node role. |
+| `dependencies` | `ready` | Every mandatory external dependency is configured. In F0 that is the `ConnectionStrings:PostgreSql` value. |
+
+Liveness (`live`) answers "is the process up?" and stays healthy while the host runs. Readiness (`ready`) answers "can this node serve work?" and is intentionally unhealthy until mandatory configuration is supplied: because `ConnectionStrings:PostgreSql` is empty in tracked source files (see PostgreSQL above), a node reports not-ready until the connection string is provided per environment. This is the readiness contract that US-F0-02-T09 relies on under Docker Compose.
+
+This task registers the checks only. The HTTP endpoint that exposes them filtered by tag — for example `/healthz` for `live` and `/readyz` for `ready` — belongs to the diagnostic endpoint in US-F0-01-T09. Later mandatory dependencies extend the `dependencies` check without changing this seam.

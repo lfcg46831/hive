@@ -1,0 +1,17 @@
+[
+  {
+    "Name": "New Profile",
+    "Projects": [
+      {
+        "Path": "src\\Hive.Api\\Hive.Api.csproj",
+        "Action": "Start",
+        "DebugTarget": "Hive.Api"
+      },
+      {
+        "Path": "src\\Hive.Worker\\Hive.Worker.csproj",
+        "Action": "Start",
+        "DebugTarget": "Hive.Worker"
+      }
+    ]
+  }
+]

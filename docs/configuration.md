@@ -2,6 +2,37 @@
 
 The canonical product and architecture decisions remain in `docs/bible.html`. This document is the operational reference for the configuration contract implemented by US-F0-01-T04 and its common bootstrap implemented by US-F0-01-T05.
 
+## Run locally without Docker Compose
+
+Install the .NET 8 SDK, then restore and start the API host from the repository root:
+
+```powershell
+dotnet restore Hive.sln
+dotnet run --project src/Hive.Api
+```
+
+The `Hive.Api` development profile starts a local all-in-one node with every role and listens on `http://localhost:53496`. In another PowerShell session, inspect it with:
+
+```powershell
+Invoke-RestMethod http://localhost:53496/health/live
+Invoke-RestMethod http://localhost:53496/diagnostics
+```
+
+Stop the host with `Ctrl+C`. Readiness is expected to return `503` until `ConnectionStrings__PostgreSql` is set; at this stage the check validates that the setting is present but does not open a database connection. To exercise the readiness path locally, restart the host with the variable set in the same session:
+
+```powershell
+$env:ConnectionStrings__PostgreSql = "Host=localhost;Port=5432;Database=hive;Username=hive;Password=hive"
+dotnet run --project src/Hive.Api
+```
+
+Then query readiness from another session:
+
+```powershell
+Invoke-RestMethod http://localhost:53496/health/ready
+```
+
+To run only the non-HTTP worker roles instead, use `dotnet run --project src/Hive.Worker`. The worker writes structured logs to stdout and has no diagnostic HTTP endpoints.
+
 ## Sources and precedence
 
 Both executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json`, environment variables, and command-line values according to the default host builders.

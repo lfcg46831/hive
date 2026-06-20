@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.33 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.34 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -129,6 +129,7 @@
 <tr><td>0.31</td><td>2026-06-19</td><td>Definição de nós do cluster, roles de execução, topologias e contrato de configuração em §5.10; clarificação do escopo de <code>US-F0-01-T04</code></td></tr>
 <tr><td>0.32</td><td>2026-06-20</td><td>Definição de <code>ConnectionStrings:PostgreSql</code> como contrato canónico e ligação PostgreSQL partilhada da F0, preservando ownership e migrations por subsistema</td></tr>
 <tr><td>0.33</td><td>2026-06-20</td><td>Definição dos defaults de roles por executável: <code>Hive.Api</code> com <code>api</code>, <code>Hive.Worker</code> com roles de backend e perfil all-in-one explícito apenas no API</td></tr>
+<tr><td>0.34</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T04</code>: modelo partilhado em <code>Hive.Infrastructure</code>, defaults seguros por executável, override local all-in-one e contrato PostgreSQL sem credenciais versionadas</td></tr>
 </tbody>
 </table>
 
@@ -521,6 +522,8 @@
 <pre><code>HIVE__NODE__ROLES__0=api</code></pre>
 
 <p>O arranque deve falhar de forma explícita se não existir pelo menos uma role válida ou se for indicado um nome desconhecido. Na F0, os únicos valores canónicos são <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code>. A <code>US-F0-01-T04</code> define este modelo e o contrato das fontes de configuração; a <code>US-F0-01-T05</code> faz binding, validação e registo no bootstrap comum; a <code>US-F0-01-T06</code> aplica as roles ao runtime Akka e inicia apenas os workloads correspondentes.</p>
+
+<p><strong>Implementação de <code>US-F0-01-T04</code>:</strong> o modelo tipado partilhado fica em <code>Hive.Infrastructure.Configuration</code>; os dois <code>appsettings.json</code> base declaram <code>ConnectionStrings:PostgreSql</code> com valor vazio para não versionar credenciais; <code>Hive.Api/appsettings.Development.json</code> materializa o override all-in-one; e <code>Hive.Worker/appsettings.Development.json</code> herda as roles base sem as redefinir. Binding, validação de arranque e registo em DI continuam reservados a <code>US-F0-01-T05</code>.</p>
 
 <hr>
 
@@ -1931,7 +1934,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.34): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.35): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.42 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.43 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -138,6 +138,7 @@
 <tr><td>0.40</td><td>2026-06-20</td><td>Promoção a contrato em §11.1 da taxonomia de health checks (tags <code>live</code>/<code>ready</code>) e da regra de gating da readiness pela configuração obrigatória; registo da implementação de <code>US-F0-01-T08</code>: health checks mínimos comuns a ambos os executáveis no bootstrap partilhado — liveness do processo (<code>live</code>), configuração carregada com roles ativas e dependências obrigatórias presentes (connection string PostgreSQL) como readiness (<code>ready</code>); o endpoint de diagnóstico que os expõe por tag fica para <code>US-F0-01-T09</code></td></tr>
 <tr><td>0.41</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T09</code>: endpoint mínimo de diagnóstico no host <code>Hive.Api</code> — <code>/health/live</code> e <code>/health/ready</code> selecionam as verificações pelas tags <code>live</code>/<code>ready</code> de §11.1 (200/503 para o orquestrador) e <code>/diagnostics</code> expõe versão, roles ativas e estado de arranque (<code>live</code>/<code>ready</code>) a partir do <code>NodeDiagnosticsProvider</code> no bootstrap partilhado; o <code>Hive.Worker</code> mantém-se sem servidor HTTP (a sonda dos nós backend fica para <code>US-F0-02-T08</code>/<code>T09</code>)</td></tr>
 <tr><td>0.42</td><td>2026-06-20</td><td>Definição em §6.4 da estratégia MCP: contrato interno de ferramentas independente do protocolo, interoperabilidade futura por adapter MCP client e ausência de dependência ou trabalho MCP obrigatório na F0</td></tr>
+<tr><td>0.43</td><td>2026-06-20</td><td>ADR-006 aceite: integração faseada de coding agents externos, como Codex e Claude Code, através de runner sandboxed, contrato HIVE vendor-neutral e aprovação humana antes de aplicar alterações</td></tr>
 </tbody>
 </table>
 
@@ -1807,6 +1808,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td>ADR-003</td><td>Estratégia de persistência (PostgreSQL event sourcing)</td><td><strong>Aceite (v0.3)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-004</td><td>Implementação do scheduler com <code>Akka.Quartz.Actor</code></td><td><strong>Aceite (v0.9)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-005</td><td>Frontend Web UI (React vs. Angular vs. Blazor)</td><td><strong>Aceite (v0.4)</strong> — detalhe abaixo</td></tr>
+<tr><td>ADR-006</td><td>Integração de coding agents externos por runner sandboxed</td><td><strong>Aceite (v0.43)</strong> — detalhe abaixo</td></tr>
 </tbody>
 </table>
 
@@ -1990,7 +1992,84 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.43): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<h3>ADR-006: Integração de coding agents externos por runner sandboxed</h3>
+
+<p><strong>Estado:</strong> Aceite · <strong>Data:</strong> 2026-06-20 · <strong>Contexto:</strong> o primeiro caso de uso do HIVE é Engenharia/Delivery, onde coding agents especializados como Codex e Claude Code podem acrescentar valor em triagem técnica, revisão de código, diagnóstico de falhas, produção de patches e execução de testes. Estes produtos já incluem o seu próprio agent loop, tools, sessões e acesso ao workspace; não são simples providers de chat completion e introduzem riscos específicos de execução de comandos, alteração de ficheiros, prompt injection, credenciais e efeitos externos.</p>
+
+<h4>Opções consideradas</h4>
+
+<table>
+<thead>
+<tr><th>Opção</th><th>Vantagens</th><th>Limitações</th></tr>
+</thead>
+<tbody>
+<tr><td>Invocar cada CLI diretamente dentro dos atores HIVE</td><td>PoC rápido e poucas peças iniciais</td><td>Acopla atores a processos, versões, autenticação e formatos vendor-specific; dificulta isolamento, cancelamento e recuperação</td></tr>
+<tr><td><strong>Coding Agent Runner isolado com adapters vendor-neutral</strong></td><td>Separa execução perigosa do cluster, permite Codex/Claude e futuras alternativas, normaliza eventos/resultados e centraliza sandbox, quotas e auditoria</td><td>Introduz um serviço/worker adicional, protocolo interno e gestão explícita do ciclo de vida dos jobs</td></tr>
+<tr><td>Tratar os coding agents como providers do <code>AiGateway</code></td><td>Reutiliza aparentemente a abstração multi-provider existente</td><td>Semântica incorreta: coding agents têm loop, tools, sessão e efeitos em ficheiros próprios; causaria dupla orchestration e contaminaria o contrato de completion</td></tr>
+<tr><td>Não integrar coding agents externos</td><td>Menor superfície operacional e de segurança</td><td>Perde uma capacidade de alto valor para o primeiro cliente interno de Engenharia/Delivery</td></tr>
+</tbody>
+</table>
+
+<h4>Decisão e fundamentação</h4>
+
+<p>Adotamos uma integração <strong>faseada e opcional através de um Coding Agent Runner sandboxed</strong>. O HIVE define contratos próprios e vendor-neutral para <code>CodingAgentJob</code>, eventos de progresso, cancelamento e <code>CodingAgentResult</code>. Adapters traduzem esses contratos para as superfícies oficiais de cada produto: inicialmente CLI headless com output estruturado quando adequado; para integrações mais profundas, Codex SDK/App Server ou Claude Agent SDK.</p>
+
+<p>Os coding agents são executores especializados de engenharia, não providers do <code>AiGateway</code>, não ocupantes organizacionais autónomos por omissão e não fontes de verdade. O <code>PositionActor</code> continua dono da diretiva, tarefa, memória e estado. Um <code>CodingAgentJobActor</code> persistente acompanha o job externo, enquanto o runner executa num worktree/contentor isolado e devolve artefactos estruturados. O <code>AiAgentActor</code> pode pedir a execução através de uma tool autorizada, mas o resultado regressa ao HIVE para validação, auditoria e conversão em mensagens organizacionais canónicas.</p>
+
+<pre><code>PositionActor
+  → AiAgentActor / ação humana autorizada
+  → CodingAgentJobActor (estado persistido do job)
+  → Coding Agent Runner
+      ├── Codex adapter
+      └── Claude Code adapter
+  → worktree/contentor isolado
+  → patch + testes + relatório estruturado
+  → validação/aprovação HIVE</code></pre>
+
+<p>O contrato mínimo do job inclui repositório e commit imutável de base, objetivo e critérios de aceitação, modo (<code>review</code>, <code>diagnose</code> ou <code>patch</code>), ferramentas/comandos autorizados, sandbox, política de rede, timeout, máximo de turnos/iterações, budget e schema do resultado. O resultado inclui estado final, patch/diff, testes executados, findings, uso/custo, identificador opaco da sessão vendor e eventos auditáveis.</p>
+
+<h4>Segurança e operação</h4>
+
+<ul>
+<li>Cada job executa num worktree ou contentor efémero próprio; nunca na working tree partilhada do processo HIVE.</li>
+<li>O modo por omissão é read-only. Escrita só é autorizada para produzir um patch num workspace isolado.</li>
+<li>Nas fases iniciais, o runner não pode fazer push, merge, deploy, alterar permissões, gerir secrets nem produzir efeitos externos equivalentes.</li>
+<li>Aplicar um patch, abrir um PR ou qualquer efeito externo exige política explícita e aprovação humana; a geração do patch não implica a sua aceitação.</li>
+<li>Comandos, tools e destinos de rede seguem allowlists. Acesso amplo ao filesystem ou rede só é permitido em runners descartáveis e controlados.</li>
+<li>Credenciais são de serviço/API, injetadas apenas no processo que precisa delas e nunca versionadas ou expostas ao código analisado. Autenticação interativa pessoal não é o contrato de produção.</li>
+<li>Issues, logs, código, documentação e outputs de tools são dados não-fidedignos e podem conter prompt injection; não podem alterar políticas HIVE.</li>
+<li>CPU, memória, concorrência, duração, turnos, tokens e custo têm limites por job, posição e organização, com cancelamento e kill switch.</li>
+<li>Prompt, configuração, tools autorizadas, comandos, alterações, testes, decisões de aprovação, uso e resultado são auditados com redaction de segredos e PII.</li>
+<li>MCP pode futuramente fornecer tools autorizadas aos coding agents conforme §6.4, mas não é o protocolo de controlo do runner.</li>
+</ul>
+
+<p>O estado durável e idempotente pertence ao <code>CodingAgentJobActor</code>; session ids dos vendors são referências opacas. Se o runner ou nó falhar, o job é reconciliado pelo seu estado persistido e pode ser retomado ou repetido apenas quando a operação for segura. Patches e relatórios são artefactos imutáveis associados ao commit de base para impedir aplicação sobre código divergente.</p>
+
+<h4>Adoção faseada</h4>
+
+<ul>
+<li><strong>F0:</strong> sem dependência de coding agents externos; o vertical slice continua determinístico e baseado no provider stub/real do <code>AiGateway</code>.</li>
+<li><strong>F1:</strong> PoC opcional e read-only para triagem, revisão e diagnóstico, com pelo menos um adapter e output estruturado.</li>
+<li><strong>F2:</strong> geração de patches e execução de testes em worktree/contentor isolado, sempre com aprovação humana antes de aplicar alterações.</li>
+<li><strong>F3:</strong> múltiplos adapters e eventual abertura controlada de PRs, sujeita a autorização, conformidade e auditoria; merge/deploy automático não fica assumido.</li>
+</ul>
+
+<h4>Consequências</h4>
+
+<ul>
+<li>(+) Acrescenta uma capacidade diferenciadora diretamente alinhada com Engenharia/Delivery.</li>
+<li>(+) O contrato vendor-neutral permite trocar ou combinar Codex, Claude Code e alternativas futuras.</li>
+<li>(+) O isolamento impede que processos CLI e SDKs contaminem o cluster Akka ou a fonte de verdade organizacional.</li>
+<li>(−) Aumenta a superfície de segurança, supply chain, custos, observabilidade e operação de jobs longos.</li>
+<li>(−) CLIs e SDKs evoluem independentemente; adapters, schemas e versões devem ser fixados e testados por release.</li>
+<li>Revisitar se: as superfícies headless/SDK deixarem de oferecer output estruturado, sandbox ou controlo de permissões suficiente; os termos de utilização não permitirem o modelo de integração; ou o custo operacional superar o valor medido nos casos de uso F1/F2.</li>
+</ul>
+
+<p><strong>Referências oficiais:</strong> <a href="https://developers.openai.com/codex/noninteractive">Codex non-interactive mode</a>, <a href="https://developers.openai.com/codex/sdk">Codex SDK</a>, <a href="https://developers.openai.com/codex/app-server">Codex App Server</a>, <a href="https://code.claude.com/docs/en/headless">Claude Code programmatic usage</a> e <a href="https://code.claude.com/docs/en/agent-sdk/overview">Claude Agent SDK</a>.</p>
+
+<hr>
+
+<p><em>Próxima iteração (v0.44): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

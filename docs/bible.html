@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.31 (rascunho evolutivo) <strong>Data:</strong> 2026-06-19 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.32 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -127,6 +127,7 @@
 <tr><td>0.29</td><td>2026-06-19</td><td>Normalização da F0 pela regra 12.1, decompondo todas as tarefas restantes de esforço 8 e preservando totais</td></tr>
 <tr><td>0.30</td><td>2026-06-19</td><td>Clarificação do escopo de <code>US-F0-01-T03</code> como referências entre projetos e testes de boundary, sem runtime/packages/DI</td></tr>
 <tr><td>0.31</td><td>2026-06-19</td><td>Definição de nós do cluster, roles de execução, topologias e contrato de configuração em §5.10; clarificação do escopo de <code>US-F0-01-T04</code></td></tr>
+<tr><td>0.32</td><td>2026-06-20</td><td>Definição de <code>ConnectionStrings:PostgreSql</code> como contrato canónico e ligação PostgreSQL partilhada da F0, preservando ownership e migrations por subsistema</td></tr>
 </tbody>
 </table>
 
@@ -790,7 +791,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-01-T01</strong> — Criar a solution .NET raiz <code>Hive.sln</code>.</li>
 <li><strong>US-F0-01-T02</strong> — Criar projetos base: <code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code>, <code>Hive.Api</code>, <code>Hive.Worker</code> e <code>Hive.Tests</code>.</li>
 <li><strong>US-F0-01-T03</strong> — Definir apenas os <code>ProjectReference</code> mínimos entre projetos e testes de boundary/arquitetura que provem que <code>Hive.Domain</code> não depende de Akka, ASP.NET Core, infraestrutura ou bootstrap. Não introduzir ainda packages de runtime, configuração Akka, bootstrap de dependency injection ou hosts executáveis; esses pertencem às tarefas seguintes.</li>
-<li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, contrato de env vars, connection strings e roles do nó definidas no §5.10), sem aplicar ainda as roles ao runtime Akka nem implementar o bootstrap de DI.</li>
+<li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, contrato de env vars, <code>ConnectionStrings:PostgreSql</code> conforme o ADR-003 e roles do nó definidas no §5.10), sem aplicar ainda as roles ao runtime Akka, configurar os consumidores de PostgreSQL ou implementar o bootstrap de DI.</li>
 <li><strong>US-F0-01-T05</strong> — Implementar bootstrap comum de dependency injection e configuração.</li>
 <li><strong>US-F0-01-T06</strong> — Implementar host executável mínimo capaz de arrancar como role <code>agents</code>, <code>gateway</code>, <code>connectors</code> ou <code>api</code>.</li>
 <li><strong>US-F0-01-T07</strong> — Configurar logging estruturado comum para todos os hosts.</li>
@@ -1827,6 +1828,10 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <p>Adotamos <strong>PostgreSQL como persistência base da F0</strong>, incluindo Akka.Persistence journal/snapshots, read models, audit log, registry e budgets. A memória semântica de longo prazo fica prevista como <strong>vector store separado</strong> em F1/F2, consumindo eventos/documentos já auditados.</p>
 
+<p>O contrato canónico de configuração da F0 é uma única connection string com a chave <code>ConnectionStrings:PostgreSql</code>, obtida em .NET por <code>GetConnectionString(&quot;PostgreSql&quot;)</code> e substituível por ambiente através de <code>ConnectionStrings__PostgreSql</code>. A mesma ligação serve Akka.Persistence journal/snapshots, registry, audit log, read models, budgets e persistência de idempotência do scheduler.</p>
+
+<p>Partilhar a connection string significa usar a mesma instância/base PostgreSQL na F0; não significa partilhar modelos, tabelas ou fronteiras transacionais. Cada subsistema mantém ownership explícito dos seus schemas/tabelas e migrations. A configuração pode ser separada futuramente por subsistema se requisitos de escala, segurança, disponibilidade ou operação o justificarem, sem alterar os contratos de domínio.</p>
+
 <p>Esta decisão privilegia simplicidade operacional e consistência inicial. A separação futura da pesquisa semântica evita forçar embeddings e retrieval avançado para dentro do mesmo modelo de persistência transacional.</p>
 
 <h4>Consequências</h4>
@@ -1911,7 +1916,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.32): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.33): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

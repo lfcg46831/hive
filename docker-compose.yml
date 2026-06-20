@@ -8,19 +8,18 @@
 # Deliberately layered on by later tasks, so they are kept out of this base file:
 #   * US-F0-02-T04  three-node cluster via a compose override/profile.
 #   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
-#   * US-F0-02-T09  readiness gated on mandatory configuration being loaded.
 #   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
 #                   self-contained base.
 #
-# Health checks (US-F0-02-T08)
-# ----------------------------
+# Health checks and readiness (US-F0-02-T08/T09)
+# ------------------------------------------------
 # Each container declares a Docker health check so the orchestrator can tell a
-# live container from a broken one. PostgreSQL uses `pg_isready` (shipped in the
-# image) to confirm the server accepts connections; the HIVE node probes its own
-# liveness endpoint `/health/live` (§11.1) with curl (added to the runtime image
-# in the Dockerfile for this purpose). This task adds the LIVENESS-level checks
-# only; gating readiness on mandatory configuration (probing `/health/ready`) and
-# wiring `depends_on` start-up ordering on these checks is US-F0-02-T09.
+# ready service from one that cannot yet serve work. PostgreSQL uses `pg_isready`
+# (shipped in the image) to confirm the server accepts connections; the HIVE node
+# probes its own readiness endpoint `/health/ready` (§11.1) with curl (added to
+# the runtime image for US-F0-02-T08). The node becomes healthy only after its
+# mandatory configuration is loaded, and `depends_on` gates start-up on healthy
+# dependencies (US-F0-02-T09).
 #
 # Persistence (US-F0-02-T07)
 # --------------------------
@@ -107,13 +106,12 @@ services:
       hive-net:
         aliases:
           - api
-    # Liveness check (US-F0-02-T08): the node's process is alive and serving. It
-    # probes the `/health/live` endpoint (§11.1) on the in-container HTTP port
-    # 8080 with curl (added to the runtime image in the Dockerfile). `-f` makes
-    # curl exit non-zero on a 5xx (the `live` tag returns 503 when unhealthy), so
-    # the container is marked unhealthy. Readiness gating is layered in T09.
+    # Readiness check (US-F0-02-T09): the node can serve work only after its
+    # mandatory configuration is loaded. It probes `/health/ready` (§11.1) on
+    # the in-container HTTP port with curl; `-f` turns the endpoint's 503 into a
+    # non-zero exit code so Docker keeps the container unhealthy until ready.
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -124,8 +122,12 @@ services:
     # `hive-logs` volume below and the mount here, pointing at the sink's path:
     # volumes:
     #   - hive-logs:/var/log/hive
+    # Do not start the HIVE node until PostgreSQL accepts connections. The
+    # readiness endpoint currently validates dependency configuration; this
+    # Compose condition separately protects the actual service start order.
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
 # Explicit internal network shared by every service (and by the nodes added in
 # the cluster/roles overrides). A user-defined bridge gives automatic DNS

@@ -23,14 +23,14 @@
 # cluster hostname. Per the T06 port policy, only the base `api` publishes 8080;
 # the extra nodes and the Akka cluster port (8081) stay internal to `hive-net`.
 #
-# Scope kept deliberately narrow; later tasks layer on top of these same nodes:
+# Scope kept deliberately narrow; the optional roles override layers on these nodes:
 #   * US-F0-02-T05  distinct roles per node (here every node keeps its image
 #                   default role, so the three are interchangeable api nodes).
-#   * US-F0-02-T09  readiness gated on mandatory configuration.
 #
-# Health checks (US-F0-02-T08): the seed `api` inherits the base node liveness
-# check (curl `/health/live`) by compose merge; the two added nodes declare the
-# identical check below so every HIVE node in the cluster is probed the same way.
+# Health and readiness (US-F0-02-T08/T09): the seed `api` inherits the base node
+# readiness check (curl `/health/ready`) by compose merge; the two added nodes
+# declare the identical check below. They start only after PostgreSQL and the seed
+# report healthy, so cluster nodes do not race their required dependencies.
 
 services:
   # Promote the base single node into the cluster seed. The hostname must be the
@@ -56,16 +56,18 @@ services:
       hive-net:
         aliases:
           - api2
-    # Same node liveness check as the base `api` (US-F0-02-T08).
+    # Same node readiness check as the base `api` (US-F0-02-T09).
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
     depends_on:
-      - postgres
-      - api
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
 
   # Third cluster node, identical to api2 apart from its own advertised hostname.
   api3:
@@ -80,13 +82,15 @@ services:
       hive-net:
         aliases:
           - api3
-    # Same node liveness check as the base `api` (US-F0-02-T08).
+    # Same node readiness check as the base `api` (US-F0-02-T09).
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/live"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health/ready"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 40s
     depends_on:
-      - postgres
-      - api
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy

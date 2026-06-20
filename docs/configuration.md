@@ -88,7 +88,7 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), and Docker health checks for PostgreSQL and the HIVE node (US-F0-02-T08, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10).
+The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), and Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05) and `.env.example` (US-F0-02-T10).
 
 ### Persistent storage
 
@@ -98,16 +98,16 @@ A second named volume for local logs is defined but kept optional and disabled b
 
 ### Health checks
 
-Every container in the base `docker-compose.yml` declares a Docker health check (US-F0-02-T08) so the orchestrator can distinguish a live container from a broken one and surface it as `healthy`/`unhealthy` in `docker compose ps`.
+Every container in the base `docker-compose.yml` declares a Docker health check (US-F0-02-T08/T09) so the orchestrator can distinguish a ready service from one that cannot yet serve work and surface it as `healthy`/`unhealthy` in `docker compose ps`.
 
 | Service | Check | How |
 | --- | --- | --- |
 | `postgres` | Server accepts connections | `pg_isready` (ships in the image), run against `127.0.0.1` with the container's `POSTGRES_USER`/`POSTGRES_DB`. |
-| `api` (and `api2`/`api3`) | Node process is alive and serving | `curl -fsS http://127.0.0.1:8080/health/live`, the `live` endpoint from §11.1. `-f` makes curl fail on the 503 the endpoint returns when unhealthy. |
+| `api` (and `api2`/`api3`) | Mandatory node configuration is loaded | `curl -fsS http://127.0.0.1:8080/health/ready`, the `ready` endpoint from §11.1. It checks that at least one valid role and `ConnectionStrings:PostgreSql` are configured; `-f` makes curl fail on the 503 returned while not ready. |
 
-All checks use the same cadence: `interval: 10s`, `timeout: 5s`, `retries: 5`, with a `start_period` grace (30s for PostgreSQL, 40s for the node to cover .NET cold start) during which failures don't count against the container. The runtime image installs `curl` (the aspnet base ships no HTTP client) precisely so the node check can probe its own HTTP endpoint. The three-node override gives the added nodes (`api2`, `api3`) the identical node check; the seed `api` inherits the base one by compose merge.
+All checks use the same cadence: `interval: 10s`, `timeout: 5s`, `retries: 5`, with a `start_period` grace (30s for PostgreSQL, 40s for the node to cover .NET cold start) during which failures don't count against the container. The runtime image installs `curl` (the aspnet base ships no HTTP client) precisely so the node check can probe its own HTTP endpoint. The three-node override gives the added nodes (`api2`, `api3`) the identical readiness check; the seed `api` inherits the base one by compose merge.
 
-This task adds liveness-level checks only. Gating a node's reported health on mandatory configuration being loaded — probing `/health/ready` and wiring `depends_on` start-up ordering on these checks — is US-F0-02-T09.
+Compose also gates start-up on health rather than container creation. The base `api` waits for `postgres` with `condition: service_healthy`; in the three-node topology, `api2` and `api3` wait for both PostgreSQL and the seed `api` to report healthy. This ordering complements the current readiness contract: `/health/ready` validates that mandatory dependency configuration is present, while PostgreSQL's own health check confirms that the configured local service is accepting connections.
 
 ```powershell
 # After `docker compose up`, watch health status resolve to healthy:

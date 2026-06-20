@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.48 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.50 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -145,6 +145,7 @@
 <tr><td>0.47</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T09</code>: os health checks Docker dos nós HIVE passam a sondar <code>/health/ready</code>, pelo que um nó só fica saudável depois de carregar pelo menos uma role válida e a connection string PostgreSQL obrigatória, conforme §11.1; a ordenação de arranque usa <code>depends_on</code> com <code>condition: service_healthy</code> — o <code>api</code> aguarda PostgreSQL e, no cluster de 3 nós, <code>api2</code>/<code>api3</code> aguardam PostgreSQL e o seed <code>api</code>. A readiness continua a validar presença de configuração, enquanto <code>pg_isready</code> valida separadamente que o PostgreSQL local aceita ligações</td></tr>
 <tr><td>0.48</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T11</code>: consolidação em <code>docs/configuration.md</code> dos comandos PowerShell e Bash para arrancar, parar e alternar entre as topologias locais de 1 e 3 nós, incluindo limpeza explícita dos volumes nomeados com aviso de perda dos dados PostgreSQL</td></tr>
 <tr><td>0.49</td><td>2026-06-20</td><td>Definição do contrato de identidade de <code>US-F0-03-T01</code>: identificadores estruturais legíveis baseados em <code>string</code>, identificadores de mensagens distribuídos baseados em <code>Guid</code>, validação explícita e ausência de conversões implícitas</td></tr>
+<tr><td>0.50</td><td>2026-06-20</td><td>Definição do contrato de referências de endpoint de <code>US-F0-03-T02</code>: envelope baseado em <code>EndpointRef</code> tipado para posições, <code>OrganizationOwner</code> e endpoints de sistema, com matriz explícita de combinações permitidas por mensagem</td></tr>
 </tbody>
 </table>
 
@@ -751,7 +752,43 @@ occupant:
 
 <p>Este contrato não escolhe o formato wire/persistido nem a configuração de serializers Akka; essas decisões pertencem a <code>US-F0-03-T07</code> e <code>US-F0-03-T08</code>.</p>
 
-<h3>9.2 Taxonomia canónica</h3>
+<h3>9.2 Referências de endpoint <em>(contrato)</em></h3>
+
+<p>A origem e o destino do envelope usam <code>EndpointRef</code>, uma união discriminada imutável e versionável. O envelope não fica limitado a posições porque o protocolo da F0 já inclui mensagens originadas pelo sistema e escalamentos dirigidos ao <code>OrganizationOwner</code>. Cada variante mantém identidade semântica própria; não é permitido representar endpoints por uma <code>string</code> genérica nem converter implicitamente entre variantes.</p>
+
+<pre><code class="language-csharp">abstract record EndpointRef;
+
+sealed record PositionEndpointRef(PositionId PositionId) : EndpointRef;
+sealed record OrganizationOwnerEndpointRef() : EndpointRef;
+sealed record SystemEndpointRef(SystemEndpointKind Kind) : EndpointRef;
+
+enum SystemEndpointKind
+{
+    Scheduler,
+    DomainEvents
+}</code></pre>
+
+<p><code>OrganizationOwnerEndpointRef</code> identifica o owner configurado para o <code>OrganizationId</code> do envelope; não introduz um identificador global separado. <code>SystemEndpointRef</code> identifica um produtor lógico interno e auditável, não um ator Akka concreto nem um endereço físico de nó. Na F0, os únicos valores de sistema são <code>Scheduler</code> e <code>DomainEvents</code>. Novas variantes de endpoint ou novos valores de sistema exigem evolução explícita do schema.</p>
+
+<p>Papéis, políticas de aprovação e outros seletores de routing não são endpoints. Devem ser resolvidos para um <code>EndpointRef</code> concreto antes de a mensagem ser aceite. A referência à política pode permanecer no payload para validação e auditoria.</p>
+
+<table>
+<thead>
+<tr><th>Mensagem</th><th>Origem permitida</th><th>Destino permitido</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Directive</code></td><td><code>PositionEndpointRef</code></td><td><code>PositionEndpointRef</code></td></tr>
+<tr><td><code>Report</code></td><td><code>PositionEndpointRef</code></td><td><code>PositionEndpointRef</code></td></tr>
+<tr><td><code>Escalation</code></td><td><code>PositionEndpointRef</code></td><td><code>PositionEndpointRef</code> ou <code>OrganizationOwnerEndpointRef</code></td></tr>
+<tr><td><code>Memo</code>, <code>PeerRequest</code>, <code>PeerResponse</code></td><td><code>PositionEndpointRef</code></td><td><code>PositionEndpointRef</code></td></tr>
+<tr><td><code>ApprovalRequest</code></td><td><code>PositionEndpointRef</code></td><td><code>PositionEndpointRef</code> ou <code>OrganizationOwnerEndpointRef</code>, depois de resolução da política</td></tr>
+<tr><td><code>ApprovalDecision</code></td><td><code>PositionEndpointRef</code> ou <code>OrganizationOwnerEndpointRef</code></td><td><code>PositionEndpointRef</code> requerente</td></tr>
+<tr><td><code>Pulse</code></td><td><code>SystemEndpointRef(Scheduler)</code></td><td><code>PositionEndpointRef</code></td></tr>
+<tr><td><code>EventTrigger</code></td><td><code>SystemEndpointRef(DomainEvents)</code></td><td><code>PositionEndpointRef</code></td></tr>
+</tbody>
+</table>
+
+<h3>9.3 Taxonomia canónica</h3>
 
 <p>A tabela seguinte é a <strong>taxonomia canónica</strong> dos tipos de mensagem organizacional. Outras secções devem referenciar esta tabela em vez de manter listas próprias.</p>
 
@@ -778,8 +815,8 @@ occupant:
 <pre><code class="language-csharp">abstract record OrgMessage(
     MessageId Id,
     OrganizationId OrganizationId,
-    PositionRef From,
-    PositionRef To,
+    EndpointRef From,
+    EndpointRef To,
     ThreadId Thread,          // correlação de conversas
     Priority Priority,
     int SchemaVersion,
@@ -957,18 +994,18 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Critérios de aceitação:</strong></p>
 <ul>
 <li>Existem contratos imutáveis para todos os tipos definidos na taxonomia canónica do §9.</li>
-<li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem, destino, prioridade, thread/correlation id e timestamps.</li>
+<li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem e destino como <code>EndpointRef</code> tipado, prioridade, thread/correlation id e timestamps.</li>
 <li><code>ReportKind</code> inclui apenas <code>Progress</code> e <code>Done</code>; bloqueios acionáveis usam <code>Escalation</code>.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-03-T01</strong> — Modelar os value objects de identidade conforme o contrato de §9.1: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
-<li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem, destino, prioridade, timestamps, deadline, thread/correlation id e versão de schema.</li>
+<li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem e destino como união discriminada <code>EndpointRef</code>, prioridade, timestamps, deadline, thread/correlation id e versão de schema; incluir as variantes iniciais <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e <code>SystemEndpointRef</code>, limitando os endpoints de sistema da F0 a <code>Scheduler</code> e <code>DomainEvents</code>.</li>
 <li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
-<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, referências permitidas e relação com <code>ThreadId</code>/<code>DirectiveId</code>.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code> ou com <code>ReportKind</code> fora de <code>Progress</code>/<code>Done</code>.</li>
+<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; papéis e políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com combinações de endpoint não permitidas ou com <code>ReportKind</code> fora de <code>Progress</code>/<code>Done</code>.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -2115,7 +2152,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.44): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.51): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

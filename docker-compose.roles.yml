@@ -1,0 +1,51 @@
+# Per-service node roles override (US-F0-02-T05).
+#
+# Assigns a distinct node role set to each of the three cluster nodes so the
+# four canonical roles (`api`, `agents`, `gateway`, `connectors`) are spread
+# across services instead of every node running its image-default role. Layers
+# on top of the base (docker-compose.yml, US-F0-02-T03) and the 3-node cluster
+# (docker-compose.cluster.yml, US-F0-02-T04) without editing either; bring it up
+# with all three files, in order:
+#
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.cluster.yml \
+#                  -f docker-compose.roles.yml up
+#
+# Omitting this file leaves the nodes on their image-default roles (the base
+# `api` node and the interchangeable cluster nodes), so adding/removing it is how
+# a developer switches between uniform and per-service roles.
+#
+# Role assignment
+# ---------------
+# All three nodes are the same Hive.Api image, which serves HTTP and can run any
+# role; the role set only selects which IRoleWorkload implementations the node
+# activates (bible §5.10). They are split so every canonical role is covered:
+#
+#   api   -> api                    (keeps the HTTP/diagnostics-facing role)
+#   api2  -> agents
+#   api3  -> gateway, connectors
+#
+# Roles are supplied per service through the §5.10 env-var contract from
+# US-F0-02-T02: `Hive:Node:Roles` is an array, so `HIVE__NODE__ROLES__0` sets the
+# first entry, `__1` the second, etc. Each override replaces the host's
+# appsettings.json default by array index; in the Production image (no local
+# all-in-one Development profile) the api host defaults to a single `["api"]`
+# entry, so overriding index 0 (and 1 where present) yields exactly the role set
+# listed above with no leftover entries.
+
+services:
+  # Seed node keeps the `api` role explicitly (matches the image default) so the
+  # role split is declared in one place rather than relying on the default.
+  api:
+    environment:
+      HIVE__NODE__ROLES__0: "api"
+
+  # Backend worker roles assigned per service.
+  api2:
+    environment:
+      HIVE__NODE__ROLES__0: "agents"
+
+  api3:
+    environment:
+      HIVE__NODE__ROLES__0: "gateway"
+      HIVE__NODE__ROLES__1: "connectors"

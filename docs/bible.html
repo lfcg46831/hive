@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.39 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.42 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -137,6 +137,7 @@
 <tr><td>0.39</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T07</code>: logging estruturado comum a ambos os executáveis no bootstrap partilhado (JSON console com scopes e timestamps UTC), níveis ainda controlados pela secção <code>Logging</code>, e encaminhamento dos logs do <code>ActorSystem</code> Akka pelo <code>ILoggerFactory</code> comum; OpenTelemetry/tracing continuam reservados a fases posteriores</td></tr>
 <tr><td>0.40</td><td>2026-06-20</td><td>Promoção a contrato em §11.1 da taxonomia de health checks (tags <code>live</code>/<code>ready</code>) e da regra de gating da readiness pela configuração obrigatória; registo da implementação de <code>US-F0-01-T08</code>: health checks mínimos comuns a ambos os executáveis no bootstrap partilhado — liveness do processo (<code>live</code>), configuração carregada com roles ativas e dependências obrigatórias presentes (connection string PostgreSQL) como readiness (<code>ready</code>); o endpoint de diagnóstico que os expõe por tag fica para <code>US-F0-01-T09</code></td></tr>
 <tr><td>0.41</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T09</code>: endpoint mínimo de diagnóstico no host <code>Hive.Api</code> — <code>/health/live</code> e <code>/health/ready</code> selecionam as verificações pelas tags <code>live</code>/<code>ready</code> de §11.1 (200/503 para o orquestrador) e <code>/diagnostics</code> expõe versão, roles ativas e estado de arranque (<code>live</code>/<code>ready</code>) a partir do <code>NodeDiagnosticsProvider</code> no bootstrap partilhado; o <code>Hive.Worker</code> mantém-se sem servidor HTTP (a sonda dos nós backend fica para <code>US-F0-02-T08</code>/<code>T09</code>)</td></tr>
+<tr><td>0.42</td><td>2026-06-20</td><td>Definição em §6.4 da estratégia MCP: contrato interno de ferramentas independente do protocolo, interoperabilidade futura por adapter MCP client e ausência de dependência ou trabalho MCP obrigatório na F0</td></tr>
 </tbody>
 </table>
 
@@ -223,6 +224,7 @@
 <tr><td><strong>Canal de Governança</strong></td><td>Comunicação para controlo de alçadas, aprovações e políticas. O routing é resolvido por políticas de autoridade, não pela cadeia vertical nem por contratos horizontais.</td></tr>
 <tr><td><strong>Conector</strong></td><td>Adaptador entre o sistema e o mundo exterior: email, chat corporativo, APIs, ficheiros, web, calendário, etc.</td></tr>
 <tr><td><strong>Provider de AI</strong></td><td>Serviço de inferência (Anthropic, OpenAI, Azure OpenAI, modelos locais via Ollama/vLLM, etc.). Vários podem coexistir em paralelo.</td></tr>
+<tr><td><strong>MCP (Model Context Protocol)</strong></td><td>Protocolo de interoperabilidade para descobrir e invocar ferramentas, recursos e prompts expostos por servidores externos. No HIVE é uma fronteira de integração futura, não o protocolo organizacional nem uma dependência obrigatória da F0; ver §6.4.</td></tr>
 <tr><td><strong>Mensagem Organizacional</strong></td><td>Mensagem tipada trocada entre posições/ocupantes/conectores. A lista canónica de tipos, direção e função vive no §9.</td></tr>
 </tbody>
 </table>
@@ -610,6 +612,36 @@ occupant:
 <li>Agregação de pedidos batch e submissão às APIs de batch.</li>
 <li>Medição de tokens/custos por chamada → <code>cost-tracker</code>.</li>
 </ul>
+
+<h3>6.4 Ferramentas e interoperabilidade MCP <em>(decisão — compatibilidade futura)</em></h3>
+
+<p>O <strong>Model Context Protocol (MCP)</strong> normaliza a descoberta e invocação de ferramentas, recursos e prompts disponibilizados por servidores externos. Uma MCP tool descreve uma operação e o schema dos seus argumentos; continua a caber ao host decidir se a operação pode ser apresentada ao modelo e executada.</p>
+
+<p><strong>Decisão:</strong> o HIVE mantém um contrato interno de ferramentas independente de MCP e dos SDKs dos providers. A F0 não depende de MCP, não implementa um MCP client/server obrigatório e não acrescenta trabalho MCP ao vertical slice. A arquitetura preserva, contudo, uma fronteira onde um adapter MCP client poderá traduzir entre o contrato HIVE e servidores MCP quando um conector ou caso de uso concreto o justificar.</p>
+
+<pre><code>AiAgentActor
+  → políticas HIVE (allowlist, autoridade, budget e aprovação)
+  → contrato interno de execução de ferramentas
+  → adapter MCP client futuro
+  → MCP server
+  → sistema externo</code></pre>
+
+<p>Esta fronteira segue as regras:</p>
+
+<ul>
+<li>Mensagens organizacionais, routing, autoridade e estado de tarefa continuam definidos pelos contratos HIVE; MCP não os substitui.</li>
+<li>Conectores podem usar MCP internamente como mecanismo de integração, mas o domínio e os atores não dependem de tipos MCP.</li>
+<li>O AI Gateway traduz o contrato interno para o formato de tool calling suportado pelo provider; um adapter MCP é uma integração posterior ao mesmo contrato, não uma segunda orchestration.</li>
+<li>O modelo nunca comunica diretamente com um MCP server. Toda a chamada passa pelas políticas HIVE e por um executor controlado.</li>
+<li>Descobrir uma tool não concede autorização. A allowlist da posição, scopes, tenant/organização, budget, alçada e aprovação humana são verificados antes da execução.</li>
+<li>Argumentos e resultados são tratados como dados não confiáveis, validados e auditados; operações com efeitos externos exigem idempotência, timeout, cancelamento e política de retry adequada.</li>
+<li>Cada chamada preserva correlação com posição, organização, mensagem/thread e iteração do agente, incluindo resultado, erro, duração e decisão de autorização/aprovação.</li>
+<li>A eventual exposição do próprio HIVE como MCP server é uma decisão futura separada e não fica assumida por esta compatibilidade.</li>
+</ul>
+
+<p>Quando existir um adapter MCP, a revisão do protocolo e a versão do SDK ficam fixadas por release, com testes de contrato para discovery, schemas, execução, erros e compatibilidade. A adoção deve ser reavaliada quando um conector prioritário beneficiar concretamente de MCP ou quando interoperabilidade com clientes MCP se tornar requisito de produto.</p>
+
+<p><strong>Referências oficiais:</strong> <a href="https://github.com/modelcontextprotocol/specification">MCP Specification</a> e <a href="https://github.com/modelcontextprotocol/csharp-sdk">MCP C# SDK</a>.</p>
 
 <hr>
 
@@ -1958,7 +1990,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.37): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.43): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

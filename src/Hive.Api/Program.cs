@@ -2,12 +2,20 @@ using Hive.Actors;
 using Hive.Api.Diagnostics;
 using Hive.Infrastructure.Configuration;
 
-var builder = WebApplication.CreateBuilder(args);
-builder.AddHiveBootstrap();
-builder.AddHiveActorSystem();
+namespace Hive.Api;
 
-var app = builder.Build();
+public static class Program
+{
+    public static void Main(string[] args) => Build(args).Run();
 
-app.MapHiveDiagnostics();
+    public static WebApplication Build(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+        builder.AddHiveBootstrap();
+        builder.AddHiveActorSystem();
 
-app.Run();
+        var app = builder.Build();
+        app.MapHiveDiagnostics();
+        return app;
+    }
+}

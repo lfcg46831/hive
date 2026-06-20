@@ -40,7 +40,10 @@ public sealed class HiveActorSystemTests
 
     private static IHost BuildHost(int port, params string[] roles)
     {
-        var builder = Host.CreateApplicationBuilder();
+        var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            DisableDefaults = true,
+        });
 
         var settings = new Dictionary<string, string?>
         {

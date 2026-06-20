@@ -1,9 +1,17 @@
 using Hive.Actors;
 using Hive.Infrastructure.Configuration;
 
-var builder = Host.CreateApplicationBuilder(args);
-builder.AddHiveBootstrap();
-builder.AddHiveActorSystem();
+namespace Hive.Worker;
 
-var host = builder.Build();
-host.Run();
+public static class Program
+{
+    public static void Main(string[] args) => Build(args).Run();
+
+    public static IHost Build(string[] args)
+    {
+        var builder = Host.CreateApplicationBuilder(args);
+        builder.AddHiveBootstrap();
+        builder.AddHiveActorSystem();
+        return builder.Build();
+    }
+}

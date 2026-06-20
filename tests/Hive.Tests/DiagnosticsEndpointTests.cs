@@ -70,6 +70,7 @@ public sealed class DiagnosticsEndpointTests
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
+        builder.Configuration.Sources.Clear();
         builder.Configuration.AddInMemoryCollection(configuration);
         builder.AddHiveBootstrap();
 

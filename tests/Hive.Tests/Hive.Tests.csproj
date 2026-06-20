@@ -30,7 +30,9 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\Hive.Actors\Hive.Actors.csproj" />
     <ProjectReference Include="..\..\src\Hive.Api\Hive.Api.csproj" />
+    <ProjectReference Include="..\..\src\Hive.Domain\Hive.Domain.csproj" />
     <ProjectReference Include="..\..\src\Hive.Infrastructure\Hive.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Hive.Worker\Hive.Worker.csproj" />
   </ItemGroup>
 
 </Project>

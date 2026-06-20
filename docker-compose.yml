@@ -5,11 +5,12 @@
 # root Dockerfile (US-F0-02-T01) with the runtime env-var contract from
 # US-F0-02-T02; it self-seeds a one-node Akka cluster (empty SeedNodes).
 #
-# Deliberately layered on by later tasks, so they are kept out of this base file:
+# Deliberately layered on by optional overrides, so they are kept out of this base file:
 #   * US-F0-02-T04  three-node cluster via a compose override/profile.
 #   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
-#   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
-#                   self-contained base.
+#
+# Local PostgreSQL values come from the untracked `.env` file. Copy the safe
+# development template `.env.example` to `.env` before resolving this file.
 #
 # Health checks and readiness (US-F0-02-T08/T09)
 # ------------------------------------------------
@@ -53,13 +54,14 @@
 services:
   # PostgreSQL backing store. The same F0 database serves journal/snapshots,
   # registry, audit log, read models, budgets and scheduler idempotency; each
-  # subsystem owns its own schemas and migrations. Local-dev credentials only.
+  # subsystem owns its own schemas and migrations. Local-dev credentials only,
+  # supplied through the ignored `.env` file created from `.env.example`.
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_USER: hive
-      POSTGRES_PASSWORD: hive
-      POSTGRES_DB: hive
+      POSTGRES_USER: "${POSTGRES_USER:?Copy .env.example to .env}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Copy .env.example to .env}"
+      POSTGRES_DB: "${POSTGRES_DB:?Copy .env.example to .env}"
     # Internal-only: HIVE nodes reach it as `postgres:5432` over `hive-net`. The
     # port is not published to the host (exposed only where necessary); for
     # ad-hoc local inspection use `docker compose exec postgres psql -U hive`.
@@ -94,7 +96,7 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=${POSTGRES_DB:?Copy .env.example to .env};Username=${POSTGRES_USER:?Copy .env.example to .env};Password=${POSTGRES_PASSWORD:?Copy .env.example to .env}"
     # Only the HTTP/diagnostics port is published to the host. The Akka cluster
     # port (8081) stays internal to `hive-net`; it is declared via EXPOSE in the
     # image and reached node-to-node by DNS, never bound on the host.

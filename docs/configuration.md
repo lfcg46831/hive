@@ -73,9 +73,14 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 
 ## Run with Docker Compose
 
-The root `docker-compose.yml` (US-F0-02-T03) is the base local environment: PostgreSQL plus a single HIVE node (the `Hive.Api` host built from the root `Dockerfile`). The node self-seeds a one-node Akka cluster and is wired to the `postgres` service through `ConnectionStrings__PostgreSql`, so its readiness check is satisfied. Local-dev credentials (`hive`/`hive`/`hive`) are inlined for a self-contained base; US-F0-02-T10 extracts them into `.env.example`.
+The root `docker-compose.yml` (US-F0-02-T03) is the base local environment: PostgreSQL plus a single HIVE node (the `Hive.Api` host built from the root `Dockerfile`). The node self-seeds a one-node Akka cluster and is wired to the `postgres` service through `ConnectionStrings__PostgreSql`, so its readiness check is satisfied.
+
+Compose requires `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`. The tracked `.env.example` supplies safe local-only values; copy it to the ignored `.env` file before starting the stack. Compose reads `.env` automatically. Do not reuse the example credentials outside local development or commit real credentials in `.env.example`.
 
 ```powershell
+# Create the ignored local environment file once.
+Copy-Item .env.example .env
+
 # Build the node image and start PostgreSQL + one HIVE node.
 docker compose up --build
 
@@ -88,7 +93,7 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), and Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05) and `.env.example` (US-F0-02-T10).
+The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below), and the local environment-variable contract from `.env.example` (US-F0-02-T10). Per-service roles remain optional through the `docker-compose.roles.yml` override (US-F0-02-T05).
 
 ### Persistent storage
 

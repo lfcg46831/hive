@@ -139,6 +139,7 @@
 <tr><td>0.41</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T09</code>: endpoint mínimo de diagnóstico no host <code>Hive.Api</code> — <code>/health/live</code> e <code>/health/ready</code> selecionam as verificações pelas tags <code>live</code>/<code>ready</code> de §11.1 (200/503 para o orquestrador) e <code>/diagnostics</code> expõe versão, roles ativas e estado de arranque (<code>live</code>/<code>ready</code>) a partir do <code>NodeDiagnosticsProvider</code> no bootstrap partilhado; o <code>Hive.Worker</code> mantém-se sem servidor HTTP (a sonda dos nós backend fica para <code>US-F0-02-T08</code>/<code>T09</code>)</td></tr>
 <tr><td>0.42</td><td>2026-06-20</td><td>Definição em §6.4 da estratégia MCP: contrato interno de ferramentas independente do protocolo, interoperabilidade futura por adapter MCP client e ausência de dependência ou trabalho MCP obrigatório na F0</td></tr>
 <tr><td>0.43</td><td>2026-06-20</td><td>ADR-006 aceite: integração faseada de coding agents externos, como Codex e Claude Code, através de runner sandboxed, contrato HIVE vendor-neutral e aprovação humana antes de aplicar alterações</td></tr>
+<tr><td>0.44</td><td>2026-06-20</td><td>Promoção a contrato em §5.11 das convenções iniciais de namespaces, pastas, naming e boundaries entre projetos (codename <code>Hive</code> estável, namespace raiz por projeto, namespace a espelhar a pasta e grafo de <code>ProjectReference</code> permitido); registo da implementação de <code>US-F0-01-T12</code> com testes de arquitetura que as verificam</td></tr>
 </tbody>
 </table>
 
@@ -540,6 +541,32 @@
 <pre><code>HIVE__CLUSTER__HOSTNAME=node-a
 HIVE__CLUSTER__PORT=8081
 HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@node-a:8081</code></pre>
+
+<h3>5.11 Convenções de namespaces, pastas, naming e boundaries <em>(contrato)</em></h3>
+
+<p><strong>Codename técnico estável.</strong> <code>Hive</code> é o nome de código usado em repositório, solution, projetos, assemblies e namespaces durante F0/F1 (ver §1.3 e a nota de codename). A marca comercial ou nome público pode mudar depois por configuração/display name; renomear <code>Hive.*</code> só acontece por ADR explícito, porque implica refactor transversal. Todo o código novo nasce sob o prefixo <code>Hive.</code>.</p>
+
+<p><strong>Um namespace raiz por projeto.</strong> Cada projeto tem como namespace raiz o seu próprio nome — <code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code>, <code>Hive.Api</code>, <code>Hive.Worker</code> e <code>Hive.Tests</code> — e o nome do assembly coincide com o do projeto. Não se introduzem namespaces fora desta árvore nem aliases para a mesma capacidade.</p>
+
+<p><strong>Namespaces espelham pastas.</strong> A sub-pasta de um ficheiro dentro do projeto define o sufixo do namespace: um ficheiro em <code>Hive.Infrastructure/Hosting</code> declara <code>namespace Hive.Infrastructure.Hosting</code>, um em <code>Hive.Api/Diagnostics</code> declara <code>namespace Hive.Api.Diagnostics</code>. As pastas agrupam por capacidade/área (<code>Configuration</code>, <code>Hosting</code>, <code>Diagnostics</code>, <code>Logging</code>, …), não por tipo técnico de classe. Usam-se <code>file-scoped namespaces</code>, ficheiros em <code>PascalCase</code> e, por omissão, um tipo público principal por ficheiro com o nome do ficheiro.</p>
+
+<p><strong>Boundaries entre projetos (a referência flui para dentro, em direção ao domínio).</strong> Os <code>ProjectReference</code> permitidos são um contrato; qualquer aresta fora desta lista é uma violação de fronteira:</p>
+
+<table>
+<thead>
+<tr><th>Projeto</th><th>Papel</th><th>Pode referenciar</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Hive.Domain</code></td><td>Kernel de domínio puro</td><td>Nada (sem Akka, ASP.NET Core, infraestrutura, bootstrap ou packages de runtime) — ver §5.10 e os testes de isolamento</td></tr>
+<tr><td><code>Hive.Infrastructure</code></td><td>Base transversal: configuração, hosting/seam, diagnóstico, logging</td><td><code>Hive.Domain</code></td></tr>
+<tr><td><code>Hive.Actors</code></td><td>Modelo de atores e bootstrap do <code>ActorSystem</code></td><td><code>Hive.Domain</code>, <code>Hive.Infrastructure</code></td></tr>
+<tr><td><code>Hive.Api</code></td><td>Host executável (HTTP/SignalR, role <code>api</code>)</td><td><code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code></td></tr>
+<tr><td><code>Hive.Worker</code></td><td>Host executável (roles de backend)</td><td><code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code></td></tr>
+<tr><td><code>Hive.Tests</code></td><td>Testes de composição, boundary e convenções</td><td>Todos os projetos de <code>src</code></td></tr>
+</tbody>
+</table>
+
+<p>Os hosts (<code>Hive.Api</code>, <code>Hive.Worker</code>) são os únicos pontos de entrada (<code>Program.cs</code>) e nenhum projeto de biblioteca pode depender de um host. Não há ciclos de dependência. Estas convenções são verificadas por testes de arquitetura no <code>Hive.Tests</code> (prefixo de codename, namespace raiz por projeto, namespace a espelhar a pasta e grafo de referências permitido), de forma que uma regressão de fronteira ou de naming falha o build.</p>
 
 <hr>
 

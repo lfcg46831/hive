@@ -48,6 +48,29 @@ docker build `
   -t hive:worker .
 ```
 
+## Container runtime configuration
+
+The runtime stage (US-F0-02-T02) declares the env-var contract the image runs with. Settings use the standard .NET hierarchical convention (`__` separates sections, `__0` indexes array entries), so they bind onto the same `Hive:*`/`appsettings` model below with no code change. Compose layers the per-deployment values on top (US-F0-02-T03+).
+
+Image-level defaults baked into the image:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `ASPNETCORE_ENVIRONMENT` / `DOTNET_ENVIRONMENT` | `Production` | Keeps containers off the local all-in-one `appsettings.Development.json`; each host falls back to its own per-executable roles. |
+| `ASPNETCORE_HTTP_PORTS` | `8080` | Kestrel listen port for `/health` and `/diagnostics` on the `api` host. Inert on the non-HTTP worker. |
+| `HIVE__CLUSTER__PORT` | `8081` | Akka remoting/cluster bind port (`Hive:Cluster:Port`). |
+
+`EXPOSE 8080 8081` documents these ports; it is metadata only, so compose decides which are actually published (US-F0-02-T06).
+
+Per-deployment overrides are intentionally not pinned in the image and are supplied per service:
+
+| Variable | Supplied by | Notes |
+| --- | --- | --- |
+| `HIVE__NODE__ROLES__0` | compose, per service (US-F0-02-T05) | Active node role. Defaults to each host's `appsettings.json` when unset. |
+| `ConnectionStrings__PostgreSql` | operator / compose env | Required dependency; left empty so readiness stays not-ready until provided. No baked-in credentials. |
+| `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
+| `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
+
 ## Sources and precedence
 
 Both executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json`, environment variables, and command-line values according to the default host builders.

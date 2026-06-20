@@ -54,6 +54,46 @@ ENV APP_DLL=${APP_DLL}
 WORKDIR /app
 COPY --from=build /app/publish ./
 
+# -----------------------------------------------------------------------------
+# Runtime configuration contract (US-F0-02-T02).
+#
+# The image declares image-level defaults that are safe for every deployment and
+# documents the per-deployment overrides supplied by Docker Compose (US-F0-02-T03+).
+# All settings follow the .NET hierarchical env-var convention (`__` is the
+# section separator, `__0` indexes array entries), so they map onto the same
+# `appsettings`/`Hive:*` contract from §5.10 of the bible without code changes.
+#
+# Image-level defaults set below:
+#   * Environment      -> Production, so the container never picks up the local
+#                         all-in-one `appsettings.Development.json` role override;
+#                         each host falls back to its own per-executable role set.
+#   * HTTP port (api)  -> 8080, the Kestrel listen port for /health and
+#                         /diagnostics. Harmless on the non-HTTP worker host.
+#   * Akka cluster port-> 8081, the remoting/cluster bind port (Hive:Cluster:Port).
+#
+# Per-deployment overrides (NOT pinned here; provided by compose/env per service):
+#   * HIVE__NODE__ROLES__0=<role>          Active node role(s). Defaults come from
+#                                          each host's appsettings.json; compose
+#                                          assigns roles per service (US-F0-02-T05).
+#   * ConnectionStrings__PostgreSql=<conn> Required dependency. Left empty on
+#                                          purpose: readiness stays not-ready until
+#                                          an operator/compose supplies it (no
+#                                          baked-in credentials).
+#   * HIVE__CLUSTER__HOSTNAME=<dns-name>   Reachable name other nodes dial; the
+#                                          stable compose DNS name in multi-node
+#                                          topologies (US-F0-02-T06).
+#   * HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@<host>:<port>
+#                                          Join target(s). When empty the node
+#                                          self-seeds a single-node cluster.
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_ENVIRONMENT=Production \
+    ASPNETCORE_HTTP_PORTS=8080 \
+    HIVE__CLUSTER__PORT=8081
+
+# Document the ports the node may serve on: HTTP (api host) and Akka cluster.
+# EXPOSE is metadata only; compose decides which ports are actually published.
+EXPOSE 8080 8081
+
 # Run as the unprivileged user that ships with the .NET runtime image.
 USER app
 

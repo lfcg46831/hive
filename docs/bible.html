@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.50 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.51 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -146,6 +146,7 @@
 <tr><td>0.48</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T11</code>: consolidação em <code>docs/configuration.md</code> dos comandos PowerShell e Bash para arrancar, parar e alternar entre as topologias locais de 1 e 3 nós, incluindo limpeza explícita dos volumes nomeados com aviso de perda dos dados PostgreSQL</td></tr>
 <tr><td>0.49</td><td>2026-06-20</td><td>Definição do contrato de identidade de <code>US-F0-03-T01</code>: identificadores estruturais legíveis baseados em <code>string</code>, identificadores de mensagens distribuídos baseados em <code>Guid</code>, validação explícita e ausência de conversões implícitas</td></tr>
 <tr><td>0.50</td><td>2026-06-20</td><td>Definição do contrato de referências de endpoint de <code>US-F0-03-T02</code>: envelope baseado em <code>EndpointRef</code> tipado para posições, <code>OrganizationOwner</code> e endpoints de sistema, com matriz explícita de combinações permitidas por mensagem</td></tr>
+<tr><td>0.51</td><td>2026-06-21</td><td>Clarificação da dependência entre <code>US-F0-03-T02</code> e <code>T03</code>: <code>Priority</code> permanece propriedade de <code>T03</code>, mas é implementada primeiro em <code>T03a</code> para desbloquear o envelope; os restantes tipos partilhados ficam em <code>T03b</code></td></tr>
 </tbody>
 </table>
 
@@ -918,7 +919,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tbody>
 <tr><td><code>US-F0-01</code></td><td><code>T01</code>=1, <code>T02</code>=2, <code>T03</code>=2, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=2, <code>T10</code>=5, <code>T11</code>=1, <code>T12</code>=2</td><td><strong>31</strong></td></tr>
 <tr><td><code>US-F0-02</code></td><td><code>T01</code>=3, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=1, <code>T11</code>=1, <code>T12</code>=5</td><td><strong>34</strong></td></tr>
-<tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
+<tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=1, <code>T03b</code>=2, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
 <tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
 <tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09a</code>=3, <code>T09b</code>=3, <code>T09c</code>=2, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
 <tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>91</strong></td></tr>
@@ -1001,8 +1002,13 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-03-T01</strong> — Modelar os value objects de identidade conforme o contrato de §9.1: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
-<li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem e destino como união discriminada <code>EndpointRef</code>, prioridade, timestamps, deadline, thread/correlation id e versão de schema; incluir as variantes iniciais <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e <code>SystemEndpointRef</code>, limitando os endpoints de sistema da F0 a <code>Scheduler</code> e <code>DomainEvents</code>.</li>
-<li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
+<li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem e destino como união discriminada <code>EndpointRef</code>, prioridade, timestamps, deadline, thread/correlation id e versão de schema; incluir as variantes iniciais <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e <code>SystemEndpointRef</code>, limitando os endpoints de sistema da F0 a <code>Scheduler</code> e <code>DomainEvents</code>. Esta tarefa depende de <code>T01</code> e de <code>T03a</code>, mas não exige a conclusão de <code>T03b</code>.</li>
+<li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados do protocolo.
+<ul>
+<li><strong>US-F0-03-T03a</strong> — Definir <code>Priority</code> no namespace partilhado definitivo do domínio, com contrato imutável e validação própria; executar esta subtarefa antes de <code>T02</code>. Este trabalho pertence a <code>T03</code>, não cria um tipo temporário dentro de <code>T02</code> e não permite marcar <code>T03</code> como concluída.</li>
+<li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados: <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
+</ul>
+</li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
 <li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; papéis e políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
 <li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com combinações de endpoint não permitidas ou com <code>ReportKind</code> fora de <code>Progress</code>/<code>Done</code>.</li>
@@ -2152,7 +2158,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.51): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.52): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

@@ -34,6 +34,14 @@ public static class HiveActorSystemBootstrapExtensions
                 : new[] { $"akka.tcp://{ActorSystemName}@{cluster.Hostname}:{cluster.Port}" };
 
             akka
+                .ConfigureLoggers(logging =>
+                {
+                    // Route Akka's own logs through the host's ILoggerFactory so the process
+                    // emits one uniform, structured stream (US-F0-01-T07) instead of Akka's
+                    // default unstructured stdout logger alongside the common JSON console.
+                    logging.ClearLoggers();
+                    logging.AddLoggerFactory();
+                })
                 .WithRemoting(cluster.Hostname, cluster.Port)
                 .WithClustering(new ClusterOptions
                 {

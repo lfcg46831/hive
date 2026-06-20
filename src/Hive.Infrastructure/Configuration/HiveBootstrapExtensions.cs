@@ -1,4 +1,5 @@
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Logging;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -11,7 +12,7 @@ public static class HiveBootstrapExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        builder.Services.AddLogging();
+        builder.AddHiveStructuredLogging();
 
         builder.Services.AddSingleton<IValidateOptions<HiveOptions>, HiveOptionsValidator>();
         builder.Services

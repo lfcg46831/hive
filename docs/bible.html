@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.36 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.39 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -134,6 +134,7 @@
 <tr><td>0.36</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T05</code>: bootstrap comum de configuração e DI, binding tipado e validação fail-fast das roles em ambos os executáveis</td></tr>
 <tr><td>0.37</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T06</code>: host Akka mínimo configurado por role (Akka.Cluster real via <code>Akka.Hosting</code>/<code>Akka.Cluster.Hosting</code>, roles do cluster espelham <code>Hive:Node:Roles</code>, self-seed single-node por omissão e contrato <code>Hive:Cluster</code> hostname/port/seed) e seam de ativação de workloads por role (<code>IRoleWorkload</code>) agnóstico ao mecanismo, validado com workloads fake sem atores placeholder</td></tr>
 <tr><td>0.38</td><td>2026-06-20</td><td>Promoção a contrato em §5.10 do seam <code>IRoleWorkload</code> como fronteira de integração dos workloads por role e do contrato de configuração <code>Hive:Cluster</code>/nome do <code>ActorSystem</code>; registo da questão em aberto Q11 (ordem de arranque <code>ActorSystem</code> vs. workloads, adiada para <code>US-F0-06</code>)</td></tr>
+<tr><td>0.39</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T07</code>: logging estruturado comum a ambos os executáveis no bootstrap partilhado (JSON console com scopes e timestamps UTC), níveis ainda controlados pela secção <code>Logging</code>, e encaminhamento dos logs do <code>ActorSystem</code> Akka pelo <code>ILoggerFactory</code> comum; OpenTelemetry/tracing continuam reservados a fases posteriores</td></tr>
 </tbody>
 </table>
 
@@ -538,6 +539,8 @@
 <pre><code>HIVE__CLUSTER__HOSTNAME=node-a
 HIVE__CLUSTER__PORT=8081
 HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@node-a:8081</code></pre>
+
+<p><strong>Implementação de <code>US-F0-01-T07</code>:</strong> o logging estruturado comum é configurado no bootstrap partilhado (<code>AddHiveStructuredLogging</code> em <code>Hive.Infrastructure.Logging</code>, invocado por <code>AddHiveBootstrap</code>), pelo que ambos os executáveis emitem o mesmo stream estruturado sem poderem optar por sair. Limpa os providers por omissão e regista o formatter JSON console incorporado com <code>IncludeScopes</code> e timestamps UTC; os scopes preservam metadados de correlação futuros (<code>ThreadId</code>/<code>DirectiveId</code>, §11). Os níveis e filtros continuam a ser controlados pela secção <code>Logging</code> dos <code>appsettings</code> pelo pipeline normal de options — o bootstrap fixa o conjunto de providers e o formato, não os filtros. O <code>ActorSystem</code> Akka do <code>US-F0-01-T06</code> encaminha os seus próprios logs pelo <code>ILoggerFactory</code> do host via <code>ConfigureLoggers(... AddLoggerFactory())</code>, em vez do logger stdout não estruturado por omissão do Akka, garantindo um único stream uniforme por processo. Observabilidade mais rica (OpenTelemetry, métricas e tracing distribuído) permanece reservada a fases posteriores.</p>
 
 <hr>
 

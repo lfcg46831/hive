@@ -77,27 +77,129 @@ The root `docker-compose.yml` (US-F0-02-T03) is the base local environment: Post
 
 Compose requires `POSTGRES_USER`, `POSTGRES_PASSWORD`, and `POSTGRES_DB`. The tracked `.env.example` supplies safe local-only values; copy it to the ignored `.env` file before starting the stack. Compose reads `.env` automatically. Do not reuse the example credentials outside local development or commit real credentials in `.env.example`.
 
-```powershell
-# Create the ignored local environment file once.
-Copy-Item .env.example .env
+### Local stack lifecycle
 
-# Build the node image and start PostgreSQL + one HIVE node.
+Run all commands from the repository root with Docker Compose v2. Create the ignored local environment file once before starting either topology.
+
+PowerShell:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Bash:
+
+```bash
+cp .env.example .env
+```
+
+Start, inspect, and stop the one-node topology with the base Compose file.
+
+PowerShell:
+
+```powershell
+# Start PostgreSQL and one HIVE node.
 docker compose up --build
 
-# Once up, the node serves the diagnostics surface on 8080:
+# In another terminal, inspect container health and the API.
+docker compose ps
 Invoke-RestMethod http://localhost:8080/health/live
 Invoke-RestMethod http://localhost:8080/health/ready
 Invoke-RestMethod http://localhost:8080/diagnostics
 
-# Stop the stack.
+# Stop containers while preserving PostgreSQL data.
 docker compose down
+```
+
+Bash:
+
+```bash
+# Start PostgreSQL and one HIVE node.
+docker compose up --build
+
+# In another terminal, inspect container health and the API.
+docker compose ps
+curl -fsS http://localhost:8080/health/live
+curl -fsS http://localhost:8080/health/ready
+curl -fsS http://localhost:8080/diagnostics
+
+# Stop containers while preserving PostgreSQL data.
+docker compose down
+```
+
+Start, inspect, and stop the three-node topology by passing the base and cluster files to every Compose command.
+
+PowerShell:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml ps
+Invoke-RestMethod http://localhost:8080/diagnostics
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+```
+
+Bash:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml ps
+curl -fsS http://localhost:8080/diagnostics
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+```
+
+To switch topologies, stop the active topology with the same file set used to start it, then start the target topology. Do not add or remove the cluster override from an already-running stack.
+
+PowerShell:
+
+```powershell
+# Switch from one node to three nodes.
+docker compose down
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+
+# Switch from three nodes to one node.
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+docker compose up --build
+```
+
+Bash:
+
+```bash
+# Switch from one node to three nodes.
+docker compose down
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+
+# Switch from three nodes to one node.
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+docker compose up --build
+```
+
+**Destructive cleanup:** the following commands remove containers, orphaned containers, and named volumes, including all PostgreSQL data in `hive-pgdata`. Use the command matching the active topology.
+
+PowerShell:
+
+```powershell
+# Clean a one-node stack and its volumes.
+docker compose down --volumes --remove-orphans
+
+# Clean a three-node stack and its volumes.
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down --volumes --remove-orphans
+```
+
+Bash:
+
+```bash
+# Clean a one-node stack and its volumes.
+docker compose down --volumes --remove-orphans
+
+# Clean a three-node stack and its volumes.
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down --volumes --remove-orphans
 ```
 
 The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below), and the local environment-variable contract from `.env.example` (US-F0-02-T10). Per-service roles remain optional through the `docker-compose.roles.yml` override (US-F0-02-T05).
 
 ### Persistent storage
 
-PostgreSQL stores its data directory in the named volume `hive-pgdata` (mounted at `/var/lib/postgresql/data`), declared in the base `docker-compose.yml` (US-F0-02-T07). This replaces the image's implicit anonymous volume so the backing store survives container recreation and `docker compose down`, and is a named, inspectable target (`docker volume inspect <project>_hive-pgdata`). The data is removed only by an explicit `docker compose down -v` (or `docker volume rm`). The same volume backs every F0 subsystem (journal/snapshots, registry, audit log, read models, budgets, scheduler idempotency), since they share one database.
+PostgreSQL stores its data directory in the named volume `hive-pgdata` (mounted at `/var/lib/postgresql/data`), declared in the base `docker-compose.yml` (US-F0-02-T07). This replaces the image's implicit anonymous volume so the backing store survives container recreation and `docker compose down`, and is a named, inspectable target (`docker volume inspect <project>_hive-pgdata`). The data is removed only by the explicit destructive cleanup documented in the lifecycle section above (or by `docker volume rm`). The same volume backs every F0 subsystem (journal/snapshots, registry, audit log, read models, budgets, scheduler idempotency), since they share one database.
 
 A second named volume for local logs is defined but kept optional and disabled by default: both hosts emit structured JSON to stdout (collected by Compose, see Logging above), so there is no on-disk log path to persist. The `hive-logs` volume and its mount on the `api` service are left commented in the base file, ready to enable if a file log sink is ever added.
 
@@ -114,10 +216,7 @@ All checks use the same cadence: `interval: 10s`, `timeout: 5s`, `retries: 5`, w
 
 Compose also gates start-up on health rather than container creation. The base `api` waits for `postgres` with `condition: service_healthy`; in the three-node topology, `api2` and `api3` wait for both PostgreSQL and the seed `api` to report healthy. This ordering complements the current readiness contract: `/health/ready` validates that mandatory dependency configuration is present, while PostgreSQL's own health check confirms that the configured local service is accepting connections.
 
-```powershell
-# After `docker compose up`, watch health status resolve to healthy:
-docker compose ps
-```
+Use the topology-matching `docker compose ... ps` command from the lifecycle section to watch every container resolve to `healthy`.
 
 ### Three-node cluster
 
@@ -125,18 +224,7 @@ docker compose ps
 
 The base `api` node is promoted into the cluster seed: it is pinned to its compose DNS name (`api`) and its seed list points at itself, so the two added nodes (`api2`, `api3`) join via the shared seed `akka.tcp://hive@api:8081` and all three converge into one cluster. The added nodes join the same `hive-net` network with matching DNS aliases. Every node keeps its image-default role (interchangeable `api` nodes); distinct per-service roles are layered by the `docker-compose.roles.yml` override (US-F0-02-T05, see below). Per the port policy below, only the base `api` publishes 8080; the extra nodes and the Akka cluster port stay internal to `hive-net`.
 
-```powershell
-# Start PostgreSQL + three HIVE nodes.
-docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
-
-# The seed node still serves the diagnostics surface on 8080:
-Invoke-RestMethod http://localhost:8080/diagnostics
-
-# Stop the three-node stack (pass the same files used to start it).
-docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
-```
-
-Plain `docker compose up` (without `-f docker-compose.cluster.yml`) still starts the 1-node base.
+Use the three-node commands in the lifecycle section to operate this topology. Plain `docker compose up` (without `-f docker-compose.cluster.yml`) still starts the one-node base.
 
 ### Per-service roles
 

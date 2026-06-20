@@ -18,15 +18,14 @@
 #
 # Everything uses the §5.10 env-var contract (`__` section separator, `__0` array
 # index) from US-F0-02-T02, binding onto `Hive:Cluster:*` with no code change.
-# Compose's default network already resolves each service name to its container,
-# so the service name doubles as the stable cluster hostname here.
+# The added nodes join the explicit `hive-net` network from the base (T06) and
+# advertise stable DNS aliases, so each service name doubles as the reachable
+# cluster hostname. Per the T06 port policy, only the base `api` publishes 8080;
+# the extra nodes and the Akka cluster port (8081) stay internal to `hive-net`.
 #
 # Scope kept deliberately narrow; later tasks layer on top of these same nodes:
 #   * US-F0-02-T05  distinct roles per node (here every node keeps its image
 #                   default role, so the three are interchangeable api nodes).
-#   * US-F0-02-T06  explicit internal network, DNS policy and published ports
-#                   (here only the base `api` keeps its published 8080; the extra
-#                   nodes stay internal).
 #   * US-F0-02-T08  Docker health checks for the nodes.
 #   * US-F0-02-T09  readiness gated on mandatory configuration.
 
@@ -40,7 +39,8 @@ services:
       HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
 
   # Second cluster node. Same image and Postgres connection string as the base;
-  # it advertises its own DNS name and joins via the shared `api` seed.
+  # it advertises its own DNS name and joins via the shared `api` seed. It joins
+  # `hive-net` with a matching alias; no host ports are published (internal-only).
   api2:
     build:
       context: .
@@ -49,6 +49,10 @@ services:
       ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
       HIVE__CLUSTER__HOSTNAME: "api2"
       HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
+    networks:
+      hive-net:
+        aliases:
+          - api2
     depends_on:
       - postgres
       - api
@@ -62,6 +66,10 @@ services:
       ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
       HIVE__CLUSTER__HOSTNAME: "api3"
       HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
+    networks:
+      hive-net:
+        aliases:
+          - api3
     depends_on:
       - postgres
       - api

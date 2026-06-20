@@ -88,13 +88,13 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-This base file intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), the explicit internal network and port policy (US-F0-02-T06), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
+The base file declares an explicit internal network and port policy (US-F0-02-T06, see below) and intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
 
 ### Three-node cluster
 
 `docker-compose.cluster.yml` (US-F0-02-T04) is an override that turns the single-node base into a real 3-node Akka cluster, layered on top without editing the base file. Adding or omitting the override is how a developer switches between 1 and 3 nodes.
 
-The base `api` node is promoted into the cluster seed: it is pinned to its compose DNS name (`api`) and its seed list points at itself, so the two added nodes (`api2`, `api3`) join via the shared seed `akka.tcp://hive@api:8081` and all three converge into one cluster. Every node keeps its image-default role (interchangeable `api` nodes); distinct per-service roles are layered by the `docker-compose.roles.yml` override (US-F0-02-T05, see below), and only the base `api` publishes 8080, so the extra nodes stay internal until the port policy of US-F0-02-T06.
+The base `api` node is promoted into the cluster seed: it is pinned to its compose DNS name (`api`) and its seed list points at itself, so the two added nodes (`api2`, `api3`) join via the shared seed `akka.tcp://hive@api:8081` and all three converge into one cluster. The added nodes join the same `hive-net` network with matching DNS aliases. Every node keeps its image-default role (interchangeable `api` nodes); distinct per-service roles are layered by the `docker-compose.roles.yml` override (US-F0-02-T05, see below). Per the port policy below, only the base `api` publishes 8080; the extra nodes and the Akka cluster port stay internal to `hive-net`.
 
 ```powershell
 # Start PostgreSQL + three HIVE nodes.
@@ -120,6 +120,21 @@ docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-com
 Each node is the same `Hive.Api` image (serves HTTP and can run any role); the role set only selects which `IRoleWorkload` implementations the node activates. The split covers every role: `api` keeps `api`, `api2` runs `agents`, and `api3` runs `gateway` and `connectors`. Roles are supplied per service through the §5.10 env-var contract: `Hive:Node:Roles` is an array, so `HIVE__NODE__ROLES__0` sets the first entry and `__1` the second, replacing the host's `appsettings.json` default by array index.
 
 Omitting the file leaves the nodes on their image-default roles, so adding or removing it is how a developer switches between uniform and per-service roles. The same env-var override sets the role on the single-node base too — e.g. `HIVE__NODE__ROLES__0=agents` on the base `api` service runs that one node as `agents`.
+
+### Internal network and ports
+
+The base `docker-compose.yml` (US-F0-02-T06) puts every service on one explicit user-defined bridge network, `hive-net`, instead of the implicit compose default. The network is declared once in the base and the cluster/roles overrides only attach nodes to it. A user-defined network gives automatic DNS resolution, and each service publishes a stable alias (`postgres`, `api`, `api2`, `api3`) so cluster hostnames and the `ConnectionStrings__PostgreSql` host stay valid regardless of the compose project name or a service rename.
+
+Ports are published to the host only where a developer needs them. The single port mapping in the whole stack is the api node's HTTP/diagnostics port:
+
+| Port | Service | Host-published? | Reason |
+| --- | --- | --- | --- |
+| 8080 | `api` (seed) | Yes (`8080:8080`) | HTTP `/health` and `/diagnostics`; the surface a developer hits. |
+| 8081 | every HIVE node | No (internal) | Akka remoting/cluster port; reached node-to-node by DNS only. |
+| 5432 | `postgres` | No (internal) | Backing store; reached by nodes as `postgres:5432`. |
+| 8080 | `api2`, `api3` | No (internal) | Sibling cluster nodes; not individually addressed from the host. |
+
+The internal ports are declared with `expose` (documentation/metadata; on a bridge network all container ports are already reachable between services) and are never bound on the host. PostgreSQL is therefore not reachable from the host by default; for ad-hoc local inspection use `docker compose exec postgres psql -U hive`, or temporarily add a `ports: ["5432:5432"]` mapping in a personal override.
 
 ## Sources and precedence
 

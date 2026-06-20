@@ -8,12 +8,23 @@
 # Deliberately layered on by later tasks, so they are kept out of this base file:
 #   * US-F0-02-T04  three-node cluster via a compose override/profile.
 #   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
-#   * US-F0-02-T06  explicit internal network, stable DNS names and port policy.
 #   * US-F0-02-T07  named persistent volume for PostgreSQL (and optional logs).
 #   * US-F0-02-T08  Docker health checks for PostgreSQL and HIVE nodes.
 #   * US-F0-02-T09  readiness gated on mandatory configuration being loaded.
 #   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
 #                   self-contained base.
+#
+# Network and port policy (US-F0-02-T06)
+# --------------------------------------
+# Services share one explicit user-defined bridge network (`hive-net`) instead of
+# the implicit compose default, so the trust boundary is declared and each
+# service is reachable by a stable DNS name (its `aliases`) regardless of compose
+# project prefixes or service renames. Ports are published to the host ONLY where
+# a developer needs them: the api HTTP/diagnostics port (8080). Everything else
+# stays internal to `hive-net` — the Akka remoting/cluster port (8081) and
+# PostgreSQL (5432) are reachable node-to-node by DNS but are not bound on the
+# host. Overrides only ADD nodes/roles to this network; they never publish the
+# internal ports (extra cluster nodes and 8081 stay private).
 #
 # All HIVE settings use the .NET hierarchical env-var convention (`__` separates
 # sections, `__0` indexes array entries), binding onto the `Hive:*`/appsettings
@@ -29,21 +40,45 @@ services:
       POSTGRES_USER: hive
       POSTGRES_PASSWORD: hive
       POSTGRES_DB: hive
-    ports:
-      - "5432:5432"
+    # Internal-only: HIVE nodes reach it as `postgres:5432` over `hive-net`. The
+    # port is not published to the host (exposed only where necessary); for
+    # ad-hoc local inspection use `docker compose exec postgres psql -U hive`.
+    expose:
+      - "5432"
+    networks:
+      hive-net:
+        aliases:
+          - postgres
 
   # Single HIVE node: the Hive.Api host (default Dockerfile target). It serves
   # /health and /diagnostics on 8080 and self-seeds a one-node cluster. The
   # mandatory PostgreSQL connection string is supplied here (not baked into the
   # image) so the readiness check can be satisfied; it points at the `postgres`
-  # service over the compose default network.
+  # service by its stable DNS name on `hive-net`.
   api:
     build:
       context: .
       dockerfile: Dockerfile
     environment:
       ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
+    # Only the HTTP/diagnostics port is published to the host. The Akka cluster
+    # port (8081) stays internal to `hive-net`; it is declared via EXPOSE in the
+    # image and reached node-to-node by DNS, never bound on the host.
     ports:
       - "8080:8080"
+    expose:
+      - "8081"
+    networks:
+      hive-net:
+        aliases:
+          - api
     depends_on:
       - postgres
+
+# Explicit internal network shared by every service (and by the nodes added in
+# the cluster/roles overrides). A user-defined bridge gives automatic DNS
+# resolution by service name and by the `aliases` above, so cluster hostnames
+# (`api`, `postgres`, ...) stay stable independent of the compose project name.
+networks:
+  hive-net:
+    driver: bridge

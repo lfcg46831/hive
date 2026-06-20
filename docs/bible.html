@@ -144,6 +144,7 @@
 <tr><td>0.46</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T08</code>: health checks Docker para PostgreSQL e nós HIVE, assentes no contrato §11.1 — o <code>postgres</code> usa <code>pg_isready</code> (já na imagem) e cada nó sonda a própria liveness em <code>/health/live</code> via <code>curl</code> (adicionado à imagem runtime no Dockerfile, já que a base aspnet não traz cliente HTTP), com a mesma cadência (<code>interval</code> 10s, <code>timeout</code> 5s, <code>retries</code> 5) e <code>start_period</code> de cortesia (30s Postgres, 40s nó para o arranque a frio do .NET); o seed <code>api</code> herda o check base por merge e os nós <code>api2</code>/<code>api3</code> declaram o check idêntico no override de cluster. Esta tarefa adiciona apenas verificações ao nível de <em>liveness</em>; o gating da readiness pela configuração obrigatória (<code>/health/ready</code>) e a ordenação de arranque por <code>depends_on</code> ficam para <code>US-F0-02-T09</code></td></tr>
 <tr><td>0.47</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T09</code>: os health checks Docker dos nós HIVE passam a sondar <code>/health/ready</code>, pelo que um nó só fica saudável depois de carregar pelo menos uma role válida e a connection string PostgreSQL obrigatória, conforme §11.1; a ordenação de arranque usa <code>depends_on</code> com <code>condition: service_healthy</code> — o <code>api</code> aguarda PostgreSQL e, no cluster de 3 nós, <code>api2</code>/<code>api3</code> aguardam PostgreSQL e o seed <code>api</code>. A readiness continua a validar presença de configuração, enquanto <code>pg_isready</code> valida separadamente que o PostgreSQL local aceita ligações</td></tr>
 <tr><td>0.48</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-02-T11</code>: consolidação em <code>docs/configuration.md</code> dos comandos PowerShell e Bash para arrancar, parar e alternar entre as topologias locais de 1 e 3 nós, incluindo limpeza explícita dos volumes nomeados com aviso de perda dos dados PostgreSQL</td></tr>
+<tr><td>0.49</td><td>2026-06-20</td><td>Definição do contrato de identidade de <code>US-F0-03-T01</code>: identificadores estruturais legíveis baseados em <code>string</code>, identificadores de mensagens distribuídos baseados em <code>Guid</code>, validação explícita e ausência de conversões implícitas</td></tr>
 </tbody>
 </table>
 
@@ -738,6 +739,20 @@ occupant:
 
 <h2>9. Protocolo de Mensagens</h2>
 
+<h3>9.1 Identificadores de domínio <em>(contrato)</em></h3>
+
+<p>Os identificadores do protocolo são value objects imutáveis em <code>Hive.Domain.Identity</code>. Cada conceito tem um tipo próprio e não existem conversões implícitas de ou para o valor primitivo, para impedir a troca acidental de identidades semanticamente distintas.</p>
+
+<ul>
+<li><strong>Identificadores estruturais:</strong> <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code> e <code>OccupantId</code> usam <code>string</code>. São legíveis e estáveis para utilização em YAML/GitOps, logs, diagnóstico e chaves como <code>OrganizationId/PositionId</code>. Rejeitam <code>null</code>, vazio, apenas whitespace e whitespace exterior; preservam o conteúdo aceite e comparam por igualdade ordinal case-sensitive.</li>
+<li><strong>Identificadores de mensagens:</strong> <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code> usam <code>Guid</code>. Rejeitam <code>Guid.Empty</code>, permitem geração local sem coordenação entre nós e aceitam um valor não vazio fornecido explicitamente para correlação, reidratação e futura geração determinística.</li>
+<li><strong>Representação:</strong> igualdade e hash code derivam do valor subjacente; <code>ToString()</code> devolve a representação canónica, usando o formato <code>D</code> para <code>Guid</code>.</li>
+</ul>
+
+<p>Este contrato não escolhe o formato wire/persistido nem a configuração de serializers Akka; essas decisões pertencem a <code>US-F0-03-T07</code> e <code>US-F0-03-T08</code>.</p>
+
+<h3>9.2 Taxonomia canónica</h3>
+
 <p>A tabela seguinte é a <strong>taxonomia canónica</strong> dos tipos de mensagem organizacional. Outras secções devem referenciar esta tabela em vez de manter listas próprias.</p>
 
 <table>
@@ -948,7 +963,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
-<li><strong>US-F0-03-T01</strong> — Modelar value objects de identidade: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
+<li><strong>US-F0-03-T01</strong> — Modelar os value objects de identidade conforme o contrato de §9.1: <code>OrganizationId</code>, <code>UnitId</code>, <code>PositionId</code>, <code>OccupantId</code>, <code>MessageId</code>, <code>ThreadId</code> e <code>DirectiveId</code>.</li>
 <li><strong>US-F0-03-T02</strong> — Definir envelope/base comum de mensagem com <code>OrganizationId</code>, origem, destino, prioridade, timestamps, deadline, thread/correlation id e versão de schema.</li>
 <li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados para <code>Priority</code>, <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição.</li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>

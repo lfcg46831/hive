@@ -1,0 +1,49 @@
+# Base Docker Compose for a local HIVE environment (US-F0-02-T03).
+#
+# Scope of this task: bring up PostgreSQL and a single HIVE node so a developer
+# can run the system locally. The node is the `Hive.Api` web host built from the
+# root Dockerfile (US-F0-02-T01) with the runtime env-var contract from
+# US-F0-02-T02; it self-seeds a one-node Akka cluster (empty SeedNodes).
+#
+# Deliberately layered on by later tasks, so they are kept out of this base file:
+#   * US-F0-02-T04  three-node cluster via a compose override/profile.
+#   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
+#   * US-F0-02-T06  explicit internal network, stable DNS names and port policy.
+#   * US-F0-02-T07  named persistent volume for PostgreSQL (and optional logs).
+#   * US-F0-02-T08  Docker health checks for PostgreSQL and HIVE nodes.
+#   * US-F0-02-T09  readiness gated on mandatory configuration being loaded.
+#   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
+#                   self-contained base.
+#
+# All HIVE settings use the .NET hierarchical env-var convention (`__` separates
+# sections, `__0` indexes array entries), binding onto the `Hive:*`/appsettings
+# contract from §5.10 of the bible with no code change.
+
+services:
+  # PostgreSQL backing store. The same F0 database serves journal/snapshots,
+  # registry, audit log, read models, budgets and scheduler idempotency; each
+  # subsystem owns its own schemas and migrations. Local-dev credentials only.
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+      POSTGRES_DB: hive
+    ports:
+      - "5432:5432"
+
+  # Single HIVE node: the Hive.Api host (default Dockerfile target). It serves
+  # /health and /diagnostics on 8080 and self-seeds a one-node cluster. The
+  # mandatory PostgreSQL connection string is supplied here (not baked into the
+  # image) so the readiness check can be satisfied; it points at the `postgres`
+  # service over the compose default network.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres

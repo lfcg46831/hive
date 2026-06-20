@@ -71,6 +71,25 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
 | `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
 
+## Run with Docker Compose
+
+The root `docker-compose.yml` (US-F0-02-T03) is the base local environment: PostgreSQL plus a single HIVE node (the `Hive.Api` host built from the root `Dockerfile`). The node self-seeds a one-node Akka cluster and is wired to the `postgres` service through `ConnectionStrings__PostgreSql`, so its readiness check is satisfied. Local-dev credentials (`hive`/`hive`/`hive`) are inlined for a self-contained base; US-F0-02-T10 extracts them into `.env.example`.
+
+```powershell
+# Build the node image and start PostgreSQL + one HIVE node.
+docker compose up --build
+
+# Once up, the node serves the diagnostics surface on 8080:
+Invoke-RestMethod http://localhost:8080/health/live
+Invoke-RestMethod http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8080/diagnostics
+
+# Stop the stack.
+docker compose down
+```
+
+This base file intentionally leaves later concerns to their own tasks: the three-node cluster (US-F0-02-T04), per-service roles (US-F0-02-T05), the explicit internal network and port policy (US-F0-02-T06), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
+
 ## Sources and precedence
 
 Both executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json`, environment variables, and command-line values according to the default host builders.

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.34 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.35 (rascunho evolutivo) <strong>Data:</strong> 2026-06-20 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -130,6 +130,7 @@
 <tr><td>0.32</td><td>2026-06-20</td><td>Definição de <code>ConnectionStrings:PostgreSql</code> como contrato canónico e ligação PostgreSQL partilhada da F0, preservando ownership e migrations por subsistema</td></tr>
 <tr><td>0.33</td><td>2026-06-20</td><td>Definição dos defaults de roles por executável: <code>Hive.Api</code> com <code>api</code>, <code>Hive.Worker</code> com roles de backend e perfil all-in-one explícito apenas no API</td></tr>
 <tr><td>0.34</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T04</code>: modelo partilhado em <code>Hive.Infrastructure</code>, defaults seguros por executável, override local all-in-one e contrato PostgreSQL sem credenciais versionadas</td></tr>
+<tr><td>0.35</td><td>2026-06-20</td><td>Especificação da validação fail-fast de roles em <code>US-F0-01-T05</code>, rejeitando listas vazias, valores desconhecidos e duplicados sem deduplicação silenciosa</td></tr>
 </tbody>
 </table>
 
@@ -521,7 +522,7 @@
 
 <pre><code>HIVE__NODE__ROLES__0=api</code></pre>
 
-<p>O arranque deve falhar de forma explícita se não existir pelo menos uma role válida ou se for indicado um nome desconhecido. Na F0, os únicos valores canónicos são <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code>. A <code>US-F0-01-T04</code> define este modelo e o contrato das fontes de configuração; a <code>US-F0-01-T05</code> faz binding, validação e registo no bootstrap comum; a <code>US-F0-01-T06</code> aplica as roles ao runtime Akka e inicia apenas os workloads correspondentes.</p>
+<p>O arranque deve falhar de forma explícita se a lista não contiver pelo menos uma role, se tiver entradas vazias, se for indicado um nome desconhecido ou se existirem roles duplicadas. A deteção de duplicados é feita depois de <code>Trim</code> e sem distinguir maiúsculas/minúsculas (<code>StringComparer.OrdinalIgnoreCase</code>), pelo que <code>api</code> e <code>API</code> são duplicados. A configuração não é corrigida com <code>Distinct()</code> nem por outra deduplicação silenciosa: o erro identifica <code>Hive:Node:Roles</code> e os valores repetidos para que o operator corrija a origem. Na F0, os únicos valores canónicos são <code>agents</code>, <code>gateway</code>, <code>connectors</code> e <code>api</code>. A <code>US-F0-01-T04</code> define este modelo e o contrato das fontes de configuração; a <code>US-F0-01-T05</code> faz binding, validação fail-fast e registo no bootstrap comum; a <code>US-F0-01-T06</code> aplica as roles ao runtime Akka e inicia apenas os workloads correspondentes.</p>
 
 <p><strong>Implementação de <code>US-F0-01-T04</code>:</strong> o modelo tipado partilhado fica em <code>Hive.Infrastructure.Configuration</code>; os dois <code>appsettings.json</code> base declaram <code>ConnectionStrings:PostgreSql</code> com valor vazio para não versionar credenciais; <code>Hive.Api/appsettings.Development.json</code> materializa o override all-in-one; e <code>Hive.Worker/appsettings.Development.json</code> herda as roles base sem as redefinir. Binding, validação de arranque e registo em DI continuam reservados a <code>US-F0-01-T05</code>.</p>
 
@@ -803,6 +804,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>O codename técnico <code>Hive</code> é usado de forma consistente em solution, namespaces e projetos internos.</li>
 <li>O arranque local cria um processo Akka configurado por role.</li>
 <li>Logging, configuração e health checks mínimos existem desde o primeiro executável.</li>
+<li>Configuração de roles vazia, desconhecida ou duplicada impede o arranque e produz erro que identifica <code>Hive:Node:Roles</code> e os valores inválidos.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
@@ -810,7 +812,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-01-T02</strong> — Criar projetos base: <code>Hive.Domain</code>, <code>Hive.Actors</code>, <code>Hive.Infrastructure</code>, <code>Hive.Api</code>, <code>Hive.Worker</code> e <code>Hive.Tests</code>.</li>
 <li><strong>US-F0-01-T03</strong> — Definir apenas os <code>ProjectReference</code> mínimos entre projetos e testes de boundary/arquitetura que provem que <code>Hive.Domain</code> não depende de Akka, ASP.NET Core, infraestrutura ou bootstrap. Não introduzir ainda packages de runtime, configuração Akka, bootstrap de dependency injection ou hosts executáveis; esses pertencem às tarefas seguintes.</li>
 <li><strong>US-F0-01-T04</strong> — Criar o modelo inicial de configuração (<code>appsettings</code>, contrato de env vars, <code>ConnectionStrings:PostgreSql</code> conforme o ADR-003 e roles do nó definidas no §5.10), incluindo os defaults por executável e o override local all-in-one; sem aplicar ainda as roles ao runtime Akka, configurar os consumidores de PostgreSQL ou implementar o bootstrap de DI.</li>
-<li><strong>US-F0-01-T05</strong> — Implementar bootstrap comum de dependency injection e configuração.</li>
+<li><strong>US-F0-01-T05</strong> — Implementar bootstrap comum de dependency injection e configuração, incluindo binding tipado e validação fail-fast de <code>Hive:Node:Roles</code>: rejeitar lista/entradas vazias, nomes desconhecidos e duplicados detetados após <code>Trim</code> com comparação case-insensitive, sem deduplicação silenciosa e com erro explícito.</li>
 <li><strong>US-F0-01-T06</strong> — Implementar host executável mínimo capaz de arrancar como role <code>agents</code>, <code>gateway</code>, <code>connectors</code> ou <code>api</code>.</li>
 <li><strong>US-F0-01-T07</strong> — Configurar logging estruturado comum para todos os hosts.</li>
 <li><strong>US-F0-01-T08</strong> — Adicionar health checks mínimos: processo vivo, configuração carregada e dependências obrigatórias presentes.</li>
@@ -1934,7 +1936,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.35): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.36): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

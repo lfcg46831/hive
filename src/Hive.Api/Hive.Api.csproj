@@ -6,4 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />
+  </ItemGroup>
+
 </Project>

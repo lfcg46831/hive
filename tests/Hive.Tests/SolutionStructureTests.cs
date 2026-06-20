@@ -14,6 +14,12 @@ public sealed class SolutionStructureTests
         { "Hive.Tests", "tests/Hive.Tests/Hive.Tests.csproj", "Microsoft.NET.Sdk" },
     };
 
+    public static TheoryData<string, string> ExecutableProjects => new()
+    {
+        { "src/Hive.Api/Hive.Api.csproj", "src/Hive.Api/Program.cs" },
+        { "src/Hive.Worker/Hive.Worker.csproj", "src/Hive.Worker/Program.cs" },
+    };
+
     [Theory]
     [MemberData(nameof(RequiredProjects))]
     public void Required_project_exists_and_targets_net8(string projectName, string relativePath, string expectedSdk)
@@ -36,6 +42,30 @@ public sealed class SolutionStructureTests
         var solutionPath = relativePath.Replace('/', '\\');
 
         Assert.Contains($"= \"{projectName}\", \"{solutionPath}\"", solutionText);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExecutableProjects))]
+    public void Executable_references_shared_infrastructure(string projectPath, string _)
+    {
+        var project = XDocument.Load(Path.Combine(RepositoryRoot, projectPath));
+        var projectRoot = project.Root ?? throw new InvalidDataException($"{projectPath} has no root element.");
+        var references = projectRoot
+            .Descendants("ProjectReference")
+            .Select(reference => reference.Attribute("Include")?.Value.Replace('\\', '/'))
+            .OfType<string>()
+            .ToArray();
+
+        Assert.Contains("../Hive.Infrastructure/Hive.Infrastructure.csproj", references);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExecutableProjects))]
+    public void Executable_calls_common_bootstrap(string _, string programPath)
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot, programPath));
+
+        Assert.Contains("builder.AddHiveBootstrap();", source);
     }
 
     private static string RepositoryRoot => FindRepositoryRoot();

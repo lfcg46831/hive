@@ -8,11 +8,23 @@
 # Deliberately layered on by later tasks, so they are kept out of this base file:
 #   * US-F0-02-T04  three-node cluster via a compose override/profile.
 #   * US-F0-02-T05  per-service node roles (agents/gateway/connectors/api).
-#   * US-F0-02-T07  named persistent volume for PostgreSQL (and optional logs).
 #   * US-F0-02-T08  Docker health checks for PostgreSQL and HIVE nodes.
 #   * US-F0-02-T09  readiness gated on mandatory configuration being loaded.
 #   * US-F0-02-T10  .env.example; here local-dev values are inlined for a
 #                   self-contained base.
+#
+# Persistence (US-F0-02-T07)
+# --------------------------
+# PostgreSQL writes its data into the named volume `hive-pgdata` (mounted at the
+# image data dir) instead of the image's implicit anonymous volume, so the store
+# survives `docker compose down` and is removed only on an explicit
+# `docker compose down -v` (or `docker volume rm`). Naming it also makes the
+# single backing store inspectable and portable across recreations of the
+# `postgres` container. A second named volume for local logs is defined but kept
+# OPTIONAL and disabled by default: both hosts log structured JSON to stdout
+# (collected by Compose, see configuration.md §Logging), so there is no on-disk
+# log path to persist yet; the volume and its mount are left commented, ready to
+# enable if a file log sink is ever added.
 #
 # Network and port policy (US-F0-02-T06)
 # --------------------------------------
@@ -45,6 +57,11 @@ services:
     # ad-hoc local inspection use `docker compose exec postgres psql -U hive`.
     expose:
       - "5432"
+    # Persist the data directory in the named `hive-pgdata` volume (declared
+    # below) so the store survives container recreation and `compose down`; it is
+    # cleared only by an explicit `compose down -v`.
+    volumes:
+      - hive-pgdata:/var/lib/postgresql/data
     networks:
       hive-net:
         aliases:
@@ -72,6 +89,12 @@ services:
       hive-net:
         aliases:
           - api
+    # Optional local logs (US-F0-02-T07): the host logs structured JSON to stdout
+    # (collected by Compose), so no log directory is mounted by default. To keep
+    # logs on a managed volume — e.g. once a file sink exists — uncomment the
+    # `hive-logs` volume below and the mount here, pointing at the sink's path:
+    # volumes:
+    #   - hive-logs:/var/log/hive
     depends_on:
       - postgres
 
@@ -82,3 +105,11 @@ services:
 networks:
   hive-net:
     driver: bridge
+
+# Named volumes. `hive-pgdata` is the durable PostgreSQL data directory (active);
+# `hive-logs` is the optional local-logs volume kept disabled by default — its
+# mount on the `api` service is commented out because logging currently goes to
+# stdout, so no container writes to it until a file log sink is introduced.
+volumes:
+  hive-pgdata:
+  # hive-logs:

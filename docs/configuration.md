@@ -88,7 +88,13 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-The base file declares an explicit internal network and port policy (US-F0-02-T06, see below) and intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
+The base file declares an explicit internal network and port policy (US-F0-02-T06, see below) and a named persistent PostgreSQL volume (US-F0-02-T07, see below); it intentionally leaves later concerns to their own tasks: per-service roles via the `docker-compose.roles.yml` override (US-F0-02-T05), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10).
+
+### Persistent storage
+
+PostgreSQL stores its data directory in the named volume `hive-pgdata` (mounted at `/var/lib/postgresql/data`), declared in the base `docker-compose.yml` (US-F0-02-T07). This replaces the image's implicit anonymous volume so the backing store survives container recreation and `docker compose down`, and is a named, inspectable target (`docker volume inspect <project>_hive-pgdata`). The data is removed only by an explicit `docker compose down -v` (or `docker volume rm`). The same volume backs every F0 subsystem (journal/snapshots, registry, audit log, read models, budgets, scheduler idempotency), since they share one database.
+
+A second named volume for local logs is defined but kept optional and disabled by default: both hosts emit structured JSON to stdout (collected by Compose, see Logging above), so there is no on-disk log path to persist. The `hive-logs` volume and its mount on the `api` service are left commented in the base file, ready to enable if a file log sink is ever added.
 
 ### Three-node cluster
 

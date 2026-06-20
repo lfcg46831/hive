@@ -33,6 +33,21 @@ Invoke-RestMethod http://localhost:53496/health/ready
 
 To run only the non-HTTP worker roles instead, use `dotnet run --project src/Hive.Worker`. The worker writes structured logs to stdout and has no diagnostic HTTP endpoints.
 
+## Build the container image
+
+The root `Dockerfile` (US-F0-02-T01) is a multi-stage build: a `sdk:8.0` stage restores and publishes a Release build, and a slim `aspnet:8.0` runtime stage runs the published output as the non-root `app` user. It builds the `Hive.Api` host by default and the `Hive.Worker` host on request. Runtime environment variables, exposed ports and the Akka/role wiring are added by later tasks (US-F0-02-T02+), so a bare `docker run` of this image still needs that configuration to form a cluster.
+
+```powershell
+# API host (default): serves /health and /diagnostics, can run any role.
+docker build -t hive:api .
+
+# Worker host: non-HTTP worker roles.
+docker build `
+  --build-arg APP_PROJECT=src/Hive.Worker/Hive.Worker.csproj `
+  --build-arg APP_DLL=Hive.Worker.dll `
+  -t hive:worker .
+```
+
 ## Sources and precedence
 
 Both executable projects use the standard .NET configuration hierarchy. Base `appsettings.json` values are overridden by `appsettings.{Environment}.json`, environment variables, and command-line values according to the default host builders.

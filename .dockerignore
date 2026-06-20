@@ -1,0 +1,34 @@
+# Keep the build context small and reproducible: send only sources and project
+# manifests to the daemon. Build outputs are produced inside the build stage.
+
+# Build outputs
+**/bin/
+**/obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Version control and IDE/tooling state
+.git/
+.gitignore
+.github/
+.vs/
+.vscode/
+.idea/
+.worktrees/
+.agents/
+*.user
+
+# Local environment and secrets (compose env files arrive in later tasks)
+.env
+**/*.env
+
+# Docs and meta (not needed to build the application)
+docs/
+LICENSE
+README.md
+*.md
+
+# Container assets themselves
+Dockerfile
+.dockerignore

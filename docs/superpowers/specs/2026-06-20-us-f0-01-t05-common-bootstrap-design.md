@@ -1,6 +1,6 @@
 # US-F0-01-T05 Common Bootstrap Design
 
-**Date:** 2026-06-20  
+**Date:** 2026-06-20
 **Status:** Approved
 
 ## Context

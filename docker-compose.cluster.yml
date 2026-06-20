@@ -1,0 +1,67 @@
+# Three-node local HIVE cluster override (US-F0-02-T04).
+#
+# Layers a real 3-node Akka.Cluster on top of the single-node base
+# (docker-compose.yml, US-F0-02-T03) without editing it. Bring it up with:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.cluster.yml up
+#
+# and the plain `docker compose up` still gives the 1-node base, so a developer
+# switches between 1 and 3 nodes by adding/removing this file.
+#
+# How the cluster forms
+# ---------------------
+# The base `api` node self-seeds a single-node cluster (empty SeedNodes, hostname
+# `localhost`). That address is not reachable from sibling containers, so here we
+# promote `api` into THE seed node: it is pinned to its compose DNS name (`api`)
+# and its own seed list points at itself. The two added nodes (`api2`, `api3`)
+# share that single seed address, so all three converge into one cluster.
+#
+# Everything uses the §5.10 env-var contract (`__` section separator, `__0` array
+# index) from US-F0-02-T02, binding onto `Hive:Cluster:*` with no code change.
+# Compose's default network already resolves each service name to its container,
+# so the service name doubles as the stable cluster hostname here.
+#
+# Scope kept deliberately narrow; later tasks layer on top of these same nodes:
+#   * US-F0-02-T05  distinct roles per node (here every node keeps its image
+#                   default role, so the three are interchangeable api nodes).
+#   * US-F0-02-T06  explicit internal network, DNS policy and published ports
+#                   (here only the base `api` keeps its published 8080; the extra
+#                   nodes stay internal).
+#   * US-F0-02-T08  Docker health checks for the nodes.
+#   * US-F0-02-T09  readiness gated on mandatory configuration.
+
+services:
+  # Promote the base single node into the cluster seed. The hostname must be the
+  # reachable compose DNS name (not `localhost`) so siblings can dial it, and the
+  # seed list points at itself so it bootstraps the cluster the others join.
+  api:
+    environment:
+      HIVE__CLUSTER__HOSTNAME: "api"
+      HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
+
+  # Second cluster node. Same image and Postgres connection string as the base;
+  # it advertises its own DNS name and joins via the shared `api` seed.
+  api2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
+      HIVE__CLUSTER__HOSTNAME: "api2"
+      HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
+    depends_on:
+      - postgres
+      - api
+
+  # Third cluster node, identical to api2 apart from its own advertised hostname.
+  api3:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=hive;Username=hive;Password=hive"
+      HIVE__CLUSTER__HOSTNAME: "api3"
+      HIVE__CLUSTER__SEEDNODES__0: "akka.tcp://hive@api:8081"
+    depends_on:
+      - postgres
+      - api

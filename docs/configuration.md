@@ -88,7 +88,26 @@ Invoke-RestMethod http://localhost:8080/diagnostics
 docker compose down
 ```
 
-This base file intentionally leaves later concerns to their own tasks: the three-node cluster (US-F0-02-T04), per-service roles (US-F0-02-T05), the explicit internal network and port policy (US-F0-02-T06), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
+This base file intentionally leaves later concerns to their own tasks: per-service roles (US-F0-02-T05), the explicit internal network and port policy (US-F0-02-T06), the named persistent PostgreSQL volume (US-F0-02-T07), Docker health checks (US-F0-02-T08), readiness gating (US-F0-02-T09), and `.env.example` (US-F0-02-T10). Until the named volume lands, PostgreSQL data does not persist across `docker compose down -v`.
+
+### Three-node cluster
+
+`docker-compose.cluster.yml` (US-F0-02-T04) is an override that turns the single-node base into a real 3-node Akka cluster, layered on top without editing the base file. Adding or omitting the override is how a developer switches between 1 and 3 nodes.
+
+The base `api` node is promoted into the cluster seed: it is pinned to its compose DNS name (`api`) and its seed list points at itself, so the two added nodes (`api2`, `api3`) join via the shared seed `akka.tcp://hive@api:8081` and all three converge into one cluster. Every node keeps its image-default role (interchangeable `api` nodes); distinct per-service roles are US-F0-02-T05, and only the base `api` publishes 8080, so the extra nodes stay internal until the port policy of US-F0-02-T06.
+
+```powershell
+# Start PostgreSQL + three HIVE nodes.
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml up --build
+
+# The seed node still serves the diagnostics surface on 8080:
+Invoke-RestMethod http://localhost:8080/diagnostics
+
+# Stop the three-node stack (pass the same files used to start it).
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml down
+```
+
+Plain `docker compose up` (without `-f docker-compose.cluster.yml`) still starts the 1-node base.
 
 ## Sources and precedence
 

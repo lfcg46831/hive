@@ -97,4 +97,27 @@ Both executables register the same minimal health checks through the shared boot
 
 Liveness (`live`) answers "is the process up?" and stays healthy while the host runs. Readiness (`ready`) answers "can this node serve work?" and is intentionally unhealthy until mandatory configuration is supplied: because `ConnectionStrings:PostgreSql` is empty in tracked source files (see PostgreSQL above), a node reports not-ready until the connection string is provided per environment. This is the readiness contract that US-F0-02-T09 relies on under Docker Compose.
 
-This task registers the checks only. The HTTP endpoint that exposes them filtered by tag — for example `/healthz` for `live` and `/readyz` for `ready` — belongs to the diagnostic endpoint in US-F0-01-T09. Later mandatory dependencies extend the `dependencies` check without changing this seam.
+US-F0-01-T08 registers the checks only; the HTTP endpoints that expose them filtered by tag are the diagnostic endpoint below (US-F0-01-T09). Later mandatory dependencies extend the `dependencies` check without changing this seam.
+
+## Diagnostic endpoint
+
+The `Hive.Api` host exposes a minimal diagnostic surface (US-F0-01-T09). It is mapped by `MapHiveDiagnostics` and reuses the health checks above selected by the `live`/`ready` tags. `Hive.Worker` has no HTTP server, so it exposes no endpoints; probing backend nodes under Docker Compose is US-F0-02-T08/T09.
+
+| Route | Purpose | Response |
+| --- | --- | --- |
+| `/health/live` | Liveness probe (`live`-tagged checks). | `200` healthy, `503` unhealthy. |
+| `/health/ready` | Readiness probe (`ready`-tagged checks). | `200` healthy, `503` until mandatory configuration is present. |
+| `/diagnostics` | Version, active roles, and startup state. | `200` with JSON. |
+
+`/diagnostics` returns the running version, the canonical active roles, and the startup state expressed as the same `live`/`ready` roll-up:
+
+```jsonc
+{
+  "version": "1.0.0",
+  "roles": ["api"],
+  "live": true,
+  "ready": false
+}
+```
+
+`ready` stays `false` until `ConnectionStrings:PostgreSql` is supplied, matching the readiness contract in §11.1. The probe routes return the standard `200`/`503` status codes so orchestration (US-F0-02 Docker health checks) can consume them directly.

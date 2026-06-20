@@ -8,8 +8,10 @@ public static class HiveHealthCheckExtensions
     /// Registers the minimal health checks shared by every host (US-F0-01-T08): process
     /// liveness, configuration loaded, and mandatory dependencies present. Both executables get
     /// the identical set through the common bootstrap so they cannot drift, and each typed check
-    /// is resolved from dependency injection. The diagnostic endpoint (US-F0-01-T09) later
-    /// exposes them filtered by the <c>live</c> and <c>ready</c> tags.
+    /// is resolved from dependency injection. It also registers the
+    /// <see cref="NodeDiagnosticsProvider"/> that the diagnostic endpoint (US-F0-01-T09) uses to
+    /// expose version, active roles and startup state, rolling up these checks by the <c>live</c>
+    /// and <c>ready</c> tags.
     /// </summary>
     public static IServiceCollection AddHiveHealthChecks(this IServiceCollection services)
     {
@@ -26,6 +28,8 @@ public static class HiveHealthCheckExtensions
             .AddCheck<RequiredDependenciesHealthCheck>(
                 HiveHealthChecks.DependenciesName,
                 tags: new[] { HiveHealthChecks.ReadyTag });
+
+        services.AddSingleton<NodeDiagnosticsProvider>();
 
         return services;
     }

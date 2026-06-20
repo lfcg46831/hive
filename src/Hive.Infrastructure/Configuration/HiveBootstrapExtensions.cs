@@ -1,3 +1,4 @@
+using Hive.Infrastructure.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -10,11 +11,16 @@ public static class HiveBootstrapExtensions
     {
         ArgumentNullException.ThrowIfNull(builder);
 
+        builder.Services.AddLogging();
+
         builder.Services.AddSingleton<IValidateOptions<HiveOptions>, HiveOptionsValidator>();
         builder.Services
             .AddOptions<HiveOptions>()
             .Bind(builder.Configuration.GetSection(HiveOptions.SectionName))
             .ValidateOnStart();
+
+        builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         return builder;
     }

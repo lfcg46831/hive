@@ -11,6 +11,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Hive.Actors\Hive.Actors.csproj" />
     <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />
   </ItemGroup>
 </Project>

@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Akka.Cluster.Hosting" Version="1.5.31" />
     <PackageReference Include="coverlet.collector" Version="6.0.0" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="8.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
@@ -22,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\Hive.Actors\Hive.Actors.csproj" />
     <ProjectReference Include="..\..\src\Hive.Infrastructure\Hive.Infrastructure.csproj" />
   </ItemGroup>
 

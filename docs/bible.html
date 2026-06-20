@@ -132,6 +132,8 @@
 <tr><td>0.34</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T04</code>: modelo partilhado em <code>Hive.Infrastructure</code>, defaults seguros por executável, override local all-in-one e contrato PostgreSQL sem credenciais versionadas</td></tr>
 <tr><td>0.35</td><td>2026-06-20</td><td>Especificação da validação fail-fast de roles em <code>US-F0-01-T05</code>, rejeitando listas vazias, valores desconhecidos e duplicados sem deduplicação silenciosa</td></tr>
 <tr><td>0.36</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T05</code>: bootstrap comum de configuração e DI, binding tipado e validação fail-fast das roles em ambos os executáveis</td></tr>
+<tr><td>0.37</td><td>2026-06-20</td><td>Registo da implementação de <code>US-F0-01-T06</code>: host Akka mínimo configurado por role (Akka.Cluster real via <code>Akka.Hosting</code>/<code>Akka.Cluster.Hosting</code>, roles do cluster espelham <code>Hive:Node:Roles</code>, self-seed single-node por omissão e contrato <code>Hive:Cluster</code> hostname/port/seed) e seam de ativação de workloads por role (<code>IRoleWorkload</code>) agnóstico ao mecanismo, validado com workloads fake sem atores placeholder</td></tr>
+<tr><td>0.38</td><td>2026-06-20</td><td>Promoção a contrato em §5.10 do seam <code>IRoleWorkload</code> como fronteira de integração dos workloads por role e do contrato de configuração <code>Hive:Cluster</code>/nome do <code>ActorSystem</code>; registo da questão em aberto Q11 (ordem de arranque <code>ActorSystem</code> vs. workloads, adiada para <code>US-F0-06</code>)</td></tr>
 </tbody>
 </table>
 
@@ -528,6 +530,14 @@
 <p><strong>Implementação de <code>US-F0-01-T04</code>:</strong> o modelo tipado partilhado fica em <code>Hive.Infrastructure.Configuration</code>; os dois <code>appsettings.json</code> base declaram <code>ConnectionStrings:PostgreSql</code> com valor vazio para não versionar credenciais; <code>Hive.Api/appsettings.Development.json</code> materializa o override all-in-one; e <code>Hive.Worker/appsettings.Development.json</code> herda as roles base sem as redefinir. Binding, validação de arranque e registo em DI continuam reservados a <code>US-F0-01-T05</code>.</p>
 
 <p><strong>Implementação de <code>US-F0-01-T05</code>:</strong> o bootstrap comum é exposto por <code>Hive.Infrastructure.Configuration</code> para os builders de ambos os executáveis; faz binding da secção <code>Hive</code> para <code>HiveOptions</code>, regista a validação no options pipeline e usa <code>ValidateOnStart()</code>. As roles são reconhecidas após <code>Trim</code> com comparação case-insensitive, mas os valores ligados não são alterados nem deduplicados. Erros identificam <code>Hive:Node:Roles</code> e os valores ou posições inválidos. A aplicação das roles ao runtime continua reservada a <code>US-F0-01-T06</code>.</p>
+
+<p><strong>Seam de ativação de workloads por role.</strong> A composição de workloads por role passa por um seam único e <strong>agnóstico ao mecanismo</strong>: a interface <code>IRoleWorkload</code> (com <code>Role</code> + <code>StartAsync</code>/<code>StopAsync</code>) em <code>Hive.Infrastructure.Hosting</code>, e um hosted service que arranca exatamente os workloads cujas roles o nó declara e os pára por ordem inversa. As roles ativas do nó são expostas por <code>ActiveNodeRoles</code> (normalizadas/canonicalizadas a partir de <code>Hive:Node:Roles</code>). Esta é a fronteira de integração obrigatória para os workloads de fases seguintes: o Cluster Sharding de <code>PositionActor</code> (<code>US-F0-06-T04</code>), os Cluster Singletons de <code>connectors</code> e os endpoints de <code>api</code> entram como implementações de <code>IRoleWorkload</code>, não como inicialização à parte. Na F0 o host não regista ainda workloads de produção — o seam existe, validado com workloads fake, sem atores placeholder.</p>
+
+<p><strong>Contrato <code>Hive:Cluster</code> e <code>ActorSystem</code>.</strong> O <code>US-F0-01-T06</code> arranca um <code>ActorSystem</code> Akka.Cluster real cujas roles de cluster espelham <code>Hive:Node:Roles</code>. O nome canónico do sistema é <code>hive</code> (os URIs de seed node dependem dele). A ligação de cluster é configurada pela secção <code>Hive:Cluster</code> com <code>Hostname</code>, <code>Port</code> e <code>SeedNodes</code>; quando <code>SeedNodes</code> está vazio, o nó faz <strong>self-seed</strong> e forma um cluster de um nó (default que permite arrancar standalone). Topologias multi-nó (<code>US-F0-02</code>) substituem estes valores por configuração/variáveis de ambiente, seguindo a mesma convenção hierárquica de .NET:</p>
+
+<pre><code>HIVE__CLUSTER__HOSTNAME=node-a
+HIVE__CLUSTER__PORT=8081
+HIVE__CLUSTER__SEEDNODES__0=akka.tcp://hive@node-a:8081</code></pre>
 
 <hr>
 
@@ -1739,6 +1749,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <tr><td>Q8</td><td>Requisitos de RGPD/compliance concretos (sector do utilizador final)?</td><td>§10</td><td><strong>Resolvida (v0.3)</strong>: baseline europeu. Ver §10</td></tr>
 <tr><td>Q9</td><td>Ambiente de hosting: Kubernetes disponível? On-prem ou cloud (qual)?</td><td>§5.7, discovery do cluster</td><td><strong>Resolvida (v0.3)</strong>: Docker Compose em F0, Kubernetes-ready por abstração de configuração/discovery. Ver §5.8</td></tr>
 <tr><td>Q10</td><td>Qual é o <strong>caso de uso interno concreto</strong> (primeiro cliente)? Que organização, que funções, que conectores prioritários?</td><td>Valida todo o desenho; define a F1</td><td><strong>Resolvida (v0.3)</strong>: Engenharia/Delivery. Ver §1.4</td></tr>
+<tr><td>Q11</td><td>Ordem de arranque entre o <code>ActorSystem</code> e os workloads por role (<code>IRoleWorkload</code>): o seam deve garantir que o sistema está <em>Up</em> antes de arrancar workloads que dependem dele?</td><td>§5.10, seam de ativação por role</td><td><strong>Adiada para <code>US-F0-06</code></strong>: em T06 os workloads fake não dependem do <code>ActorSystem</code>; a garantia de ordem fica para quando o workload real de <code>agents</code> (Cluster Sharding) precisar do sistema a correr.</td></tr>
 </tbody>
 </table>
 

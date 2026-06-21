@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.53 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.54 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -149,6 +149,7 @@
 <tr><td>0.51</td><td>2026-06-21</td><td>Clarificação da dependência entre <code>US-F0-03-T02</code> e <code>T03</code>: <code>Priority</code> permanece propriedade de <code>T03</code>, mas é implementada primeiro em <code>T03a</code> para desbloquear o envelope; os restantes tipos partilhados ficam em <code>T03b</code></td></tr>
 <tr><td>0.52</td><td>2026-06-21</td><td>Definição do contrato fechado de <code>Priority</code>: níveis <code>Low</code>, <code>Normal</code>, <code>High</code> e <code>Critical</code>, ordenação explícita, representação wire textual, validação de valores desconhecidos e separação da política de mailbox Akka</td></tr>
 <tr><td>0.53</td><td>2026-06-21</td><td>Definição dos contratos fechados de <code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code>, incluindo valores wire em lowercase/kebab-case, lifecycle de processamento e separação entre mensagem imutável, estado e rejeição</td></tr>
+<tr><td>0.54</td><td>2026-06-21</td><td>Definição do contrato de <code>ApprovalPolicyRef</code> como referência imutável baseada em string, scoped pela organização, distinta de endpoints e acompanhada pela versão/hash da política aplicada no routing e auditoria</td></tr>
 </tbody>
 </table>
 
@@ -753,6 +754,32 @@ occupant:
 <li><strong>Representação:</strong> igualdade e hash code derivam do valor subjacente; <code>ToString()</code> devolve a representação canónica, usando o formato <code>D</code> para <code>Guid</code>.</li>
 </ul>
 
+<h4>Referência de política de aprovação</h4>
+
+<p><code>ApprovalPolicyRef</code> é um value object imutável em <code>Hive.Domain.Identity</code> que identifica a chave lógica de uma política de aprovação declarada no YAML/registry da organização. É scoped pelo <code>OrganizationId</code> do envelope e não é um identificador global.</p>
+
+<pre><code class="language-csharp">public sealed record ApprovalPolicyRef
+{
+    private ApprovalPolicyRef(string value) =&gt; Value = value;
+
+    public string Value { get; }
+
+    public static ApprovalPolicyRef From(string value) =&gt; ...;
+
+    public override string ToString() =&gt; Value;
+}</code></pre>
+
+<ul>
+<li><strong>Validação lexical:</strong> usa as mesmas regras dos identificadores estruturais baseados em string e reutiliza o helper comum <code>IdentityValue.RequireStructural</code>: rejeita <code>null</code>, vazio, apenas whitespace e whitespace exterior; não faz <code>Trim()</code> nem outra normalização silenciosa.</li>
+<li><strong>Igualdade:</strong> preserva o conteúdo aceite e compara por igualdade ordinal case-sensitive. Não existem conversões implícitas de ou para <code>string</code>.</li>
+<li><strong>Wire:</strong> a representação é o valor textual exato. O formato de serialização e a evolução de schema continuam sob responsabilidade de <code>US-F0-03-T07</code>/<code>T08</code>.</li>
+<li><strong>Obrigatoriedade:</strong> todo o <code>ApprovalRequest</code> inclui um <code>ApprovalPolicyRef</code> válido. <code>ApprovalDecision</code> recupera a política através do pedido original correlacionado.</li>
+<li><strong>Separação de conceitos:</strong> <code>ApprovalPolicyRef</code> é um seletor de routing/governança, não um <code>EndpointRef</code>. A política é resolvida antes da aceitação para um destino concreto em <code>ApprovalRequest.To</code>.</li>
+<li><strong>Validação semântica:</strong> a factory valida apenas a forma do valor. Existência da política na organização, aplicabilidade ao requerente/ação e resolução do aprovador pertencem ao registry e ao validador de routing de <code>US-F0-04</code>.</li>
+<li><strong>Reprodutibilidade:</strong> a referência lógica não incorpora versão. O routing e a auditoria persistem separadamente a versão/hash da configuração ou política efetivamente aplicada e o aprovador resolvido, para que alterações posteriores no YAML não mudem retroativamente a interpretação do pedido.</li>
+<li><strong>Ownership:</strong> <code>ApprovalPolicyRef</code> é introduzido como value object de suporte por <code>US-F0-03-T04</code>; não reabre <code>T01</code> nem pertence aos enums de <code>T03</code>.</li>
+</ul>
+
 <p>Este contrato não escolhe o formato wire/persistido nem a configuração de serializers Akka; essas decisões pertencem a <code>US-F0-03-T07</code> e <code>US-F0-03-T08</code>.</p>
 
 <h3>9.2 Referências de endpoint <em>(contrato)</em></h3>
@@ -1139,9 +1166,9 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados conforme §9.5: <code>MessageChannel</code> com <code>Vertical</code>/<code>Horizontal</code>/<code>Governance</code>/<code>System</code>; <code>MessageState</code> com <code>Received</code>/<code>Accepted</code>/<code>Processing</code>/<code>Completed</code>/<code>Rejected</code>/<code>Failed</code>; <code>RejectionReason</code> com <code>InvalidContract</code>/<code>UnsupportedSchemaVersion</code>/<code>InvalidRoute</code>/<code>Unauthorized</code>/<code>Duplicate</code>/<code>Expired</code>; e <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>. Implementar valores wire textuais em lowercase/kebab-case, validação estrita e testes das transições permitidas. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
 </ul>
 </li>
-<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
-<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; papéis e políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
+<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9; incluir <code>ApprovalPolicyRef</code> como value object de suporte de <code>ApprovalRequest</code>, em <code>Hive.Domain.Identity</code> e com o contrato de §9.1.</li>
+<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; <code>ApprovalPolicyRef</code> é obrigatório em <code>ApprovalRequest</code>, e papéis/políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com <code>ApprovalPolicyRef</code> ausente ou lexicalmente inválido, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -1173,12 +1200,12 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-04-T06</strong> — Implementar validador para escalamentos ascendentes, incluindo bloqueios, decisões fora da alçada e o caso de topo sem superior direto.</li>
 <li><strong>US-F0-04-T07</strong> — Implementar validador para <code>ApprovalRequest</code>/<code>ApprovalDecision</code>, incluindo resolução de aprovador autorizado, correlação com o pedido original e rejeição de decisões duplicadas, expiradas ou não autorizadas.
 <ul>
-<li><strong>US-F0-04-T07a</strong> — Resolver o aprovador autorizado a partir da política de autoridade, requerente, destino, tipo de aprovação e contexto organizacional.</li>
+<li><strong>US-F0-04-T07a</strong> — Resolver o aprovador autorizado a partir de <code>ApprovalPolicyRef</code>, requerente, destino, tipo de aprovação e contexto organizacional; guardar a versão/hash da configuração ou política aplicada e o endpoint concreto resolvido.</li>
 <li><strong>US-F0-04-T07b</strong> — Validar <code>ApprovalRequest</code> e <code>ApprovalDecision</code> contra correlação, estado do pedido original, expiração e permissões do aprovador.</li>
 <li><strong>US-F0-04-T07c</strong> — Rejeitar decisões duplicadas, expiradas ou não autorizadas com razão estruturada reutilizável pela auditoria.</li>
 </ul>
 </li>
-<li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, política aplicada e <code>ThreadId</code>.</li>
+<li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, <code>ApprovalPolicyRef</code>, versão/hash da política aplicada, aprovador resolvido e <code>ThreadId</code>.</li>
 <li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
 <li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
 <li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, escalamento de topo para <code>OrganizationOwner</code>, aprovação válida e decisão por aprovador não autorizado.</li>
@@ -2288,7 +2315,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.54): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.55): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

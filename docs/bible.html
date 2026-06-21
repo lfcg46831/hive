@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.61 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.62 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -157,6 +157,7 @@
 <tr><td>0.59</td><td>2026-06-21</td><td>ADR-007 aceite (<code>US-F0-03-T07</code>): <code>System.Text.Json</code> como formato inicial de serialização versionável para mensagens Akka e eventos/snapshots persistidos, com versão de schema explícita, desserialização tolerante e converters explícitos, evitando serialização .NET por omissão; configuração dos serializers e convenções de evolução ficam para <code>US-F0-03-T08</code></td></tr>
 <tr><td>0.60</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T08</code> (§9.9): serializer Akka <code>System.Text.Json</code> vinculado ao tipo base <code>OrgMessage</code>, com manifests canónicos kebab-case por tipo, converters explícitos para identidades, <code>EndpointRef</code> e enums do protocolo, leitura tolerante sem defaults silenciosos e domínio livre de dependências de serialização; convenções de evolução de schema fixadas e configuração operacional em <code>docs/configuration.md</code></td></tr>
 <tr><td>0.61</td><td>2026-06-21</td><td>Documentação de <code>US-F0-03-T12</code> (§9.10): apêndice de referência com o índice dos exemplos canónicos por tipo (apontando para os fixtures de <code>US-F0-03-T09</code>), envelope comum anotado e cenários de evolução aplicada (aditiva compatível e disruptiva) que referenciam as regras de §9.9 sem as redefinir</td></tr>
+<tr><td>0.62</td><td>2026-06-21</td><td>Definição do tratamento de organizações e posições inexistentes no routing: o validador converte a ausência confirmada no registry em <code>ValidationResult</code> com <code>InvalidRoute</code> e <code>MessageState.Rejected</code>, sem propagar <code>OrganizationRelationNotFoundException</code>; indisponibilidade e outras falhas técnicas permanecem exceções/retry</td></tr>
 </tbody>
 </table>
 
@@ -1096,6 +1097,28 @@ public sealed record ValidationResult(
 <li>Uma falha técnica durante validação contextual não rejeita definitivamente a mensagem como inválida; segue política de retry/falha técnica e auditoria.</li>
 </ul>
 
+<h4>Relações organizacionais inexistentes</h4>
+
+<p>Uma consulta concluída com sucesso que confirme a inexistência da organização, da posição de origem ou da posição de destino representa uma rota organizacional inválida, não uma falha técnica. O validador devolve um <code>ValidationResult</code> inválido, a mensagem transita para <code>MessageState.Rejected</code> e os erros internos seguem este contrato canónico:</p>
+
+<table>
+<thead>
+<tr><th>Ausência confirmada</th><th><code>Code</code></th><th><code>Path</code></th><th><code>Reason</code></th></tr>
+</thead>
+<tbody>
+<tr><td>Organização</td><td><code>organization-not-found</code></td><td><code>organizationId</code></td><td><code>InvalidRoute</code></td></tr>
+<tr><td>Posição de origem</td><td><code>position-not-found</code></td><td><code>from.positionId</code></td><td><code>InvalidRoute</code></td></tr>
+<tr><td>Posição de destino</td><td><code>position-not-found</code></td><td><code>to.positionId</code></td><td><code>InvalidRoute</code></td></tr>
+</tbody>
+</table>
+
+<ul>
+<li>Se a organização não existir, as posições não são avaliadas porque o contexto necessário não existe. Se a organização existir, o validador agrega os erros independentes das posições de origem e destino quando ambos forem avaliáveis.</li>
+<li><code>OrganizationRelationNotFoundException</code> continua a ser um detalhe válido da seam de baixo nível <code>IOrganizationRelations</code>. O boundary do validador captura-a e converte-a no erro acima correspondente à query em execução; a exceção não é propagada ao chamador do validador.</li>
+<li>Para evitar enumeração de organizações ou posições, a resposta pública pode normalizar estes detalhes para <code>Code = invalid-route</code> e <code>Path = $</code>. O erro canónico detalhado e os identificadores ficam apenas na auditoria autorizada.</li>
+<li>Timeout, cancelamento, indisponibilidade do registry/PostgreSQL e exceções inesperadas não provam inexistência. Permanecem falhas técnicas sujeitas a retry/auditoria e não são convertidas em <code>InvalidRoute</code> nem em rejeição definitiva.</li>
+</ul>
+
 <h4>Testes mínimos</h4>
 
 <ul>
@@ -1364,6 +1387,7 @@ public sealed record ValidationResult(
 <li><code>ApprovalRequest</code> é encaminhado apenas para aprovador autorizado pela política de autoridade.</li>
 <li><code>ApprovalDecision</code> só é aceite se vier do aprovador autorizado e referenciar o pedido original.</li>
 <li>Violações são rejeitadas e auditadas.</li>
+<li>Organizações ou posições de origem/destino inexistentes produzem <code>ValidationResult</code> com <code>InvalidRoute</code> e nunca propagam <code>OrganizationRelationNotFoundException</code> para o chamador do validador.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
@@ -1380,13 +1404,13 @@ public sealed record ValidationResult(
 <li><strong>US-F0-04-T07c</strong> — Rejeitar decisões duplicadas, expiradas ou não autorizadas com razão estruturada reutilizável pela auditoria.</li>
 </ul>
 </li>
-<li><strong>US-F0-04-T08</strong> — Reutilizar <code>ValidationResult</code>/<code>ValidationError</code> de §9.8 no modelo de erro/rejeição de routing, acrescentando contexto auditável da mensagem original, remetente, destinatário, <code>ApprovalPolicyRef</code>, versão/hash da política aplicada, aprovador resolvido e <code>ThreadId</code> sem expor detalhes sensíveis no resultado público.</li>
+<li><strong>US-F0-04-T08</strong> — Reutilizar <code>ValidationResult</code>/<code>ValidationError</code> de §9.8 no modelo de erro/rejeição de routing, incluindo o mapeamento canónico de organizações/posições inexistentes para <code>InvalidRoute</code>, acrescentando contexto auditável da mensagem original, remetente, destinatário, <code>ApprovalPolicyRef</code>, versão/hash da política aplicada, aprovador resolvido e <code>ThreadId</code> sem expor detalhes sensíveis no resultado público.</li>
 <li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
 <li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
-<li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, escalamento de topo para <code>OrganizationOwner</code>, aprovação válida e decisão por aprovador não autorizado.</li>
+<li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, escalamento de topo para <code>OrganizationOwner</code>, aprovação válida, decisão por aprovador não autorizado, organização inexistente, posição de origem/destino inexistente e indisponibilidade do registry; verificar que apenas ausências confirmadas são <code>InvalidRoute</code> e que falhas técnicas continuam exceções/retry.</li>
 <li><strong>US-F0-04-T12</strong> — Documentar exemplos de routing vertical e de governança permitido/rejeitado para a organização de Engenharia/Delivery.</li>
 </ul>
-<p><strong>Contrato de relações organizacionais (US-F0-04-T01):</strong> a consulta de relações é exposta pela seam read-only <code>IOrganizationRelations</code> (em <code>Hive.Domain.Organization</code>), com cada query scoped a um <code>OrganizationId</code>. A superfície é: <code>GetDirectSuperiorAsync</code> (devolve <code>null</code> apenas para a liderança da unidade raiz, ou seja, topo sem superior direto); <code>GetDirectSubordinatesAsync</code> (coleção sem duplicados, vazia para folhas); <code>GetRootUnitLeadershipAsync</code>; <code>GetOrganizationOwnerAsync</code> (devolve o <code>OrganizationOwnerEndpointRef</code> de routing, sempre presente porque o owner é obrigatório por organização); e <code>GetUnitOfPositionAsync</code> (pertença a unidade, que devolve <code>null</code> e serve de probe de existência para uma posição desconhecida). Organização ou posição inexistente é erro estrutural sinalizado por <code>OrganizationRelationNotFoundException</code>, distinto do <code>null</code> semântico de "sem superior". A implementação materializada pertence a <code>US-F0-04-T02</code>.</p>
+<p><strong>Contrato de relações organizacionais (US-F0-04-T01):</strong> a consulta de relações é exposta pela seam read-only <code>IOrganizationRelations</code> (em <code>Hive.Domain.Organization</code>), com cada query scoped a um <code>OrganizationId</code>. A superfície é: <code>GetDirectSuperiorAsync</code> (devolve <code>null</code> apenas para a liderança da unidade raiz, ou seja, topo sem superior direto); <code>GetDirectSubordinatesAsync</code> (coleção sem duplicados, vazia para folhas); <code>GetRootUnitLeadershipAsync</code>; <code>GetOrganizationOwnerAsync</code> (devolve o <code>OrganizationOwnerEndpointRef</code> de routing, sempre presente porque o owner é obrigatório por organização); e <code>GetUnitOfPositionAsync</code> (pertença a unidade, que devolve <code>null</code> e serve de probe de existência para uma posição desconhecida). Organização ou posição inexistente é erro estrutural sinalizado por <code>OrganizationRelationNotFoundException</code>, distinto do <code>null</code> semântico de "sem superior". Esta exceção pertence à seam de consulta; os validadores de routing têm obrigatoriamente de a traduzir para o <code>ValidationResult</code> com <code>InvalidRoute</code> definido em §9.8. A implementação materializada pertence a <code>US-F0-04-T02</code>.</p>
 <p><strong>Implementação materializada (US-F0-04-T02):</strong> o "registry materializado" sobre o qual as queries respondem é o read model imutável <code>OrganizationRelationsSnapshot</code> (um por organização, em <code>Hive.Domain.Organization</code>), servido pela implementação read-only <code>MaterializedOrganizationRelations</code>. Na F0 o snapshot vive em memória e é construído por um builder que garante as invariantes mínimas do read model (cada posição tem unidade, cada superior referencia uma posição conhecida, existe exatamente uma liderança da raiz sem superior, e as arestas de superior formam uma árvore sem ciclos); os subordinados diretos são derivados das arestas de superior para nunca divergirem. Quem popula os snapshots — import GitOps/YAML (<code>US-F0-05</code>) e materialização em PostgreSQL para o read model de organograma (<code>US-F1-01</code>) — é responsabilidade dessas user stories; a validação cruzada do YAML não é reimplementada aqui. A mesma seam <code>IOrganizationRelations</code> admite uma implementação alternativa backed por PostgreSQL sem alterar os validadores de routing.</p>
 <p><strong>Matriz de routing (US-F0-04-T03):</strong> as relações semânticas permitidas são expostas pelo catálogo imutável <code>MessageRoutingRules</code> (em <code>Hive.Domain.Messaging</code>), separado de <code>MessageContractRules</code>: este último valida a forma do envelope e as variantes de endpoint isoladas, enquanto a matriz de routing define pares origem/destino e a relação organizacional ou de autoridade que os validadores contextuais têm de provar. O canal vertical contém: <code>Directive</code>, de <code>PositionEndpointRef</code> para <code>PositionEndpointRef</code> pela relação superior direto → subordinado direto; <code>Report</code>, de posição para posição pela relação subordinado direto → superior direto; e <code>Escalation</code>, de posição para posição pela mesma relação ascendente ou de liderança da unidade raiz para <code>OrganizationOwnerEndpointRef</code>. O canal de governança contém: <code>ApprovalRequest</code>, de posição requerente para posição ou owner resolvido como aprovador autorizado; e <code>ApprovalDecision</code>, de posição ou owner autorizado para a posição requerente do pedido original. A matriz descreve regras fechadas e consultáveis, incluindo o canal, o tipo concreto, os tipos de endpoint e a relação requerida; não consulta o registry, não resolve políticas, não correlaciona pedidos e não aceita/rejeita mensagens — essas responsabilidades pertencem aos validadores de <code>US-F0-04-T04</code>–<code>T07</code>.</p>
 <p><strong>Critério de conclusão:</strong> o routing vertical e de governança é validado contra o registry/políticas de autoridade, diretivas só descem para subordinados diretos, relatórios e escalamentos só sobem para o superior direto, escalamentos da liderança da raiz são encaminhados para o <code>OrganizationOwner</code>/kill switch, aprovações só circulam entre requerente e aprovador autorizado, violações são rejeitadas com razão estruturada e auditadas, e os testes cobrem caminhos válidos e inválidos.</p>
@@ -2536,7 +2560,7 @@ public sealed record ValidationResult(
 
 <hr>
 
-<p><em>Próxima iteração (v0.58): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.63): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

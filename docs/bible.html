@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.54 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.55 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -150,6 +150,7 @@
 <tr><td>0.52</td><td>2026-06-21</td><td>Definição do contrato fechado de <code>Priority</code>: níveis <code>Low</code>, <code>Normal</code>, <code>High</code> e <code>Critical</code>, ordenação explícita, representação wire textual, validação de valores desconhecidos e separação da política de mailbox Akka</td></tr>
 <tr><td>0.53</td><td>2026-06-21</td><td>Definição dos contratos fechados de <code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code>, incluindo valores wire em lowercase/kebab-case, lifecycle de processamento e separação entre mensagem imutável, estado e rejeição</td></tr>
 <tr><td>0.54</td><td>2026-06-21</td><td>Definição do contrato de <code>ApprovalPolicyRef</code> como referência imutável baseada em string, scoped pela organização, distinta de endpoints e acompanhada pela versão/hash da política aplicada no routing e auditoria</td></tr>
+<tr><td>0.55</td><td>2026-06-21</td><td>Clarificação da identidade e linhagem de diretivas: cada <code>Directive</code> tem <code>DirectiveId</code> próprio, subdiretivas referenciam o pai imediato por <code>ParentDirectiveId</code> e cada <code>Report</code> referencia a diretiva reportada por <code>AboutDirectiveId</code></td></tr>
 </tbody>
 </table>
 
@@ -967,6 +968,46 @@ Received → Accepted → Processing → Failed</code></pre>
 <li>Adicionar, remover ou renomear membros, alterar o mapeamento de canal ou permitir novas transições de estado exige evolução explícita do schema e testes de compatibilidade.</li>
 </ul>
 
+<h3>9.6 Identidade e linhagem de diretivas <em>(contrato)</em></h3>
+
+<p>Uma diretiva tem identidade lógica própria, distinta da identidade do envelope que a transporta. A relação pai/filho representa decomposição e delegação de trabalho, não a hierarquia organizacional entre remetente e destinatário.</p>
+
+<table>
+<thead>
+<tr><th>Campo</th><th>Obrigatoriedade</th><th>Semântica</th></tr>
+</thead>
+<tbody>
+<tr><td><code>OrgMessage.Id</code> (<code>MessageId</code>)</td><td>Sempre</td><td>Identifica o envelope da mensagem para idempotência, auditoria e transporte.</td></tr>
+<tr><td><code>Directive.DirectiveId</code></td><td>Sempre em <code>Directive</code></td><td>Identifica logicamente a diretiva específica ao longo do seu processamento, relatórios e tracing.</td></tr>
+<tr><td><code>Directive.ParentDirectiveId</code></td><td>Opcional</td><td>Identifica a diretiva imediata que foi decomposta para originar esta subdiretiva; é <code>null</code> numa diretiva raiz.</td></tr>
+<tr><td><code>Report.AboutDirectiveId</code></td><td>Sempre em <code>Report</code></td><td>Identifica a diretiva específica cujo progresso ou conclusão o relatório descreve.</td></tr>
+<tr><td><code>OrgMessage.Thread</code> (<code>ThreadId</code>)</td><td>Sempre</td><td>Agrupa toda a conversa e árvore de trabalho correlacionada; não substitui a identidade individual de cada diretiva.</td></tr>
+</tbody>
+</table>
+
+<pre><code class="language-csharp">record Directive(
+    ...,
+    DirectiveId DirectiveId,
+    DirectiveId? ParentDirectiveId,
+    string Objective,
+    string Context) : OrgMessage;
+
+record Report(
+    ...,
+    DirectiveId AboutDirectiveId,
+    ReportKind Kind,
+    string Body) : OrgMessage;</code></pre>
+
+<ul>
+<li><strong>Diretiva raiz:</strong> tem <code>DirectiveId</code> obrigatório e <code>ParentDirectiveId = null</code>.</li>
+<li><strong>Subdiretiva:</strong> recebe novo <code>MessageId</code> e novo <code>DirectiveId</code>, mantém <code>OrganizationId</code>/<code>ThreadId</code> da árvore e aponta <code>ParentDirectiveId</code> para a diretiva imediata que a originou.</li>
+<li><strong>Relatório:</strong> <code>AboutDirectiveId</code> aponta para a diretiva exata que está a ser reportada, incluindo uma subdiretiva quando aplicável; não aponta automaticamente para a diretiva raiz.</li>
+<li><strong>Reentrega:</strong> retry, replay ou reentrega da mesma mensagem preserva <code>MessageId</code>, <code>DirectiveId</code>, <code>ParentDirectiveId</code>, <code>AboutDirectiveId</code> e <code>ThreadId</code>. Uma nova decomposição lógica cria uma nova diretiva e novos identificadores de mensagem/diretiva.</li>
+<li><strong>Validação local:</strong> <code>DirectiveId</code> e <code>AboutDirectiveId</code> não podem ser <code>null</code>; <code>ParentDirectiveId</code>, quando presente, não pode ser igual ao próprio <code>DirectiveId</code>.</li>
+<li><strong>Validação contextual:</strong> ao aceitar a mensagem, o sistema confirma que o pai ou a diretiva reportada existe na mesma organização e thread e que adicionar a relação pai/filho não introduz um ciclo. Esta validação consulta o estado persistido/read model; não pertence ao constructor do value object.</li>
+<li><strong>Naming:</strong> os nomes canónicos são <code>DirectiveId</code>, <code>ParentDirectiveId</code> e <code>AboutDirectiveId</code>. Os nomes genéricos <code>Parent</code> e <code>About</code> não fazem parte do contrato.</li>
+</ul>
+
 <p>Esboço C# alinhado com a taxonomia canónica:</p>
 
 <pre><code class="language-csharp">abstract record OrgMessage(
@@ -980,8 +1021,8 @@ Received → Accepted → Processing → Failed</code></pre>
     DateTimeOffset SentAt,
     DateTimeOffset? Deadline);
 
-record Directive(... , string Objective, string Context, DirectiveId? Parent) : OrgMessage;
-record Report(... , DirectiveId About, ReportKind Kind /* Progress|Done */, string Body) : OrgMessage;
+record Directive(... , DirectiveId DirectiveId, DirectiveId? ParentDirectiveId, string Objective, string Context) : OrgMessage;
+record Report(... , DirectiveId AboutDirectiveId, ReportKind Kind /* Progress|Done */, string Body) : OrgMessage;
 record Escalation(... , string Issue, string Context, string[] OptionsConsidered) : OrgMessage;
 record Memo(... , string Body) : OrgMessage;          // horizontal
 record PeerRequest(... , string Ask) : OrgMessage;    // horizontal, espera resposta
@@ -1154,6 +1195,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem e destino como <code>EndpointRef</code> tipado, prioridade, thread/correlation id e timestamps.</li>
 <li><code>ReportKind</code> inclui apenas <code>Progress</code> e <code>Done</code>; bloqueios acionáveis usam <code>Escalation</code>.</li>
 <li><code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code> seguem os conjuntos fechados, valores wire e regras de lifecycle definidos em §9.5.</li>
+<li>Cada <code>Directive</code> inclui <code>DirectiveId</code> próprio e <code>ParentDirectiveId</code> opcional; cada <code>Report</code> inclui <code>AboutDirectiveId</code> obrigatório, conforme §9.6.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
@@ -1166,9 +1208,9 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados conforme §9.5: <code>MessageChannel</code> com <code>Vertical</code>/<code>Horizontal</code>/<code>Governance</code>/<code>System</code>; <code>MessageState</code> com <code>Received</code>/<code>Accepted</code>/<code>Processing</code>/<code>Completed</code>/<code>Rejected</code>/<code>Failed</code>; <code>RejectionReason</code> com <code>InvalidContract</code>/<code>UnsupportedSchemaVersion</code>/<code>InvalidRoute</code>/<code>Unauthorized</code>/<code>Duplicate</code>/<code>Expired</code>; e <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>. Implementar valores wire textuais em lowercase/kebab-case, validação estrita e testes das transições permitidas. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
 </ul>
 </li>
-<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9; incluir <code>ApprovalPolicyRef</code> como value object de suporte de <code>ApprovalRequest</code>, em <code>Hive.Domain.Identity</code> e com o contrato de §9.1.</li>
-<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; <code>ApprovalPolicyRef</code> é obrigatório em <code>ApprovalRequest</code>, e papéis/políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com <code>ApprovalPolicyRef</code> ausente ou lexicalmente inválido, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
+<li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9; incluir <code>DirectiveId</code>/<code>ParentDirectiveId</code> em <code>Directive</code>, <code>AboutDirectiveId</code> em <code>Report</code> conforme §9.6, e <code>ApprovalPolicyRef</code> como value object de suporte de <code>ApprovalRequest</code> em <code>Hive.Domain.Identity</code> conforme §9.1.</li>
+<li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e as relações de identidade/linhagem de §9.6; <code>ApprovalPolicyRef</code> é obrigatório em <code>ApprovalRequest</code>, e papéis/políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com <code>DirectiveId</code>/<code>AboutDirectiveId</code> ausente, com autorreferência em <code>ParentDirectiveId</code>, com referência a diretiva inexistente, pertencente a outra organização/thread ou que introduza ciclo, com <code>ApprovalPolicyRef</code> ausente ou lexicalmente inválido, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -1373,7 +1415,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-08-T07c</strong> — Mapear falhas de interpretação para erro estruturado ou escalamento, com razão auditável e sem emitir mensagem organizacional inválida.</li>
 </ul>
 </li>
-<li><strong>US-F0-08-T08</strong> — Converter decisões válidas em mensagens organizacionais canónicas: <code>Report</code> com <code>ReportKind</code> <code>Progress</code>/<code>Done</code>, <code>Escalation</code> para bloqueios/decisões fora da alçada, ou <code>Directive</code> apenas para subordinado direto permitido.</li>
+<li><strong>US-F0-08-T08</strong> — Converter decisões válidas em mensagens organizacionais canónicas: <code>Report</code> com <code>AboutDirectiveId</code> e <code>ReportKind</code> <code>Progress</code>/<code>Done</code>, <code>Escalation</code> para bloqueios/decisões fora da alçada, ou <code>Directive</code> descendente com novo <code>DirectiveId</code> e <code>ParentDirectiveId</code> da diretiva em processamento, apenas para subordinado direto permitido.</li>
 <li><strong>US-F0-08-T09</strong> — Aplicar validação de routing e autoridade antes de emitir qualquer mensagem resultante, reutilizando as regras de <code>US-F0-04</code> e rejeitando saltos de nível ou aprovações implícitas.</li>
 <li><strong>US-F0-08-T10</strong> — Implementar loop agêntico limitado para tool calls ou pedidos de nova inferência, executando apenas ferramentas autorizadas, registando cada iteração e parando por conclusão, timeout, budget ou máximo de iterações.
 <ul>
@@ -1457,7 +1499,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <ul>
 <li><strong>US-F0-10-T01</strong> — Definir payload mínimo de bug para o vertical slice: título, descrição, severidade reportada, origem, passos de reprodução, ambiente, anexos textuais opcionais e metadados de correlação.</li>
 <li><strong>US-F0-10-T02</strong> — Criar comando/API mínima para submeter bug de exemplo em ambiente local, sem depender de conectores F1 externos.</li>
-<li><strong>US-F0-10-T03</strong> — Mapear a entrada de bug para uma <code>Directive</code> canónica de triagem, com <code>OrganizationId</code>, posição de destino, <code>ThreadId</code>, <code>DirectiveId</code>, prioridade, contexto e critérios de conclusão.</li>
+<li><strong>US-F0-10-T03</strong> — Mapear a entrada de bug para uma <code>Directive</code> raiz canónica de triagem, com <code>OrganizationId</code>, posição de destino, <code>ThreadId</code>, <code>DirectiveId</code> próprio, <code>ParentDirectiveId = null</code>, prioridade, contexto e critérios de conclusão.</li>
 <li><strong>US-F0-10-T04</strong> — Configurar no YAML/registry uma organização de Engenharia/Delivery com posição de triagem, ocupante <code>AiAgentActor</code>, prompt de triagem, provider stub e autoridade mínima para responder ou escalar.</li>
 <li><strong>US-F0-10-T05</strong> — Encaminhar a <code>Directive</code> para o <code>PositionActor</code> sharded da posição de triagem, validando routing vertical, persistência da inbox e aceitação idempotente.</li>
 <li><strong>US-F0-10-T06</strong> — Executar o fluxo <code>PositionActor → AiAgentActor → AiGateway stub</code>, montando contexto com diretiva, prompt, memória curta e ferramentas autorizadas.
@@ -2315,7 +2357,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.55): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.56): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

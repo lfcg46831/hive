@@ -153,6 +153,7 @@
 <tr><td>0.55</td><td>2026-06-21</td><td>Clarificação da identidade e linhagem de diretivas: cada <code>Directive</code> tem <code>DirectiveId</code> próprio, subdiretivas referenciam o pai imediato por <code>ParentDirectiveId</code> e cada <code>Report</code> referencia a diretiva reportada por <code>AboutDirectiveId</code></td></tr>
 <tr><td>0.56</td><td>2026-06-21</td><td>Definição do catálogo declarativo <code>MessageContractRules</code> como fonte consumível das regras de obrigatoriedade, canal, variantes de endpoint e referências de identidade/linhagem por tipo canónico; a execução da validação permanece em <code>US-F0-03-T06</code></td></tr>
 <tr><td>0.57</td><td>2026-06-21</td><td>Definição do contrato de validação agregada: <code>ValidationResult</code> devolve todos os erros estruturados avaliáveis por fase, com ordenação determinística, sem usar exceções como controlo de fluxo para mensagens inválidas</td></tr>
+<tr><td>0.58</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T06</code>: validação estrutural e contextual orientada por <code>MessageContractRules</code>, resultados agregados/deduplicados com ordenação determinística, gating entre fases, validação de referências e ciclos de diretivas, e validação do lifecycle com uso de <code>RejectionReason</code> apenas em <code>Rejected</code>; cancelamento e falhas de dependências permanecem falhas técnicas</td></tr>
 </tbody>
 </table>
 

@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.57 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.61 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -156,6 +156,7 @@
 <tr><td>0.58</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T06</code>: validação estrutural e contextual orientada por <code>MessageContractRules</code>, resultados agregados/deduplicados com ordenação determinística, gating entre fases, validação de referências e ciclos de diretivas, e validação do lifecycle com uso de <code>RejectionReason</code> apenas em <code>Rejected</code>; cancelamento e falhas de dependências permanecem falhas técnicas</td></tr>
 <tr><td>0.59</td><td>2026-06-21</td><td>ADR-007 aceite (<code>US-F0-03-T07</code>): <code>System.Text.Json</code> como formato inicial de serialização versionável para mensagens Akka e eventos/snapshots persistidos, com versão de schema explícita, desserialização tolerante e converters explícitos, evitando serialização .NET por omissão; configuração dos serializers e convenções de evolução ficam para <code>US-F0-03-T08</code></td></tr>
 <tr><td>0.60</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T08</code> (§9.9): serializer Akka <code>System.Text.Json</code> vinculado ao tipo base <code>OrgMessage</code>, com manifests canónicos kebab-case por tipo, converters explícitos para identidades, <code>EndpointRef</code> e enums do protocolo, leitura tolerante sem defaults silenciosos e domínio livre de dependências de serialização; convenções de evolução de schema fixadas e configuração operacional em <code>docs/configuration.md</code></td></tr>
+<tr><td>0.61</td><td>2026-06-21</td><td>Documentação de <code>US-F0-03-T12</code> (§9.10): apêndice de referência com o índice dos exemplos canónicos por tipo (apontando para os fixtures de <code>US-F0-03-T09</code>), envelope comum anotado e cenários de evolução aplicada (aditiva compatível e disruptiva) que referenciam as regras de §9.9 sem as redefinir</td></tr>
 </tbody>
 </table>
 
@@ -1118,6 +1119,52 @@ public sealed record ValidationResult(
 <li><strong>Mudança disruptiva:</strong> remover ou renomear um campo, alterar valores wire, alterar o mapeamento de canal, alterar o manifest ou o identificador do serializer, ou alargar um conjunto fechado de §9.5 é uma alteração de schema explícita, com incremento de versão e fixtures de compatibilidade.</li>
 <li><strong>Compatibilidade:</strong> os fixtures/snapshots de payloads serializados por tipo canónico, que protegem a estabilidade do formato e do manifest ao longo das versões, pertencem a <code>US-F0-03-T09</code>.</li>
 </ul>
+
+<h3>9.10 Exemplos canónicos e evolução aplicada <em>(referência)</em></h3>
+
+<p>Esta secção indexa e explica os exemplos canónicos de cada mensagem e ilustra, com cenários concretos, as regras de evolução fixadas em §9.9. As decisões continuam em §9.9 (esta secção referencia-as, não as redefine) e os payloads autoritativos são os fixtures de <code>US-F0-03-T09</code> em <code>tests/Hive.Tests/Fixtures/Serialization/&lt;manifest&gt;.json</code> — um por tipo de §9.4 —, protegidos pelos testes de round-trip (<code>US-F0-03-T10</code>) e de compatibilidade (<code>US-F0-03-T11</code>). O JSON não é duplicado aqui para evitar divergência; os fixtures são a fonte para qualquer leitura literal do formato.</p>
+
+<p><strong>Envelope comum.</strong> Todas as mensagens partilham os campos do envelope de §9.2/§9.3 — <code>Id</code>, <code>OrganizationId</code>, <code>From</code>, <code>To</code> (variantes de <code>EndpointRef</code>), <code>Thread</code>, <code>Priority</code> (wire textual), <code>SchemaVersion</code>, <code>SentAt</code> e <code>Deadline</code> opcional —; o canal (§9.5) é derivado do tipo concreto e não viaja no payload. O exemplo canónico de <code>Directive</code> mostra o envelope mais os campos de payload do tipo (<code>directive.json</code>):</p>
+
+<pre><code>{
+  "Id": "d1000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": { "kind": "position", "positionId": "delivery-lead" },
+  "To":   { "kind": "position", "positionId": "bug-triage" },
+  "Thread": "d1000000-0000-0000-0000-0000000000a1",
+  "Priority": "high",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": "2026-06-21T14:00:00+00:00",
+  "DirectiveId": "d1000000-0000-0000-0000-0000000000c1",
+  "ParentDirectiveId": "d1000000-0000-0000-0000-0000000000c0",
+  "Objective": "Triage the reported regression",
+  "Context": "Customer impact is under investigation"
+}</code></pre>
+
+<p><strong>Índice por tipo canónico.</strong> Cada linha aponta para o fixture autoritativo, as variantes de <code>EndpointRef</code> usadas no exemplo (de entre as permitidas por <code>MessageContractRules</code>, §9.6) e os campos de payload específicos do tipo, acima do envelope comum:</p>
+
+<table>
+<thead>
+<tr><th>Tipo</th><th>Manifest / fixture</th><th>From → To (exemplo)</th><th>Campos de payload</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Directive</code></td><td><code>directive.json</code></td><td>position → position</td><td><code>DirectiveId</code>, <code>ParentDirectiveId</code> (opc.), <code>Objective</code>, <code>Context</code></td></tr>
+<tr><td><code>Report</code></td><td><code>report.json</code></td><td>position → position</td><td><code>AboutDirectiveId</code>, <code>Kind</code> (<code>progress</code>/<code>done</code>), <code>Body</code></td></tr>
+<tr><td><code>Escalation</code></td><td><code>escalation.json</code></td><td>position → organization-owner</td><td><code>Issue</code>, <code>Context</code>, <code>OptionsConsidered[]</code></td></tr>
+<tr><td><code>Memo</code></td><td><code>memo.json</code></td><td>position → position</td><td><code>Body</code></td></tr>
+<tr><td><code>PeerRequest</code></td><td><code>peer-request.json</code></td><td>position → position</td><td><code>Ask</code></td></tr>
+<tr><td><code>PeerResponse</code></td><td><code>peer-response.json</code></td><td>position → position</td><td><code>InReplyTo</code>, <code>Body</code></td></tr>
+<tr><td><code>ApprovalRequest</code></td><td><code>approval-request.json</code></td><td>position → position</td><td><code>Action</code>, <code>Justification</code>, <code>Policy</code> (<code>ApprovalPolicyRef</code>)</td></tr>
+<tr><td><code>ApprovalDecision</code></td><td><code>approval-decision.json</code></td><td>organization-owner → position</td><td><code>RequestId</code>, <code>Approved</code>, <code>Reason</code> (opc.)</td></tr>
+<tr><td><code>Pulse</code></td><td><code>pulse.json</code></td><td>system (<code>scheduler</code>) → position</td><td><code>ScheduleId</code>, <code>Payload</code></td></tr>
+<tr><td><code>EventTrigger</code></td><td><code>event-trigger.json</code></td><td>system (<code>domain-events</code>) → position</td><td><code>EventType</code>, <code>Payload</code></td></tr>
+</tbody>
+</table>
+
+<p><strong>Evolução aditiva (compatível), aplicada.</strong> Acrescentar um campo <em>opcional</em> é compatível e não exige migração de journals (§9.9). Exemplo: adicionar <code>Labels</code> opcional a <code>Memo</code>. Um produtor novo passa a emitir <code>"Labels": ["staging"]</code>; um reader antigo ignora a propriedade desconhecida e continua a ler o resto do envelope; um reader novo tolera a sua ausência em payloads antigos sem aplicar defaults silenciosos. O <code>SchemaVersion</code> só precisa de subir se a semântica do tipo deixar de ser interpretável corretamente por leitores anteriores — o que não acontece num campo verdadeiramente opcional.</p>
+
+<p><strong>Evolução disruptiva, aplicada.</strong> Renomear ou remover um campo, alterar valores wire, alterar o mapeamento de canal, alterar o manifest ou o identificador do serializer, ou alargar um conjunto fechado de §9.5 são alterações de schema explícitas (§9.9). Exemplo: renomear <code>Memo.Body</code> para <code>Memo.Text</code>. O procedimento é: (1) incrementar o <code>SchemaVersion</code> do envelope; (2) congelar o fixture da versão anterior e adicionar um fixture da nova versão, alimentando os testes de compatibilidade de <code>US-F0-03-T11</code> (leitura controlada de versões anteriores e rejeição de versões desconhecidas); (3) manter o manifest (<code>memo</code>) e o identificador numérico do serializer inalterados enquanto existirem journals com a versão antiga, já que o manifest — e não o nome do record CLR — é o que viaja no wire. Os records de <code>Hive.Domain.Messaging</code> permanecem a fonte única do schema; não se introduz IDL paralela.</p>
 
 <hr>
 

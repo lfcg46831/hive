@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.56 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.57 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -152,6 +152,7 @@
 <tr><td>0.54</td><td>2026-06-21</td><td>Definição do contrato de <code>ApprovalPolicyRef</code> como referência imutável baseada em string, scoped pela organização, distinta de endpoints e acompanhada pela versão/hash da política aplicada no routing e auditoria</td></tr>
 <tr><td>0.55</td><td>2026-06-21</td><td>Clarificação da identidade e linhagem de diretivas: cada <code>Directive</code> tem <code>DirectiveId</code> próprio, subdiretivas referenciam o pai imediato por <code>ParentDirectiveId</code> e cada <code>Report</code> referencia a diretiva reportada por <code>AboutDirectiveId</code></td></tr>
 <tr><td>0.56</td><td>2026-06-21</td><td>Definição do catálogo declarativo <code>MessageContractRules</code> como fonte consumível das regras de obrigatoriedade, canal, variantes de endpoint e referências de identidade/linhagem por tipo canónico; a execução da validação permanece em <code>US-F0-03-T06</code></td></tr>
+<tr><td>0.57</td><td>2026-06-21</td><td>Definição do contrato de validação agregada: <code>ValidationResult</code> devolve todos os erros estruturados avaliáveis por fase, com ordenação determinística, sem usar exceções como controlo de fluxo para mensagens inválidas</td></tr>
 </tbody>
 </table>
 
@@ -1043,7 +1044,63 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>As regras de endpoint distinguem <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e cada produtor <code>SystemEndpointRef</code> permitido; <code>Pulse</code> exige <code>Scheduler</code> e <code>EventTrigger</code> exige <code>DomainEvents</code>.</li>
 <li>As regras de referência declaram que <code>Directive.ParentDirectiveId</code> é opcional, aponta para <code>Directive.DirectiveId</code> na mesma organização/thread e não admite autorreferência nem ciclos; <code>Report.AboutDirectiveId</code> é obrigatório e aponta para uma diretiva na mesma organização/thread.</li>
 <li><code>ApprovalRequest.Policy</code> é um campo de payload obrigatório. Apenas variantes de <code>EndpointRef</code> podem surgir na matriz do envelope; políticas, papéis e outros seletores nunca são endpoints.</li>
-<li>O catálogo descreve o contrato e não aceita nem rejeita mensagens. O validador de <code>US-F0-03-T06</code> consome estas regras e executa as verificações locais e contextuais contra a mensagem e o estado persistido/read model.</li>
+<li>O catálogo descreve o contrato e não aceita nem rejeita mensagens. O validador de <code>US-F0-03-T06</code> consome estas regras, executa as verificações locais e contextuais contra a mensagem e o estado persistido/read model e devolve o <code>ValidationResult</code> definido em §9.8.</li>
+</ul>
+
+<h3>9.8 Resultado e execução da validação <em>(contrato)</em></h3>
+
+<p>Input externo ou uma mensagem organizacional inválida não é uma exceção de runtime. A validação devolve um resultado imutável com todos os erros independentes que puderem ser avaliados com segurança na fase alcançada. Não interrompe no primeiro erro apenas para simplificar o controlo de fluxo.</p>
+
+<pre><code class="language-csharp">public sealed record ValidationError(
+    string Code,
+    string Path,
+    RejectionReason Reason);
+
+public sealed record ValidationResult(
+    IReadOnlyList&lt;ValidationError&gt; Errors)
+{
+    public bool IsValid =&gt; Errors.Count == 0;
+}</code></pre>
+
+<h4>Contrato dos erros</h4>
+
+<ul>
+<li><code>Code</code> é um identificador estável, machine-readable e não localizado em lowercase/kebab-case. Distingue violações específicas dentro de um mesmo <code>RejectionReason</code>.</li>
+<li><code>Path</code> identifica o campo pela sua propriedade canónica no contrato, usando caminho dotted a partir da raiz (por exemplo <code>directiveId</code>, <code>from</code> ou <code>policy.value</code>). Erros sem campo específico usam <code>$</code>.</li>
+<li><code>Reason</code> usa a taxonomia fechada de <code>RejectionReason</code> de §9.5 e classifica a rejeição de forma coarse-grained para routing, métricas e auditoria.</li>
+<li><code>Errors</code> nunca é <code>null</code>. Uma lista vazia representa sucesso; uma lista não vazia representa falha de validação.</li>
+<li>O resultado remove erros duplicados e ordena-os deterministicamente por <code>Path</code> ordinal, depois <code>Code</code> ordinal e por fim <code>Reason</code>, para produzir testes, payloads e auditoria estáveis.</li>
+</ul>
+
+<h4>Fases e gating</h4>
+
+<ol>
+<li><strong>Parsing e schema:</strong> valida que o payload pode ser interpretado e que a versão é suportada. Se esta fase falhar, devolve <code>InvalidContract</code> ou <code>UnsupportedSchemaVersion</code> e não tenta validar campos que não puderam ser materializados.</li>
+<li><strong>Estrutural:</strong> sobre uma mensagem materializada, aplica <code>MessageContractRules</code> e agrega todos os erros independentes de obrigatoriedade, value objects, enums, endpoints e consistência interna.</li>
+<li><strong>Contextual:</strong> só executa quando a validação estrutural é válida. Consulta registry/estado persistido/read models para validar referências, linhagem, duplicação, expiração, routing e autorização, agregando os erros que não dependam de uma condição já falhada.</li>
+</ol>
+
+<p>“Todos os erros” significa todos os erros avaliáveis na fase alcançada, não executar validações dependentes sobre dados que não foram interpretados ou que já são estruturalmente inválidos.</p>
+
+<h4>Rejeição, segurança e exceções</h4>
+
+<ul>
+<li>Um <code>ValidationResult</code> inválido conduz a <code>MessageState.Rejected</code>; cada entrada mantém o seu <code>RejectionReason</code>. Não se perde a lista completa em favor de uma única razão “primeira”.</li>
+<li>Erros de autorização não revelam posições, rotas, políticas ou recursos que o remetente não pode conhecer. O resultado público pode usar um <code>Code</code>/<code>Path</code> genérico, mantendo detalhe sensível apenas na auditoria autorizada.</li>
+<li>Factories/constructors de value objects continuam fail-fast com <code>ArgumentException</code>/<code>ArgumentOutOfRangeException</code>, porque impedem que código interno construa um valor inválido. O boundary de parsing/validação captura falhas causadas por input externo e converte-as em <code>ValidationError</code>.</li>
+<li>Exceções ficam reservadas para uso incorreto da API interna, invariantes impossíveis, cancelamento, indisponibilidade de dependências ou falhas de infraestrutura. Não são convertidas em <code>InvalidContract</code> nem apresentadas como erro do remetente.</li>
+<li>Uma falha técnica durante validação contextual não rejeita definitivamente a mensagem como inválida; segue política de retry/falha técnica e auditoria.</li>
+</ul>
+
+<h4>Testes mínimos</h4>
+
+<ul>
+<li>Agregação de múltiplos erros estruturais independentes numa única execução.</li>
+<li>Gating: validação contextual não corre quando parsing/schema ou estrutura falham.</li>
+<li>Ordenação determinística e deduplicação de erros.</li>
+<li>Payload inválido não escapa como exceção do validator boundary.</li>
+<li>Erro <code>Unauthorized</code> não expõe detalhes sensíveis no resultado público.</li>
+<li>Falha de dependência/cancelamento continua distinguível de rejeição funcional.</li>
 </ul>
 
 <hr>
@@ -1208,6 +1265,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><code>ReportKind</code> inclui apenas <code>Progress</code> e <code>Done</code>; bloqueios acionáveis usam <code>Escalation</code>.</li>
 <li><code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code> seguem os conjuntos fechados, valores wire e regras de lifecycle definidos em §9.5.</li>
 <li>Cada <code>Directive</code> inclui <code>DirectiveId</code> próprio e <code>ParentDirectiveId</code> opcional; cada <code>Report</code> inclui <code>AboutDirectiveId</code> obrigatório, conforme §9.6.</li>
+<li>A validação devolve <code>ValidationResult</code> com erros estruturados agregados, aplica gating por fase e não usa exceções para representar mensagens inválidas, conforme §9.8.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
@@ -1222,7 +1280,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 </li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9; incluir <code>DirectiveId</code>/<code>ParentDirectiveId</code> em <code>Directive</code>, <code>AboutDirectiveId</code> em <code>Report</code> conforme §9.6, e <code>ApprovalPolicyRef</code> como value object de suporte de <code>ApprovalRequest</code> em <code>Hive.Domain.Identity</code> conforme §9.1.</li>
 <li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e as relações de identidade/linhagem de §9.6; <code>ApprovalPolicyRef</code> é obrigatório em <code>ApprovalRequest</code>, e papéis/políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com <code>DirectiveId</code>/<code>AboutDirectiveId</code> ausente, com autorreferência em <code>ParentDirectiveId</code>, com referência a diretiva inexistente, pertencente a outra organização/thread ou que introduza ciclo, com <code>ApprovalPolicyRef</code> ausente ou lexicalmente inválido, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar o validator que consome <code>MessageContractRules</code> e devolve <code>ValidationResult</code> conforme §9.8, agregando erros independentes por fase para mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com <code>DirectiveId</code>/<code>AboutDirectiveId</code> ausente, com autorreferência em <code>ParentDirectiveId</code>, com referência a diretiva inexistente, pertencente a outra organização/thread ou que introduza ciclo, com <code>ApprovalPolicyRef</code> ausente ou lexicalmente inválido, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5. Implementar gating estrutural/contextual, ordenação/deduplicação determinística e testes de não-exceção para input inválido.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -1259,7 +1317,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-04-T07c</strong> — Rejeitar decisões duplicadas, expiradas ou não autorizadas com razão estruturada reutilizável pela auditoria.</li>
 </ul>
 </li>
-<li><strong>US-F0-04-T08</strong> — Definir modelo de erro/rejeição com razão estruturada, mensagem original, remetente, destinatário, <code>ApprovalPolicyRef</code>, versão/hash da política aplicada, aprovador resolvido e <code>ThreadId</code>.</li>
+<li><strong>US-F0-04-T08</strong> — Reutilizar <code>ValidationResult</code>/<code>ValidationError</code> de §9.8 no modelo de erro/rejeição de routing, acrescentando contexto auditável da mensagem original, remetente, destinatário, <code>ApprovalPolicyRef</code>, versão/hash da política aplicada, aprovador resolvido e <code>ThreadId</code> sem expor detalhes sensíveis no resultado público.</li>
 <li><strong>US-F0-04-T09</strong> — Integrar validação no ponto de entrada do <code>PositionActor</code> antes de aceitar a mensagem na inbox.</li>
 <li><strong>US-F0-04-T10</strong> — Registar evento de auditoria para routing rejeitado, incluindo razão, cadeia/política esperada e cadeia/política recebida.</li>
 <li><strong>US-F0-04-T11</strong> — Criar testes para diretiva válida, diretiva com salto de nível, relatório/escalamento válido, relatório para nível errado, escalamento de topo para <code>OrganizationOwner</code>, aprovação válida e decisão por aprovador não autorizado.</li>
@@ -2369,7 +2427,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.56): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.58): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

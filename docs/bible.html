@@ -154,6 +154,7 @@
 <tr><td>0.56</td><td>2026-06-21</td><td>Definição do catálogo declarativo <code>MessageContractRules</code> como fonte consumível das regras de obrigatoriedade, canal, variantes de endpoint e referências de identidade/linhagem por tipo canónico; a execução da validação permanece em <code>US-F0-03-T06</code></td></tr>
 <tr><td>0.57</td><td>2026-06-21</td><td>Definição do contrato de validação agregada: <code>ValidationResult</code> devolve todos os erros estruturados avaliáveis por fase, com ordenação determinística, sem usar exceções como controlo de fluxo para mensagens inválidas</td></tr>
 <tr><td>0.58</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T06</code>: validação estrutural e contextual orientada por <code>MessageContractRules</code>, resultados agregados/deduplicados com ordenação determinística, gating entre fases, validação de referências e ciclos de diretivas, e validação do lifecycle com uso de <code>RejectionReason</code> apenas em <code>Rejected</code>; cancelamento e falhas de dependências permanecem falhas técnicas</td></tr>
+<tr><td>0.59</td><td>2026-06-21</td><td>ADR-007 aceite (<code>US-F0-03-T07</code>): <code>System.Text.Json</code> como formato inicial de serialização versionável para mensagens Akka e eventos/snapshots persistidos, com versão de schema explícita, desserialização tolerante e converters explícitos, evitando serialização .NET por omissão; configuração dos serializers e convenções de evolução ficam para <code>US-F0-03-T08</code></td></tr>
 </tbody>
 </table>
 
@@ -784,7 +785,7 @@ occupant:
 <li><strong>Ownership:</strong> <code>ApprovalPolicyRef</code> é introduzido como value object de suporte por <code>US-F0-03-T04</code>; não reabre <code>T01</code> nem pertence aos enums de <code>T03</code>.</li>
 </ul>
 
-<p>Este contrato não escolhe o formato wire/persistido nem a configuração de serializers Akka; essas decisões pertencem a <code>US-F0-03-T07</code> e <code>US-F0-03-T08</code>.</p>
+<p>Este contrato não escolhe o formato wire/persistido nem a configuração de serializers Akka; o formato inicial é <code>System.Text.Json</code> conforme <code>US-F0-03-T07</code> (ADR-007) e a configuração dos serializers pertence a <code>US-F0-03-T08</code>.</p>
 
 <h3>9.2 Referências de endpoint <em>(contrato)</em></h3>
 
@@ -2168,6 +2169,7 @@ public sealed record ValidationResult(
 <tr><td>ADR-004</td><td>Implementação do scheduler com <code>Akka.Quartz.Actor</code></td><td><strong>Aceite (v0.9)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-005</td><td>Frontend Web UI (React vs. Angular vs. Blazor)</td><td><strong>Aceite (v0.4)</strong> — detalhe abaixo</td></tr>
 <tr><td>ADR-006</td><td>Integração de coding agents externos por runner sandboxed</td><td><strong>Aceite (v0.43)</strong> — detalhe abaixo</td></tr>
+<tr><td>ADR-007</td><td>Formato inicial de serialização versionável (<code>System.Text.Json</code>)</td><td><strong>Aceite (v0.59)</strong> — detalhe abaixo</td></tr>
 </tbody>
 </table>
 
@@ -2425,6 +2427,48 @@ public sealed record ValidationResult(
 </ul>
 
 <p><strong>Referências oficiais:</strong> <a href="https://developers.openai.com/codex/noninteractive">Codex non-interactive mode</a>, <a href="https://developers.openai.com/codex/sdk">Codex SDK</a>, <a href="https://developers.openai.com/codex/app-server">Codex App Server</a>, <a href="https://code.claude.com/docs/en/headless">Claude Code programmatic usage</a> e <a href="https://code.claude.com/docs/en/agent-sdk/overview">Claude Agent SDK</a>.</p>
+
+<hr>
+
+<h3>ADR-007: <code>System.Text.Json</code> como formato inicial de serialização versionável</h3>
+
+<p><strong>Estado:</strong> Aceite · <strong>Data:</strong> 2026-06-21 · <strong>Contexto:</strong> a decisão de cluster desde o início (Q2/§5.7) obriga a serialização versionável desde a F0, tanto para as mensagens Akka remote/cluster (protocolo organizacional de §9) como para os eventos e snapshots persistidos via <code>Akka.Persistence</code> sobre PostgreSQL (ADR-003), excluindo explicitamente a serialização .NET por omissão. Os contratos de §9 já são records imutáveis em C# com representação wire textual canónica (<code>Priority</code>, <code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code>, <code>ReportKind</code> em lowercase/kebab-case) e um campo explícito de versão de schema no envelope (T02). É preciso fixar o formato inicial antes de configurar os serializers Akka em <code>US-F0-03-T08</code>.</p>
+
+<h4>Opções consideradas</h4>
+
+<table>
+<thead>
+<tr><th>Opção</th><th>Vantagens</th><th>Limitações</th></tr>
+</thead>
+<tbody>
+<tr><td><code>System.Text.Json</code></td><td>Nativo no .NET, rápido, sem polimorfismo por type-name inseguro; alinhado com a representação wire textual já desenhada em §9 e com os records C# como fonte única; payloads legíveis e depuráveis na F0 interno-primeiro</td><td>Mais volumoso/lento que binário em hot paths; uniões discriminadas (<code>EndpointRef</code>) e value objects de identidade exigem converters explícitos</td></tr>
+<tr><td>Newtonsoft.Json (fallback por omissão do Akka)</td><td>Muito flexível e tolerante na desserialização</td><td>Dependência adicional; <code>TypeNameHandling</code> (<code>$type</code>) é risco de segurança e acopla payloads a tipos CLR; mais pesado que <code>System.Text.Json</code></td></tr>
+<tr><td>Hyperion (substituto recomendado do Wire)</td><td>Rápido, suporta grafos e polimorfismo sem anotações</td><td>Acoplado a tipos CLR e assemblies; frágil para evolução de schema e para eventos persistidos de longa duração; má compatibilidade entre versões</td></tr>
+<tr><td>Google Protobuf</td><td>Binário compacto, excelente compatibilidade forward/backward, schema-first</td><td>Exige IDL <code>.proto</code> e codegen paralelos aos records (dupla fonte de verdade); ganho de performance não é prioritário no PoC interno da F0</td></tr>
+<tr><td>Serialização .NET por omissão (<code>BinaryFormatter</code>)</td><td>—</td><td>Insegura, obsoleta/descontinuada no .NET e não versionável; excluída por requisito de §5.7</td></tr>
+</tbody>
+</table>
+
+<h4>Decisão e fundamentação</h4>
+
+<p>Adotamos <strong><code>System.Text.Json</code> como formato inicial versionável</strong>, único para as mensagens Akka e para os eventos/snapshots persistidos na F0. A versionabilidade assenta em: (1) campo explícito de versão de schema no envelope/payload; (2) desserialização tolerante — ignora propriedades desconhecidas mas rejeita de forma controlada as ausências obrigatórias, sem aplicar defaults silenciosos (conforme §9.3); (3) os valores wire textuais já canonizados em §9.3/§9.5; (4) converters explícitos para as uniões discriminadas (<code>EndpointRef</code>) e value objects de identidade, sem recorrer a polimorfismo por type-name. Os records C# permanecem a fonte única de verdade do schema; não se introduz IDL paralela.</p>
+
+<p>Esta decisão fixa apenas o formato. A configuração dos serializers Akka (binding por tipo, serializer id/manifest, ligação a eventos/snapshots) e as convenções detalhadas de evolução de schema pertencem a <code>US-F0-03-T08</code>; os serializers de comandos/eventos/snapshots do <code>PositionActor</code> a <code>US-F0-06-T05</code>/<code>T05b</code>.</p>
+
+<p>Protobuf permanece a alternativa preferencial para caminhos quentes futuros (por exemplo, mensagens de cluster de alto volume) e pode coexistir por tipo, porque no Akka a escolha de serializer é por tipo e não altera os contratos de domínio.</p>
+
+<h4>Consequências</h4>
+
+<ul>
+<li>(+) Alinha a serialização com a representação wire textual já desenhada em §9 e com os records C# como fonte única do schema.</li>
+<li>(+) Payloads legíveis facilitam depuração, auditoria e inspeção dos eventos persistidos na F0.</li>
+<li>(+) Evita a serialização .NET por omissão e o acoplamento a tipos CLR do Hyperion em eventos de longa duração.</li>
+<li>(+) Sem IDL paralela: menos fricção e uma só fonte de verdade na F0.</li>
+<li>(−) JSON é mais volumoso e mais lento que binário; aceitável no PoC interno, a revisitar por tipo se a performance pesar.</li>
+<li>(−) Uniões discriminadas e value objects exigem converters explícitos e testes de round-trip (<code>T09</code>/<code>T10</code>).</li>
+<li>(−) A evolução por tolerant reader exige disciplina de versionamento e fixtures de compatibilidade (<code>T11</code>).</li>
+<li>Revisitar se: o volume/latência das mensagens de cluster ou o tamanho dos eventos persistidos excederem o conforto operacional — migrar tipos específicos para Protobuf, preservando os contratos.</li>
+</ul>
 
 <hr>
 

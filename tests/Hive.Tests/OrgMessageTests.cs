@@ -167,5 +167,7 @@ public sealed class OrgMessageTests
                 deadline)
         {
         }
+
+        public override MessageChannel Channel => MessageChannel.System;
     }
 }

@@ -57,4 +57,6 @@ public abstract record OrgMessage
     public DateTimeOffset SentAt { get; }
 
     public DateTimeOffset? Deadline { get; }
+
+    public abstract MessageChannel Channel { get; }
 }

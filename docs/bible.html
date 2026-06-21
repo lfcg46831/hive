@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.55 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.56 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -151,6 +151,7 @@
 <tr><td>0.53</td><td>2026-06-21</td><td>Definição dos contratos fechados de <code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code>, incluindo valores wire em lowercase/kebab-case, lifecycle de processamento e separação entre mensagem imutável, estado e rejeição</td></tr>
 <tr><td>0.54</td><td>2026-06-21</td><td>Definição do contrato de <code>ApprovalPolicyRef</code> como referência imutável baseada em string, scoped pela organização, distinta de endpoints e acompanhada pela versão/hash da política aplicada no routing e auditoria</td></tr>
 <tr><td>0.55</td><td>2026-06-21</td><td>Clarificação da identidade e linhagem de diretivas: cada <code>Directive</code> tem <code>DirectiveId</code> próprio, subdiretivas referenciam o pai imediato por <code>ParentDirectiveId</code> e cada <code>Report</code> referencia a diretiva reportada por <code>AboutDirectiveId</code></td></tr>
+<tr><td>0.56</td><td>2026-06-21</td><td>Definição do catálogo declarativo <code>MessageContractRules</code> como fonte consumível das regras de obrigatoriedade, canal, variantes de endpoint e referências de identidade/linhagem por tipo canónico; a execução da validação permanece em <code>US-F0-03-T06</code></td></tr>
 </tbody>
 </table>
 
@@ -1033,6 +1034,17 @@ record Pulse(... , string ScheduleId, string Payload) : OrgMessage;
 record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code></pre>
 
 <p>Regras de encaminhamento (verticalidade, permissões horizontais e governança de aprovações) são validadas pelo <code>PositionActor</code> e violações são auditadas.</p>
+
+<h3>9.7 Catálogo declarativo de contratos <em>(contrato)</em></h3>
+
+<p><code>MessageContractRules</code> é a fonte consumível das regras estruturais por tipo concreto da taxonomia canónica. O catálogo tem exatamente uma entrada para cada tipo de §9.4 e declara, de forma imutável, o canal derivado, os campos comuns e de payload obrigatórios, os campos opcionais, as variantes exatas permitidas em <code>From</code>/<code>To</code> e as relações de referência de identidade/linhagem.</p>
+
+<ul>
+<li>As regras de endpoint distinguem <code>PositionEndpointRef</code>, <code>OrganizationOwnerEndpointRef</code> e cada produtor <code>SystemEndpointRef</code> permitido; <code>Pulse</code> exige <code>Scheduler</code> e <code>EventTrigger</code> exige <code>DomainEvents</code>.</li>
+<li>As regras de referência declaram que <code>Directive.ParentDirectiveId</code> é opcional, aponta para <code>Directive.DirectiveId</code> na mesma organização/thread e não admite autorreferência nem ciclos; <code>Report.AboutDirectiveId</code> é obrigatório e aponta para uma diretiva na mesma organização/thread.</li>
+<li><code>ApprovalRequest.Policy</code> é um campo de payload obrigatório. Apenas variantes de <code>EndpointRef</code> podem surgir na matriz do envelope; políticas, papéis e outros seletores nunca são endpoints.</li>
+<li>O catálogo descreve o contrato e não aceita nem rejeita mensagens. O validador de <code>US-F0-03-T06</code> consome estas regras e executa as verificações locais e contextuais contra a mensagem e o estado persistido/read model.</li>
+</ul>
 
 <hr>
 

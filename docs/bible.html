@@ -155,6 +155,7 @@
 <tr><td>0.57</td><td>2026-06-21</td><td>Definição do contrato de validação agregada: <code>ValidationResult</code> devolve todos os erros estruturados avaliáveis por fase, com ordenação determinística, sem usar exceções como controlo de fluxo para mensagens inválidas</td></tr>
 <tr><td>0.58</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T06</code>: validação estrutural e contextual orientada por <code>MessageContractRules</code>, resultados agregados/deduplicados com ordenação determinística, gating entre fases, validação de referências e ciclos de diretivas, e validação do lifecycle com uso de <code>RejectionReason</code> apenas em <code>Rejected</code>; cancelamento e falhas de dependências permanecem falhas técnicas</td></tr>
 <tr><td>0.59</td><td>2026-06-21</td><td>ADR-007 aceite (<code>US-F0-03-T07</code>): <code>System.Text.Json</code> como formato inicial de serialização versionável para mensagens Akka e eventos/snapshots persistidos, com versão de schema explícita, desserialização tolerante e converters explícitos, evitando serialização .NET por omissão; configuração dos serializers e convenções de evolução ficam para <code>US-F0-03-T08</code></td></tr>
+<tr><td>0.60</td><td>2026-06-21</td><td>Registo da implementação de <code>US-F0-03-T08</code> (§9.9): serializer Akka <code>System.Text.Json</code> vinculado ao tipo base <code>OrgMessage</code>, com manifests canónicos kebab-case por tipo, converters explícitos para identidades, <code>EndpointRef</code> e enums do protocolo, leitura tolerante sem defaults silenciosos e domínio livre de dependências de serialização; convenções de evolução de schema fixadas e configuração operacional em <code>docs/configuration.md</code></td></tr>
 </tbody>
 </table>
 
@@ -1103,6 +1104,19 @@ public sealed record ValidationResult(
 <li>Payload inválido não escapa como exceção do validator boundary.</li>
 <li>Erro <code>Unauthorized</code> não expõe detalhes sensíveis no resultado público.</li>
 <li>Falha de dependência/cancelamento continua distinguível de rejeição funcional.</li>
+</ul>
+
+<h3>9.9 Serialização e evolução de schema <em>(contrato)</em></h3>
+
+<p>O protocolo de mensagens é serializado em <code>System.Text.Json</code> conforme a ADR-007, o mesmo formato versionável para as mensagens Akka remote/cluster e para os eventos/snapshots persistidos da F0; a serialização .NET por omissão é excluída. Os records de <code>Hive.Domain.Messaging</code> são a fonte única do schema; a camada de serialização vive em <code>Hive.Actors</code> e o domínio não conhece nenhum detalhe de serialização (sem atributos nem dependências de <code>System.Text.Json</code>). O serializer é vinculado ao tipo base <code>OrgMessage</code>, cobrindo todos os subtipos canónicos por hierarquia (US-F0-03-T08).</p>
+
+<ul>
+<li><strong>Converters explícitos:</strong> os value objects de identidade (§9.1), a união discriminada <code>EndpointRef</code> (§9.2) e os enums do protocolo (§9.3/§9.5) têm converters dedicados que reutilizam as factories e os valores wire canónicos. Não se usa polimorfismo por type-name (<code>$type</code>), pelo que os payloads não ficam acoplados a tipos CLR.</li>
+<li><strong>Manifest estável:</strong> cada tipo de mensagem tem um manifest canónico em lowercase/kebab-case (<code>directive</code>, <code>report</code>, <code>memo</code>, <code>escalation</code>, <code>peer-request</code>, <code>peer-response</code>, <code>approval-request</code>, <code>approval-decision</code>, <code>pulse</code>, <code>event-trigger</code>). O manifest — e não o nome do tipo CLR — é o que viaja no wire e nos journals; renomear ou mover o record não altera o manifest persistido. O identificador numérico do serializer é fixo e não pode mudar enquanto existirem journals.</li>
+<li><strong>Versão de schema:</strong> o envelope transporta <code>SchemaVersion</code> explícito (T02). Mudanças incompatíveis incrementam a versão; o reader é tolerante mas nunca aplica defaults silenciosos — campos obrigatórios em falta são rejeitados pelos próprios constructors do domínio (§9.3).</li>
+<li><strong>Mudança aditiva (compatível):</strong> acrescentar campos opcionais é compatível; readers antigos ignoram propriedades desconhecidas e readers novos toleram a sua ausência. Não exige migração de journals.</li>
+<li><strong>Mudança disruptiva:</strong> remover ou renomear um campo, alterar valores wire, alterar o mapeamento de canal, alterar o manifest ou o identificador do serializer, ou alargar um conjunto fechado de §9.5 é uma alteração de schema explícita, com incremento de versão e fixtures de compatibilidade.</li>
+<li><strong>Compatibilidade:</strong> os fixtures/snapshots de payloads serializados por tipo canónico, que protegem a estabilidade do formato e do manifest ao longo das versões, pertencem a <code>US-F0-03-T09</code>.</li>
 </ul>
 
 <hr>

@@ -13,6 +13,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\Hive.Domain\Hive.Domain.csproj" />
     <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />
   </ItemGroup>
 

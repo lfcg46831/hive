@@ -390,3 +390,17 @@ The `Hive.Api` host exposes a minimal diagnostic surface (US-F0-01-T09). It is m
 ```
 
 `ready` stays `false` until `ConnectionStrings:PostgreSql` is supplied, matching the readiness contract in §11.1. The probe routes return the standard `200`/`503` status codes so orchestration (US-F0-02 Docker health checks) can consume them directly.
+
+## Message serialization
+
+The organizational message protocol is serialized with `System.Text.Json` (ADR-007, §9.9). `AddHiveActorSystem` binds the `OrgMessage` base type to a custom Akka serializer (US-F0-03-T08), so every canonical subtype is delivered as JSON over remoting/cluster instead of Akka's default serializer. There is nothing to configure per environment; the binding is code-defined and the format is the same one intended for persisted events and snapshots.
+
+| Property | Value |
+| --- | --- |
+| Serializer | `Hive.Actors.Serialization.OrgMessageJsonSerializer` (a `SerializerWithStringManifest`) |
+| HOCON serializer name | `hive-org-message` |
+| Numeric identifier | `0x48495645` (decimal `1213486149`, spells "HIVE") — stable, never reused |
+| Bound type | `Hive.Domain.Messaging.OrgMessage` (covers all subtypes by hierarchy) |
+| Manifest per message | canonical kebab-case token: `directive`, `report`, `memo`, `escalation`, `peer-request`, `peer-response`, `approval-request`, `approval-decision`, `pulse`, `event-trigger` |
+
+Payloads are UTF-8 JSON and human-readable, which keeps remote messages and persisted entries inspectable in F0. Identity value objects serialize as their raw textual/Guid value, the `EndpointRef` union uses an explicit `kind` discriminator (`position`, `organization-owner`, `system`), and the protocol enums use the canonical lowercase/kebab-case wire values from §9.5. Unknown JSON properties are ignored on read, but missing required fields are rejected by the domain constructors — there are no silent defaults. The numeric identifier and the per-type manifests are part of the on-the-wire/persisted contract and must not change while journals exist; the evolution rules live in §9.9 of the bible.

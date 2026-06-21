@@ -1,6 +1,8 @@
 using Akka.Cluster.Hosting;
 using Akka.Hosting;
 using Akka.Remote.Hosting;
+using Hive.Actors.Serialization;
+using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -42,6 +44,14 @@ public static class HiveActorSystemBootstrapExtensions
                     logging.ClearLoggers();
                     logging.AddLoggerFactory();
                 })
+                // Bind the organizational message protocol to the versionable System.Text.Json
+                // serializer (US-F0-03-T08, ADR-007). Binding the OrgMessage base type covers every
+                // canonical subtype and overrides Akka's default serializer for remote/cluster
+                // delivery; the same format is reused for persisted events/snapshots.
+                .WithCustomSerializer(
+                    "hive-org-message",
+                    new[] { typeof(OrgMessage) },
+                    system => new OrgMessageJsonSerializer(system))
                 .WithRemoting(cluster.Hostname, cluster.Port)
                 .WithClustering(new ClusterOptions
                 {

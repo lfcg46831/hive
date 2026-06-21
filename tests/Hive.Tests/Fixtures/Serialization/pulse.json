@@ -1,0 +1,19 @@
+{
+  "Id": "d9000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "system",
+    "system": "scheduler"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "ops"
+  },
+  "Thread": "d9000000-0000-0000-0000-0000000000a1",
+  "Priority": "low",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "ScheduleId": "daily-rollup",
+  "Payload": "{}"
+}

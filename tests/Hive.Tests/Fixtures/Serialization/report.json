@@ -1,0 +1,20 @@
+{
+  "Id": "d2000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "bug-triage"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "delivery-lead"
+  },
+  "Thread": "d2000000-0000-0000-0000-0000000000a1",
+  "Priority": "normal",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "AboutDirectiveId": "d2000000-0000-0000-0000-0000000000c1",
+  "Kind": "progress",
+  "Body": "Reproduction confirmed on the latest build"
+}

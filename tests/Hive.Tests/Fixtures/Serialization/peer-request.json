@@ -1,0 +1,18 @@
+{
+  "Id": "d5000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "bug-triage"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "qa"
+  },
+  "Thread": "d5000000-0000-0000-0000-0000000000a1",
+  "Priority": "normal",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "Ask": "Can you confirm the regression on iOS 17?"
+}

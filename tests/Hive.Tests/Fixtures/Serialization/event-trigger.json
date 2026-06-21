@@ -1,0 +1,19 @@
+{
+  "Id": "da000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "system",
+    "system": "domain-events"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "ops"
+  },
+  "Thread": "da000000-0000-0000-0000-0000000000a1",
+  "Priority": "normal",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "EventType": "budget.threshold.crossed",
+  "Payload": "{\"budget\":\"q3\"}"
+}

@@ -1,0 +1,19 @@
+{
+  "Id": "d6000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "qa"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "bug-triage"
+  },
+  "Thread": "d6000000-0000-0000-0000-0000000000a1",
+  "Priority": "normal",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "InReplyTo": "d6000000-0000-0000-0000-0000000000b1",
+  "Body": "Confirmed on iOS 17."
+}

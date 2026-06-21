@@ -1,0 +1,22 @@
+{
+  "Id": "d4000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "bug-triage"
+  },
+  "To": {
+    "kind": "organization-owner"
+  },
+  "Thread": "d4000000-0000-0000-0000-0000000000a1",
+  "Priority": "critical",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "Issue": "Production deployment is blocked",
+  "Context": "The deployment credential has expired",
+  "OptionsConsidered": [
+    "Roll back the release",
+    "Prepare a hotfix"
+  ]
+}

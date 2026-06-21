@@ -1,0 +1,19 @@
+{
+  "Id": "d8000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "organization-owner"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "release-manager"
+  },
+  "Thread": "d8000000-0000-0000-0000-0000000000a1",
+  "Priority": "high",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "RequestId": "d8000000-0000-0000-0000-0000000000b1",
+  "Approved": true,
+  "Reason": "Approved given the active outage."
+}

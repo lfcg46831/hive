@@ -1,0 +1,21 @@
+{
+  "Id": "d1000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "delivery-lead"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "bug-triage"
+  },
+  "Thread": "d1000000-0000-0000-0000-0000000000a1",
+  "Priority": "high",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": "2026-06-21T14:00:00+00:00",
+  "DirectiveId": "d1000000-0000-0000-0000-0000000000c1",
+  "ParentDirectiveId": "d1000000-0000-0000-0000-0000000000c0",
+  "Objective": "Triage the reported regression",
+  "Context": "Customer impact is under investigation"
+}

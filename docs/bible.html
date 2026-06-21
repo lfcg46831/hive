@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.52 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.53 (rascunho evolutivo) <strong>Data:</strong> 2026-06-21 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -148,6 +148,7 @@
 <tr><td>0.50</td><td>2026-06-20</td><td>Definição do contrato de referências de endpoint de <code>US-F0-03-T02</code>: envelope baseado em <code>EndpointRef</code> tipado para posições, <code>OrganizationOwner</code> e endpoints de sistema, com matriz explícita de combinações permitidas por mensagem</td></tr>
 <tr><td>0.51</td><td>2026-06-21</td><td>Clarificação da dependência entre <code>US-F0-03-T02</code> e <code>T03</code>: <code>Priority</code> permanece propriedade de <code>T03</code>, mas é implementada primeiro em <code>T03a</code> para desbloquear o envelope; os restantes tipos partilhados ficam em <code>T03b</code></td></tr>
 <tr><td>0.52</td><td>2026-06-21</td><td>Definição do contrato fechado de <code>Priority</code>: níveis <code>Low</code>, <code>Normal</code>, <code>High</code> e <code>Critical</code>, ordenação explícita, representação wire textual, validação de valores desconhecidos e separação da política de mailbox Akka</td></tr>
+<tr><td>0.53</td><td>2026-06-21</td><td>Definição dos contratos fechados de <code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code>, incluindo valores wire em lowercase/kebab-case, lifecycle de processamento e separação entre mensagem imutável, estado e rejeição</td></tr>
 </tbody>
 </table>
 
@@ -846,6 +847,99 @@ enum SystemEndpointKind
 </tbody>
 </table>
 
+<h3>9.5 Tipos partilhados do protocolo <em>(contrato)</em></h3>
+
+<p><code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code> são conjuntos fechados e versionáveis. Os valores numéricos abaixo tornam <code>0</code> inválido no modelo em memória, mas não fazem parte do contrato wire.</p>
+
+<pre><code class="language-csharp">enum MessageChannel
+{
+    Vertical = 1,
+    Horizontal = 2,
+    Governance = 3,
+    System = 4
+}
+
+enum MessageState
+{
+    Received = 1,
+    Accepted = 2,
+    Processing = 3,
+    Completed = 4,
+    Rejected = 5,
+    Failed = 6
+}
+
+enum RejectionReason
+{
+    InvalidContract = 1,
+    UnsupportedSchemaVersion = 2,
+    InvalidRoute = 3,
+    Unauthorized = 4,
+    Duplicate = 5,
+    Expired = 6
+}
+
+enum ReportKind
+{
+    Progress = 1,
+    Done = 2
+}</code></pre>
+
+<table>
+<thead>
+<tr><th>Tipo</th><th>Membro</th><th>Valor wire canónico</th></tr>
+</thead>
+<tbody>
+<tr><td><code>MessageChannel</code></td><td><code>Vertical</code></td><td><code>vertical</code></td></tr>
+<tr><td><code>MessageChannel</code></td><td><code>Horizontal</code></td><td><code>horizontal</code></td></tr>
+<tr><td><code>MessageChannel</code></td><td><code>Governance</code></td><td><code>governance</code></td></tr>
+<tr><td><code>MessageChannel</code></td><td><code>System</code></td><td><code>system</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Received</code></td><td><code>received</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Accepted</code></td><td><code>accepted</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Processing</code></td><td><code>processing</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Completed</code></td><td><code>completed</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Rejected</code></td><td><code>rejected</code></td></tr>
+<tr><td><code>MessageState</code></td><td><code>Failed</code></td><td><code>failed</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>InvalidContract</code></td><td><code>invalid-contract</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>UnsupportedSchemaVersion</code></td><td><code>unsupported-schema-version</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>InvalidRoute</code></td><td><code>invalid-route</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>Unauthorized</code></td><td><code>unauthorized</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>Duplicate</code></td><td><code>duplicate</code></td></tr>
+<tr><td><code>RejectionReason</code></td><td><code>Expired</code></td><td><code>expired</code></td></tr>
+<tr><td><code>ReportKind</code></td><td><code>Progress</code></td><td><code>progress</code></td></tr>
+<tr><td><code>ReportKind</code></td><td><code>Done</code></td><td><code>done</code></td></tr>
+</tbody>
+</table>
+
+<h4>Canal derivado da mensagem</h4>
+
+<p><code>MessageChannel</code> é derivado do tipo concreto da mensagem e não é escolhido livremente pelo remetente: <code>Directive</code>, <code>Report</code> e <code>Escalation</code> são <code>Vertical</code>; <code>Memo</code>, <code>PeerRequest</code> e <code>PeerResponse</code> são <code>Horizontal</code>; <code>ApprovalRequest</code> e <code>ApprovalDecision</code> são <code>Governance</code>; <code>Pulse</code> e <code>EventTrigger</code> são <code>System</code>. Se o canal for materializado em payloads de auditoria ou read models para consulta, deve corresponder exatamente a este mapeamento.</p>
+
+<h4>Lifecycle de processamento</h4>
+
+<p><code>MessageState</code> pertence ao registo persistido de receção/processamento da mensagem; não é um campo mutável de <code>OrgMessage</code>. O lifecycle canónico admite as seguintes transições:</p>
+
+<pre><code>Received → Rejected
+Received → Accepted → Processing → Completed
+Received → Accepted → Processing → Failed</code></pre>
+
+<ul>
+<li><code>Completed</code>, <code>Rejected</code> e <code>Failed</code> são estados terminais.</li>
+<li><code>Rejected</code> representa recusa durante a admissão, antes de a mensagem ser aceite. <code>RejectionReason</code> é obrigatório exatamente neste estado e não é usado para falhas depois da aceitação.</li>
+<li><code>Failed</code> representa falha de processamento depois da aceitação; o erro estruturado correspondente pertence ao resultado/evento de processamento, não a <code>RejectionReason</code>.</li>
+<li><code>Expired</code> aplica-se quando o deadline já terminou antes da aceitação. Um deadline atingido depois de <code>Accepted</code> conduz à política de falha ou escalamento, não reclassifica retroativamente a mensagem como rejeitada.</li>
+<li>Uma tentativa identificada como <code>Duplicate</code> não cria um segundo lifecycle nem repete trabalho; a resposta idempotente pode referenciar o processamento original.</li>
+<li>Estes estados não substituem estados de tarefa, disponibilidade do ator, interação humana da inbox ou decisão de aprovação, que têm lifecycles próprios.</li>
+</ul>
+
+<h4>Wire, validação e evolução</h4>
+
+<ul>
+<li>A representação wire é textual, em lowercase para nomes simples e kebab-case para nomes compostos. Valores numéricos, capitalização diferente, valores ausentes quando obrigatórios e textos desconhecidos são rejeitados de forma controlada.</li>
+<li><code>ReportKind</code> aceita apenas <code>progress</code> e <code>done</code>. Um bloqueio acionável continua a ser uma <code>Escalation</code>; não existe <code>blocked</code>.</li>
+<li>Adicionar, remover ou renomear membros, alterar o mapeamento de canal ou permitir novas transições de estado exige evolução explícita do schema e testes de compatibilidade.</li>
+</ul>
+
 <p>Esboço C# alinhado com a taxonomia canónica:</p>
 
 <pre><code class="language-csharp">abstract record OrgMessage(
@@ -1032,6 +1126,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li>Existem contratos imutáveis para todos os tipos definidos na taxonomia canónica do §9.</li>
 <li>Todas as mensagens incluem <code>OrganizationId</code>, identificadores, origem e destino como <code>EndpointRef</code> tipado, prioridade, thread/correlation id e timestamps.</li>
 <li><code>ReportKind</code> inclui apenas <code>Progress</code> e <code>Done</code>; bloqueios acionáveis usam <code>Escalation</code>.</li>
+<li><code>MessageChannel</code>, <code>MessageState</code>, <code>RejectionReason</code> e <code>ReportKind</code> seguem os conjuntos fechados, valores wire e regras de lifecycle definidos em §9.5.</li>
 <li>A serialização rejeita mensagens inválidas e cobre evolução de versão.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
@@ -1041,12 +1136,12 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 <li><strong>US-F0-03-T03</strong> — Definir enums/value objects partilhados do protocolo.
 <ul>
 <li><strong>US-F0-03-T03a</strong> — Definir <code>Priority</code> no namespace partilhado definitivo do domínio conforme §9.3: níveis fechados <code>Low=1</code>, <code>Normal=2</code>, <code>High=3</code> e <code>Critical=4</code>; representação wire textual em minúsculas; ordenação semântica explícita; rejeição de valores ausentes, numéricos ou desconhecidos; e default <code>Normal</code> apenas nas APIs/factories de criação. Executar esta subtarefa antes de <code>T02</code>. Este trabalho pertence a <code>T03</code>, não cria um tipo temporário dentro de <code>T02</code>, não configura ainda a mailbox Akka e não permite marcar <code>T03</code> como concluída.</li>
-<li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados: <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>, tipo de canal, estado de mensagem e razão de rejeição. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
+<li><strong>US-F0-03-T03b</strong> — Definir os restantes tipos partilhados conforme §9.5: <code>MessageChannel</code> com <code>Vertical</code>/<code>Horizontal</code>/<code>Governance</code>/<code>System</code>; <code>MessageState</code> com <code>Received</code>/<code>Accepted</code>/<code>Processing</code>/<code>Completed</code>/<code>Rejected</code>/<code>Failed</code>; <code>RejectionReason</code> com <code>InvalidContract</code>/<code>UnsupportedSchemaVersion</code>/<code>InvalidRoute</code>/<code>Unauthorized</code>/<code>Duplicate</code>/<code>Expired</code>; e <code>ReportKind</code> limitado a <code>Progress</code>/<code>Done</code>. Implementar valores wire textuais em lowercase/kebab-case, validação estrita e testes das transições permitidas. Pode ser executada depois de <code>T02</code> e conclui <code>T03</code> em conjunto com <code>T03a</code>.</li>
 </ul>
 </li>
 <li><strong>US-F0-03-T04</strong> — Definir contratos imutáveis para todos os tipos da taxonomia canónica do §9.</li>
 <li><strong>US-F0-03-T05</strong> — Definir regras de obrigatoriedade por tipo de mensagem, incluindo campos mínimos, a matriz de variantes <code>EndpointRef</code> permitidas em origem/destino e relação com <code>ThreadId</code>/<code>DirectiveId</code>; papéis e políticas de aprovação são seletores resolvidos para um endpoint concreto, não endpoints do envelope.</li>
-<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com combinações de endpoint não permitidas ou com <code>ReportKind</code> fora de <code>Progress</code>/<code>Done</code>.</li>
+<li><strong>US-F0-03-T06</strong> — Implementar validação de contratos para rejeitar mensagens incompletas, inconsistentes, sem <code>OrganizationId</code>, com combinações de endpoint não permitidas, com canal incompatível com o tipo concreto, com transição de estado inválida, com <code>RejectionReason</code> ausente ou indevida, ou com valores partilhados fora dos conjuntos fechados de §9.3/§9.5.</li>
 <li><strong>US-F0-03-T07</strong> — Escolher formato inicial de serialização versionável para Akka e eventos persistidos, evitando serialização .NET por omissão.</li>
 <li><strong>US-F0-03-T08</strong> — Configurar serializers Akka para os tipos de mensagem organizacional e documentar convenções de evolução de schema.</li>
 <li><strong>US-F0-03-T09</strong> — Criar fixtures/snapshots de payloads serializados para cada tipo da taxonomia canónica.</li>
@@ -2193,7 +2288,7 @@ record EventTrigger(... , string EventType, string Payload) : OrgMessage;</code>
 
 <hr>
 
-<p><em>Próxima iteração (v0.53): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
+<p><em>Próxima iteração (v0.54): protocolo de mensagens (§9) com máquinas de estados das diretivas, e plano de implementação detalhado para o vertical slice F0 de Engenharia/Delivery.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

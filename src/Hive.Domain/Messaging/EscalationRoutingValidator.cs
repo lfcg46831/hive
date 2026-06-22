@@ -62,23 +62,23 @@ public sealed class EscalationRoutingValidator
         var sourceProbe = await ProbePositionAsync(escalation, from, cancellationToken);
         if (sourceProbe.OrganizationMissing)
         {
-            return ValidationResult.Create([OrganizationNotFound()]);
+            return ValidationResult.Create([RoutingValidationCatalog.OrganizationNotFound()]);
         }
 
         var destinationProbe = await ProbePositionAsync(escalation, to, cancellationToken);
         if (destinationProbe.OrganizationMissing)
         {
-            return ValidationResult.Create([OrganizationNotFound()]);
+            return ValidationResult.Create([RoutingValidationCatalog.OrganizationNotFound()]);
         }
 
         if (!sourceProbe.Exists)
         {
-            errors.Add(PositionNotFound("from.positionId"));
+            errors.Add(RoutingValidationCatalog.PositionNotFound("from.positionId"));
         }
 
         if (!destinationProbe.Exists)
         {
-            errors.Add(PositionNotFound("to.positionId"));
+            errors.Add(RoutingValidationCatalog.PositionNotFound("to.positionId"));
         }
 
         if (errors.Count != 0)
@@ -95,11 +95,11 @@ public sealed class EscalationRoutingValidator
 
             return superior == to.PositionId
                 ? ValidationResult.Valid
-                : ValidationResult.Create([DirectSuperiorRequired()]);
+                : ValidationResult.Create([RoutingValidationCatalog.DirectSuperiorRequired()]);
         }
         catch (OrganizationRelationNotFoundException)
         {
-            return ValidationResult.Create([PositionNotFound("from.positionId")]);
+            return ValidationResult.Create([RoutingValidationCatalog.PositionNotFound("from.positionId")]);
         }
     }
 
@@ -111,12 +111,12 @@ public sealed class EscalationRoutingValidator
         var sourceProbe = await ProbePositionAsync(escalation, from, cancellationToken);
         if (sourceProbe.OrganizationMissing)
         {
-            return ValidationResult.Create([OrganizationNotFound()]);
+            return ValidationResult.Create([RoutingValidationCatalog.OrganizationNotFound()]);
         }
 
         if (!sourceProbe.Exists)
         {
-            return ValidationResult.Create([PositionNotFound("from.positionId")]);
+            return ValidationResult.Create([RoutingValidationCatalog.PositionNotFound("from.positionId")]);
         }
 
         try
@@ -126,7 +126,7 @@ public sealed class EscalationRoutingValidator
                 cancellationToken);
             if (rootLeadership != from.PositionId)
             {
-                return ValidationResult.Create([RootLeadershipRequired()]);
+                return ValidationResult.Create([RoutingValidationCatalog.RootLeadershipRequired()]);
             }
 
             _ = await _relations.GetOrganizationOwnerAsync(
@@ -136,7 +136,7 @@ public sealed class EscalationRoutingValidator
         }
         catch (OrganizationRelationNotFoundException)
         {
-            return ValidationResult.Create([OrganizationNotFound()]);
+            return ValidationResult.Create([RoutingValidationCatalog.OrganizationNotFound()]);
         }
     }
 
@@ -169,10 +169,7 @@ public sealed class EscalationRoutingValidator
             return (PositionEndpointRef)endpoint;
         }
 
-        errors.Add(new ValidationError(
-            "endpoint-not-allowed",
-            path,
-            RejectionReason.InvalidRoute));
+        errors.Add(RoutingValidationCatalog.EndpointNotAllowed(path));
         return null;
     }
 
@@ -186,24 +183,9 @@ public sealed class EscalationRoutingValidator
             return endpoint;
         }
 
-        errors.Add(new ValidationError(
-            "endpoint-not-allowed",
-            "to",
-            RejectionReason.InvalidRoute));
+        errors.Add(RoutingValidationCatalog.EndpointNotAllowed("to"));
         return null;
     }
-
-    private static ValidationError OrganizationNotFound() =>
-        new("organization-not-found", "organizationId", RejectionReason.InvalidRoute);
-
-    private static ValidationError PositionNotFound(string path) =>
-        new("position-not-found", path, RejectionReason.InvalidRoute);
-
-    private static ValidationError DirectSuperiorRequired() =>
-        new("direct-superior-required", "to.positionId", RejectionReason.InvalidRoute);
-
-    private static ValidationError RootLeadershipRequired() =>
-        new("root-leadership-required", "from.positionId", RejectionReason.InvalidRoute);
 
     private readonly record struct PositionProbe(bool Exists, bool OrganizationMissing);
 }

@@ -5,18 +5,20 @@ namespace Hive.Domain.Messaging;
 
 /// <summary>
 /// Validates governance routing for <see cref="ApprovalRequest"/> and <see cref="ApprovalDecision"/>
-/// (US-F0-04-T07b). A request is checked against the authority that resolves its authorized approver
-/// and against its own approval window; a decision is checked against correlation with the original
-/// request, the original request's lifecycle state, the approval window and the recorded approver's
-/// permission.
+/// (US-F0-04-T07b/T07c). A request is checked against the authority that resolves its authorized
+/// approver and against its own approval window; a decision is checked against correlation with the
+/// original request, the original request's lifecycle state, the approval window and the recorded
+/// approver's permission. A decision for an already-decided request is rejected as a duplicate
+/// (US-F0-04-T07c).
 /// </summary>
 /// <remarks>
 /// The validator never re-resolves the approver of a decision: it correlates the decision with the
 /// <see cref="ApprovalRequestRecord"/> recorded when the request was accepted and compares against the
 /// approver and window in force then. Confirmed semantic failures (policy/action not authorized,
-/// wrong approver, missing correlation, closed request, expired window) become structured
-/// <see cref="ValidationResult"/> errors; cancellation and technical unavailability remain
-/// exceptions subject to retry.
+/// wrong approver, missing correlation, duplicate decision, closed request, expired window) become
+/// structured <see cref="ValidationResult"/> errors drawn from <see cref="ApprovalValidationCatalog"/>
+/// so audit reuses the same stable codes; cancellation and technical unavailability remain exceptions
+/// subject to retry.
 /// </remarks>
 public sealed class ApprovalRoutingValidator
 {
@@ -86,21 +88,21 @@ public sealed class ApprovalRoutingValidator
         }
         catch (ApprovalAuthorityNotFoundException)
         {
-            return ValidationResult.Create([OrganizationNotFound()]);
+            return ValidationResult.Create([ApprovalValidationCatalog.OrganizationNotFound()]);
         }
 
         switch (resolution.Status)
         {
             case ApproverResolutionStatus.PolicyNotFound:
-                errors.Add(ApprovalPolicyNotFound());
+                errors.Add(ApprovalValidationCatalog.ApprovalPolicyNotFound());
                 break;
             case ApproverResolutionStatus.ActionNotAuthorized:
-                errors.Add(ActionNotAuthorized());
+                errors.Add(ApprovalValidationCatalog.ActionNotAuthorized());
                 break;
             case ApproverResolutionStatus.Resolved:
                 if (resolution.ResolvedApprover != request.To)
                 {
-                    errors.Add(AuthorizedApproverRequired());
+                    errors.Add(ApprovalValidationCatalog.AuthorizedApproverRequired());
                 }
 
                 break;
@@ -111,7 +113,7 @@ public sealed class ApprovalRoutingValidator
 
         if (IsExpired(request.Deadline))
         {
-            errors.Add(RequestExpired());
+            errors.Add(ApprovalValidationCatalog.ApprovalRequestExpired());
         }
 
         return ValidationResult.Create(errors);
@@ -140,35 +142,41 @@ public sealed class ApprovalRoutingValidator
 
         if (record is null)
         {
-            return ValidationResult.Create([RequestNotFound()]);
+            return ValidationResult.Create([ApprovalValidationCatalog.ApprovalRequestNotFound()]);
         }
 
         var errors = new List<ValidationError>();
 
         if (decision.Thread != record.Thread)
         {
-            errors.Add(ThreadMismatch());
+            errors.Add(ApprovalValidationCatalog.ApprovalThreadMismatch());
         }
 
         if (decision.From != record.ResolvedApprover)
         {
-            errors.Add(UnauthorizedApprover());
+            errors.Add(ApprovalValidationCatalog.UnauthorizedApprover());
         }
 
         if (decision.To is not PositionEndpointRef requester
             || requester.PositionId != record.Requester)
         {
-            errors.Add(OriginalRequesterRequired());
+            errors.Add(ApprovalValidationCatalog.OriginalRequesterRequired());
         }
 
-        if (!record.IsAwaitingDecision)
+        // A request that was already decided (Completed) rejects any further decision as a
+        // duplicate; other terminal states were closed without a decision and are merely not open.
+        if (record.IsDecided)
         {
-            errors.Add(RequestNotOpen());
+            errors.Add(ApprovalValidationCatalog.ApprovalDecisionDuplicate());
+        }
+        else if (!record.IsAwaitingDecision)
+        {
+            errors.Add(ApprovalValidationCatalog.ApprovalRequestNotOpen());
         }
 
         if (IsExpired(record.Deadline))
         {
-            errors.Add(DecisionExpired());
+            errors.Add(ApprovalValidationCatalog.ApprovalDecisionExpired());
         }
 
         return ValidationResult.Create(errors);
@@ -188,43 +196,7 @@ public sealed class ApprovalRoutingValidator
             return endpoint;
         }
 
-        errors.Add(new ValidationError(
-            "endpoint-not-allowed",
-            path,
-            RejectionReason.InvalidRoute));
+        errors.Add(ApprovalValidationCatalog.EndpointNotAllowed(path));
         return null;
     }
-
-    private static ValidationError OrganizationNotFound() =>
-        new("organization-not-found", "organizationId", RejectionReason.InvalidRoute);
-
-    private static ValidationError ApprovalPolicyNotFound() =>
-        new("approval-policy-not-found", "policy", RejectionReason.InvalidRoute);
-
-    private static ValidationError ActionNotAuthorized() =>
-        new("action-not-authorized", "action", RejectionReason.InvalidRoute);
-
-    private static ValidationError AuthorizedApproverRequired() =>
-        new("authorized-approver-required", "to", RejectionReason.InvalidRoute);
-
-    private static ValidationError RequestExpired() =>
-        new("approval-request-expired", "deadline", RejectionReason.Expired);
-
-    private static ValidationError RequestNotFound() =>
-        new("approval-request-not-found", "requestId", RejectionReason.InvalidRoute);
-
-    private static ValidationError ThreadMismatch() =>
-        new("approval-thread-mismatch", "thread", RejectionReason.InvalidRoute);
-
-    private static ValidationError UnauthorizedApprover() =>
-        new("unauthorized-approver", "from", RejectionReason.Unauthorized);
-
-    private static ValidationError OriginalRequesterRequired() =>
-        new("original-requester-required", "to", RejectionReason.InvalidRoute);
-
-    private static ValidationError RequestNotOpen() =>
-        new("approval-request-not-open", "requestId", RejectionReason.InvalidRoute);
-
-    private static ValidationError DecisionExpired() =>
-        new("approval-decision-expired", "requestId", RejectionReason.Expired);
 }

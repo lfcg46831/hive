@@ -261,8 +261,24 @@ public sealed class ApprovalRoutingValidatorTests
             result.Errors);
     }
 
+    [Theory]
+    [InlineData(MessageState.Rejected)]
+    [InlineData(MessageState.Failed)]
+    public async Task Decision_on_request_closed_without_a_decision_is_not_open(MessageState state)
+    {
+        var requestId = MessageId.New();
+        var validator = Validator(
+            requestLog: RecordingLog(Record(requestId, state: state)));
+
+        var result = await validator.ValidateAsync(Decision(requestId, Approver, Requester));
+
+        Assert.Equal(
+            [new ValidationError("approval-request-not-open", "requestId", RejectionReason.InvalidRoute)],
+            result.Errors);
+    }
+
     [Fact]
-    public async Task Decision_on_closed_request_is_rejected()
+    public async Task Decision_on_already_decided_request_is_duplicate()
     {
         var requestId = MessageId.New();
         var validator = Validator(
@@ -271,8 +287,20 @@ public sealed class ApprovalRoutingValidatorTests
         var result = await validator.ValidateAsync(Decision(requestId, Approver, Requester));
 
         Assert.Equal(
-            [new ValidationError("approval-request-not-open", "requestId", RejectionReason.InvalidRoute)],
+            [new ValidationError("approval-decision-duplicate", "requestId", RejectionReason.Duplicate)],
             result.Errors);
+    }
+
+    [Fact]
+    public async Task Duplicate_decision_uses_the_shared_catalog_reason()
+    {
+        var requestId = MessageId.New();
+        var validator = Validator(
+            requestLog: RecordingLog(Record(requestId, state: MessageState.Completed)));
+
+        var result = await validator.ValidateAsync(Decision(requestId, Approver, Requester));
+
+        Assert.Equal([ApprovalValidationCatalog.ApprovalDecisionDuplicate()], result.Errors);
     }
 
     [Fact]
@@ -286,6 +314,24 @@ public sealed class ApprovalRoutingValidatorTests
 
         Assert.Equal(
             [new ValidationError("approval-decision-expired", "requestId", RejectionReason.Expired)],
+            result.Errors);
+    }
+
+    [Fact]
+    public async Task Duplicate_decision_from_unauthorized_approver_is_aggregated()
+    {
+        var requestId = MessageId.New();
+        var validator = Validator(
+            requestLog: RecordingLog(Record(requestId, state: MessageState.Completed)));
+
+        var result = await validator.ValidateAsync(
+            Decision(requestId, Position("security-officer"), Requester));
+
+        Assert.Equal(
+            [
+                new ValidationError("unauthorized-approver", "from", RejectionReason.Unauthorized),
+                new ValidationError("approval-decision-duplicate", "requestId", RejectionReason.Duplicate),
+            ],
             result.Errors);
     }
 

@@ -79,4 +79,14 @@ public sealed record ApprovalRequestRecord
     /// </summary>
     public bool IsAwaitingDecision =>
         State is MessageState.Received or MessageState.Accepted or MessageState.Processing;
+
+    /// <summary>
+    /// Whether a decision was already recorded for the original request. A request reaches
+    /// <see cref="MessageState.Completed"/> only once its decision has been applied
+    /// (<c>Processing → Completed</c>), so a further <see cref="ApprovalDecision"/> for it is a
+    /// duplicate (US-F0-04-T07c). The other terminal states — <see cref="MessageState.Rejected"/>
+    /// (admission refusal) and <see cref="MessageState.Failed"/> (processing failure) — are closed
+    /// without a recorded decision and are therefore not duplicates.
+    /// </summary>
+    public bool IsDecided => State is MessageState.Completed;
 }

@@ -391,6 +391,49 @@ The `Hive.Api` host exposes a minimal diagnostic surface (US-F0-01-T09). It is m
 
 `ready` stays `false` until `ConnectionStrings:PostgreSql` is supplied, matching the readiness contract in §11.1. The probe routes return the standard `200`/`503` status codes so orchestration (US-F0-02 Docker health checks) can consume them directly.
 
+## Organization GitOps configuration
+
+The organization definition is GitOps source of truth (bible §4.7): organizations, units, positions, occupants, prompts, schedules, subscriptions and authority live in versioned files that are validated and imported into the registry/read model at startup/deploy. The canonical YAML schema — the four top blocks (`organization`, `prompts`, `units`, `positions`) and their fields — is fixed in bible §4.8 and is not repeated here. This section fixes only the operational layout: where the files live, how they are named, and how the paths inside the document resolve (US-F0-05-T02). The typed model is US-F0-05-T03, the parser is US-F0-05-T04, the worked Engineering/Delivery example is US-F0-05-T08, and the idempotent import is US-F0-05-T09.
+
+### Repository layout
+
+All organization configuration lives under a single tracked root, `config/organizations/`, with one directory per organization named exactly by its `organization.id`:
+
+```text
+config/
+  organizations/
+    <organization-id>/
+      organization.yaml      # the organization document (§4.8 top blocks)
+      prompts/               # identity prompts referenced by prompts[].path
+        <prompt-id>.md
+```
+
+For the example schema in §4.8 (`organization.id: acme-delivery`):
+
+```text
+config/
+  organizations/
+    acme-delivery/
+      organization.yaml
+      prompts/
+        ceo-v1.md
+        engineer-v1.md
+```
+
+One directory holds exactly one organization. The directory name must equal the `organization.id` declared inside `organization.yaml`; the import treats a mismatch as a configuration error so the on-disk path and the logical identifier never diverge. Multiple organizations are multiple sibling directories under `config/organizations/`, each self-contained.
+
+### File naming and path resolution
+
+The organization document is always named `organization.yaml` (lowercase, `.yaml` extension, not `.yml`). It is the only file the parser loads directly; every other file is reached through a reference inside it.
+
+Paths in the document — `prompts[].path` today, and any future file-valued field — are **relative to the organization directory** (the directory that contains `organization.yaml`), use forward slashes, and must stay inside that directory. Absolute paths, drive letters, and `..` segments that escape the organization directory are rejected so a document can never reference files outside its own tree. This keeps each organization directory portable: it can be copied, reviewed, or imported as a unit without rewriting paths.
+
+Identity prompts live under `prompts/` and are named by their catalogue `id` with a `.md` extension (`prompts/ceo-v1.md` for `id: ceo-v1`). Versioning is expressed in the `id`/filename (e.g. `ceo-v1`, `ceo-v2`) rather than through Git history alone, so a position's `identity_prompt_ref` pins an explicit, reviewable prompt revision.
+
+### GitOps workflow
+
+Because the files are the source of truth, every structural change — adding a unit, moving a position, editing a prompt, changing authority — is a Git commit reviewed through the normal pull-request flow; the F0 console is read-only and does not edit structure (bible §4.7). The import is validated and idempotent (US-F0-05-T05–T07, T09): committing the same configuration twice produces no duplicates and no unnecessary functional-timestamp churn, so re-running a deploy on an unchanged tree is a safe no-op. Secrets and operational connection values are never placed in these files; they stay in environment variables as described above under PostgreSQL and the role/cluster sections.
+
 ## Message serialization
 
 The organizational message protocol is serialized with `System.Text.Json` (ADR-007, §9.9). `AddHiveActorSystem` binds the `OrgMessage` base type to a custom Akka serializer (US-F0-03-T08), so every canonical subtype is delivered as JSON over remoting/cluster instead of Akka's default serializer. There is nothing to configure per environment; the binding is code-defined and the format is the same one intended for persisted events and snapshots.

@@ -167,6 +167,7 @@
 <tr><td>0.69</td><td>2026-06-22</td><td>Registo de <code>US-F0-04-T09</code>: <code>RoutingAdmissionValidator</code> integra a validação de routing no ponto de entrada do inbox, despachando cada <code>OrgMessage</code> por tipo concreto para os validadores vertical/governança de <code>US-F0-04-T04</code>–<code>T07</code> e devolvendo um <code>RoutingAdmission</code>; mensagens válidas são admitidas, violações confirmadas produzem uma <code>RoutingRejection</code> (resultado de auditoria detalhado emparelhado com resultado público sanitizado de §9.8) antes da aceitação, mensagens sem regra de routing vertical/governança passam o gate inalteradas e cancelamento/falhas técnicas permanecem exceções sujeitas a retry</td></tr>
 <tr><td>0.70</td><td>2026-06-22</td><td>Registo de <code>US-F0-04-T10</code>: <code>RoutingRejectionAuditEvent</code> projeta uma <code>RoutingRejection</code> no evento auditável de routing rejeitado, expondo as razões coarse-grained distintas (derivadas do resultado de auditoria, sem colapsar para uma única razão conforme §9.8), os erros detalhados, a cadeia/política recebida (remetente, destinatário e <code>ApprovalPolicyRef</code> referenciada) e a cadeia/política esperada (aprovador resolvido e versão/hash da política aplicada para governança), com <code>OccurredAt</code> fornecido pelo ponto de entrada; é uma projeção pura de domínio e a emissão/persistência do evento pertence ao ponto de entrada sharded/persistente (<code>US-F0-06</code>/<code>US-F0-06-T03</code>)</td></tr>
 <tr><td>0.71</td><td>2026-06-22</td><td>Documentação de <code>US-F0-04-T12</code>: referência ilustrativa de routing vertical e de governança permitido/rejeitado para a organização de Engenharia/Delivery (recorte <code>ceo</code>/<code>delivery-lead</code>/<code>engineer</code> + <code>OrganizationOwner</code>), com tabelas de exemplos admitidos/rejeitados que reutilizam os <code>Code</code>/<code>Path</code>/<code>RejectionReason</code> dos catálogos <code>RoutingValidationCatalog</code>/<code>ApprovalValidationCatalog</code> de §9.8 e os casos da suíte de <code>US-F0-04-T11</code>, distinguindo ausências confirmadas (<code>InvalidRoute</code>/<code>Unauthorized</code>/<code>Expired</code>/<code>Duplicate</code> auditáveis) de falhas técnicas (exceções/retry), sem redefinir contratos</td></tr>
+<tr><td>0.72</td><td>2026-06-22</td><td>Definição do schema YAML inicial da organização (<code>US-F0-05-T01</code>, §4.8): blocos de topo <code>organization</code> (<code>id</code>/<code>name</code>/<code>root_unit</code>/<code>owner</code> obrigatórios), <code>prompts</code> (catálogo referenciável), <code>units</code> (<code>id</code>/<code>parent</code>/<code>leadership</code>) e <code>positions</code> (<code>id</code>/<code>unit</code>/<code>reports_to</code> + interior do ocupante de §6.2), com as relações de comando derivadas de <code>positions[].unit</code>/<code>reports_to</code> e <code>units[].leadership</code> e a liderança da raiz a escalar para <code>organization.owner</code>; o contrato fixa apenas a forma, deixando modelo tipado (<code>T03</code>), parser (<code>T04</code>), convenções GitOps (<code>T02</code>), exemplo (<code>T08</code>) e validações (<code>T05</code>–<code>T07</code>) às respetivas tarefas</td></tr>
 </tbody>
 </table>
 
@@ -373,6 +374,93 @@
 <li><strong>UI inicialmente read-only.</strong> A consola mostra organograma, estado, inbox e aprovações, mas não edita a estrutura na F0.</li>
 <li><strong>Edição visual posterior.</strong> Em F2/F3, a UI pode editar a organização, mantendo export/import para YAML para não perder auditabilidade e revisão por Git.</li>
 </ol>
+
+<h3>4.8 Schema YAML inicial da organização <em>(contrato)</em></h3>
+
+<p>Esta secção fixa a <strong>forma canónica</strong> do YAML que descreve uma organização (<code>US-F0-05-T01</code>): os blocos de topo, os campos de cada bloco e como a árvore de comando de §4.1/§4.2 é expressa em dados. O contrato define a <em>shape</em>, não a sua materialização: o modelo tipado fica em <code>US-F0-05-T03</code>, o parser com erros legíveis em <code>US-F0-05-T04</code>, as convenções de ficheiros/pastas GitOps em <code>US-F0-05-T02</code> (operacional, em <code>docs/configuration.md</code>), a organização exemplo de Engenharia/Delivery em <code>US-F0-05-T08</code>, e as regras de validação (unicidade, referências cruzadas e regras estruturais) em <code>US-F0-05-T05</code>–<code>T07</code>. O interior de cada posição (ocupante AI/humano, budgets, ferramentas, working hours) reutiliza o contrato de §6.2 e o ritmo proativo de §4.6 sem os redefinir aqui.</p>
+
+<p>Um documento de organização tem quatro blocos de topo: <code>organization</code> (cabeçalho e owner), <code>prompts</code> (catálogo de prompts de identidade referenciáveis), <code>units</code> (árvore de unidades com liderança) e <code>positions</code> (posições, sua unidade, superior direto e configuração de §6.2). As relações de comando não são um bloco separado: emergem de <code>units[].leadership</code>, <code>positions[].unit</code> e <code>positions[].reports_to</code>.</p>
+
+<pre><code class="language-yaml">organization:
+  id: acme-delivery            # OrganizationId — obrigatório, único no documento
+  name: ACME Engenharia/Delivery
+  root_unit: raiz              # UnitId da unidade raiz — obrigatório
+  owner:                       # OrganizationOwner — obrigatório (§4.2 topo da cadeia)
+    type: human                # human | group
+    ref: owner@acme.pt         # identificador estável do humano/grupo fora da cadeia operacional
+
+prompts:                       # catálogo referenciado por positions[].occupant.identity_prompt_ref
+  - id: ceo-v1
+    path: prompts/ceo-v1.md
+  - id: engineer-v1
+    path: prompts/engineer-v1.md
+
+units:
+  - id: raiz                   # UnitId — único; a unidade raiz tem parent: null
+    name: ACME
+    parent: null               # null apenas na unidade raiz
+    leadership: ceo            # PositionId — exatamente uma liderança por unidade (incl. raiz)
+  - id: engenharia
+    name: Engenharia
+    parent: raiz
+    leadership: delivery-lead
+
+positions:
+  - id: ceo                    # PositionId — único
+    name: CEO
+    unit: raiz                 # toda a posição pertence a uma unidade
+    reports_to: null           # null apenas na liderança da raiz (escala para organization.owner)
+    occupant:                  # interior da posição — contrato de §6.2 (resumido aqui)
+      type: ai-agent           # ai-agent | human
+      identity_prompt_ref: ceo-v1
+      # ai / budget / tools / working_hours: ver §6.2
+      authority:               # §6.2
+        can_decide: ["prioridades-trimestrais"]
+        must_escalate: ["compromissos-orcamentais"]
+        requires_human_approval: ["mudancas-de-estrutura"]
+  - id: delivery-lead
+    name: Delivery Lead
+    unit: engenharia
+    reports_to: ceo            # superior organizacional direto (§4.2 descendente/ascendente)
+    occupant:
+      type: ai-agent
+      identity_prompt_ref: engineer-v1
+      schedule:                # proatividade declarada — ver §4.6 / §6.2
+        - id: relatorio-diario
+          cron: "0 55 17 * * MON-FRI"
+          instruction: "Compilar e enviar relatório diário ao superior"
+      subscriptions:           # reação a eventos — ver §6.2
+        - event: directive-deadline-approaching
+          within: PT4H
+      authority:
+        can_decide: ["triagem-de-bugs"]
+        must_escalate: ["risco-de-prazo-critico"]
+        requires_human_approval: ["release-em-producao"]
+</code></pre>
+
+<p>Campos e semântica por bloco:</p>
+
+<table>
+<thead>
+<tr><th>Bloco / campo</th><th>Obrigatório</th><th>Significado</th></tr>
+</thead>
+<tbody>
+<tr><td><code>organization.id</code></td><td>Sim</td><td><code>OrganizationId</code> (§9.1), único e estável; scope de todas as referências do documento.</td></tr>
+<tr><td><code>organization.name</code></td><td>Não</td><td>Rótulo legível da organização.</td></tr>
+<tr><td><code>organization.root_unit</code></td><td>Sim</td><td><code>UnitId</code> da unidade raiz; deve existir em <code>units</code> com <code>parent: null</code>.</td></tr>
+<tr><td><code>organization.owner</code></td><td>Sim</td><td><code>OrganizationOwner</code> (§2, §4.2): <code>type</code> (<code>human</code>/<code>group</code>) e <code>ref</code>. Recebe escalamentos de topo e opera o kill switch; está fora da cadeia operacional.</td></tr>
+<tr><td><code>prompts[].id</code> / <code>.path</code></td><td>Sim</td><td>Catálogo de prompts de identidade; <code>id</code> único, <code>path</code> aponta para o ficheiro versionado. Referenciado por <code>occupant.identity_prompt_ref</code>.</td></tr>
+<tr><td><code>units[].id</code></td><td>Sim</td><td><code>UnitId</code> único.</td></tr>
+<tr><td><code>units[].parent</code></td><td>Sim</td><td><code>UnitId</code> da unidade-mãe; <code>null</code> apenas na unidade raiz. Define a árvore de unidades (sem ciclos — <code>US-F0-05-T07</code>).</td></tr>
+<tr><td><code>units[].leadership</code></td><td>Sim</td><td><code>PositionId</code> da liderança da unidade; exatamente uma por unidade, incluindo a raiz (§4.1).</td></tr>
+<tr><td><code>positions[].id</code></td><td>Sim</td><td><code>PositionId</code> único.</td></tr>
+<tr><td><code>positions[].unit</code></td><td>Sim</td><td><code>UnitId</code> a que a posição pertence; toda a posição pertence a uma unidade.</td></tr>
+<tr><td><code>positions[].reports_to</code></td><td>Sim</td><td><code>PositionId</code> do superior organizacional direto; <code>null</code> apenas na liderança da raiz, cujos escalamentos sobem para <code>organization.owner</code> (§4.2).</td></tr>
+<tr><td><code>positions[].occupant</code></td><td>Sim</td><td>Ocupante e configuração da posição: <code>type</code> (<code>ai-agent</code>/<code>human</code>), <code>identity_prompt_ref</code>, <code>schedule</code>, <code>subscriptions</code>, <code>authority</code>, e — para <code>ai-agent</code> — <code>ai</code>/<code>budget</code>/<code>tools</code>/<code>working_hours</code> conforme §6.2.</td></tr>
+</tbody>
+</table>
+
+<p><strong>Relações de comando (derivadas).</strong> A árvore lógica de §4.1 e o routing vertical de §4.2 são reconstruídos a partir destes campos, sem um bloco dedicado: <code>positions[].unit</code> dá a pertença à unidade; <code>positions[].reports_to</code> dá a aresta de comando superior→subordinado direto; <code>units[].leadership</code> identifica o comandante de cada unidade; a liderança da raiz tem <code>reports_to: null</code> e escala para <code>organization.owner</code>. É esta informação que <code>US-F0-05-T09</code> materializa no registry/read model e que alimenta <code>IOrganizationRelations</code> (§9.8, <code>US-F0-04</code>). A colaboração horizontal entre unidades (§4.3, <code>allowed_peer_channels</code>) não faz parte deste schema inicial e fica para uma evolução posterior do contrato.</p>
 
 <hr>
 

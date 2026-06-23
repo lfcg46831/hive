@@ -6,6 +6,12 @@
 - Antes de alterar arquitetura, roadmap, fases, user stories, tarefas, protocolos, ADRs ou decisoes de produto, consulta `docs/bible.html` e mantem as alteracoes alinhadas com ele.
 - Se houver conflito entre outro documento, comentario ou suposicao e `docs/bible.html`, segue `docs/bible.html` ou atualiza-o explicitamente com a nova decisao.
 
+## Edicao segura do bible
+
+- O bible (`docs/bible.html`) e um ficheiro grande; edita-o sempre com alteracoes cirurgicas no local exato, nunca reescrevendo o ficheiro inteiro.
+- No fim de qualquer interacao em que o bible tenha sido alterado, confirma que ficou integro antes de concluir: `git diff docs/bible.html` mostra apenas as alteracoes pretendidas (nada mais removido), o ficheiro termina em `</html>` e a contagem de linhas nao caiu inesperadamente.
+- Se a verificacao falhar (conteudo truncado ou removido sem intencao), restaura a partir do git (`git show HEAD:docs/bible.html`) e reaplica apenas as alteracoes pretendidas.
+
 ## Onde registar informacao
 
 Cada tipo de informacao tem um dono unico; nao dupliques o mesmo conteudo em mais do que um sitio.

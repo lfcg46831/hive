@@ -1,0 +1,61 @@
+organization:
+  id: acme-delivery
+  name: ACME Engenharia/Delivery
+  root_unit: raiz
+  owner:
+    type: human
+    ref: owner@acme.pt
+
+prompts:
+  - id: ceo-v1
+    path: prompts/ceo-v1.md
+  - id: engineer-v1
+    path: prompts/engineer-v1.md
+
+units:
+  - id: raiz
+    name: ACME
+    parent: null
+    leadership: ceo
+  - id: engenharia
+    name: Engenharia/Delivery
+    parent: raiz
+    leadership: delivery-lead
+
+positions:
+  - id: ceo
+    name: CEO
+    unit: raiz
+    reports_to: null
+    timezone: Europe/Lisbon
+    occupant:
+      type: ai-agent
+      identity_prompt_ref: ceo-v1
+      ai:
+        provider: stub
+        model: deterministic
+        processing: interactive
+      authority:
+        can_decide: ["prioridades-trimestrais"]
+        must_escalate: ["compromissos-orcamentais"]
+        requires_human_approval: ["mudancas-de-estrutura"]
+  - id: delivery-lead
+    name: Delivery Lead
+    unit: engenharia
+    reports_to: ceo
+    timezone: Europe/Lisbon
+    occupant:
+      type: ai-agent
+      identity_prompt_ref: engineer-v1
+      ai:
+        provider: stub
+        model: deterministic
+        processing: interactive
+      schedule:
+        - id: relatorio-diario
+          cron: "0 55 17 * * MON-FRI"
+          instruction: "Compilar e enviar relatorio diario ao superior"
+      authority:
+        can_decide: ["triagem-de-bugs"]
+        must_escalate: ["risco-de-prazo-critico"]
+        requires_human_approval: ["release-em-producao"]

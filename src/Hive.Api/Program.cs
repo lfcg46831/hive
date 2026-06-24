@@ -1,5 +1,6 @@
 using Hive.Actors;
 using Hive.Api.Diagnostics;
+using Hive.Api.Organization;
 using Hive.Infrastructure.Configuration;
 
 namespace Hive.Api;
@@ -13,9 +14,11 @@ public static class Program
         var builder = WebApplication.CreateBuilder(args);
         builder.AddHiveBootstrap();
         builder.AddHiveActorSystem();
+        builder.Services.AddHiveOrganizationRegistryApi();
 
         var app = builder.Build();
         app.MapHiveDiagnostics();
+        app.MapHiveOrganizationRegistryApi();
         return app;
     }
 }

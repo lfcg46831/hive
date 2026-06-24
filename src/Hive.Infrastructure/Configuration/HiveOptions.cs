@@ -8,5 +8,7 @@ public sealed class HiveOptions
 
     public ClusterNodeOptions Cluster { get; set; } = new();
 
+    public AgentsNodeOptions Agents { get; set; } = new();
+
     public OrganizationOptions Organizations { get; set; } = new();
 }

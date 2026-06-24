@@ -2,10 +2,12 @@ using Akka.Cluster.Hosting;
 using Akka.Hosting;
 using Akka.Remote.Hosting;
 using Hive.Actors.Serialization;
+using Hive.Actors.Sharding;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -59,6 +61,16 @@ public static class HiveActorSystemBootstrapExtensions
                     SeedNodes = seedNodes,
                 });
         });
+
+        // Cluster Sharding for the PositionActor is a role-conditional workload (US-F0-06-T04b):
+        // the host starts it only on nodes that declare the agents role, through the existing
+        // IRoleWorkload seam. The entity Props seam defaults to a placeholder until the real
+        // persistent PositionActor lands (US-F0-06-T06b/T09); TryAdd lets those stories override
+        // it without touching this wiring.
+        builder.Services.TryAddSingleton<IPositionEntityProps, PlaceholderPositionEntityProps>();
+        builder.Services.AddSingleton<PositionShardingWorkload>();
+        builder.Services.AddSingleton<IRoleWorkload>(
+            sp => sp.GetRequiredService<PositionShardingWorkload>());
 
         return builder;
     }

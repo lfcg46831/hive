@@ -5,6 +5,7 @@ namespace Hive.Infrastructure.Configuration;
 public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
 {
     private const string RolesPath = $"{HiveOptions.SectionName}:Node:Roles";
+    private const string NumberOfShardsPath = $"{HiveOptions.SectionName}:Agents:NumberOfShards";
 
     private static readonly HashSet<string> KnownRoles =
         new(NodeRoleNames.All, StringComparer.OrdinalIgnoreCase);
@@ -48,6 +49,13 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
             failures.Add(
                 $"{RolesPath} contains duplicate role values after trimming and " +
                 $"case-insensitive comparison: {string.Join(", ", duplicateGroup.Select(role => Format(role.Raw)))}.");
+        }
+
+        if (options.Agents?.NumberOfShards is { } numberOfShards && numberOfShards <= 0)
+        {
+            failures.Add(
+                $"{NumberOfShardsPath} must be greater than zero when set " +
+                $"(configured value: {numberOfShards}).");
         }
 
         return failures.Count == 0

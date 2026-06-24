@@ -73,6 +73,47 @@ public sealed class HiveOptionsValidatorTests
             failure => failure.Contains("Hive:Node:Roles") && failure.Contains("duplicate role values"));
     }
 
+    [Fact]
+    public void Unset_number_of_shards_is_valid()
+    {
+        var options = CreateOptions(["agents"]);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(options.Agents.NumberOfShards);
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(50)]
+    public void Positive_number_of_shards_is_valid(int numberOfShards)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.NumberOfShards = numberOfShards;
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Non_positive_number_of_shards_is_invalid(int numberOfShards)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.NumberOfShards = numberOfShards;
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures),
+            failure => failure.Contains("Hive:Agents:NumberOfShards")
+                && failure.Contains("greater than zero"));
+    }
+
     private Microsoft.Extensions.Options.ValidateOptionsResult Validate(string[] roles) =>
         _validator.Validate(null, CreateOptions(roles));
 

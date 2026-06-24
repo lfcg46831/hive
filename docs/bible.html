@@ -936,6 +936,16 @@ occupant:
 <li><strong>Convenções de serialização:</strong> o envelope e o comando embrulhado são mensagens sharded/remote e seguem as regras ADR-007 do protocolo — <code>System.Text.Json</code> versionável sob manifest string estável, nunca a serialização .NET por omissão, sem fuga de nomes CLR para o wire. O <code>PositionEntityId</code> serializa como o <code>Value</code> textual canónico e é relido por <code>PositionEntityId.Parse</code> (leitura tolerante, sem defaults silenciosos, valores inválidos rejeitados); o comando reutiliza os manifests fechados de <code>PositionCommand</code>. A configuração concreta dos serializers Akka é <code>US-F0-06-T05b</code>.</li>
 </ul>
 
+<h4>Inicialização do Cluster Sharding nos hosts <em>(contrato — US-F0-06-T04b)</em></h4>
+
+<p>A inicialização do Cluster Sharding do <code>PositionActor</code> nos hosts é um workload condicional ao role, ligado ao seam <code>IRoleWorkload</code>: só os nós que declaram o role <code>agents</code> registam a shard region, através de <code>PositionShardingWorkload</code> em <code>Hive.Actors.Sharding</code>. O registo usa o nome de entidade estável <code>PositionEntityId.EntityTypeName</code> e o <code>PositionMessageExtractor</code> de <code>US-F0-06-T04a</code>, e os shards ficam restritos a membros com role <code>agents</code> para que as posições só sejam hospedadas em nós de agentes, mesmo num nó all-in-one.</p>
+
+<ul>
+<li><strong>Contagem de shards por configuração:</strong> os hosts fixam a contagem de shards a partir de <code>Hive:Agents:NumberOfShards</code> (<code>AgentsNodeOptions</code>); quando ausente, vale o default de placement <code>PositionMessageExtractor.DefaultNumberOfShards</code>. É um contrato de placement duradouro — idêntico em todos os nós e imutável enquanto existirem posições persistidas — e um valor não positivo é rejeitado na validação de arranque.</li>
+<li><strong>Arranque idempotente:</strong> reativar o workload devolve a mesma region sem re-registar; o nome de entidade é estável entre arranques. A entidade hospedada vem de um seam <code>IPositionEntityProps</code>, com um placeholder por omissão até o <code>PositionActor</code> persistente chegar em <code>US-F0-06-T06b</code>/<code>T09</code>, que substituem o registo sem tocar nesta ligação.</li>
+<li><strong>Fronteiras:</strong> garantir que o <code>ActorSystem</code> está <em>Up</em> no cluster antes de inicializar o sharding, com timeout e falha observável, é <code>US-F0-06-T04d</code>; passivation e <em>remember entities</em> são <code>US-F0-06-T04c</code>; os serializers versionáveis das mensagens sharded são <code>US-F0-06-T05b</code>.</li>
+</ul>
+
 <h4>Referência de política de aprovação</h4>
 
 <p><code>ApprovalPolicyRef</code> é um value object imutável em <code>Hive.Domain.Identity</code> que identifica a chave lógica de uma política de aprovação declarada no YAML/registry da organização. É scoped pelo <code>OrganizationId</code> do envelope e não é um identificador global.</p>

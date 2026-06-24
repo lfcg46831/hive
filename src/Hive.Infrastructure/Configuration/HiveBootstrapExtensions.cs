@@ -1,6 +1,7 @@
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Logging;
+using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
@@ -22,6 +23,8 @@ public static class HiveBootstrapExtensions
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHostedService<PostgreSqlOrganizationRegistryMigrationHostedService>();
+        builder.Services.AddHostedService<PostgreSqlOrganizationRegistryImportHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

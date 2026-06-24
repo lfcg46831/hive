@@ -9,14 +9,22 @@ public sealed class PostgreSqlCollection : ICollectionFixture<PostgreSqlFixture>
     public const string Name = "PostgreSQL registry";
 }
 
+[CollectionDefinition(Name, DisableParallelization = true)]
+public sealed class AkkaPostgreSqlCollection : ICollectionFixture<PostgreSqlFixture>
+{
+    public const string Name = "Akka cluster with PostgreSQL";
+}
+
 public sealed class PostgreSqlFixture : IAsyncLifetime
 {
     private readonly PostgreSqlContainer _container = new PostgreSqlBuilder()
         .WithImage("postgres:16-alpine")
         .Build();
 
+    public string ConnectionString => _container.GetConnectionString();
+
     public NpgsqlDataSource CreateDataSource() =>
-        NpgsqlDataSource.Create(_container.GetConnectionString());
+        NpgsqlDataSource.Create(ConnectionString);
 
     public Task InitializeAsync() => _container.StartAsync();
 

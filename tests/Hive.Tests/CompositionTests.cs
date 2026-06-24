@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
+using Hive.Tests.PostgreSql;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Hosting;
@@ -9,8 +10,8 @@ using Microsoft.Extensions.Options;
 
 namespace Hive.Tests;
 
-[Collection(nameof(AkkaClusterCollection))]
-public sealed class CompositionTests
+[Collection(AkkaPostgreSqlCollection.Name)]
+public sealed class CompositionTests(PostgreSqlFixture postgreSql)
 {
     public static TheoryData<string> ExecutableNames => new()
     {
@@ -135,7 +136,7 @@ public sealed class CompositionTests
         }
     }
 
-    private static IHost BuildHost(
+    private IHost BuildHost(
         string executableName,
         IReadOnlyList<string> roles,
         bool includePostgreSql) => executableName switch
@@ -165,7 +166,7 @@ public sealed class CompositionTests
             "Unknown executable."),
     };
 
-    private static string[] CreateApiArgs(
+    private string[] CreateApiArgs(
         IReadOnlyList<string> roles,
         bool includePostgreSql)
     {
@@ -175,7 +176,7 @@ public sealed class CompositionTests
         return args.ToArray();
     }
 
-    private static string[] CreateWorkerArgs(
+    private string[] CreateWorkerArgs(
         IReadOnlyList<string> roles,
         bool includePostgreSql)
     {
@@ -184,7 +185,7 @@ public sealed class CompositionTests
         return args.ToArray();
     }
 
-    private static List<string> CreateCommonArgs(
+    private List<string> CreateCommonArgs(
         IReadOnlyList<string> roles,
         bool includePostgreSql)
     {
@@ -201,7 +202,7 @@ public sealed class CompositionTests
 
         if (includePostgreSql)
         {
-            args.Add("--ConnectionStrings:PostgreSql=Host=localhost;Database=hive");
+            args.Add($"--ConnectionStrings:PostgreSql={postgreSql.ConnectionString}");
         }
 
         return args;

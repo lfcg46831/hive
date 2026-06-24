@@ -42,6 +42,22 @@ public sealed class ConfigurationFileTests
         Assert.Equal(string.Empty, connectionString);
     }
 
+    [Theory]
+    [InlineData("src/Hive.Api/appsettings.json")]
+    [InlineData("src/Hive.Worker/appsettings.json")]
+    public void Base_configuration_declares_the_organization_root(string relativePath)
+    {
+        using var document = Load(relativePath);
+
+        var rootPath = document.RootElement
+            .GetProperty("Hive")
+            .GetProperty("Organizations")
+            .GetProperty("RootPath")
+            .GetString();
+
+        Assert.Equal("config/organizations", rootPath);
+    }
+
     [Fact]
     public void Api_development_configuration_declares_all_in_one_roles()
     {

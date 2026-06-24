@@ -298,7 +298,7 @@ feat(registry): persist organization read model in PostgreSQL
 
 - [ ] **Step 1: Add operational registry migration documentation**
 
-Under the PostgreSQL section in `docs/configuration.md`, state that the registry owns schema `registry`, uses the existing `ConnectionStrings:PostgreSql`, applies embedded migration `001_registry.sql` through `PostgreSqlOrganizationRegistryMigrator` before first use, and requires no additional setting or credential.
+Under the PostgreSQL section in `docs/configuration.md`, state that the registry owns schema `registry`, uses the existing `ConnectionStrings:PostgreSql`, and automatically applies embedded migration `001_registry.sql` through the common host bootstrap before workloads start, requiring no additional setting or credential.
 
 - [ ] **Step 2: Record implementation completion in the bible**
 

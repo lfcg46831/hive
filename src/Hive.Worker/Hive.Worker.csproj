@@ -14,4 +14,11 @@
     <ProjectReference Include="..\Hive.Actors\Hive.Actors.csproj" />
     <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\config\organizations\**\*"
+             Link="config\organizations\%(RecursiveDir)%(Filename)%(Extension)"
+             CopyToOutputDirectory="PreserveNewest"
+             CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -38,6 +38,7 @@ RUN dotnet restore "${APP_PROJECT}"
 
 # Copy the application sources and publish. UseAppHost=false skips the native
 # launcher; the runtime stage invokes the managed entry assembly with `dotnet`.
+COPY config/ config/
 COPY src/ src/
 RUN dotnet publish "${APP_PROJECT}" \
     --configuration "${BUILD_CONFIGURATION}" \

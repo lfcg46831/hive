@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using Hive.Api.Diagnostics;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Diagnostics;
+using Hive.Tests.PostgreSql;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
@@ -10,7 +11,8 @@ using Microsoft.Extensions.Hosting;
 
 namespace Hive.Tests;
 
-public sealed class DiagnosticsEndpointTests
+[Collection(PostgreSqlCollection.Name)]
+public sealed class DiagnosticsEndpointTests(PostgreSqlFixture postgreSql)
 {
     [Fact]
     public async Task Diagnostics_endpoint_returns_version_roles_and_startup_state()
@@ -18,7 +20,7 @@ public sealed class DiagnosticsEndpointTests
         await using var app = BuildApp(new Dictionary<string, string?>
         {
             ["Hive:Node:Roles:0"] = "api",
-            ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive",
+            ["ConnectionStrings:PostgreSql"] = postgreSql.ConnectionString,
         });
         await app.StartAsync();
         using var client = app.GetTestClient();
@@ -56,7 +58,7 @@ public sealed class DiagnosticsEndpointTests
         await using var app = BuildApp(new Dictionary<string, string?>
         {
             ["Hive:Node:Roles:0"] = "api",
-            ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive",
+            ["ConnectionStrings:PostgreSql"] = postgreSql.ConnectionString,
         });
         await app.StartAsync();
         using var client = app.GetTestClient();

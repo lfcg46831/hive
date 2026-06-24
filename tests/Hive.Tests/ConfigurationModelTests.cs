@@ -32,5 +32,7 @@ public sealed class ConfigurationModelTests
         Assert.NotNull(options.Node);
         Assert.NotNull(options.Node.Roles);
         Assert.Empty(options.Node.Roles);
+        Assert.NotNull(options.Organizations);
+        Assert.Equal(Path.Combine("config", "organizations"), options.Organizations.RootPath);
     }
 }

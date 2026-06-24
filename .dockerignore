@@ -28,6 +28,7 @@ docs/
 LICENSE
 README.md
 *.md
+!config/**/*.md
 
 # Container assets themselves
 Dockerfile

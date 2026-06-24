@@ -68,6 +68,7 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | --- | --- | --- |
 | `HIVE__NODE__ROLES__0` | compose, per service (US-F0-02-T05) | Active node role. Defaults to each host's `appsettings.json` when unset. |
 | `ConnectionStrings__PostgreSql` | operator / compose env | Required dependency; left empty so readiness stays not-ready until provided. No baked-in credentials. |
+| `HIVE__ORGANIZATIONS__ROOTPATH` | appsettings / deployment override | Root containing one directory per organization; defaults to `config/organizations` relative to the application directory. |
 | `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
 | `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
 
@@ -304,7 +305,7 @@ ConnectionStrings__PostgreSql=Host=localhost;Port=5432;Database=hive;Username={u
 
 The same F0 database serves journal/snapshots, registry, audit log, read models, budgets, and scheduler idempotency. Each subsystem retains ownership of its schemas, tables, and migrations. T05 does not validate or open this connection; PostgreSQL consumers are introduced with their owning subsystems.
 
-The organization registry owns the `registry` schema and uses this same connection string. Before the first registry import, run `PostgreSqlOrganizationRegistryMigrator.MigrateAsync`; it discovers the embedded, versioned SQL migrations, serializes concurrent migration runners, and records applied versions in `registry.schema_migrations`. Migration `001_registry.sql` creates the organization header and the unit, position, occupant, authority, schedule, command-relation, and per-organization import-lock tables. No additional setting or credential is required beyond `ConnectionStrings:PostgreSql`; the configured database user must be allowed to create and modify the owned `registry` schema.
+The organization registry owns the `registry` schema and uses this same connection string. The common host bootstrap automatically applies its embedded, versioned SQL migrations and then imports every organization under `Hive:Organizations:RootPath` before role workloads start; concurrent cluster nodes serialize migration/import writers and unchanged YAML becomes a no-op. Migration `001_registry.sql` creates the organization header and the unit, position, occupant, authority, schedule, command-relation, and per-organization import-lock tables. No additional credential is required beyond `ConnectionStrings:PostgreSql`; the configured database user must be allowed to create and modify the owned `registry` schema. A host with no configured connection string skips migration/import and remains not-ready under the existing readiness contract; a configured database that cannot connect/migrate or an absent/invalid organization tree fails host startup.
 
 ## Node roles
 
@@ -435,6 +436,8 @@ Identity prompts live under `prompts/` and are named by their catalogue `id` wit
 ### GitOps workflow
 
 Because the files are the source of truth, every structural change — adding a unit, moving a position, editing a prompt, changing authority — is a Git commit reviewed through the normal pull-request flow; the F0 console is read-only and does not edit structure (bible §4.7). The import is validated and idempotent (US-F0-05-T05–T07, T09): committing the same configuration twice produces no duplicates and no unnecessary functional-timestamp churn, so re-running a deploy on an unchanged tree is a safe no-op. Secrets and operational connection values are never placed in these files; they stay in environment variables as described above under PostgreSQL and the role/cluster sections.
+
+Both executable outputs and the Docker image include the tracked `config/organizations` tree. At startup the relative default is resolved from the application directory; deployments that mount configuration elsewhere override it with `HIVE__ORGANIZATIONS__ROOTPATH`. Every immediate child directory must contain `organization.yaml` and its directory name must equal `organization.id`; any parse or semantic validation error aborts startup before workloads run.
 
 ## Message serialization
 

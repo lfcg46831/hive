@@ -19,6 +19,18 @@ internal static class IdentityValue
         return value;
     }
 
+    public static string RequireWithout(string value, char forbidden, string parameterName)
+    {
+        if (value.IndexOf(forbidden) >= 0)
+        {
+            throw new ArgumentException(
+                $"Identity value cannot contain the '{forbidden}' character.",
+                parameterName);
+        }
+
+        return value;
+    }
+
     public static Guid RequireMessage(Guid value, string parameterName)
     {
         if (value == Guid.Empty)

@@ -878,6 +878,19 @@ occupant:
 <li><strong>Representação:</strong> igualdade e hash code derivam do valor subjacente; <code>ToString()</code> devolve a representação canónica, usando o formato <code>D</code> para <code>Guid</code>.</li>
 </ul>
 
+<h4>Identidade sharded do <code>PositionActor</code> <em>(contrato — US-F0-06-T01)</em></h4>
+
+<p>Cada posição é uma entidade sharded endereçável por <code>entityId = OrganizationId/PositionId</code>. O contrato é o value object imutável <code>PositionEntityId</code> em <code>Hive.Domain.Identity</code>, que compõe os dois identificadores estruturais e fixa a forma textual canónica e o nome estável da entidade. É um contrato de domínio puro: não configura Akka.Cluster Sharding.</p>
+
+<ul>
+<li><strong>Composição:</strong> <code>From(OrganizationId, PositionId)</code> compõe o id; <code>Value</code> e <code>ToString()</code> rendem a forma canónica <code>org/posição</code>.</li>
+<li><strong>Separador reservado:</strong> <code>/</code> é o único separador. Os segmentos não podem conter <code>/</code>, garantindo que o id é reversível sem ambiguidade.</li>
+<li><strong>Parsing:</strong> <code>Parse</code>/<code>TryParse</code> reconstroem os componentes reutilizando as factories <code>OrganizationId.From</code>/<code>PositionId.From</code>; exigem exatamente um separador com dois segmentos não vazios e não fazem normalização silenciosa.</li>
+<li><strong>Nome da entidade:</strong> o entity type name de Cluster Sharding é a constante estável <code>PositionEntityId.EntityTypeName = "position"</code>; alterá-lo é uma mudança disruptiva de schema (orfanaria entidades persistidas).</li>
+<li><strong>Igualdade:</strong> deriva dos componentes, com igualdade ordinal case-sensitive herdada dos identificadores estruturais; sem conversões implícitas de ou para <code>string</code>.</li>
+<li><strong>Serialização:</strong> a representação wire/persistida é o <code>Value</code> textual canónico; a desserialização reutiliza <code>Parse</code> (ADR-007: leitura tolerante, sem defaults silenciosos, valores inválidos rejeitados). O extractor/resolver de shard e as convenções de serialização das mensagens sharded pertencem a <code>US-F0-06-T04a</code>; a configuração dos serializers a <code>US-F0-06-T05b</code>.</li>
+</ul>
+
 <h4>Referência de política de aprovação</h4>
 
 <p><code>ApprovalPolicyRef</code> é um value object imutável em <code>Hive.Domain.Identity</code> que identifica a chave lógica de uma política de aprovação declarada no YAML/registry da organização. É scoped pelo <code>OrganizationId</code> do envelope e não é um identificador global.</p>

@@ -891,6 +891,22 @@ occupant:
 <li><strong>Serialização:</strong> a representação wire/persistida é o <code>Value</code> textual canónico; a desserialização reutiliza <code>Parse</code> (ADR-007: leitura tolerante, sem defaults silenciosos, valores inválidos rejeitados). O extractor/resolver de shard e as convenções de serialização das mensagens sharded pertencem a <code>US-F0-06-T04a</code>; a configuração dos serializers a <code>US-F0-06-T05b</code>.</li>
 </ul>
 
+<h4>Comandos internos do <code>PositionActor</code> <em>(contrato — US-F0-06-T02)</em></h4>
+
+<p>O conjunto fechado de intenções que o <code>PositionActor</code> aceita vive em <code>Hive.Domain.Positions</code> como records imutáveis derivados da base abstrata <code>PositionCommand</code>. São <em>comandos</em> (intenções), distintos dos eventos persistidos e snapshots de <code>US-F0-06-T03</code>: um comando pode ser rejeitado (inválido, duplicado, não autorizado) e só um comando bem-sucedido produz eventos. É um contrato de domínio puro — modela apenas a forma das entradas, deixando validação contra estado, idempotência (<code>US-F0-06-T07</code>) e guard rails de passivation (<code>US-F0-06-T11</code>) às tarefas respetivas.</p>
+
+<ul>
+<li><strong>Sem endereçamento:</strong> o Cluster Sharding (<code>US-F0-06-T04</code>) entrega cada comando à entidade identificada por <code>OrganizationId/PositionId</code>, pelo que os comandos não repetem a identidade da posição; a única exceção é <code>AcceptMessage</code>, cujo envelope <code>OrgMessage</code> já transporta o seu próprio <code>OrganizationId</code>.</li>
+<li><strong><code>AcceptMessage</code>:</strong> admite uma mensagem organizacional na inbox; transporta o envelope validado e deixa a decisão de duplicado/admissão à entidade (idempotência por <code>MessageId</code>/<code>ThreadId</code>).</li>
+<li><strong><code>OpenTask</code>:</strong> abre uma unidade de trabalho com <code>PositionTaskId</code> fornecido pelo chamador (intenção idempotente), ancorada a um <code>ThreadId</code>, com <code>Title</code>, <code>Priority</code>, <code>Deadline</code> opcional e a mensagem que a originou (<code>CausedBy</code>) opcional.</li>
+<li><strong><code>UpdateTask</code>:</strong> regista progresso (<code>Note</code> obrigatório) e revisões opcionais de <code>Priority</code>/<code>Deadline</code> sobre uma tarefa aberta.</li>
+<li><strong><code>CompleteTask</code>:</strong> conclui uma tarefa, com <code>Summary</code> opcional do desfecho.</li>
+<li><strong><code>UpdateShortMemory</code>:</strong> faz upsert de uma entrada da memória de curto prazo por <code>Key</code> com conteúdo; o <code>Value</code> pode ser vazio (entrada limpa, interpretada pelo reducer).</li>
+<li><strong><code>ChangeOccupant</code>:</strong> troca o ocupante (<code>OccupantId</code> + <code>OccupantType</code>) sem afetar inbox, tarefas e histórico, que pertencem à posição.</li>
+<li><strong><code>RequestPassivation</code>:</strong> intenção nua de passivation, com <code>Reason</code> opcional; critérios de inatividade e guard rails ficam na entidade.</li>
+<li><strong>Identidade da tarefa:</strong> <code>PositionTaskId</code> em <code>Hive.Domain.Identity</code> identifica uma tarefa interna da posição; é opaco e scoped à posição, sem segmento organização/posição.</li>
+</ul>
+
 <h4>Referência de política de aprovação</h4>
 
 <p><code>ApprovalPolicyRef</code> é um value object imutável em <code>Hive.Domain.Identity</code> que identifica a chave lógica de uma política de aprovação declarada no YAML/registry da organização. É scoped pelo <code>OrganizationId</code> do envelope e não é um identificador global.</p>

@@ -4,7 +4,10 @@ using Hive.Domain.Organization;
 
 namespace Hive.Infrastructure.Organization.Registry;
 
-public sealed class InMemoryOrganizationRegistry : IOrganizationRelations
+public sealed class InMemoryOrganizationRegistry :
+    IOrganizationRegistryReader,
+    IOrganizationRegistryStore,
+    IOrganizationRelations
 {
     private readonly object _gate = new();
     private readonly Dictionary<OrganizationId, OrganizationRegistrySnapshot> _snapshots = new();
@@ -21,20 +24,38 @@ public sealed class InMemoryOrganizationRegistry : IOrganizationRelations
         }
     }
 
-    internal TResult Mutate<TResult>(
+    public ValueTask<OrganizationRegistrySnapshot?> FindSnapshotAsync(
         OrganizationId organizationId,
-        Func<OrganizationRegistrySnapshot?, (OrganizationRegistrySnapshot Snapshot, TResult Result)> mutation)
+        CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
-        ArgumentNullException.ThrowIfNull(mutation);
+        cancellationToken.ThrowIfCancellationRequested();
 
         lock (_gate)
         {
-            _snapshots.TryGetValue(organizationId, out var current);
-            var (snapshot, result) = mutation(current);
-            _snapshots[organizationId] = snapshot;
+            _snapshots.TryGetValue(organizationId, out var snapshot);
+            return new ValueTask<OrganizationRegistrySnapshot?>(snapshot);
+        }
+    }
 
-            return result;
+    ValueTask<OrganizationImportResult> IOrganizationRegistryStore.ApplyAsync(
+        OrganizationRegistryProjection target,
+        DateTimeOffset importedAt,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        lock (_gate)
+        {
+            _snapshots.TryGetValue(target.OrganizationId, out var current);
+            var result = OrganizationRegistryMutation.Apply(current, target, importedAt);
+            if (result.Status == OrganizationImportStatus.Applied)
+            {
+                _snapshots[target.OrganizationId] = result.Snapshot!;
+            }
+
+            return new ValueTask<OrganizationImportResult>(result);
         }
     }
 

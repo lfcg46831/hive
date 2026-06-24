@@ -12,14 +12,15 @@ public sealed class OrganizationConfigurationImporterTests
         new(2026, 6, 23, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
-    public void Import_materializes_the_validated_example_with_a_deterministic_plan()
+    public async Task Import_materializes_the_validated_example_with_a_deterministic_plan()
     {
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationImporter(
             registry,
             new ManualTimeProvider(FirstImportAt));
 
-        var result = importer.Import(ExampleConfiguration());
+        var configuration = ExampleConfiguration();
+        var result = await importer.ImportAsync(configuration);
 
         Assert.Equal(OrganizationImportStatus.Applied, result.Status);
         Assert.Empty(result.ValidationErrors);
@@ -29,7 +30,7 @@ public sealed class OrganizationConfigurationImporterTests
         var snapshot = result.Snapshot!;
         Assert.Equal(1, snapshot.Version);
         Assert.StartsWith("sha256:", snapshot.Fingerprint, StringComparison.Ordinal);
-        Assert.Equal(FirstImportAt, snapshot.UpdatedAt);
+        Assert.Equal(FirstImportAt, snapshot.ImportedAt);
         Assert.Equal(2, snapshot.Units.Count);
         Assert.Equal(2, snapshot.Positions.Count);
         Assert.Equal(2, snapshot.Occupants.Count);
@@ -55,26 +56,30 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.All(
             result.Plan.Changes,
             change => Assert.Equal(RegistryChangeKind.Added, change.Kind));
+
+        IOrganizationRegistryReader reader = registry;
+        var published = await reader.FindSnapshotAsync(configuration.Organization.Id);
+        Assert.Same(result.Snapshot, published);
     }
 
     [Fact]
-    public void Reordered_semantically_equivalent_configuration_is_a_timestamp_preserving_no_op()
+    public async Task Reordered_semantically_equivalent_configuration_is_a_timestamp_preserving_no_op()
     {
         var registry = new InMemoryOrganizationRegistry();
         var clock = new ManualTimeProvider(FirstImportAt);
         var importer = new OrganizationConfigurationImporter(registry, clock);
         var configuration = ExampleConfiguration();
 
-        var first = importer.Import(configuration);
+        var first = await importer.ImportAsync(configuration);
         clock.UtcNow = FirstImportAt.AddHours(1);
 
-        var second = importer.Import(Reordered(configuration));
+        var second = await importer.ImportAsync(Reordered(configuration));
 
         Assert.Equal(OrganizationImportStatus.NoChanges, second.Status);
         Assert.Same(first.Snapshot, second.Snapshot);
         Assert.Equal(first.Snapshot!.Fingerprint, second.Snapshot!.Fingerprint);
         Assert.Equal(1, second.Snapshot.Version);
-        Assert.Equal(FirstImportAt, second.Snapshot.UpdatedAt);
+        Assert.Equal(FirstImportAt, second.Snapshot.ImportedAt);
         Assert.NotNull(second.Plan);
         Assert.Equal(1, second.Plan!.TargetVersion);
         Assert.Empty(second.Plan.Changes);
@@ -83,16 +88,16 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
-    public void Reordered_set_like_occupant_entries_have_the_same_fingerprint()
+    public async Task Reordered_set_like_occupant_entries_have_the_same_fingerprint()
     {
         var registry = new InMemoryOrganizationRegistry();
         var clock = new ManualTimeProvider(FirstImportAt);
         var importer = new OrganizationConfigurationImporter(registry, clock);
         var configuration = WithSetLikeOccupantEntries(ExampleConfiguration());
-        var first = importer.Import(configuration);
+        var first = await importer.ImportAsync(configuration);
         clock.UtcNow = FirstImportAt.AddHours(1);
 
-        var second = importer.Import(Reordered(configuration));
+        var second = await importer.ImportAsync(Reordered(configuration));
 
         Assert.Equal(OrganizationImportStatus.NoChanges, second.Status);
         Assert.Equal(first.Snapshot!.Fingerprint, second.Snapshot!.Fingerprint);
@@ -100,21 +105,21 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
-    public void Changed_configuration_updates_only_changed_entries_and_removes_stale_entries()
+    public async Task Changed_configuration_updates_only_changed_entries_and_removes_stale_entries()
     {
         var registry = new InMemoryOrganizationRegistry();
         var clock = new ManualTimeProvider(FirstImportAt);
         var importer = new OrganizationConfigurationImporter(registry, clock);
         var configuration = ExampleConfiguration();
-        var first = importer.Import(configuration);
+        var first = await importer.ImportAsync(configuration);
         var secondImportAt = FirstImportAt.AddHours(1);
         clock.UtcNow = secondImportAt;
 
-        var second = importer.Import(WithRenamedDeliveryLeadAndNoSchedule(configuration));
+        var second = await importer.ImportAsync(WithRenamedDeliveryLeadAndNoSchedule(configuration));
 
         Assert.Equal(OrganizationImportStatus.Applied, second.Status);
         Assert.Equal(2, second.Snapshot!.Version);
-        Assert.Equal(secondImportAt, second.Snapshot.UpdatedAt);
+        Assert.Equal(secondImportAt, second.Snapshot.ImportedAt);
         Assert.Empty(second.Snapshot.Schedules);
         Assert.Equal(
             [
@@ -132,21 +137,21 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
-    public void Invalid_configuration_does_not_replace_the_published_snapshot()
+    public async Task Invalid_configuration_does_not_replace_the_published_snapshot()
     {
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationImporter(
             registry,
             new ManualTimeProvider(FirstImportAt));
         var configuration = ExampleConfiguration();
-        var first = importer.Import(configuration);
+        var first = await importer.ImportAsync(configuration);
         var duplicateUnit = new OrganizationConfiguration(
             configuration.Organization,
             [.. configuration.Units, configuration.Units[0]],
             configuration.Positions,
             configuration.Prompts);
 
-        var invalid = importer.Import(duplicateUnit);
+        var invalid = await importer.ImportAsync(duplicateUnit);
 
         Assert.Equal(OrganizationImportStatus.Invalid, invalid.Status);
         Assert.Null(invalid.Plan);
@@ -159,14 +164,14 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
-    public void Invalid_command_relations_do_not_replace_the_published_snapshot()
+    public async Task Invalid_command_relations_do_not_replace_the_published_snapshot()
     {
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationImporter(
             registry,
             new ManualTimeProvider(FirstImportAt));
         var configuration = ExampleConfiguration();
-        var first = importer.Import(configuration);
+        var first = await importer.ImportAsync(configuration);
         var positions = configuration.Positions
             .Select(position => new PositionConfiguration(
                 position.Id,
@@ -179,7 +184,7 @@ public sealed class OrganizationConfigurationImporterTests
                 position.Timezone))
             .ToArray();
 
-        var invalid = importer.Import(new OrganizationConfiguration(
+        var invalid = await importer.ImportAsync(new OrganizationConfiguration(
             configuration.Organization,
             configuration.Units,
             positions,
@@ -194,7 +199,7 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
-    public void Self_referential_command_relation_is_reported_as_invalid_input()
+    public async Task Self_referential_command_relation_is_reported_as_invalid_input()
     {
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationImporter(registry);
@@ -211,7 +216,7 @@ public sealed class OrganizationConfigurationImporterTests
                 : position)
             .ToArray();
 
-        var invalid = importer.Import(new OrganizationConfiguration(
+        var invalid = await importer.ImportAsync(new OrganizationConfiguration(
             configuration.Organization,
             configuration.Units,
             positions,
@@ -229,7 +234,7 @@ public sealed class OrganizationConfigurationImporterTests
     {
         var registry = new InMemoryOrganizationRegistry();
         var configuration = ExampleConfiguration();
-        new OrganizationConfigurationImporter(registry).Import(configuration);
+        await new OrganizationConfigurationImporter(registry).ImportAsync(configuration);
         IOrganizationRelations relations = registry;
         var organizationId = configuration.Organization.Id;
         var deliveryLead = PositionId.From("delivery-lead");

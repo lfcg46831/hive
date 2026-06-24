@@ -12,7 +12,12 @@
     <PackageReference Include="Microsoft.Extensions.Logging" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.1" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="8.0.0" />
+    <PackageReference Include="Npgsql" Version="8.0.3" />
     <PackageReference Include="YamlDotNet" Version="13.7.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Organization\Registry\PostgreSql\Migrations\*.sql" />
   </ItemGroup>
 
   <ItemGroup>

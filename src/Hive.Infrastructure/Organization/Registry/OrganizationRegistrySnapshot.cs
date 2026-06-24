@@ -9,7 +9,7 @@ public sealed class OrganizationRegistrySnapshot
         OrganizationId organizationId,
         long version,
         string fingerprint,
-        DateTimeOffset updatedAt,
+        DateTimeOffset importedAt,
         RegistryEntry<RegistryOrganization> organization,
         IReadOnlyDictionary<UnitId, RegistryEntry<RegistryUnit>> units,
         IReadOnlyDictionary<PositionId, RegistryEntry<RegistryPosition>> positions,
@@ -21,7 +21,7 @@ public sealed class OrganizationRegistrySnapshot
         OrganizationId = organizationId;
         Version = version;
         Fingerprint = fingerprint;
-        UpdatedAt = updatedAt;
+        ImportedAt = importedAt;
         Organization = organization;
         Units = units;
         Positions = positions;
@@ -37,7 +37,7 @@ public sealed class OrganizationRegistrySnapshot
 
     public string Fingerprint { get; }
 
-    public DateTimeOffset UpdatedAt { get; }
+    public DateTimeOffset ImportedAt { get; }
 
     public RegistryEntry<RegistryOrganization> Organization { get; }
 

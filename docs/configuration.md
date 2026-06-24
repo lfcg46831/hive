@@ -304,6 +304,8 @@ ConnectionStrings__PostgreSql=Host=localhost;Port=5432;Database=hive;Username={u
 
 The same F0 database serves journal/snapshots, registry, audit log, read models, budgets, and scheduler idempotency. Each subsystem retains ownership of its schemas, tables, and migrations. T05 does not validate or open this connection; PostgreSQL consumers are introduced with their owning subsystems.
 
+The organization registry owns the `registry` schema and uses this same connection string. Before the first registry import, run `PostgreSqlOrganizationRegistryMigrator.MigrateAsync`; it discovers the embedded, versioned SQL migrations, serializes concurrent migration runners, and records applied versions in `registry.schema_migrations`. Migration `001_registry.sql` creates the organization header and the unit, position, occupant, authority, schedule, command-relation, and per-organization import-lock tables. No additional setting or credential is required beyond `ConnectionStrings:PostgreSql`; the configured database user must be allowed to create and modify the owned `registry` schema.
+
 ## Node roles
 
 The canonical values are `agents`, `gateway`, `connectors`, and `api`.

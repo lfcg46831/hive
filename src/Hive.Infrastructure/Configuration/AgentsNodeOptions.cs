@@ -15,4 +15,25 @@ public sealed class AgentsNodeOptions
     /// shards. When set, it must be greater than zero.
     /// </summary>
     public int? NumberOfShards { get; set; }
+
+    /// <summary>
+    /// Whether the position shard region remembers its entities (US-F0-06-T04c). When
+    /// <see langword="true"/> (the default), positions kept warm by an active agenda/subscription
+    /// stay alive and are therefore remembered, so Cluster Sharding restarts them automatically
+    /// after a rebalance or node restart; inactive positions that passivate are forgotten and
+    /// reactivated on demand. Remember-entities is a durable placement contract — keep it identical
+    /// on every node and do not change it while positions are persisted.
+    /// </summary>
+    public bool RememberEntities { get; set; } = true;
+
+    /// <summary>
+    /// Initial inactivity threshold after which an idle position is eligible for passivation
+    /// (US-F0-06-T04c). When left unset (<see langword="null"/>), the workload's placement default
+    /// is used. With <see cref="RememberEntities"/> enabled, Akka.NET region-driven idle passivation
+    /// is disabled (it is mutually exclusive with remember-entities), so this value is the initial
+    /// threshold the safe-passivation protocol (US-F0-06-T11) uses to passivate inactive positions
+    /// explicitly; with remember-entities disabled, the region auto-passivates entities idle for
+    /// longer than this. When set, it must be greater than zero.
+    /// </summary>
+    public TimeSpan? PassivateIdleAfter { get; set; }
 }

@@ -119,7 +119,55 @@ public sealed class PositionShardingWorkloadTests
         }
     }
 
-    private static IHost BuildHost(int port, string[] roles, int? numberOfShards = null)
+    [Fact]
+    public async Task Remember_entities_defaults_to_true_and_passivation_to_the_placement_default()
+    {
+        using var host = BuildHost(GetFreeTcpPort(), roles: [NodeRoleNames.Agents]);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+            Assert.True(workload.RememberEntities);
+            Assert.Equal(
+                PositionShardingWorkload.DefaultPassivateIdleAfter,
+                workload.PassivateIdleAfter);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Remember_entities_and_passivation_threshold_are_pinned_from_configuration()
+    {
+        var idle = TimeSpan.FromSeconds(45);
+        using var host = BuildHost(
+            GetFreeTcpPort(),
+            roles: [NodeRoleNames.Agents],
+            rememberEntities: false,
+            passivateIdleAfter: idle);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+            Assert.False(workload.RememberEntities);
+            Assert.Equal(idle, workload.PassivateIdleAfter);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    private static IHost BuildHost(
+        int port,
+        string[] roles,
+        int? numberOfShards = null,
+        bool? rememberEntities = null,
+        TimeSpan? passivateIdleAfter = null)
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -140,6 +188,18 @@ public sealed class PositionShardingWorkloadTests
         {
             settings["Hive:Agents:NumberOfShards"] =
                 shards.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (rememberEntities is { } remember)
+        {
+            settings["Hive:Agents:RememberEntities"] =
+                remember.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (passivateIdleAfter is { } idle)
+        {
+            settings["Hive:Agents:PassivateIdleAfter"] =
+                idle.ToString(null, System.Globalization.CultureInfo.InvariantCulture);
         }
 
         builder.Configuration.AddInMemoryCollection(settings);

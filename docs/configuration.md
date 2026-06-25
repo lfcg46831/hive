@@ -72,6 +72,8 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
 | `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
 | `HIVE__AGENTS__NUMBEROFSHARDS` | unset (extractor default `50`) | Number of Cluster Sharding shards for the position entity type, pinned by `agents`-role hosts (`Hive:Agents:NumberOfShards`, US-F0-06-T04b). A durable placement contract: keep it identical on every node and never change it while positions are persisted, since changing it reshuffles every position. Must be greater than zero when set. |
+| `HIVE__AGENTS__REMEMBERENTITIES` | `true` | Whether the position shard region remembers its entities (`Hive:Agents:RememberEntities`, US-F0-06-T04c). On (default), positions kept warm by an active agenda/subscription survive rebalance and node restart; inactive positions that passivate are forgotten and reactivated on demand. A durable placement contract — keep it identical on every node and do not change it while positions are persisted. |
+| `HIVE__AGENTS__PASSIVATEIDLEAFTER` | unset (workload default `00:02:00`) | Initial inactivity threshold after which an idle position is eligible for passivation (`Hive:Agents:PassivateIdleAfter`, US-F0-06-T04c), as a `hh:mm:ss` span. With remember-entities on (the default) Akka.NET region auto-idle is disabled, so this is the initial threshold the safe-passivation protocol (US-F0-06-T11) uses; with remember-entities off the region auto-passivates entities idle for longer than it. Must be greater than zero when set. |
 
 ## Run with Docker Compose
 

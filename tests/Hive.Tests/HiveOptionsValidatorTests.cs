@@ -114,6 +114,51 @@ public sealed class HiveOptionsValidatorTests
                 && failure.Contains("greater than zero"));
     }
 
+    [Fact]
+    public void Unset_passivate_idle_after_is_valid()
+    {
+        var options = CreateOptions(["agents"]);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(options.Agents.PassivateIdleAfter);
+    }
+
+    [Fact]
+    public void Positive_passivate_idle_after_is_valid()
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.PassivateIdleAfter = TimeSpan.FromSeconds(30);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Fact]
+    public void Remember_entities_defaults_to_true()
+    {
+        Assert.True(new AgentsNodeOptions().RememberEntities);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Non_positive_passivate_idle_after_is_invalid(int seconds)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.PassivateIdleAfter = TimeSpan.FromSeconds(seconds);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures),
+            failure => failure.Contains("Hive:Agents:PassivateIdleAfter")
+                && failure.Contains("greater than zero"));
+    }
+
     private Microsoft.Extensions.Options.ValidateOptionsResult Validate(string[] roles) =>
         _validator.Validate(null, CreateOptions(roles));
 

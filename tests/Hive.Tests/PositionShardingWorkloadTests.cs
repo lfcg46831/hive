@@ -162,12 +162,103 @@ public sealed class PositionShardingWorkloadTests
         }
     }
 
+    [Fact]
+    public async Task Cluster_up_timeout_defaults_to_the_placement_default_when_unset()
+    {
+        using var host = BuildHost(GetFreeTcpPort(), roles: [NodeRoleNames.Agents]);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+            Assert.Equal(
+                PositionShardingWorkload.DefaultClusterUpTimeout,
+                workload.ClusterUpTimeout);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Cluster_up_timeout_is_pinned_from_configuration_when_set()
+    {
+        var configured = TimeSpan.FromSeconds(10);
+        using var host = BuildHost(
+            GetFreeTcpPort(),
+            roles: [NodeRoleNames.Agents],
+            clusterUpTimeout: configured);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+            Assert.Equal(configured, workload.ClusterUpTimeout);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Region_is_initialized_only_after_the_node_reaches_cluster_up()
+    {
+        using var host = BuildHost(GetFreeTcpPort(), roles: [NodeRoleNames.Agents]);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+            await WaitForAsync(() => workload.Region is not null, TimeSpan.FromSeconds(20));
+
+            // The gate guarantees the node was Up before the region was initialized.
+            var system = host.Services.GetRequiredService<ActorSystem>();
+            Assert.Equal(MemberStatus.Up, Cluster.Get(system).SelfMember.Status);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Agents_node_fails_observably_when_the_cluster_does_not_reach_up_in_time()
+    {
+        // Point the single seed node at a free (unreachable) port so this node can never self-seed
+        // nor join, and never reaches cluster Up. With a small gate window the workload must fail
+        // the arranque observably instead of initializing sharding on a node that has not joined.
+        var unreachableSeed =
+            $"akka.tcp://{HiveActorSystemBootstrapExtensions.ActorSystemName}@127.0.0.1:{GetFreeTcpPort()}";
+        using var host = BuildHost(
+            GetFreeTcpPort(),
+            roles: [NodeRoleNames.Agents],
+            clusterUpTimeout: TimeSpan.FromSeconds(2),
+            seedNode: unreachableSeed);
+
+        // Resolving the workload creates the ActorSystem, which starts trying to join the seed.
+        var workload = host.Services.GetRequiredService<PositionShardingWorkload>();
+
+        var exception = await Assert.ThrowsAsync<ClusterStartupTimeoutException>(
+            () => workload.StartAsync(CancellationToken.None));
+
+        Assert.Equal(NodeRoleNames.Agents, exception.Role);
+        Assert.Equal(TimeSpan.FromSeconds(2), exception.Timeout);
+        Assert.NotEqual(MemberStatus.Up, exception.LastStatus);
+        Assert.Null(workload.Region);
+
+        await host.StopAsync();
+    }
+
     private static IHost BuildHost(
         int port,
         string[] roles,
         int? numberOfShards = null,
         bool? rememberEntities = null,
-        TimeSpan? passivateIdleAfter = null)
+        TimeSpan? passivateIdleAfter = null,
+        TimeSpan? clusterUpTimeout = null,
+        string? seedNode = null)
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -200,6 +291,17 @@ public sealed class PositionShardingWorkloadTests
         {
             settings["Hive:Agents:PassivateIdleAfter"] =
                 idle.ToString(null, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (clusterUpTimeout is { } upTimeout)
+        {
+            settings["Hive:Agents:ClusterUpTimeout"] =
+                upTimeout.ToString(null, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        if (seedNode is not null)
+        {
+            settings["Hive:Cluster:SeedNodes:0"] = seedNode;
         }
 
         builder.Configuration.AddInMemoryCollection(settings);

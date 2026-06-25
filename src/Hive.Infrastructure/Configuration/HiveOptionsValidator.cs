@@ -8,6 +8,8 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
     private const string NumberOfShardsPath = $"{HiveOptions.SectionName}:Agents:NumberOfShards";
     private const string PassivateIdleAfterPath =
         $"{HiveOptions.SectionName}:Agents:PassivateIdleAfter";
+    private const string ClusterUpTimeoutPath =
+        $"{HiveOptions.SectionName}:Agents:ClusterUpTimeout";
 
     private static readonly HashSet<string> KnownRoles =
         new(NodeRoleNames.All, StringComparer.OrdinalIgnoreCase);
@@ -66,6 +68,14 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
             failures.Add(
                 $"{PassivateIdleAfterPath} must be greater than zero when set " +
                 $"(configured value: {passivateIdleAfter}).");
+        }
+
+        if (options.Agents?.ClusterUpTimeout is { } clusterUpTimeout
+            && clusterUpTimeout <= TimeSpan.Zero)
+        {
+            failures.Add(
+                $"{ClusterUpTimeoutPath} must be greater than zero when set " +
+                $"(configured value: {clusterUpTimeout}).");
         }
 
         return failures.Count == 0

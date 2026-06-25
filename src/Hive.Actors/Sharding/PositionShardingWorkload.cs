@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.Cluster;
 using Akka.Cluster.Sharding;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Configuration;
@@ -34,9 +35,9 @@ namespace Hive.Actors.Sharding;
 /// when remember-entities is off the region auto-passivates entities idle for longer than it.
 /// </para>
 /// <para>
-/// This workload only owns the initialization mechanism. Gating the start on the cluster reaching
-/// <c>Up</c> within a timeout — failing the node observably otherwise — is the ordering concern of
-/// US-F0-06-T04d; the inactivity guard rails and drain/stash passivation protocol are US-F0-06-T11.
+/// This workload gates the initialization on the cluster reaching <c>Up</c> within a configured
+/// timeout, failing the node observably otherwise (US-F0-06-T04d). The inactivity guard rails and
+/// drain/stash passivation protocol are US-F0-06-T11.
 /// </para>
 /// </remarks>
 public sealed class PositionShardingWorkload : IRoleWorkload
@@ -47,11 +48,19 @@ public sealed class PositionShardingWorkload : IRoleWorkload
     /// </summary>
     public static readonly TimeSpan DefaultPassivateIdleAfter = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// Placement default for <see cref="ClusterUpTimeout"/> when the host leaves it unset: the
+    /// window the workload waits for the node to reach cluster <em>Up</em> before failing the
+    /// arranque observably (US-F0-06-T04d).
+    /// </summary>
+    public static readonly TimeSpan DefaultClusterUpTimeout = TimeSpan.FromSeconds(30);
+
     private readonly ActorSystem _system;
     private readonly IPositionEntityProps _entityProps;
     private readonly int _numberOfShards;
     private readonly bool _rememberEntities;
     private readonly TimeSpan _passivateIdleAfter;
+    private readonly TimeSpan _clusterUpTimeout;
     private readonly ILogger<PositionShardingWorkload> _logger;
     private readonly SemaphoreSlim _startGate = new(1, 1);
 
@@ -80,6 +89,11 @@ public sealed class PositionShardingWorkload : IRoleWorkload
         // placement default. A non-positive configured threshold is rejected by HiveOptionsValidator.
         _rememberEntities = agents?.RememberEntities ?? true;
         _passivateIdleAfter = agents?.PassivateIdleAfter ?? DefaultPassivateIdleAfter;
+
+        // The cluster-up gate window (US-F0-06-T04d): how long to wait for this node to reach
+        // cluster Up before failing the arranque observably. Falls back to the placement default;
+        // a non-positive configured value is rejected up front by HiveOptionsValidator.
+        _clusterUpTimeout = agents?.ClusterUpTimeout ?? DefaultClusterUpTimeout;
     }
 
     public string Role => NodeRoleNames.Agents;
@@ -96,6 +110,9 @@ public sealed class PositionShardingWorkload : IRoleWorkload
     /// <summary>The initial inactivity threshold for passivating an idle position (US-F0-06-T04c).</summary>
     public TimeSpan PassivateIdleAfter => _passivateIdleAfter;
 
+    /// <summary>The window the workload waits for cluster <em>Up</em> before failing (US-F0-06-T04d).</summary>
+    public TimeSpan ClusterUpTimeout => _clusterUpTimeout;
+
     public async Task StartAsync(CancellationToken cancellationToken)
     {
         await _startGate.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -106,6 +123,12 @@ public sealed class PositionShardingWorkload : IRoleWorkload
                 // Idempotent: already initialized on this node, return without re-registering.
                 return;
             }
+
+            // Ordering gate (US-F0-06-T04d): Cluster Sharding must only be initialized once this
+            // node is a full cluster member, so wait for self-member Up before touching the region.
+            // If the node does not reach Up within the configured window, fail the arranque
+            // observably instead of starting sharding on a node that has not joined the cluster.
+            await WaitForClusterUpAsync(cancellationToken).ConfigureAwait(false);
 
             // Resolve the extension first: accessing it injects the akka.cluster.sharding default
             // config as a top-level fallback, so ClusterShardingSettings.Create can read it even
@@ -143,6 +166,49 @@ public sealed class PositionShardingWorkload : IRoleWorkload
         {
             _startGate.Release();
         }
+    }
+
+    /// <summary>
+    /// Waits for this node to reach cluster <em>Up</em> within <see cref="ClusterUpTimeout"/>
+    /// (US-F0-06-T04d). Returns once the node is <em>Up</em>; throws
+    /// <see cref="ClusterStartupTimeoutException"/> if the window elapses first, or
+    /// <see cref="OperationCanceledException"/> if the host is shutting down.
+    /// </summary>
+    private async Task WaitForClusterUpAsync(CancellationToken cancellationToken)
+    {
+        var cluster = Cluster.Get(_system);
+
+        // RegisterOnMemberUp invokes the callback immediately when the node is already Up, and
+        // otherwise once it transitions to Up, so this covers both the warm and cold start paths.
+        var memberUp = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        cluster.RegisterOnMemberUp(() => memberUp.TrySetResult());
+
+        using var timeoutCts = new CancellationTokenSource(_clusterUpTimeout);
+        using var linkedCts =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutCts.Token);
+
+        var waitForTimeoutOrCancel = Task.Delay(Timeout.Infinite, linkedCts.Token);
+        var completed = await Task.WhenAny(memberUp.Task, waitForTimeoutOrCancel)
+            .ConfigureAwait(false);
+
+        if (completed == memberUp.Task)
+        {
+            return;
+        }
+
+        // The delay completed first: either the host is shutting down (propagate cancellation) or
+        // the cluster-up window elapsed (fail the arranque observably).
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var lastStatus = cluster.SelfMember.Status;
+        _logger.LogError(
+            "Cluster Sharding for role {Role} was not initialized: the ActorSystem did not reach "
+            + "cluster Up within {ClusterUpTimeout} (last self-member status: {SelfStatus}).",
+            NodeRoleNames.Agents,
+            _clusterUpTimeout,
+            lastStatus);
+
+        throw new ClusterStartupTimeoutException(NodeRoleNames.Agents, _clusterUpTimeout, lastStatus);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)

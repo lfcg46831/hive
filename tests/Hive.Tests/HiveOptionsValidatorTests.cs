@@ -159,6 +159,45 @@ public sealed class HiveOptionsValidatorTests
                 && failure.Contains("greater than zero"));
     }
 
+    [Fact]
+    public void Unset_cluster_up_timeout_is_valid()
+    {
+        var options = CreateOptions(["agents"]);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+        Assert.Null(options.Agents.ClusterUpTimeout);
+    }
+
+    [Fact]
+    public void Positive_cluster_up_timeout_is_valid()
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.ClusterUpTimeout = TimeSpan.FromSeconds(15);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-1)]
+    public void Non_positive_cluster_up_timeout_is_invalid(int seconds)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Agents.ClusterUpTimeout = TimeSpan.FromSeconds(seconds);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Failed);
+        Assert.Contains(
+            Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures),
+            failure => failure.Contains("Hive:Agents:ClusterUpTimeout")
+                && failure.Contains("greater than zero"));
+    }
+
     private Microsoft.Extensions.Options.ValidateOptionsResult Validate(string[] roles) =>
         _validator.Validate(null, CreateOptions(roles));
 

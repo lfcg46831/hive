@@ -36,4 +36,14 @@ public sealed class AgentsNodeOptions
     /// longer than this. When set, it must be greater than zero.
     /// </summary>
     public TimeSpan? PassivateIdleAfter { get; set; }
+
+    /// <summary>
+    /// Maximum time the <c>agents</c> workload waits for the <c>ActorSystem</c> to reach
+    /// cluster <em>Up</em> before initializing Cluster Sharding for the <c>PositionActor</c>
+    /// (US-F0-06-T04d). Cluster Sharding must only start once this node is a full cluster member,
+    /// so the workload gates its start on <em>Up</em> and fails the node observably if the system
+    /// does not reach <em>Up</em> within this window. When left unset (<see langword="null"/>), the
+    /// workload's placement default is used. When set, it must be greater than zero.
+    /// </summary>
+    public TimeSpan? ClusterUpTimeout { get; set; }
 }

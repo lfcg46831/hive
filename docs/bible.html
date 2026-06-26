@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.85 (rascunho evolutivo) <strong>Data:</strong> 2026-06-26 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.87 (rascunho evolutivo) <strong>Data:</strong> 2026-06-26 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -181,6 +181,8 @@
 <tr><td>0.83</td><td>2026-06-26</td><td>Registo do contrato de serializers de <code>US-F0-06-T05b</code>: <code>PositionEnvelope</code>, comandos, eventos e <code>PositionSnapshot</code> do <code>PositionActor</code> usam o serializer Akka <code>hive-position-protocol</code> com id estável <code>0x48495650</code> e manifests textuais fechados, sem serialização .NET por omissão nem fuga de nomes CLR.</td></tr>
 <tr><td>0.84</td><td>2026-06-26</td><td>Registo do contrato de recuperação de <code>US-F0-06-T06b</code>: o <code>PositionActor</code> persistente usa <code>persistenceId = "position:" + entityId</code>, restaura o último <code>PositionSnapshot</code> por <code>PositionState.Restore</code>, aplica os <code>PositionEvent</code> seguintes por <code>PositionState.Apply</code> e só aceita novos comandos depois de a recuperação Akka terminar.</td></tr>
 <tr><td>0.85</td><td>2026-06-26</td><td>Marcação de <code>US-F0-06-T06c</code> como sem efeito: a validação de arranque de ids processados e tarefas abertas já fica coberta pela recuperação determinística de <code>US-F0-06-T06b</code>; a rejeição idempotente de duplicados continua pertencendo a <code>US-F0-06-T07</code>.</td></tr>
+<tr><td>0.86</td><td>2026-06-26</td><td>Especificação de <code>US-F0-06-T08</code> como gate de configuração runtime do <code>PositionActor</code>: depois de recovery e antes de aceitar comandos de negócio, a entidade carrega <code>PositionRuntimeConfiguration</code> do registry/read model, valida compatibilidade por <code>PositionConfigurationStamp</code> (<code>Version</code>/<code>Fingerprint</code>), persiste <code>PositionConfigurationApplied</code> para tornar o stamp recuperável por replay completo, bloqueia fail-closed perante configuração ausente/incompleta/incompatível, propaga falhas técnicas do registry como retry/supervisão e exclui YAML direto, HTTP interno, hot reload e reconciliação automática de ocupante/autoridade/schedules.</td></tr>
+<tr><td>0.87</td><td>2026-06-26</td><td>Reestimativa de <code>US-F0-06-T08</code> para esforço <code>8</code>, porque passa a tratar todo o gate de configuração runtime incluindo contratos, provider, evento/stamp recuperável, snapshot/reducer/serializer, estados operacionais, ausência de side effects e testes; decomposição em subtarefas <code>T08a</code>–<code>T08d</code> de esforço <code>2</code> cada e atualização dos totais da <code>US-F0-06</code> e da F0.</td></tr>
 </tbody>
 </table>
 
@@ -914,7 +916,7 @@ occupant:
 
 <h4>Eventos persistidos e snapshot do <code>PositionActor</code> <em>(contrato — US-F0-06-T03)</em></h4>
 
-<p>O conjunto fechado de factos que o <code>PositionActor</code> persiste no journal vive em <code>Hive.Domain.Positions</code> como records imutáveis derivados da base abstrata <code>PositionEvent</code>. São <em>factos</em> no passado, distintos dos comandos de <code>US-F0-06-T02</code>: um comando pode ser rejeitado, mas um evento só é produzido por um comando que já teve sucesso, pelo que os eventos não carregam veredicto de validação nem são rejeitados em replay. É um contrato de domínio puro — fixa apenas a forma persistida; aplicar os eventos ao estado recuperável (inbox, tarefas, memória curta, histórico, ocupante, ids processados) é o reducer de <code>US-F0-06-T06a</code>, e ligar serializers versionáveis a eventos e snapshots pertence a <code>US-F0-06-T05b</code>.</p>
+<p>O conjunto fechado de factos que o <code>PositionActor</code> persiste no journal vive em <code>Hive.Domain.Positions</code> como records imutáveis derivados da base abstrata <code>PositionEvent</code>. São <em>factos</em> no passado, distintos dos comandos de <code>US-F0-06-T02</code>: um comando pode ser rejeitado, mas um evento só é produzido por um comando que já teve sucesso, pelo que os eventos não carregam veredicto de validação nem são rejeitados em replay. É um contrato de domínio puro — fixa apenas a forma persistida; aplicar os eventos ao estado recuperável (inbox, tarefas, memória curta, histórico, ocupante, ids processados e último stamp de configuração aplicado) é o reducer de <code>US-F0-06-T06a</code>, e ligar serializers versionáveis a eventos e snapshots pertence a <code>US-F0-06-T05b</code>.</p>
 
 <ul>
 <li><strong><code>OccurredAt</code>:</strong> como na projeção de auditoria de <code>US-F0-04-T10</code>, todos os eventos transportam o instante <code>OccurredAt</code> fornecido pela entidade ao persistir, dando ao journal um timestamp de domínio independente da sequência de armazenamento.</li>
@@ -926,8 +928,10 @@ occupant:
 <li><strong><code>OccupantChanged</code>:</strong> substituiu-se o ocupante (<code>OccupantId</code> + <code>OccupantType</code>) sem afetar inbox, tarefas e histórico; o replay restaura o ocupante atual a partir do último evento deste tipo.</li>
 <li><strong><code>MessageDispatched</code>:</strong> uma mensagem aceite foi encaminhada para o ocupante atual (<code>US-F0-06-T09</code>); regista <code>Message</code>, <code>Thread</code> e o ocupante de destino (<code>Occupant</code> + <code>OccupantType</code>) por id, sem repetir o envelope já persistido pelo <code>MessageReceived</code>.</li>
 <li><strong><code>PositionPassivated</code>:</strong> a posição foi passivada depois de os guard rails de <code>US-F0-06-T11</code> o permitirem, com <code>Reason</code> opcional; persistir o facto deixa o audit/read model observar o ciclo de vida, mantendo a posição endereçável.</li>
-<li><strong><code>PositionSnapshot</code>:</strong> o estado persistido point-in-time que a entidade escreve para a recuperação saltar o replay completo — <code>Inbox</code> pendente, <code>OpenTasks</code> (<code>PersistedTask</code>, só tarefas em curso), <code>ShortMemory</code>, <code>RecentHistory</code>, ocupante atual (par <code>Occupant</code>/<code>OccupantType</code> tudo-ou-nada) e <code>ProcessedMessages</code> (chaves de idempotência). Coleções nunca são nulas (ausente é vazio); é um DTO persistido, não o estado recuperável vivo, cuja reconstrução pertence a <code>US-F0-06-T06a</code>.</li>
+<li><strong><code>PositionConfigurationApplied</code>:</strong> a entidade aceitou uma configuração runtime nova do registry/read model; transporta <code>Version</code>, <code>Fingerprint</code> e <code>OccurredAt</code>, torna o último <code>PositionConfigurationStamp</code> recuperável por replay completo e não representa import de registry nem reconciliação de ocupante/autoridade/schedules.</li>
+<li><strong><code>PositionSnapshot</code>:</strong> o estado persistido point-in-time que a entidade escreve para a recuperação saltar o replay completo — <code>Inbox</code> pendente, <code>OpenTasks</code> (<code>PersistedTask</code>, só tarefas em curso), <code>ShortMemory</code>, <code>RecentHistory</code>, ocupante atual (par <code>Occupant</code>/<code>OccupantType</code> tudo-ou-nada), <code>ProcessedMessages</code> (chaves de idempotência) e o último <code>PositionConfigurationStamp</code> aplicado. Coleções nunca são nulas (ausente é vazio); o stamp no snapshot é apenas otimização de recovery, porque o journal continua suficiente via <code>PositionConfigurationApplied</code>; é um DTO persistido, não o estado recuperável vivo, cuja reconstrução pertence a <code>US-F0-06-T06a</code>.</li>
 </ul>
+<p><strong>Ownership:</strong> <code>PositionConfigurationApplied</code> e o <code>PositionConfigurationStamp</code> no snapshot fazem parte do conjunto persistido da posição, mas são implementados no âmbito de <code>US-F0-06-T08c</code>, porque a decisão de estimativa colocou todo o gate de configuração runtime dentro da <code>T08</code>.</p>
 
 <h4>Extractor/resolver de shard e mensagens sharded do <code>PositionActor</code> <em>(contrato — US-F0-06-T04a)</em></h4>
 
@@ -1473,12 +1477,12 @@ public sealed record ValidationResult(
 <tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=1, <code>T03b</code>=2, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
 <tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
 <tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09a</code>=3, <code>T09b</code>=3, <code>T09c</code>=2, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
-<tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=0 (sem efeito), <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>89</strong></td></tr>
+<tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=0 (sem efeito), <code>T07</code>=5, <code>T08a</code>=2, <code>T08b</code>=2, <code>T08c</code>=2, <code>T08d</code>=2, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>87</strong></td></tr>
 <tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
 <tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=5, <code>T09</code>=5, <code>T10a</code>=3, <code>T10b</code>=3, <code>T10c</code>=2, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>71</strong></td></tr>
 <tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=3, <code>T03b</code>=3, <code>T03c</code>=2, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>73</strong></td></tr>
 <tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>66</strong></td></tr>
-<tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>578</strong></td></tr>
+<tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>576</strong></td></tr>
 </tbody>
 </table>
 
@@ -1720,13 +1724,14 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 <ul>
 <li><code>PositionActor</code> usa <code>entityId = OrganizationId/PositionId</code>.</li>
 <li>Inbox, estado de tarefas, memória de curto prazo e histórico recente sobrevivem a restart.</li>
+<li>A entidade só aceita comandos de negócio depois de recovery e de validação de configuração runtime compatível a partir do registry/read model.</li>
 <li>Passivation funciona para posições inativas sem perder mensagens persistidas.</li>
 </ul>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-06-T01</strong> — Definir o contrato de identidade sharded do <code>PositionActor</code>: <code>OrganizationId</code>, <code>PositionId</code>, <code>entityId = OrganizationId/PositionId</code>, nome da entidade sharded e regras de serialização.</li>
 <li><strong>US-F0-06-T02</strong> — Modelar comandos internos do <code>PositionActor</code>: aceitar mensagem, abrir/atualizar tarefa, concluir tarefa, atualizar memória curta, alterar ocupante e pedir passivation.</li>
-<li><strong>US-F0-06-T03</strong> — Modelar eventos persistidos e snapshots: mensagem recebida, tarefa criada/atualizada/concluída, memória curta atualizada, ocupante alterado, mensagem despachada e posição passivada.</li>
+<li><strong>US-F0-06-T03</strong> — Modelar eventos persistidos e snapshots base: mensagem recebida, tarefa criada/atualizada/concluída, memória curta atualizada, ocupante alterado, mensagem despachada e posição passivada. O evento e stamp específicos do gate de configuração runtime pertencem a <code>US-F0-06-T08c</code>.</li>
 <li><strong>US-F0-06-T04</strong> — Configurar Akka.Cluster Sharding para <code>PositionActor</code>, incluindo extractor/resolver de entity id, roles de nó <code>agents</code>, estratégia de passivation e <em>remember entities</em> para posições com agenda ativa.
 <ul>
 <li><strong>US-F0-06-T04a</strong> — Definir entity type, <code>entityId</code>, shard message extractor/resolver e convenções de serialização para mensagens sharded.</li>
@@ -1738,20 +1743,27 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 <li><strong>US-F0-06-T05</strong> — Configurar Akka.Persistence PostgreSQL para journal e snapshots do <code>PositionActor</code>, com serializers versionáveis para comandos, eventos e snapshots.
 <ul>
 <li><strong>US-F0-06-T05a</strong> — Configurar plugins de journal/snapshot PostgreSQL, connection strings, tabelas/migrations iniciais e health check de persistência.</li>
-<li><strong>US-F0-06-T05b</strong> — Ligar serializers versionáveis a comandos, eventos e snapshots do <code>PositionActor</code>, sem serialização .NET por omissão.</li>
+<li><strong>US-F0-06-T05b</strong> — Ligar serializers versionáveis a comandos, eventos base e snapshots do <code>PositionActor</code>, sem serialização .NET por omissão. O binding de <code>PositionConfigurationStamp</code>/<code>PositionConfigurationApplied</code> é tratado em <code>US-F0-06-T08c</code>.</li>
 <li><strong>US-F0-06-T05c</strong> — Criar smoke check local que persiste e recupera um evento/snapshot mínimo do <code>PositionActor</code>.</li>
 </ul>
 </li>
 <li><strong>US-F0-06-T06</strong> — Implementar recuperação por replay/snapshot para reconstruir inbox, tarefas em curso, memória curta, histórico recente, ocupante atual e ids de mensagens já processadas.
 <ul>
-<li><strong>US-F0-06-T06a</strong> — Definir o estado recuperável do <code>PositionActor</code> e o reducer de eventos para inbox, tarefas, memória curta, histórico, ocupante e mensagens processadas.</li>
+<li><strong>US-F0-06-T06a</strong> — Definir o estado recuperável base do <code>PositionActor</code> e o reducer de eventos para inbox, tarefas, memória curta, histórico, ocupante e mensagens processadas. O último stamp de configuração aplicado é acrescentado em <code>US-F0-06-T08c</code>.</li>
 <li><strong>US-F0-06-T06b</strong> — Implementar replay e restore por snapshot com reconstrução determinística do estado antes de aceitar novas mensagens.</li>
 <li><strong>US-F0-06-T06c</strong> — Sem efeito: esta validação já é consequência do restore/replay determinístico de <code>US-F0-06-T06b</code>; a não duplicação de trabalho por reentrega/idempotência fica em <code>US-F0-06-T07</code>.</li>
 </ul>
 </li>
 <li><strong>US-F0-06-T07</strong> — Implementar aceitação idempotente de mensagens usando <code>MessageId</code>/<code>ThreadId</code>, rejeitando duplicados sem duplicar eventos, trabalho ou auditoria.</li>
-<li><strong>US-F0-06-T08</strong> — Carregar configuração da posição a partir do registry no arranque/reativação e validar que a versão da configuração é compatível com o estado persistido.</li>
-<li><strong>US-F0-06-T09</strong> — Encaminhar mensagens aceites para o ocupante atual (<code>AiAgentActor</code> ou <code>HumanProxyActor</code>), mantendo inbox, tarefas e histórico como estado da posição.</li>
+<li><strong>US-F0-06-T08</strong> — Carregar e aplicar a configuração runtime da posição após recovery, usando o registry/read model materializado como fonte, validando compatibilidade por <code>PositionConfigurationStamp</code> e bloqueando fail-closed até a entidade estar pronta.
+<ul>
+<li><strong>US-F0-06-T08a</strong> — Definir os contratos do gate: <code>PositionConfigurationStamp</code>, <code>PositionRuntimeConfiguration</code>, resultado de carga, matriz de compatibilidade e estados operacionais <code>Recovering</code>/<code>LoadingConfiguration</code>/<code>ConfigurationBlocked</code>/<code>Ready</code>.</li>
+<li><strong>US-F0-06-T08b</strong> — Implementar <code>IPositionConfigurationProvider</code> sobre o registry/read model materializado, sem YAML direto nem HTTP interno, distinguindo ausência confirmada de falhas técnicas e rejeitando configuração parcial, incoerente ou sem stamp válido.</li>
+<li><strong>US-F0-06-T08c</strong> — Tornar o stamp recuperável: introduzir <code>PositionConfigurationApplied</code>, atualizar estado, snapshot, reducer/replay, serializers/manifests e fixtures de compatibilidade para <code>PositionConfigurationStamp</code> e o evento aplicado.</li>
+<li><strong>US-F0-06-T08d</strong> — Integrar o gate no ciclo de ativação do <code>PositionActor</code>: carregar após recovery, aplicar/persistir stamp quando necessário, bloquear/stash comandos até <code>Ready</code>, garantir ausência de side effects de negócio em <code>ConfigurationBlocked</code> e cobrir a matriz com testes unitários e de recuperação.</li>
+</ul>
+</li>
+<li><strong>US-F0-06-T09</strong> — Encaminhar mensagens aceites para o ocupante atual (<code>AiAgentActor</code> ou <code>HumanProxyActor</code>) apenas depois de a posição estar em <code>Ready</code>, mantendo inbox, tarefas e histórico como estado da posição.</li>
 <li><strong>US-F0-06-T10</strong> — Publicar eventos de audit/read model apenas depois de persistência confirmada, incluindo recuperação, reativação e rejeições por duplicado ou configuração inválida.</li>
 <li><strong>US-F0-06-T11</strong> — Implementar passivation segura para posições inativas, garantindo que mensagens persistidas, tarefas abertas e posições com agenda/subscrição ativa não se perdem nem ficam inacessíveis.
 <ul>
@@ -1763,8 +1775,8 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 <li><strong>US-F0-06-T12</strong> — Criar testes unitários para transições de estado, idempotência, aplicação de eventos, snapshots, validação de configuração e troca de ocupante.</li>
 <li><strong>US-F0-06-T13</strong> — Criar testes de integração com PostgreSQL para restart, replay completo, restore por snapshot, compatibilidade de serialização e reentrega de mensagens.
 <ul>
-<li><strong>US-F0-06-T13a</strong> — Testar restart com replay completo e restore por snapshot para inbox, tarefas, memória curta e histórico recente.</li>
-<li><strong>US-F0-06-T13b</strong> — Testar compatibilidade de serialização com fixtures versionadas de eventos e snapshots persistidos.</li>
+<li><strong>US-F0-06-T13a</strong> — Testar restart com replay completo e restore por snapshot para inbox, tarefas, memória curta e histórico recente. Os cenários de stamp de configuração pertencem a <code>US-F0-06-T08d</code>.</li>
+<li><strong>US-F0-06-T13b</strong> — Testar compatibilidade de serialização com fixtures versionadas de eventos base e snapshots persistidos. Os fixtures de <code>PositionConfigurationStamp</code>/<code>PositionConfigurationApplied</code> pertencem a <code>US-F0-06-T08c</code>.</li>
 <li><strong>US-F0-06-T13c</strong> — Testar reentrega de mensagens com <code>MessageId</code>/<code>ThreadId</code> persistidos, confirmando idempotência após restart.</li>
 </ul>
 </li>
@@ -1777,9 +1789,77 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 </li>
 </ul>
 <p><strong>Configuração de persistência (US-F0-06-T05a):</strong> o journal e o snapshot store do <code>PositionActor</code> usam <code>Akka.Persistence.Sql</code> (Linq2Db, provider PostgreSQL — ADR-003, substituindo o deprecated <code>Akka.Persistence.PostgreSql</code>) e vivem num schema dedicado <code>persistence</code>, isolado dos restantes subsistemas que partilham <code>ConnectionStrings:PostgreSql</code> (registry, audit, read models, budgets, scheduler), seguindo a regra de cada subsistema ser dono do seu schema e migrations. O subsistema é dono do schema dedicado, criado e versionado por uma migration SQL idempotente, serializada entre nós por advisory lock e registada num <code>schema_migrations</code> próprio, aplicada no bootstrap comum de <code>Hive.Api</code>/<code>Hive.Worker</code> antes do workload <code>agents</code> iniciar a entidade persistente; o DDL das tabelas de journal/snapshot/tags/metadata é do plugin e criado por auto-initialization dentro desse schema (que por isso tem de existir primeiro). Os plugins partilham o único <code>ConnectionStrings:PostgreSql</code>; quando não há connection string os plugins não são ligados e o nó permanece not-ready, tal como o import do registry é saltado. Um health check de readiness <code>persistence</code> sinaliza que a persistência de posição está configurada, sendo a existência efetiva do schema garantida pela migration que aborta o arranque se não aplicar. O binding dos serializers versionáveis de comandos/eventos/snapshots, sem serialização .NET por omissão, pertence a <code>US-F0-06-T05b</code> e o smoke check de persistir/recuperar a <code>US-F0-06-T05c</code>.</p>
-<p><strong>Serializers versionáveis do <code>PositionActor</code> (US-F0-06-T05b):</strong> o protocolo sharded/persistido de posição usa o serializer Akka <code>hive-position-protocol</code> (<code>PositionProtocolJsonSerializer</code>) com id numérico estável <code>0x48495650</code> (&quot;HIVP&quot;). O binding cobre <code>PositionEnvelope</code> (<code>position-envelope</code>), <code>PositionCommand</code> e todos os comandos concretos (<code>accept-message</code>, <code>open-task</code>, <code>update-task</code>, <code>complete-task</code>, <code>update-short-memory</code>, <code>change-occupant</code>, <code>request-passivation</code>), <code>PositionEvent</code> e todos os eventos concretos (<code>message-received</code>, <code>task-created</code>, <code>task-updated</code>, <code>task-completed</code>, <code>short-memory-updated</code>, <code>occupant-changed</code>, <code>message-dispatched</code>, <code>position-passivated</code>), e <code>PositionSnapshot</code> (<code>position-snapshot</code>). O formato é <code>System.Text.Json</code> ADR-007: ids estruturais como texto canónico, ids GUID como strings, <code>OccupantType</code> como <code>ai-agent</code>/<code>human</code>, e unions embutidas (<code>OrgMessage</code>, <code>PositionCommand</code>, <code>PositionEvent</code>) com wrapper explícito <code>{ manifest, payload }</code>. O id do serializer e estes manifests são contrato duradouro e não podem mudar enquanto existirem journals/snapshots persistidos.</p>
+<p><strong>Serializers versionáveis do <code>PositionActor</code> (US-F0-06-T05b):</strong> o protocolo sharded/persistido de posição usa o serializer Akka <code>hive-position-protocol</code> (<code>PositionProtocolJsonSerializer</code>) com id numérico estável <code>0x48495650</code> (&quot;HIVP&quot;). O binding base cobre <code>PositionEnvelope</code> (<code>position-envelope</code>), <code>PositionCommand</code> e todos os comandos concretos (<code>accept-message</code>, <code>open-task</code>, <code>update-task</code>, <code>complete-task</code>, <code>update-short-memory</code>, <code>change-occupant</code>, <code>request-passivation</code>), <code>PositionEvent</code> e os eventos concretos base (<code>message-received</code>, <code>task-created</code>, <code>task-updated</code>, <code>task-completed</code>, <code>short-memory-updated</code>, <code>occupant-changed</code>, <code>message-dispatched</code>, <code>position-passivated</code>), e <code>PositionSnapshot</code> (<code>position-snapshot</code>). O formato é <code>System.Text.Json</code> ADR-007: ids estruturais como texto canónico, ids GUID como strings, <code>OccupantType</code> como <code>ai-agent</code>/<code>human</code>, e unions embutidas (<code>OrgMessage</code>, <code>PositionCommand</code>, <code>PositionEvent</code>) com wrapper explícito <code>{ manifest, payload }</code>. A extensão de configuração (<code>PositionConfigurationStamp</code> e manifest <code>position-configuration-applied</code>) é implementada em <code>US-F0-06-T08c</code>. O id do serializer e estes manifests são contrato duradouro e não podem mudar enquanto existirem journals/snapshots persistidos.</p>
 <p><strong>Recuperação determinística do <code>PositionActor</code> (US-F0-06-T06b):</strong> a entidade persistente usa o identificador duradouro <code>persistenceId = "position:" + entityId</code>, onde <code>entityId</code> é o valor canónico <code>OrganizationId/PositionId</code> de <code>US-F0-06-T01</code>. Na ativação começa em <code>PositionState.Empty</code>, restaura o snapshot mais recente com <code>PositionState.Restore(PositionSnapshot)</code> e aplica, em ordem de journal, os <code>PositionEvent</code> posteriores com <code>PositionState.Apply</code>. Só depois de a recuperação Akka terminar é que a entidade aceita novos comandos; esses comandos produzem os eventos já modelados em <code>US-F0-06-T03</code> e atualizam o estado apenas depois de a persistência confirmar. A rejeição de duplicados (<code>US-F0-06-T07</code>), o despacho para o ocupante (<code>US-F0-06-T09</code>) e os guard rails de passivation (<code>US-F0-06-T11</code>) permanecem fora deste contrato.</p>
-<p><strong>Critério de conclusão:</strong> o <code>PositionActor</code> corre como entidade sharded por <code>OrganizationId/PositionId</code>, persiste e recupera inbox, tarefas, memória curta e histórico, aceita mensagens de forma idempotente, sobrevive a restart/rebalance/passivation sem perda de estado, publica auditoria/read models depois da persistência e tem testes unitários, integração PostgreSQL e multi-nó para os caminhos críticos.</p>
+<p><strong>Gate de configuração runtime do <code>PositionActor</code> (US-F0-06-T08):</strong> depois da recuperação Akka e antes de aceitar comandos de negócio, a entidade carrega a configuração runtime da posição a partir do registry/read model materializado para o seu <code>OrganizationId/PositionId</code>. Esta tarefa é um gate de configuração da entidade: não é importer, não lê YAML diretamente, não chama a API HTTP interna e não implementa hot reload. O objetivo é impedir que uma entidade sharded processe trabalho organizacional com configuração ausente, incompleta, obsoleta, inconsistente ou tecnicamente indisponível.</p>
+<p><strong>Decomposição:</strong> por decisão de estimativa, a <code>US-F0-06-T08</code> tem esforço total <code>8</code> e trata todo o gate de configuração runtime. Para cumprir a regra §12.1, é executada por quatro subtarefas de esforço <code>2</code>: <code>T08a</code> contratos e matriz, <code>T08b</code> provider registry, <code>T08c</code> stamp persistido/replay/serializer e <code>T08d</code> integração do gate no ator com testes.</p>
+
+<p>A ativação da entidade segue três fases: (1) recuperar estado persistido por replay/snapshot, reconstruindo inbox, tarefas, memória curta, histórico, mensagens processadas, ocupante e último stamp de configuração aplicado; (2) carregar <code>PositionRuntimeConfiguration</code> do registry/read model através de um seam assíncrono; (3) validar compatibilidade, persistir <code>PositionConfigurationApplied</code> quando uma configuração nova é aceite, entrar em <code>Ready</code> e só então aceitar/unstash comandos de negócio. Enquanto as fases 2 ou 3 não terminarem com sucesso, a entidade fica não-pronta e não processa comandos organizacionais.</p>
+
+<pre><code class="language-csharp">public sealed record PositionConfigurationStamp(
+    long Version,
+    string Fingerprint);
+
+public sealed record PositionRuntimeConfiguration(
+    PositionConfigurationStamp Stamp,
+    OrganizationId OrganizationId,
+    PositionId PositionId,
+    PositionRuntimeDescriptor Position,
+    OccupantRuntimeConfiguration Occupant,
+    PositionAuthorityRuntimeConfiguration Authority,
+    IReadOnlyList&lt;PositionScheduleRuntimeConfiguration&gt; Schedules);
+
+public interface IPositionConfigurationProvider
+{
+    Task&lt;PositionRuntimeConfigurationLoadResult&gt; LoadAsync(
+        PositionEntityId entityId,
+        CancellationToken cancellationToken);
+}</code></pre>
+
+<p><code>PositionConfigurationStamp</code> é o carimbo versionado da configuração runtime publicada pelo registry. <code>Version</code> é monotónica por organização/import publicado e tem de ser positiva; <code>Fingerprint</code> é o fingerprint semântico canónico da configuração publicada, obrigatório, não vazio e sem normalização silenciosa. O par <code>{ Version, Fingerprint }</code> identifica a configuração aplicada pela entidade e não substitui o <code>SchemaVersion</code> de mensagens/eventos, que é um contrato separado. <code>PositionRuntimeConfiguration</code> é a projeção runtime completa de uma posição, incluindo identidade da organização, identidade da posição, dados essenciais da posição, ocupante, autoridade, schedules/subscriptions relevantes e stamp. A shape concreta pode evoluir, mas configuração parcial ou incoerente com o <code>PositionEntityId</code> é incompatível.</p>
+
+<p>O seam <code>IPositionConfigurationProvider</code> lê o registry/read model materializado, não lê YAML, não chama endpoints HTTP internos e não aplica defaults silenciosos que escondam configuração em falta. O resultado distingue ausência confirmada de falha técnica: organização/posição ausente, configuração incompleta, stamp inválido ou schema runtime não suportado bloqueiam a entidade fail-closed; timeout, cancelamento, erro de ligação ao PostgreSQL, indisponibilidade temporária do read model ou exceção inesperada são falhas técnicas sujeitas a retry/supervisão e não são convertidas em rejeição de routing.</p>
+
+<p><code>PositionConfigurationApplied</code> é o evento persistido pequeno que torna o último stamp aplicado recuperável por replay completo:</p>
+
+<pre><code class="language-csharp">public sealed record PositionConfigurationApplied(
+    long Version,
+    string Fingerprint,
+    DateTimeOffset OccurredAt) : PositionEvent;</code></pre>
+
+<ul>
+<li>É persistido quando a entidade aceita uma configuração nova.</li>
+<li>Não é evento de negócio organizacional e não representa import de registry.</li>
+<li>Não reconcilia ocupante, autoridade, schedules, ferramentas ou budgets.</li>
+<li>O snapshot pode guardar o último stamp aplicado para acelerar recovery, mas o journal continua suficiente.</li>
+<li>Reaplicar a mesma configuração não gera novo evento.</li>
+</ul>
+
+<table>
+<thead>
+<tr><th>Estado recuperado</th><th>Configuração atual</th><th>Resultado</th></tr>
+</thead>
+<tbody>
+<tr><td>Sem stamp persistido</td><td>Completa e suportada</td><td>Aceita e persiste um único <code>PositionConfigurationApplied</code></td></tr>
+<tr><td>Mesma <code>Version</code></td><td>Mesmo <code>Fingerprint</code></td><td>Aceita sem persistir novo evento</td></tr>
+<tr><td>Mesma <code>Version</code></td><td><code>Fingerprint</code> diferente</td><td>Incompatível; bloqueia a entidade</td></tr>
+<tr><td><code>Version</code> atual maior</td><td>Completa, suportada e coerente com o <code>PositionEntityId</code></td><td>Aceita e persiste um único <code>PositionConfigurationApplied</code></td></tr>
+<tr><td><code>Version</code> atual menor</td><td>Qualquer <code>Fingerprint</code></td><td>Incompatível; bloqueia a entidade</td></tr>
+<tr><td>Qualquer</td><td>Ausente, incompleta, stamp inválido ou schema runtime não suportado</td><td>Incompatível; bloqueia a entidade</td></tr>
+<tr><td>Qualquer</td><td>Falha técnica do registry/read model</td><td>Falha técnica/retry/supervisão</td></tr>
+</tbody>
+</table>
+
+<p>Os estados operacionais da entidade para este gate são <code>Recovering</code>, <code>LoadingConfiguration</code>, <code>ConfigurationBlocked</code> e <code>Ready</code>. Em <code>ConfigurationBlocked</code>, a entidade recuperou estado, mas a configuração atual está ausente, incompleta, obsoleta ou incompatível; não aceita novo trabalho organizacional, não persiste eventos de negócio, não despacha mensagens para ocupante e só pode responder a diagnóstico interno controlado. A política final de resposta ao chamador para comandos recebidos enquanto a entidade está bloqueada fica fora de escopo, mas a T08 garante ausência de side effects de negócio.</p>
+
+<p>Enquanto a entidade não estiver em <code>Ready</code>, <code>AcceptMessage</code> não persiste <code>MessageReceived</code>, <code>OpenTask</code> não persiste <code>TaskCreated</code>, <code>UpdateTask</code> não persiste <code>TaskUpdated</code>, <code>CompleteTask</code> não persiste <code>TaskCompleted</code>, <code>UpdateShortMemory</code> não persiste <code>ShortMemoryUpdated</code> e qualquer dispatch para ocupante fica proibido. Durante <code>LoadingConfiguration</code>, mensagens organizacionais podem ficar temporariamente stashed; se a carga terminar em <code>ConfigurationBlocked</code>, não são tratadas como routing inválido.</p>
+
+<p>Fica fora de escopo da T08: importação de YAML, migrations do registry, endpoints HTTP de consulta, hot reload de configuração, reconciliação automática de <code>occupant</code>, <code>authority</code>, <code>schedules</code> ou subscriptions, enforcement de budgets/tools no AI Gateway, criação/execução de <code>AiAgentActor</code> ou <code>HumanProxyActor</code>, scheduler coordinator e política final de UX/API para entidades bloqueadas.</p>
+
+<p><strong>Critérios de aceitação de <code>US-F0-06-T08</code>:</strong> um <code>PositionActor</code> só entra em <code>Ready</code> depois de recuperar estado persistido, carregar <code>PositionRuntimeConfiguration</code>, validar compatibilidade e aplicar/persistir o stamp quando necessário; sem stamp persistido, configuração atual completa e suportada gera um único <code>PositionConfigurationApplied</code>; mesma versão e mesmo fingerprint não geram novo evento; mesma versão com fingerprint diferente bloqueia; versão atual maior só é aceite se a configuração estiver completa, suportada e coerente com o <code>PositionEntityId</code>; versão atual menor bloqueia; configuração ausente, incompleta ou com stamp inválido bloqueia; falhas técnicas do registry propagam como retry/supervisão; comandos de negócio não persistem eventos nem produzem dispatch antes de <code>Ready</code>; o último stamp aplicado é reconstruível por replay completo; snapshot e replay completo produzem o mesmo estado lógico quanto ao stamp; reativação após passivation não reaplica a mesma configuração nem duplica <code>PositionConfigurationApplied</code>.</p>
+
+<p><strong>Testes mínimos de <code>US-F0-06-T08</code>:</strong> recovery sem stamp persistido; mesma versão/mesmo fingerprint; mesma versão/fingerprint diferente; versão maior; versão menor; configuração ausente; falha técnica do registry; comando recebido durante <code>LoadingConfiguration</code>; replay completo sem snapshot; restore por snapshot com equivalência lógica ao replay completo. Estes testes pertencem a <code>US-F0-06-T08d</code> e provam que o stamp é estado recuperável, não apenas metadado de snapshot.</p>
+<p><strong>Critério de conclusão:</strong> o <code>PositionActor</code> corre como entidade sharded por <code>OrganizationId/PositionId</code>, persiste e recupera inbox, tarefas, memória curta, histórico e último stamp de configuração aplicado, só aceita comandos depois de configuração runtime compatível, aceita mensagens de forma idempotente, sobrevive a restart/rebalance/passivation sem perda de estado, publica auditoria/read models depois da persistência e tem testes unitários, integração PostgreSQL e multi-nó para os caminhos críticos.</p>
 </article>
 
 <h4>F0.4 — Agente AI e gateway mínimo</h4>
@@ -2827,7 +2907,7 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 
 <hr>
 
-<p><em>Próxima iteração (v0.66): implementar <code>US-F0-04-T07</code>, validando <code>ApprovalRequest</code>/<code>ApprovalDecision</code> contra aprovador autorizado, correlação, estado e expiração do pedido original.</em></p>
+<p><em>Próxima iteração (v0.88): implementar e validar <code>US-F0-06-T08</code> no runtime, garantindo gate de configuração, stamp recuperável por replay completo e ausência de side effects antes de <code>Ready</code>.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

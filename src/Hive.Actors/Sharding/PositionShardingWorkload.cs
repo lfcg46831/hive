@@ -22,8 +22,8 @@ namespace Hive.Actors.Sharding;
 /// Shards are restricted to <see cref="NodeRoleNames.Agents"/> members so position entities only
 /// ever allocate on agent nodes, even in an all-in-one node. The region is built from the
 /// <see cref="PositionMessageExtractor"/> (entity/shard resolution and envelope unwrapping) and the
-/// <see cref="IPositionEntityProps"/> seam, which later stories replace with the real persistent
-/// entity (US-F0-06-T06b/T09) without changing this wiring.
+/// <see cref="IPositionEntityProps"/> seam, which supplies the persistent entity introduced by
+/// US-F0-06-T06b without changing this wiring.
 /// </para>
 /// <para>
 /// Remember-entities (US-F0-06-T04c) keeps positions that stay warm — those with an active

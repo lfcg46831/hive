@@ -98,10 +98,9 @@ public static class HiveActorSystemBootstrapExtensions
 
         // Cluster Sharding for the PositionActor is a role-conditional workload (US-F0-06-T04b):
         // the host starts it only on nodes that declare the agents role, through the existing
-        // IRoleWorkload seam. The entity Props seam defaults to a placeholder until the real
-        // persistent PositionActor lands (US-F0-06-T06b/T09); TryAdd lets those stories override
-        // it without touching this wiring.
-        builder.Services.TryAddSingleton<IPositionEntityProps, PlaceholderPositionEntityProps>();
+        // IRoleWorkload seam. The entity Props seam now supplies the persistent PositionActor
+        // (US-F0-06-T06b); TryAdd keeps the wiring replaceable for later entity behaviour.
+        builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<PositionShardingWorkload>());

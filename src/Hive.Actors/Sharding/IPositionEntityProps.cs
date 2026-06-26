@@ -8,9 +8,8 @@ namespace Hive.Actors.Sharding;
 /// </summary>
 /// <remarks>
 /// US-F0-06-T04b owns the shard-region initialization and depends only on this seam, never on a
-/// concrete entity. The real persistent <c>PositionActor</c> Props arrive in later stories
-/// (US-F0-06-T06b/T09) by replacing the default registration, so the entity behaviour can evolve
-/// without touching the sharding wiring of T04b.
+/// concrete entity. US-F0-06-T06b supplies the default persistent <c>PositionActor</c> props through
+/// this boundary, so later entity behaviour can evolve without touching the sharding wiring of T04b.
 /// </remarks>
 public interface IPositionEntityProps
 {

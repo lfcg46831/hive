@@ -36,7 +36,7 @@ internal static class OrgMessageJsonFormat
             ?? throw new JsonException($"Payload for manifest '{manifest}' deserialized to null.");
     }
 
-    private static JsonSerializerOptions CreateOptions()
+    internal static JsonSerializerOptions CreateOptions()
     {
         var options = new JsonSerializerOptions
         {

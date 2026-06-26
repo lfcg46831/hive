@@ -59,6 +59,13 @@ public static class HiveActorSystemBootstrapExtensions
                     "hive-org-message",
                     new[] { typeof(OrgMessage) },
                     system => new OrgMessageJsonSerializer(system))
+                // Bind the sharded/persisted PositionActor protocol (US-F0-06-T05b): envelopes,
+                // commands, events and snapshots use stable manifests over System.Text.Json, so
+                // remote delivery and Akka.Persistence never fall back to CLR/.NET serialization.
+                .WithCustomSerializer(
+                    "hive-position-protocol",
+                    PositionProtocolManifests.ProtocolTypes,
+                    system => new PositionProtocolJsonSerializer(system))
                 .WithRemoting(cluster.Hostname, cluster.Port)
                 .WithClustering(new ClusterOptions
                 {
@@ -76,8 +83,7 @@ public static class HiveActorSystemBootstrapExtensions
             // owned by the plugin and created by auto-initialization inside that schema, so the schema
             // exists first. When no connection string is configured the persistence plugins are not
             // wired and the node stays not-ready under the existing readiness contract, mirroring how
-            // the registry import is skipped. Binding the versionable serializers for
-            // commands/events/snapshots is US-F0-06-T05b.
+            // the registry import is skipped.
             var connectionString = configuration.GetConnectionString(ConnectionStringNames.PostgreSql);
             if (!string.IsNullOrWhiteSpace(connectionString))
             {

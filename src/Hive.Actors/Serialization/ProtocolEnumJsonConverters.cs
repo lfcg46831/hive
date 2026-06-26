@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hive.Domain.Messaging;
+using Hive.Domain.Organization.Configuration;
 
 namespace Hive.Actors.Serialization;
 
@@ -77,4 +78,33 @@ internal sealed class ReportKindJsonConverter : WireEnumJsonConverter<ReportKind
 
     protected override bool TryParseWire(string? value, out ReportKind result) =>
         ReportKindContract.TryParseWireValue(value, out result);
+}
+
+internal sealed class OccupantTypeJsonConverter : WireEnumJsonConverter<OccupantType>
+{
+    protected override string ToWire(OccupantType value) =>
+        value switch
+        {
+            OccupantType.AiAgent => "ai-agent",
+            OccupantType.Human => "human",
+            _ => throw new JsonException($"'{value}' is not a supported occupant type."),
+        };
+
+    protected override bool TryParseWire(string? value, out OccupantType result)
+    {
+        switch (value)
+        {
+            case "ai-agent":
+                result = OccupantType.AiAgent;
+                return true;
+
+            case "human":
+                result = OccupantType.Human;
+                return true;
+
+            default:
+                result = default;
+                return false;
+        }
+    }
 }

@@ -34,7 +34,14 @@ internal sealed class PositionActor : ReceivePersistentActor
 
         Command<GetPositionState>(_ => Sender.Tell(_state));
         Command<AcceptMessage>(command =>
-            PersistAndApply(new MessageReceived(command.Message, _clock())));
+        {
+            if (_state.ProcessedMessages.Contains(command.Message.Id))
+            {
+                return;
+            }
+
+            PersistAndApply(new MessageReceived(command.Message, _clock()));
+        });
         Command<OpenTask>(command =>
             PersistAndApply(new TaskCreated(
                 command.TaskId,

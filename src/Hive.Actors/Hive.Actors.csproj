@@ -7,9 +7,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Akka.Hosting" Version="1.5.31" />
-    <PackageReference Include="Akka.Remote.Hosting" Version="1.5.31" />
-    <PackageReference Include="Akka.Cluster.Hosting" Version="1.5.31" />
+    <PackageReference Include="Akka.Cluster" Version="1.5.69" />
+    <PackageReference Include="Akka.Hosting" Version="1.5.69" />
+    <PackageReference Include="Akka.Persistence.Sql" Version="1.5.67" />
+    <PackageReference Include="Akka.Persistence.Sql.Hosting" Version="1.5.67" />
+    <PackageReference Include="Akka.Remote.Hosting" Version="1.5.69" />
+    <PackageReference Include="Akka.Cluster.Hosting" Version="1.5.69" />
   </ItemGroup>
 
   <ItemGroup>

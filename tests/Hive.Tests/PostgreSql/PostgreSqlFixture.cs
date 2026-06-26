@@ -36,4 +36,11 @@ public sealed class PostgreSqlFixture : IAsyncLifetime
         await using var command = dataSource.CreateCommand("DROP SCHEMA IF EXISTS registry CASCADE;");
         await command.ExecuteNonQueryAsync();
     }
+
+    public async Task ResetPersistenceAsync()
+    {
+        await using var dataSource = CreateDataSource();
+        await using var command = dataSource.CreateCommand("DROP SCHEMA IF EXISTS persistence CASCADE;");
+        await command.ExecuteNonQueryAsync();
+    }
 }

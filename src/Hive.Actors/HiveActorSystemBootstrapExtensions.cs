@@ -1,11 +1,15 @@
 using Akka.Cluster.Hosting;
 using Akka.Hosting;
+using Akka.Persistence.Sql.Hosting;
+using Akka.Persistence.Hosting;
 using Akka.Remote.Hosting;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Persistence.PostgreSql;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
@@ -32,6 +36,7 @@ public static class HiveActorSystemBootstrapExtensions
         {
             var cluster = serviceProvider.GetRequiredService<IOptions<HiveOptions>>().Value.Cluster;
             var roles = serviceProvider.GetRequiredService<ActiveNodeRoles>().Values.ToArray();
+            var configuration = serviceProvider.GetRequiredService<IConfiguration>();
 
             string[] seedNodes = cluster.SeedNodes is { Length: > 0 }
                 ? cluster.SeedNodes
@@ -60,6 +65,29 @@ public static class HiveActorSystemBootstrapExtensions
                     Roles = roles,
                     SeedNodes = seedNodes,
                 });
+
+            // Akka.Persistence (Linq2Db, Akka.Persistence.Sql) PostgreSQL journal and snapshot store
+            // for the PositionActor (US-F0-06-T05a, ADR-003 — Akka.Persistence.Sql replaces the
+            // deprecated Akka.Persistence.PostgreSql). The plugins share the single
+            // ConnectionStrings:PostgreSql value and live in their own dedicated schema, isolated from
+            // the registry/audit/read model/budget/scheduler subsystems. The subsystem owns and
+            // versions the dedicated schema via the migration that runs in the common bootstrap before
+            // the agents workload starts the persistent entity; the journal/snapshot table DDL is
+            // owned by the plugin and created by auto-initialization inside that schema, so the schema
+            // exists first. When no connection string is configured the persistence plugins are not
+            // wired and the node stays not-ready under the existing readiness contract, mirroring how
+            // the registry import is skipped. Binding the versionable serializers for
+            // commands/events/snapshots is US-F0-06-T05b.
+            var connectionString = configuration.GetConnectionString(ConnectionStringNames.PostgreSql);
+            if (!string.IsNullOrWhiteSpace(connectionString))
+            {
+                akka.WithSqlPersistence(
+                    connectionString,
+                    providerName: LinqToDB.ProviderName.PostgreSQL,
+                    mode: PersistenceMode.Both,
+                    schemaName: PositionPersistenceSchema.SchemaName,
+                    autoInitialize: true);
+            }
         });
 
         // Cluster Sharding for the PositionActor is a role-conditional workload (US-F0-06-T04b):

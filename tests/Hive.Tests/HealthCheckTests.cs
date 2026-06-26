@@ -64,7 +64,29 @@ public sealed class HealthCheckTests
     }
 
     [Fact]
-    public async Task Bootstrap_registers_the_three_minimal_checks_with_live_and_ready_tags()
+    public async Task Persistence_check_is_unhealthy_when_connection_string_is_missing()
+    {
+        var check = new PositionPersistenceHealthCheck(Configuration(connectionString: ""));
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Unhealthy, result.Status);
+        Assert.Contains(ConnectionStringNames.PostgreSql, result.Description);
+    }
+
+    [Fact]
+    public async Task Persistence_check_is_healthy_when_connection_string_is_present()
+    {
+        var check = new PositionPersistenceHealthCheck(
+            Configuration(connectionString: "Host=localhost;Database=hive"));
+
+        var result = await check.CheckHealthAsync(new HealthCheckContext());
+
+        Assert.Equal(HealthStatus.Healthy, result.Status);
+    }
+
+    [Fact]
+    public async Task Bootstrap_registers_the_minimal_checks_with_live_and_ready_tags()
     {
         using var host = BuildHost(new Dictionary<string, string?>
         {
@@ -82,6 +104,7 @@ public sealed class HealthCheckTests
             {
                 HiveHealthChecks.ConfigurationName,
                 HiveHealthChecks.DependenciesName,
+                HiveHealthChecks.PersistenceName,
                 HiveHealthChecks.ProcessName,
             },
             report.Entries.Keys.OrderBy(name => name).ToArray());
@@ -89,6 +112,7 @@ public sealed class HealthCheckTests
         Assert.Contains(HiveHealthChecks.LiveTag, report.Entries[HiveHealthChecks.ProcessName].Tags);
         Assert.Contains(HiveHealthChecks.ReadyTag, report.Entries[HiveHealthChecks.ConfigurationName].Tags);
         Assert.Contains(HiveHealthChecks.ReadyTag, report.Entries[HiveHealthChecks.DependenciesName].Tags);
+        Assert.Contains(HiveHealthChecks.ReadyTag, report.Entries[HiveHealthChecks.PersistenceName].Tags);
     }
 
     [Fact]

@@ -17,6 +17,9 @@ public static class HiveHealthChecks
     /// <summary>Readiness check: every mandatory external dependency is configured.</summary>
     public const string DependenciesName = "dependencies";
 
+    /// <summary>Readiness check: the position journal/snapshot persistence is configured.</summary>
+    public const string PersistenceName = "persistence";
+
     /// <summary>Tag for liveness checks ("is the process up?").</summary>
     public const string LiveTag = "live";
 

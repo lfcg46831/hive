@@ -311,6 +311,12 @@ The same F0 database serves journal/snapshots, registry, audit log, read models,
 
 The organization registry owns the `registry` schema and uses this same connection string. The common host bootstrap automatically applies its embedded, versioned SQL migrations and then imports every organization under `Hive:Organizations:RootPath` before role workloads start; concurrent cluster nodes serialize migration/import writers and unchanged YAML becomes a no-op. Migration `001_registry.sql` creates the organization header and the unit, position, occupant, authority, schedule, command-relation, and per-organization import-lock tables. No additional credential is required beyond `ConnectionStrings:PostgreSql`; the configured database user must be allowed to create and modify the owned `registry` schema. A host with no configured connection string skips migration/import and remains not-ready under the existing readiness contract; a configured database that cannot connect/migrate or an absent/invalid organization tree fails host startup.
 
+### PositionActor persistence (journal and snapshots)
+
+The `PositionActor` journal and snapshot store use `Akka.Persistence.Sql` (Linq2Db, PostgreSQL provider — ADR-003, replacing the deprecated `Akka.Persistence.PostgreSql`) over the same `ConnectionStrings:PostgreSql` value, in a dedicated `persistence` schema isolated from the registry and the other subsystems that share the database (US-F0-06-T05a). The common bootstrap applies its embedded, versioned migration `001_persistence.sql` — serialized across nodes by an advisory lock and recorded in `persistence.schema_migrations` — before the `agents` workload starts the persistent entity. The migration owns and versions the dedicated `persistence` schema; the journal/snapshot/tag/metadata table DDL is owned by the plugin and created by auto-initialization inside that schema on first use, so the schema must exist first. The configured database user must be allowed to create and modify the owned `persistence` schema; no credential beyond `ConnectionStrings:PostgreSql` is required.
+
+When the connection string is absent the persistence plugins are not wired into the actor system, the migration is skipped, and the node stays not-ready under the existing readiness contract; when it is present, a failed connection or migration aborts host startup, exactly like the registry. The schema name is a durable contract and must not change while journals exist. Binding the versionable serializers for commands, events, and snapshots (no default .NET serialization) is US-F0-06-T05b.
+
 ## Node roles
 
 The canonical values are `agents`, `gateway`, `connectors`, and `api`.
@@ -370,6 +376,7 @@ Both executables register the same minimal health checks through the shared boot
 | `process` | `live` | The host can run the check at all — the process is alive and responsive. |
 | `configuration` | `ready` | The typed `Hive` options are loaded with at least one active node role. |
 | `dependencies` | `ready` | Every mandatory external dependency is configured. In F0 that is the `ConnectionStrings:PostgreSql` value. |
+| `persistence` | `ready` | The `PositionActor` journal/snapshot persistence is configured (`ConnectionStrings:PostgreSql` present). The dedicated `persistence` schema is guaranteed by the migration that aborts startup if it cannot apply; the journal/snapshot tables are auto-initialized by the Akka.Persistence.Sql plugin inside that schema (US-F0-06-T05a). |
 
 Liveness (`live`) answers "is the process up?" and stays healthy while the host runs. Readiness (`ready`) answers "can this node serve work?" and is intentionally unhealthy until mandatory configuration is supplied: because `ConnectionStrings:PostgreSql` is empty in tracked source files (see PostgreSQL above), a node reports not-ready until the connection string is provided per environment. This is the readiness contract that US-F0-02-T09 relies on under Docker Compose.
 

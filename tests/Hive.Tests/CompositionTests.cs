@@ -94,13 +94,18 @@ public sealed class CompositionTests(PostgreSqlFixture postgreSql)
     [MemberData(nameof(ExecutableNames))]
     public async Task Entry_point_rejects_empty_required_roles(string executableName)
     {
-        using var host = BuildHost(
-            executableName,
-            roles: [string.Empty],
-            includePostgreSql: true);
-
-        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
-            () => host.StartAsync());
+        // Invalid node roles must abort host bring-up. Akka.Hosting resolves the ActorSystem
+        // configuration when the mapped health checks are wired, so the validated Hive options can
+        // surface either while the host is being built or when it starts; assert the rejection
+        // across both phases so the contract does not depend on that timing.
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(async () =>
+        {
+            using var host = BuildHost(
+                executableName,
+                roles: [string.Empty],
+                includePostgreSql: true);
+            await host.StartAsync();
+        });
 
         Assert.Contains(
             exception.Failures,

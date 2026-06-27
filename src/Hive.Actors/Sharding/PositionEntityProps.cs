@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
+using Hive.Domain.Positions;
 
 namespace Hive.Actors.Sharding;
 
@@ -9,5 +10,14 @@ namespace Hive.Actors.Sharding;
 /// </summary>
 internal sealed class PositionEntityProps : IPositionEntityProps
 {
-    public Props Create(string entityId) => Props.Create(() => new PositionActor(entityId));
+    private readonly IPositionConfigurationProvider _configurationProvider;
+
+    public PositionEntityProps(IPositionConfigurationProvider configurationProvider)
+    {
+        _configurationProvider = configurationProvider
+            ?? throw new ArgumentNullException(nameof(configurationProvider));
+    }
+
+    public Props Create(string entityId) =>
+        Props.Create(() => new PositionActor(entityId, _configurationProvider));
 }

@@ -50,10 +50,12 @@ public sealed class PositionActorRecoveryTests
             await seeder.Ask<EventSeeded>(new SeedEvent(replayed), Timeout());
             await seeder.GracefulStop(Timeout());
 
+            var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
             var actor = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, () => At.AddMinutes(2))),
+                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(2))),
                 "position-recovery-reader");
 
+            await WaitForReadyAsync(actor);
             var recovered = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
             Assert.Equal(snapshot.Inbox[0].Id, Assert.Single(recovered.Inbox).Id);
@@ -72,9 +74,10 @@ public sealed class PositionActorRecoveryTests
             await actor.GracefulStop(Timeout());
 
             var restarted = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, () => At.AddMinutes(3))),
+                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(3))),
                 "position-recovery-restarted");
 
+            await WaitForReadyAsync(restarted);
             var afterRestart = await restarted.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
             Assert.Equal("accepted", afterRestart.ShortMemory["after-command"]);
@@ -128,7 +131,65 @@ public sealed class PositionActorRecoveryTests
     private static MessageId MessageId(string value) =>
         Hive.Domain.Identity.MessageId.From(new Guid(value));
 
+    private static async Task WaitForReadyAsync(IActorRef actor)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var status = await actor.Ask<PositionRuntimeStatus>(
+                GetPositionRuntimeStatus.Instance,
+                TimeSpan.FromSeconds(1));
+            if (status.OperationalState == PositionOperationalState.Ready)
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("PositionActor did not reach Ready.");
+    }
+
+    private static IPositionConfigurationProvider LoadedProvider(
+        PositionEntityId entity,
+        PositionConfigurationStamp stamp) =>
+        new StaticConfigurationProvider(
+            PositionRuntimeConfigurationLoadResult.Loaded(RuntimeConfiguration(entity, stamp)));
+
+    private static PositionRuntimeConfiguration RuntimeConfiguration(
+        PositionEntityId entity,
+        PositionConfigurationStamp stamp) =>
+        new(
+            stamp,
+            entity.Organization,
+            entity.Position,
+            new PositionRuntimeDescriptor(
+                UnitId.From("engineering"),
+                reportsTo: PositionId.From("cto"),
+                name: "Bug triage",
+                timezone: "Europe/Lisbon"),
+            new OccupantRuntimeConfiguration(
+                OccupantType.AiAgent,
+                identityPromptRef: "engineer-v1",
+                ai: null,
+                workingHours: null,
+                subscriptions: Array.Empty<SubscriptionConfiguration>(),
+                tools: Array.Empty<ToolConfiguration>()),
+            new PositionAuthorityRuntimeConfiguration(
+                canDecide: Array.Empty<string>(),
+                mustEscalate: Array.Empty<string>(),
+                requiresHumanApproval: Array.Empty<string>()));
+
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
+
+    private sealed class StaticConfigurationProvider(
+        PositionRuntimeConfigurationLoadResult result) : IPositionConfigurationProvider
+    {
+        public Task<PositionRuntimeConfigurationLoadResult> LoadAsync(
+            PositionEntityId entityId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
 
     private sealed class PositionActorSeedPersistenceActor : ReceivePersistentActor
     {

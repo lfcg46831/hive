@@ -1,9 +1,13 @@
+using Hive.Domain.Positions;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Logging;
+using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Hive.Infrastructure.Persistence.PostgreSql;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 
@@ -24,6 +28,16 @@ public static class HiveBootstrapExtensions
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.TryAddSingleton<IPositionConfigurationProvider>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? new UnavailablePositionConfigurationProvider(ConnectionStringNames.PostgreSql)
+                : new PostgreSqlPositionConfigurationProvider(connectionString);
+        });
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryImportHostedService>();
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();

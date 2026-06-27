@@ -4,6 +4,7 @@ using Akka.Persistence;
 using Hive.Actors.Positions;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 
 namespace Hive.Tests;
@@ -54,9 +55,13 @@ public sealed class PositionActorIdempotencyTests
             await seeder.GracefulStop(Timeout());
 
             var actor = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, () => At.AddMinutes(1))),
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1")),
+                    () => At.AddMinutes(1))),
                 "position-idempotency-actor");
 
+            await WaitForReadyAsync(actor);
             actor.Tell(new AcceptMessage(message));
 
             var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
@@ -99,7 +104,65 @@ public sealed class PositionActorIdempotencyTests
     private static ThreadId ThreadId(string value) =>
         Hive.Domain.Identity.ThreadId.From(new Guid(value));
 
+    private static async Task WaitForReadyAsync(IActorRef actor)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var status = await actor.Ask<PositionRuntimeStatus>(
+                GetPositionRuntimeStatus.Instance,
+                TimeSpan.FromSeconds(1));
+            if (status.OperationalState == PositionOperationalState.Ready)
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("PositionActor did not reach Ready.");
+    }
+
+    private static IPositionConfigurationProvider LoadedProvider(
+        PositionEntityId entity,
+        PositionConfigurationStamp stamp) =>
+        new StaticConfigurationProvider(
+            PositionRuntimeConfigurationLoadResult.Loaded(RuntimeConfiguration(entity, stamp)));
+
+    private static PositionRuntimeConfiguration RuntimeConfiguration(
+        PositionEntityId entity,
+        PositionConfigurationStamp stamp) =>
+        new(
+            stamp,
+            entity.Organization,
+            entity.Position,
+            new PositionRuntimeDescriptor(
+                UnitId.From("engineering"),
+                reportsTo: PositionId.From("cto"),
+                name: "Bug triage",
+                timezone: "Europe/Lisbon"),
+            new OccupantRuntimeConfiguration(
+                OccupantType.AiAgent,
+                identityPromptRef: "engineer-v1",
+                ai: null,
+                workingHours: null,
+                subscriptions: Array.Empty<SubscriptionConfiguration>(),
+                tools: Array.Empty<ToolConfiguration>()),
+            new PositionAuthorityRuntimeConfiguration(
+                canDecide: Array.Empty<string>(),
+                mustEscalate: Array.Empty<string>(),
+                requiresHumanApproval: Array.Empty<string>()));
+
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
+
+    private sealed class StaticConfigurationProvider(
+        PositionRuntimeConfigurationLoadResult result) : IPositionConfigurationProvider
+    {
+        public Task<PositionRuntimeConfigurationLoadResult> LoadAsync(
+            PositionEntityId entityId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult(result);
+    }
 
     private sealed class PositionActorPersistenceProbe : ReceivePersistentActor
     {

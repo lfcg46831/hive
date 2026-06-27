@@ -1,0 +1,249 @@
+using System.Reflection;
+using Hive.Domain.Identity;
+using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Positions;
+using Hive.Infrastructure.Organization.Configuration;
+using Hive.Infrastructure.Organization.Registry;
+
+namespace Hive.Tests;
+
+public sealed class PositionConfigurationProviderTests
+{
+    private static readonly DateTimeOffset ImportAt =
+        new(2026, 6, 26, 9, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Provider_loads_runtime_configuration_from_materialized_registry_snapshot()
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        var imported = await new OrganizationConfigurationImporter(
+            registry,
+            new ManualTimeProvider(ImportAt))
+            .ImportAsync(ExampleConfiguration());
+        var entityId = PositionEntityId.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"));
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(registry);
+
+        var result = await provider.LoadAsync(entityId, CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Loaded, result.Status);
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        Assert.Equal(imported.Snapshot!.Version, configuration.Stamp.Version);
+        Assert.Equal(imported.Snapshot.Fingerprint, configuration.Stamp.Fingerprint);
+        Assert.Equal(entityId.Organization, configuration.OrganizationId);
+        Assert.Equal(entityId.Position, configuration.PositionId);
+        Assert.Equal(UnitId.From("engenharia"), configuration.Position.Unit);
+        Assert.Equal(PositionId.From("ceo"), configuration.Position.ReportsTo);
+        Assert.Equal("Delivery Lead", configuration.Position.Name);
+        Assert.Equal("Europe/Lisbon", configuration.Position.Timezone);
+        Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
+        Assert.Equal("engineer-v1", configuration.Occupant.IdentityPromptRef);
+        Assert.NotNull(configuration.Occupant.Ai);
+        Assert.Equal(["triagem-de-bugs"], configuration.Authority.CanDecide);
+        Assert.Equal(["risco-de-prazo-critico"], configuration.Authority.MustEscalate);
+        Assert.Equal(["release-em-producao"], configuration.Authority.RequiresHumanApproval);
+        var schedule = Assert.Single(configuration.Schedules);
+        Assert.Equal("relatorio-diario", schedule.Id);
+        Assert.Equal("0 55 17 * * MON-FRI", schedule.Cron);
+        Assert.Equal("Compilar e enviar relatorio diario ao superior", schedule.Instruction);
+    }
+
+    [Fact]
+    public async Task Provider_returns_missing_for_confirmed_absence_in_registry()
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        await new OrganizationConfigurationImporter(
+            registry,
+            new ManualTimeProvider(ImportAt))
+            .ImportAsync(ExampleConfiguration());
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(registry);
+
+        var absentOrganization = await provider.LoadAsync(
+            PositionEntityId.From(
+                OrganizationId.From("missing-org"),
+                PositionId.From("delivery-lead")),
+            CancellationToken.None);
+        var absentPosition = await provider.LoadAsync(
+            PositionEntityId.From(
+                OrganizationId.From("acme-delivery"),
+                PositionId.From("missing-position")),
+            CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Missing, absentOrganization.Status);
+        Assert.True(absentOrganization.IsBlocking);
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Missing, absentPosition.Status);
+        Assert.True(absentPosition.IsBlocking);
+    }
+
+    [Fact]
+    public async Task Provider_rejects_partial_registry_projection_as_incomplete()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var occupantsWithoutPosition = snapshot.Occupants
+            .Where(pair => pair.Key != deliveryLead)
+            .ToDictionary(pair => pair.Key, pair => pair.Value);
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupantsWithoutPosition)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
+        Assert.True(result.IsBlocking);
+        Assert.Contains("occupant", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Provider_rejects_incoherent_registry_projection_as_incomplete()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var mismatched = new RegistryEntry<RegistryOccupant>(
+            original.Value with { PositionId = PositionId.From("ceo") },
+            original.Fingerprint,
+            original.UpdatedAt);
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = mismatched;
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
+        Assert.True(result.IsBlocking);
+        Assert.Contains("occupant", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Provider_rejects_snapshot_without_valid_stamp()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, version: 0)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.InvalidStamp, result.Status);
+        Assert.True(result.IsBlocking);
+        Assert.Contains("stamp", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Provider_returns_technical_failure_when_registry_reader_fails()
+    {
+        var failure = new InvalidOperationException("registry unavailable");
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => throw failure));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.TechnicalFailure, result.Status);
+        Assert.True(result.IsTechnicalFailure);
+        Assert.Same(failure, result.TechnicalException);
+        Assert.Null(result.Reason);
+    }
+
+    [Fact]
+    public async Task Provider_propagates_cancellation_without_converting_it_to_technical_failure()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(cancellationToken =>
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return null;
+            }));
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            () => provider.LoadAsync(DeliveryLeadEntityId(), cts.Token));
+    }
+
+    private static OrganizationConfiguration ExampleConfiguration()
+    {
+        var result = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(RepositoryRoot, "config", "organizations", "acme-delivery", "organization.yaml"));
+
+        Assert.True(result.IsSuccess, string.Join(Environment.NewLine, result.Errors));
+        return result.Configuration!;
+    }
+
+    private static PositionEntityId DeliveryLeadEntityId() =>
+        PositionEntityId.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"));
+
+    private static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync()
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        var imported = await new OrganizationConfigurationImporter(
+            registry,
+            new ManualTimeProvider(ImportAt))
+            .ImportAsync(ExampleConfiguration());
+
+        return imported.Snapshot!;
+    }
+
+    private static OrganizationRegistrySnapshot SnapshotWith(
+        OrganizationRegistrySnapshot snapshot,
+        long? version = null,
+        IReadOnlyDictionary<PositionId, RegistryEntry<RegistryPosition>>? positions = null,
+        IReadOnlyDictionary<PositionId, RegistryEntry<RegistryOccupant>>? occupants = null,
+        IReadOnlyDictionary<PositionId, RegistryEntry<RegistryAuthority>>? authorities = null,
+        IReadOnlyDictionary<RegistryScheduleKey, RegistryEntry<RegistrySchedule>>? schedules = null)
+    {
+        var constructor = typeof(OrganizationRegistrySnapshot)
+            .GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Single();
+
+        return (OrganizationRegistrySnapshot)constructor.Invoke(
+        [
+            snapshot.OrganizationId,
+            version ?? snapshot.Version,
+            snapshot.Fingerprint,
+            snapshot.ImportedAt,
+            snapshot.Organization,
+            snapshot.Units,
+            positions ?? snapshot.Positions,
+            occupants ?? snapshot.Occupants,
+            authorities ?? snapshot.Authorities,
+            schedules ?? snapshot.Schedules,
+            snapshot.Relations,
+        ]);
+    }
+
+    private static string RepositoryRoot
+    {
+        get
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current is not null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "Hive.sln")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new InvalidOperationException("Could not locate the Hive repository root.");
+        }
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class SnapshotReader(
+        Func<CancellationToken, OrganizationRegistrySnapshot?> find) : IOrganizationRegistryReader
+    {
+        public ValueTask<OrganizationRegistrySnapshot?> FindSnapshotAsync(
+            OrganizationId organizationId,
+            CancellationToken cancellationToken = default) =>
+            new(find(cancellationToken));
+    }
+}

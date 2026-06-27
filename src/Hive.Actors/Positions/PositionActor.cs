@@ -29,6 +29,7 @@ internal sealed class PositionActor :
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
     private PositionConfigurationBlockReason? _configurationBlockReason;
+    private PositionRuntimeConfiguration? _runtimeConfiguration;
 
     public PositionActor(string entityId)
         : this(
@@ -149,7 +150,7 @@ internal sealed class PositionActor :
                 PersistOccupantChange(command)));
         Command<RequestPassivation>(command =>
             WhenReady(() =>
-                PersistAndApply(new PositionPassivated(_clock(), command.Reason))));
+                PersistPassivationIfAllowed(command)));
     }
 
     public override string PersistenceId { get; }
@@ -313,17 +314,21 @@ internal sealed class PositionActor :
         switch (compatibility.Decision)
         {
             case PositionConfigurationCompatibilityDecision.ApplyNewConfiguration:
+                var configurationToApply = compatibility.Configuration
+                    ?? throw new InvalidOperationException("Apply-new-configuration decision must include a configuration.");
                 Persist(
-                    new PositionConfigurationApplied(compatibility.Configuration!.Stamp, _clock()),
+                    new PositionConfigurationApplied(configurationToApply.Stamp, _clock()),
                     persisted =>
                     {
                         ApplyPersisted(persisted);
-                        MarkReady();
+                        MarkReady(configurationToApply);
                     });
                 break;
 
             case PositionConfigurationCompatibilityDecision.AlreadyApplied:
-                MarkReady();
+                var alreadyAppliedConfiguration = compatibility.Configuration
+                    ?? throw new InvalidOperationException("Already-applied configuration decision must include a configuration.");
+                MarkReady(alreadyAppliedConfiguration);
                 break;
 
             case PositionConfigurationCompatibilityDecision.Blocked:
@@ -352,8 +357,9 @@ internal sealed class PositionActor :
         }
     }
 
-    private void MarkReady()
+    private void MarkReady(PositionRuntimeConfiguration configuration)
     {
+        _runtimeConfiguration = configuration;
         _operationalState = PositionOperationalState.Ready;
         _configurationBlockReason = null;
         PersistPendingDispatches(() =>
@@ -377,6 +383,21 @@ internal sealed class PositionActor :
         }
 
         Stash.Stash();
+    }
+
+    private void PersistPassivationIfAllowed(RequestPassivation command)
+    {
+        var configuration = _runtimeConfiguration
+            ?? throw new InvalidOperationException(
+                $"PositionActor '{PersistenceId}' cannot evaluate passivation before runtime configuration is loaded.");
+
+        var decision = _state.EvaluatePassivation(configuration);
+        if (!decision.IsAllowed)
+        {
+            return;
+        }
+
+        PersistAndApply(new PositionPassivated(_clock(), command.Reason));
     }
 
     private PositionRuntimeStatus RuntimeStatus() => new(

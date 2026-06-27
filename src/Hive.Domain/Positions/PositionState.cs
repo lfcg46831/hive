@@ -94,6 +94,35 @@ public sealed record PositionState
         ProcessedMessages.OrderBy(message => message.Value),
         LastConfigurationStamp);
 
+    /// <summary>Evaluates whether the recovered state is currently safe to passivate.</summary>
+    public PositionPassivationDecision EvaluatePassivation(PositionRuntimeConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var reasons = ImmutableArray.CreateBuilder<PositionPassivationBlockReason>();
+        if (!Inbox.IsEmpty)
+        {
+            reasons.Add(PositionPassivationBlockReason.PendingDelivery);
+        }
+
+        if (OpenTasks.Values.Any(task => task.Priority == Priority.Critical))
+        {
+            reasons.Add(PositionPassivationBlockReason.CriticalTaskOpen);
+        }
+
+        if (!configuration.Schedules.IsEmpty)
+        {
+            reasons.Add(PositionPassivationBlockReason.ActiveSchedule);
+        }
+
+        if (!configuration.Occupant.Subscriptions.IsEmpty)
+        {
+            reasons.Add(PositionPassivationBlockReason.ActiveSubscription);
+        }
+
+        return new PositionPassivationDecision(reasons);
+    }
+
     /// <summary>Applies one persisted event to the recoverable state.</summary>
     public PositionState Apply(PositionEvent @event)
     {

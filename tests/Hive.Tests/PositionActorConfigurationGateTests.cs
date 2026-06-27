@@ -327,9 +327,18 @@ public sealed class PositionActorConfigurationGateTests
 
         while (DateTimeOffset.UtcNow < deadline)
         {
-            latest = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
+            try
+            {
+                latest = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+            }
+            catch (AskTimeoutException)
+            {
+                await Task.Delay(25);
+                continue;
+            }
+
             if (latest.OperationalState == expected)
             {
                 return latest;

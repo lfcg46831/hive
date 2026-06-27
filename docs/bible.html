@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.87 (rascunho evolutivo) <strong>Data:</strong> 2026-06-26 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.90 (rascunho evolutivo) <strong>Data:</strong> 2026-06-27 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -185,6 +185,7 @@
 <tr><td>0.87</td><td>2026-06-26</td><td>Reestimativa de <code>US-F0-06-T08</code> para esforço <code>8</code>, porque passa a tratar todo o gate de configuração runtime incluindo contratos, provider, evento/stamp recuperável, snapshot/reducer/serializer, estados operacionais, ausência de side effects e testes; decomposição em subtarefas <code>T08a</code>–<code>T08d</code> de esforço <code>2</code> cada e atualização dos totais da <code>US-F0-06</code> e da F0.</td></tr>
 <tr><td>0.88</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T10</code>: o <code>PositionActor</code> publica sinais de audit/read model atraves de <code>PositionProjectionEvent</code> apenas depois de recovery ou de escrita confirmada no journal; eventos persistidos saem como <code>PositionEventCommitted</code>, reativacao como <code>PositionReactivated</code>, recovery como <code>PositionRecovered</code>, duplicados como <code>PositionMessageDuplicateRejected</code> e configuracao fail-closed como <code>PositionConfigurationRejected</code>, sem republicar eventos de replay nem criar eventos funcionais duplicados.</td></tr>
 <tr><td>0.89</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T11a</code>: a elegibilidade de passivation do <code>PositionActor</code> passa por uma decisao de dominio sobre <code>PositionState</code> e <code>PositionRuntimeConfiguration</code>, bloqueando <code>RequestPassivation</code> quando existe entrega pendente na inbox, tarefa critica aberta, schedule ativo ou subscricao ativa; o stop/drain da entidade permanece em <code>US-F0-06-T11b</code>.</td></tr>
+<tr><td>0.90</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T11b</code>: depois de <code>RequestPassivation</code> permitido, o <code>PositionActor</code> persiste <code>PositionPassivated</code> e so entao envia <code>Passivate</code> ao shard parent com <code>PositionPassivationStop</code>; mensagens ja enfileiradas drenam antes do stop e entregas posteriores ficam bufferizadas pelo Cluster Sharding para nova incarnacao.</td></tr>
 </tbody>
 </table>
 
@@ -2911,7 +2912,7 @@ public interface IPositionConfigurationProvider
 
 <hr>
 
-<p><em>Proxima iteracao (v0.90): implementar <code>US-F0-06-T11b</code>, adicionando drain/stash de mensagens em voo e persistencia confirmada antes de parar a entidade sharded.</em></p>
+<p><em>Proxima iteracao (v0.91): implementar <code>US-F0-06-T11c</code>, validando reativacao por mensagem, schedule ou subscricao sem perda de enderecabilidade via Cluster Sharding.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

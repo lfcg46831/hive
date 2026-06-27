@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using Akka.Actor;
+using Akka.Cluster.Sharding;
 using Akka.Persistence;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -30,6 +31,7 @@ internal sealed class PositionActor :
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
     private PositionConfigurationBlockReason? _configurationBlockReason;
     private PositionRuntimeConfiguration? _runtimeConfiguration;
+    private bool _passivationRequested;
 
     public PositionActor(string entityId)
         : this(
@@ -151,6 +153,13 @@ internal sealed class PositionActor :
         Command<RequestPassivation>(command =>
             WhenReady(() =>
                 PersistPassivationIfAllowed(command)));
+        Command<PositionPassivationStop>(_ =>
+        {
+            if (_passivationRequested)
+            {
+                Context.Stop(Self);
+            }
+        });
     }
 
     public override string PersistenceId { get; }
@@ -387,6 +396,11 @@ internal sealed class PositionActor :
 
     private void PersistPassivationIfAllowed(RequestPassivation command)
     {
+        if (_passivationRequested)
+        {
+            return;
+        }
+
         var configuration = _runtimeConfiguration
             ?? throw new InvalidOperationException(
                 $"PositionActor '{PersistenceId}' cannot evaluate passivation before runtime configuration is loaded.");
@@ -397,7 +411,12 @@ internal sealed class PositionActor :
             return;
         }
 
-        PersistAndApply(new PositionPassivated(_clock(), command.Reason));
+        Persist(new PositionPassivated(_clock(), command.Reason), persisted =>
+        {
+            ApplyPersisted(persisted);
+            _passivationRequested = true;
+            Context.Parent.Tell(new Passivate(PositionPassivationStop.Instance));
+        });
     }
 
     private PositionRuntimeStatus RuntimeStatus() => new(
@@ -470,6 +489,15 @@ internal sealed record PositionRuntimeStatus(
     PositionOperationalState OperationalState,
     PositionConfigurationBlockReason? BlockReason,
     PositionConfigurationStamp? LastConfigurationStamp);
+
+internal sealed record PositionPassivationStop
+{
+    public static PositionPassivationStop Instance { get; } = new();
+
+    private PositionPassivationStop()
+    {
+    }
+}
 
 internal sealed class PositionConfigurationGateException : Exception
 {

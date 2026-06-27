@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.Cluster.Sharding;
 using Akka.Configuration;
 using Akka.Persistence;
 using Hive.Actors.Positions;
@@ -182,6 +183,100 @@ public sealed class PositionActorPassivationTests
         }
     }
 
+    [Fact]
+    public async Task Allowed_passivation_requests_shard_passivation_after_persisting_fact()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(1, "sha256:v1");
+        var system = CreateActorSystem("position-passivation-shard-stop");
+        var passivationObserved = new TaskCompletionSource<Passivate>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource<Terminated>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await SeedSnapshotAsync(system, entity, new PositionSnapshot(At, lastConfigurationStamp: stamp));
+            var provider = LoadedProvider(
+                entity,
+                stamp,
+                Array.Empty<PositionScheduleRuntimeConfiguration>(),
+                Array.Empty<SubscriptionConfiguration>());
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PassivationShardHarness(
+                    entity.Value,
+                    provider,
+                    passivationObserved,
+                    stopped,
+                    () => At.AddMinutes(1))),
+                "position-passivation-shard-stop-harness");
+
+            await WaitForReadyAsync(actor);
+            actor.Tell(new RequestPassivation("idle"));
+
+            var passivate = await passivationObserved.Task.WaitAsync(Timeout());
+            Assert.IsType<PositionPassivationStop>(passivate.StopMessage);
+
+            await stopped.Task.WaitAsync(Timeout());
+            var events = await ReadPersistedEventsAsync(system, entity);
+            var passivated = Assert.Single(events.OfType<PositionPassivated>());
+            Assert.Equal("idle", passivated.Reason);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task In_flight_business_command_drains_before_passivation_stop()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(1, "sha256:v1");
+        var system = CreateActorSystem("position-passivation-drain");
+        var passivationObserved = new TaskCompletionSource<Passivate>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var stopped = new TaskCompletionSource<Terminated>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await SeedSnapshotAsync(system, entity, new PositionSnapshot(At, lastConfigurationStamp: stamp));
+            var provider = LoadedProvider(
+                entity,
+                stamp,
+                Array.Empty<PositionScheduleRuntimeConfiguration>(),
+                Array.Empty<SubscriptionConfiguration>());
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PassivationShardHarness(
+                    entity.Value,
+                    provider,
+                    passivationObserved,
+                    stopped,
+                    () => At.AddMinutes(1))),
+                "position-passivation-drain-harness");
+
+            await WaitForReadyAsync(actor);
+            actor.Tell(new RequestPassivation("idle"));
+            actor.Tell(new UpdateShortMemory("late", "drained-before-stop"));
+
+            await passivationObserved.Task.WaitAsync(Timeout());
+            await stopped.Task.WaitAsync(Timeout());
+            var events = await ReadPersistedEventsAsync(system, entity);
+
+            Assert.Contains(events, @event => @event is PositionPassivated);
+            var shortMemory = Assert.Single(events.OfType<ShortMemoryUpdated>());
+            Assert.Equal("late", shortMemory.Key);
+            Assert.Equal("drained-before-stop", shortMemory.Value);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static ActorSystem CreateActorSystem(string namePrefix) =>
         ActorSystem.Create(
             $"{namePrefix}-{Guid.NewGuid():N}",
@@ -306,6 +401,43 @@ public sealed class PositionActorPassivationTests
             PositionEntityId entityId,
             CancellationToken cancellationToken) =>
             Task.FromResult(result);
+    }
+
+    private sealed class PassivationShardHarness : ReceiveActor
+    {
+        private readonly IActorRef _position;
+        private readonly TaskCompletionSource<Passivate> _passivationObserved;
+        private readonly TaskCompletionSource<Terminated> _stopped;
+
+        public PassivationShardHarness(
+            string entityId,
+            IPositionConfigurationProvider provider,
+            TaskCompletionSource<Passivate> passivationObserved,
+            TaskCompletionSource<Terminated> stopped,
+            Func<DateTimeOffset> clock)
+        {
+            _passivationObserved = passivationObserved;
+            _stopped = stopped;
+            _position = Context.ActorOf(
+                Props.Create(() => new PositionActor(entityId, provider, clock)),
+                "position");
+            Context.Watch(_position);
+
+            Receive<Passivate>(passivate =>
+            {
+                _passivationObserved.TrySetResult(passivate);
+                _position.Tell(passivate.StopMessage);
+            });
+            Receive<Terminated>(terminated =>
+            {
+                if (terminated.ActorRef.Equals(_position))
+                {
+                    _stopped.TrySetResult(terminated);
+                    Context.Stop(Self);
+                }
+            });
+            ReceiveAny(message => _position.Forward(message));
+        }
     }
 
     private sealed class PositionActorPersistenceProbe : ReceivePersistentActor

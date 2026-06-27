@@ -75,6 +75,16 @@ public sealed class PositionStateTests
     }
 
     [Fact]
+    public void Empty_short_memory_update_clears_the_existing_entry()
+    {
+        var state = PositionState.Empty
+            .Apply(new ShortMemoryUpdated("thread", "customer is blocked", At))
+            .Apply(new ShortMemoryUpdated("thread", string.Empty, At.AddMinutes(1)));
+
+        Assert.False(state.ShortMemory.ContainsKey("thread"));
+    }
+
+    [Fact]
     public void Snapshot_restore_and_snapshot_export_are_deterministic()
     {
         var message = SampleMessage();

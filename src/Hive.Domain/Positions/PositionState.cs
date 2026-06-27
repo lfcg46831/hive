@@ -212,7 +212,9 @@ public sealed record PositionState
     private PositionState Apply(ShortMemoryUpdated @event) => new(
         Inbox,
         OpenTasks,
-        ShortMemory.SetItem(@event.Key, @event.Value),
+        @event.Value.Length == 0
+            ? ShortMemory.Remove(@event.Key)
+            : ShortMemory.SetItem(@event.Key, @event.Value),
         RecentHistory,
         ProcessedMessages,
         Occupant,

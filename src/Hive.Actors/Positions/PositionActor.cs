@@ -1,6 +1,10 @@
+using System.Security.Cryptography;
+using System.Text;
 using Akka.Actor;
 using Akka.Persistence;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
+using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 
 namespace Hive.Actors.Positions;
@@ -17,7 +21,9 @@ internal sealed class PositionActor :
     internal const string PersistenceIdPrefix = "position:";
 
     private readonly IPositionConfigurationProvider _configurationProvider;
+    private readonly IPositionOccupantFactory _occupantFactory;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -28,12 +34,13 @@ internal sealed class PositionActor :
             entityId,
             new UnavailableConfigurationProvider(
                 "No position configuration provider was supplied to the PositionActor."),
+            PositionOccupantFactory.Instance,
             () => DateTimeOffset.UtcNow)
     {
     }
 
     public PositionActor(string entityId, IPositionConfigurationProvider configurationProvider)
-        : this(entityId, configurationProvider, () => DateTimeOffset.UtcNow)
+        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, () => DateTimeOffset.UtcNow)
     {
     }
 
@@ -41,10 +48,21 @@ internal sealed class PositionActor :
         string entityId,
         IPositionConfigurationProvider configurationProvider,
         Func<DateTimeOffset> clock)
+        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, clock)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        Func<DateTimeOffset> clock)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
+        _occupantFactory = occupantFactory
+            ?? throw new ArgumentNullException(nameof(occupantFactory));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
@@ -67,7 +85,7 @@ internal sealed class PositionActor :
                     return;
                 }
 
-                PersistAndApply(new MessageReceived(command.Message, _clock()));
+                PersistAcceptedMessage(command.Message);
             });
         });
         Command<OpenTask>(command =>
@@ -96,7 +114,7 @@ internal sealed class PositionActor :
                 PersistAndApply(new ShortMemoryUpdated(command.Key, command.Value, _clock()))));
         Command<ChangeOccupant>(command =>
             WhenReady(() =>
-                PersistAndApply(new OccupantChanged(command.Occupant, command.Type, _clock()))));
+                PersistOccupantChange(command)));
         Command<RequestPassivation>(command =>
             WhenReady(() =>
                 PersistAndApply(new PositionPassivated(_clock(), command.Reason))));
@@ -128,7 +146,104 @@ internal sealed class PositionActor :
     private void ApplyRecovered(PositionEvent @event) => _state = _state.Apply(@event);
 
     private void PersistAndApply(PositionEvent @event) =>
-        Persist(@event, persisted => _state = _state.Apply(persisted));
+        Persist(@event, ApplyPersisted);
+
+    private void PersistAcceptedMessage(OrgMessage message)
+    {
+        var events = new List<PositionEvent>
+        {
+            new MessageReceived(message, _clock()),
+        };
+
+        if (_state.Occupant is { } occupant && _state.OccupantType is { } occupantType)
+        {
+            events.Add(new MessageDispatched(
+                message.Id,
+                message.Thread,
+                occupant,
+                occupantType,
+                _clock()));
+        }
+
+        PersistEvents(events);
+    }
+
+    private void PersistOccupantChange(ChangeOccupant command)
+    {
+        var events = new List<PositionEvent>
+        {
+            new OccupantChanged(command.Occupant, command.Type, _clock()),
+        };
+
+        foreach (var message in _state.Inbox)
+        {
+            events.Add(new MessageDispatched(
+                message.Id,
+                message.Thread,
+                command.Occupant,
+                command.Type,
+                _clock()));
+        }
+
+        PersistEvents(events);
+    }
+
+    private void PersistPendingDispatches(Action? afterDispatch = null)
+    {
+        if (_state.Occupant is not { } occupant || _state.OccupantType is not { } occupantType)
+        {
+            afterDispatch?.Invoke();
+            return;
+        }
+
+        var events = _state.Inbox
+            .Select(message => (PositionEvent)new MessageDispatched(
+                message.Id,
+                message.Thread,
+                occupant,
+                occupantType,
+                _clock()))
+            .ToArray();
+
+        PersistEvents(events, afterDispatch);
+    }
+
+    private void PersistEvents(IReadOnlyList<PositionEvent> events, Action? afterLast = null)
+    {
+        if (events.Count == 0)
+        {
+            afterLast?.Invoke();
+            return;
+        }
+
+        var remaining = events.Count;
+        PersistAll(events, persisted =>
+        {
+            ApplyPersisted(persisted);
+            remaining--;
+            if (remaining == 0)
+            {
+                afterLast?.Invoke();
+            }
+        });
+    }
+
+    private void ApplyPersisted(PositionEvent persisted)
+    {
+        OrgMessage? dispatchedMessage = null;
+        if (persisted is MessageDispatched dispatched)
+        {
+            dispatchedMessage = _state.Inbox.FirstOrDefault(message => message.Id == dispatched.Message);
+        }
+
+        _state = _state.Apply(persisted);
+
+        if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
+        {
+            ResolveOccupant(dispatchEvent.Occupant, dispatchEvent.OccupantType)
+                .Tell(dispatchedMessage);
+        }
+    }
 
     private void BeginConfigurationLoad()
     {
@@ -199,7 +314,7 @@ internal sealed class PositionActor :
     {
         _operationalState = PositionOperationalState.Ready;
         _configurationBlockReason = null;
-        Stash.UnstashAll();
+        PersistPendingDispatches(() => Stash.UnstashAll());
     }
 
     private void WhenReady(Action handler)
@@ -223,6 +338,27 @@ internal sealed class PositionActor :
         _configurationBlockReason,
         _state.LastConfigurationStamp);
 
+    private IActorRef ResolveOccupant(OccupantId occupant, OccupantType occupantType)
+    {
+        var key = new PositionOccupantKey(occupant, occupantType);
+        if (_occupantActors.TryGetValue(key, out var existing))
+        {
+            return existing;
+        }
+
+        var actor = Context.ActorOf(_occupantFactory.Create(occupant, occupantType), ChildName(key));
+        _occupantActors.Add(key, actor);
+        return actor;
+    }
+
+    private static string ChildName(PositionOccupantKey key)
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes($"{key.OccupantType}:{key.Occupant.Value}")))[..16];
+
+        return $"occupant-{key.OccupantType.ToString().ToLowerInvariant()}-{hash.ToLowerInvariant()}";
+    }
+
     private sealed class UnavailableConfigurationProvider(string reason) : IPositionConfigurationProvider
     {
         public Task<PositionRuntimeConfigurationLoadResult> LoadAsync(
@@ -231,6 +367,10 @@ internal sealed class PositionActor :
             Task.FromResult(PositionRuntimeConfigurationLoadResult.TechnicalFailure(
                 new InvalidOperationException(reason)));
     }
+
+    private readonly record struct PositionOccupantKey(
+        OccupantId Occupant,
+        OccupantType OccupantType);
 }
 
 internal sealed record GetPositionState

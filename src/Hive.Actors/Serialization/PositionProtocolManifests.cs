@@ -28,6 +28,7 @@ internal static class PositionProtocolManifests
         ("occupant-changed", typeof(OccupantChanged)),
         ("message-dispatched", typeof(MessageDispatched)),
         ("position-passivated", typeof(PositionPassivated)),
+        ("position-configuration-applied", typeof(PositionConfigurationApplied)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

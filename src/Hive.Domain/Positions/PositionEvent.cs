@@ -7,7 +7,8 @@ namespace Hive.Domain.Positions;
 /// <see cref="TaskUpdated"/>, <see cref="TaskCompleted"/>), short-term memory updated
 /// (<see cref="ShortMemoryUpdated"/>), the occupant changed (<see cref="OccupantChanged"/>), an
 /// accepted message dispatched to the occupant (<see cref="MessageDispatched"/>) and the position
-/// passivated (<see cref="PositionPassivated"/>).
+/// passivated (<see cref="PositionPassivated"/>). The runtime-configuration gate extends this set
+/// with <see cref="PositionConfigurationApplied"/> (US-F0-06-T08c).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -15,9 +16,9 @@ namespace Hive.Domain.Positions;
 /// intents of US-F0-06-T02: a command may be rejected, but an event is only ever produced by a
 /// command that already succeeded, so events carry no validation verdict and are never rejected on
 /// replay. They are pure domain contracts — they fix the persisted shape only. Folding events into
-/// the recoverable state (inbox, open tasks, short memory, history, occupant, processed ids) is the
-/// reducer's job (US-F0-06-T06a); binding versionable serializers to events and snapshots belongs to
-/// US-F0-06-T05b.
+/// the recoverable state (inbox, open tasks, short memory, history, occupant, processed ids and the
+/// latest applied configuration stamp) is the reducer's job (US-F0-06-T06a/US-F0-06-T08c); binding
+/// versionable serializers to events and snapshots belongs to US-F0-06-T05b/US-F0-06-T08c.
 /// </para>
 /// <para>
 /// Like the audit projection of US-F0-04-T10, every event carries the <see cref="OccurredAt"/>

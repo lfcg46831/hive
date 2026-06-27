@@ -24,6 +24,7 @@ public sealed class PositionStateTests
         Assert.Empty(state.ProcessedMessages);
         Assert.Null(state.Occupant);
         Assert.Null(state.OccupantType);
+        Assert.Null(state.LastConfigurationStamp);
     }
 
     [Fact]
@@ -41,7 +42,8 @@ public sealed class PositionStateTests
             .Apply(new TaskUpdated(taskId, "investigating", At.AddMinutes(2), Priority.Critical, revisedDeadline))
             .Apply(new ShortMemoryUpdated("thread", "customer is blocked", At.AddMinutes(3)))
             .Apply(new OccupantChanged(occupant, OccupantType.AiAgent, At.AddMinutes(4)))
-            .Apply(new MessageDispatched(message.Id, message.Thread, occupant, OccupantType.AiAgent, At.AddMinutes(5)));
+            .Apply(new MessageDispatched(message.Id, message.Thread, occupant, OccupantType.AiAgent, At.AddMinutes(5)))
+            .Apply(new PositionConfigurationApplied(new PositionConfigurationStamp(7, "sha256:v7"), At.AddMinutes(6)));
 
         Assert.Empty(state.Inbox);
         Assert.Contains(message.Id, state.ProcessedMessages);
@@ -49,6 +51,7 @@ public sealed class PositionStateTests
         Assert.Equal("customer is blocked", state.ShortMemory["thread"]);
         Assert.Equal(occupant, state.Occupant);
         Assert.Equal(OccupantType.AiAgent, state.OccupantType);
+        Assert.Equal(new PositionConfigurationStamp(7, "sha256:v7"), state.LastConfigurationStamp);
 
         var task = Assert.Single(state.OpenTasks).Value;
         Assert.Equal(taskId, task.TaskId);
@@ -79,6 +82,7 @@ public sealed class PositionStateTests
         var occupant = OccupantId.From("alice");
         var history = new[] { MessageId.New() };
         var processed = new[] { message.Id };
+        var stamp = new PositionConfigurationStamp(3, "sha256:v3");
         var snapshot = new PositionSnapshot(
             At,
             occupant,
@@ -87,7 +91,8 @@ public sealed class PositionStateTests
             new[] { task },
             new Dictionary<string, string> { ["thread"] = "context" },
             history,
-            processed);
+            processed,
+            stamp);
 
         var state = PositionState.Restore(snapshot);
         var exported = state.ToSnapshot(At.AddMinutes(10));
@@ -100,6 +105,7 @@ public sealed class PositionStateTests
         Assert.Equal("context", exported.ShortMemory["thread"]);
         Assert.Equal(history, exported.RecentHistory);
         Assert.Equal(processed, exported.ProcessedMessages);
+        Assert.Equal(stamp, exported.LastConfigurationStamp);
     }
 
     [Fact]

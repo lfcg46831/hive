@@ -136,6 +136,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(OccupantChanged);
         yield return typeof(MessageDispatched);
         yield return typeof(PositionPassivated);
+        yield return typeof(PositionConfigurationApplied);
         yield return typeof(PositionSnapshot);
     }
 
@@ -157,6 +158,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
+        yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
         yield return ("position-snapshot", SampleSnapshot());
     }
 
@@ -177,7 +179,8 @@ public sealed class PositionProtocolSerializerBindingTests
             },
             new Dictionary<string, string> { ["current-thread"] = "customer-impact" },
             new[] { MessageId() },
-            new[] { MessageId() });
+            new[] { MessageId() },
+            ConfigurationStamp());
 
     private static Memo SampleMessage() =>
         new(
@@ -200,6 +203,9 @@ public sealed class PositionProtocolSerializerBindingTests
 
     private static PositionTaskId TaskId() =>
         PositionTaskId.From(new Guid("cccccccc-0000-0000-0000-000000000001"));
+
+    private static PositionConfigurationStamp ConfigurationStamp() =>
+        new(5, "sha256:runtime-v5");
 
     private static IHost BuildHost(int port)
     {

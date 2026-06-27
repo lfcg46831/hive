@@ -42,6 +42,7 @@ public sealed class PositionSnapshotTests
         Assert.Empty(snapshot.ShortMemory);
         Assert.Empty(snapshot.RecentHistory);
         Assert.Empty(snapshot.ProcessedMessages);
+        Assert.Null(snapshot.LastConfigurationStamp);
     }
 
     [Fact]
@@ -53,9 +54,10 @@ public sealed class PositionSnapshotTests
         var memory = new Dictionary<string, string> { ["thread"] = "context", ["scratch"] = string.Empty };
         var history = new[] { MessageId.New() };
         var processed = new[] { MessageId.New(), MessageId.New() };
+        var stamp = new PositionConfigurationStamp(9, "sha256:v9");
 
         var snapshot = new PositionSnapshot(
-            At, occupant, OccupantType.AiAgent, inbox, tasks, memory, history, processed);
+            At, occupant, OccupantType.AiAgent, inbox, tasks, memory, history, processed, stamp);
 
         Assert.Equal(occupant, snapshot.Occupant);
         Assert.Equal(OccupantType.AiAgent, snapshot.OccupantType);
@@ -65,6 +67,7 @@ public sealed class PositionSnapshotTests
         Assert.Equal(string.Empty, snapshot.ShortMemory["scratch"]);
         Assert.Single(snapshot.RecentHistory);
         Assert.Equal(2, snapshot.ProcessedMessages.Length);
+        Assert.Equal(stamp, snapshot.LastConfigurationStamp);
     }
 
     [Fact]

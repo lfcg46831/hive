@@ -40,6 +40,8 @@ public sealed class PositionEventTests
         Assert.IsAssignableFrom<PositionEvent>(
             new MessageDispatched(MessageId.New(), ThreadId.New(), OccupantId.From("alice"), OccupantType.Human, At));
         Assert.IsAssignableFrom<PositionEvent>(new PositionPassivated(At));
+        Assert.IsAssignableFrom<PositionEvent>(
+            new PositionConfigurationApplied(new PositionConfigurationStamp(4, "sha256:v4"), At));
     }
 
     [Fact]
@@ -223,6 +225,25 @@ public sealed class PositionEventTests
     public void PositionPassivated_rejects_blank_reason_when_present()
     {
         Assert.Throws<ArgumentException>(() => new PositionPassivated(At, "   "));
+    }
+
+    [Fact]
+    public void PositionConfigurationApplied_captures_the_accepted_stamp()
+    {
+        var stamp = new PositionConfigurationStamp(4, "sha256:v4");
+
+        var @event = new PositionConfigurationApplied(stamp, At);
+
+        Assert.Same(stamp, @event.Stamp);
+        Assert.Equal(4, @event.Stamp.Version);
+        Assert.Equal("sha256:v4", @event.Stamp.Fingerprint);
+        Assert.Equal(At, @event.OccurredAt);
+    }
+
+    [Fact]
+    public void PositionConfigurationApplied_rejects_null_stamp()
+    {
+        Assert.Throws<ArgumentNullException>(() => new PositionConfigurationApplied(null!, At));
     }
 
     [Fact]

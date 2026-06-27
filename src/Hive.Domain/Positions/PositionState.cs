@@ -18,7 +18,8 @@ public sealed record PositionState
         ImmutableArray<MessageId> recentHistory,
         ImmutableHashSet<MessageId> processedMessages,
         OccupantId? occupant,
-        OccupantType? occupantType)
+        OccupantType? occupantType,
+        PositionConfigurationStamp? lastConfigurationStamp)
     {
         Inbox = inbox;
         OpenTasks = openTasks;
@@ -27,6 +28,7 @@ public sealed record PositionState
         ProcessedMessages = processedMessages;
         Occupant = occupant;
         OccupantType = occupantType;
+        LastConfigurationStamp = lastConfigurationStamp;
     }
 
     /// <summary>The initial state before any snapshot or event has been replayed.</summary>
@@ -37,7 +39,8 @@ public sealed record PositionState
         ImmutableArray<MessageId>.Empty,
         ImmutableHashSet<MessageId>.Empty,
         occupant: null,
-        occupantType: null);
+        occupantType: null,
+        lastConfigurationStamp: null);
 
     /// <summary>The messages admitted but not yet dispatched.</summary>
     public ImmutableArray<OrgMessage> Inbox { get; }
@@ -60,6 +63,9 @@ public sealed record PositionState
     /// <summary>The current occupant type, or null when the position has none yet.</summary>
     public OccupantType? OccupantType { get; }
 
+    /// <summary>The latest runtime configuration stamp accepted by the position entity.</summary>
+    public PositionConfigurationStamp? LastConfigurationStamp { get; }
+
     /// <summary>Rebuilds live state from a persisted point-in-time snapshot.</summary>
     public static PositionState Restore(PositionSnapshot snapshot)
     {
@@ -72,7 +78,8 @@ public sealed record PositionState
             snapshot.RecentHistory,
             snapshot.ProcessedMessages.ToImmutableHashSet(),
             snapshot.Occupant,
-            snapshot.OccupantType);
+            snapshot.OccupantType,
+            snapshot.LastConfigurationStamp);
     }
 
     /// <summary>Exports the live state into the persisted snapshot shape.</summary>
@@ -84,7 +91,8 @@ public sealed record PositionState
         OpenTasks.Values.OrderBy(task => task.TaskId.Value),
         ShortMemory,
         RecentHistory,
-        ProcessedMessages.OrderBy(message => message.Value));
+        ProcessedMessages.OrderBy(message => message.Value),
+        LastConfigurationStamp);
 
     /// <summary>Applies one persisted event to the recoverable state.</summary>
     public PositionState Apply(PositionEvent @event)
@@ -101,6 +109,7 @@ public sealed record PositionState
             OccupantChanged changed => Apply(changed),
             MessageDispatched dispatched => Apply(dispatched),
             PositionPassivated => this,
+            PositionConfigurationApplied applied => Apply(applied),
             _ => this,
         };
     }
@@ -112,7 +121,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages.Add(@event.Message.Id),
         Occupant,
-        OccupantType);
+        OccupantType,
+        LastConfigurationStamp);
 
     private PositionState Apply(TaskCreated @event) => new(
         Inbox,
@@ -130,7 +140,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages,
         Occupant,
-        OccupantType);
+        OccupantType,
+        LastConfigurationStamp);
 
     private PositionState Apply(TaskUpdated @event)
     {
@@ -155,7 +166,8 @@ public sealed record PositionState
             RecentHistory,
             ProcessedMessages,
             Occupant,
-            OccupantType);
+            OccupantType,
+            LastConfigurationStamp);
     }
 
     private PositionState Apply(TaskCompleted @event) => new(
@@ -165,7 +177,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages,
         Occupant,
-        OccupantType);
+        OccupantType,
+        LastConfigurationStamp);
 
     private PositionState Apply(ShortMemoryUpdated @event) => new(
         Inbox,
@@ -174,7 +187,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages,
         Occupant,
-        OccupantType);
+        OccupantType,
+        LastConfigurationStamp);
 
     private PositionState Apply(OccupantChanged @event) => new(
         Inbox,
@@ -183,7 +197,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages,
         @event.Occupant,
-        @event.Type);
+        @event.Type,
+        LastConfigurationStamp);
 
     private PositionState Apply(MessageDispatched @event) => new(
         Inbox.RemoveAll(message => message.Id == @event.Message),
@@ -192,5 +207,16 @@ public sealed record PositionState
         RecentHistory.Add(@event.Message),
         ProcessedMessages,
         Occupant,
-        OccupantType);
+        OccupantType,
+        LastConfigurationStamp);
+
+    private PositionState Apply(PositionConfigurationApplied @event) => new(
+        Inbox,
+        OpenTasks,
+        ShortMemory,
+        RecentHistory,
+        ProcessedMessages,
+        Occupant,
+        OccupantType,
+        @event.Stamp);
 }

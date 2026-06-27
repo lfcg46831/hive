@@ -10,7 +10,8 @@ namespace Hive.Domain.Positions;
 /// entity writes so recovery can skip replaying the whole journal. It fixes the durable shape only —
 /// the pending <see cref="Inbox"/>, the <see cref="OpenTasks"/>, the <see cref="ShortMemory"/>, the
 /// <see cref="RecentHistory"/>, the current occupant (<see cref="Occupant"/>/<see cref="OccupantType"/>)
-/// and the <see cref="ProcessedMessages"/> idempotency keys.
+/// the <see cref="ProcessedMessages"/> idempotency keys and the latest applied runtime
+/// configuration stamp.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -32,7 +33,8 @@ public sealed record PositionSnapshot
         IEnumerable<PersistedTask>? openTasks = null,
         IReadOnlyDictionary<string, string>? shortMemory = null,
         IEnumerable<MessageId>? recentHistory = null,
-        IEnumerable<MessageId>? processedMessages = null)
+        IEnumerable<MessageId>? processedMessages = null,
+        PositionConfigurationStamp? lastConfigurationStamp = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -57,6 +59,7 @@ public sealed record PositionSnapshot
         ShortMemory = ToValidatedMemory(shortMemory, nameof(shortMemory));
         RecentHistory = ToValidatedArray(recentHistory, nameof(recentHistory));
         ProcessedMessages = ToValidatedArray(processedMessages, nameof(processedMessages));
+        LastConfigurationStamp = lastConfigurationStamp;
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -82,6 +85,9 @@ public sealed record PositionSnapshot
 
     /// <summary>The ids of messages already processed, used for idempotent acceptance.</summary>
     public ImmutableArray<MessageId> ProcessedMessages { get; }
+
+    /// <summary>The latest runtime configuration stamp accepted by the position entity.</summary>
+    public PositionConfigurationStamp? LastConfigurationStamp { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

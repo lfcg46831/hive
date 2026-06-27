@@ -22,6 +22,7 @@ internal sealed class PositionActor :
 
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IPositionOccupantFactory _occupantFactory;
+    private readonly IPositionProjectionPublisher? _projectionPublisher;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
 
@@ -35,12 +36,18 @@ internal sealed class PositionActor :
             new UnavailableConfigurationProvider(
                 "No position configuration provider was supplied to the PositionActor."),
             PositionOccupantFactory.Instance,
+            projectionPublisher: null,
             () => DateTimeOffset.UtcNow)
     {
     }
 
     public PositionActor(string entityId, IPositionConfigurationProvider configurationProvider)
-        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, () => DateTimeOffset.UtcNow)
+        : this(
+            entityId,
+            configurationProvider,
+            PositionOccupantFactory.Instance,
+            projectionPublisher: null,
+            () => DateTimeOffset.UtcNow)
     {
     }
 
@@ -48,7 +55,16 @@ internal sealed class PositionActor :
         string entityId,
         IPositionConfigurationProvider configurationProvider,
         Func<DateTimeOffset> clock)
-        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, clock)
+        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, projectionPublisher: null, clock)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionProjectionPublisher projectionPublisher,
+        Func<DateTimeOffset> clock)
+        : this(entityId, configurationProvider, PositionOccupantFactory.Instance, projectionPublisher, clock)
     {
     }
 
@@ -57,12 +73,23 @@ internal sealed class PositionActor :
         IPositionConfigurationProvider configurationProvider,
         IPositionOccupantFactory occupantFactory,
         Func<DateTimeOffset> clock)
+        : this(entityId, configurationProvider, occupantFactory, projectionPublisher: null, clock)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
         _occupantFactory = occupantFactory
             ?? throw new ArgumentNullException(nameof(occupantFactory));
+        _projectionPublisher = projectionPublisher;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
@@ -82,6 +109,11 @@ internal sealed class PositionActor :
             {
                 if (_state.ProcessedMessages.Contains(command.Message.Id))
                 {
+                    PublishProjection(new PositionMessageDuplicateRejected(
+                        EntityId,
+                        command.Message.Id,
+                        command.Message.Thread,
+                        _clock()));
                     return;
                 }
 
@@ -237,6 +269,7 @@ internal sealed class PositionActor :
         }
 
         _state = _state.Apply(persisted);
+        PublishProjection(new PositionEventCommitted(EntityId, persisted));
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
@@ -249,6 +282,7 @@ internal sealed class PositionActor :
     {
         _operationalState = PositionOperationalState.LoadingConfiguration;
         _configurationBlockReason = null;
+        PublishProjection(new PositionRecovered(EntityId, _state.LastConfigurationStamp, _clock()));
 
         var self = Self;
         _ = LoadConfigurationAsync(self);
@@ -283,7 +317,7 @@ internal sealed class PositionActor :
                     new PositionConfigurationApplied(compatibility.Configuration!.Stamp, _clock()),
                     persisted =>
                     {
-                        _state = _state.Apply(persisted);
+                        ApplyPersisted(persisted);
                         MarkReady();
                     });
                 break;
@@ -293,8 +327,16 @@ internal sealed class PositionActor :
                 break;
 
             case PositionConfigurationCompatibilityDecision.Blocked:
+                var blockReason = compatibility.BlockReason
+                    ?? throw new InvalidOperationException("Blocked configuration decision must include a reason.");
                 _operationalState = PositionOperationalState.ConfigurationBlocked;
-                _configurationBlockReason = compatibility.BlockReason;
+                _configurationBlockReason = blockReason;
+                PublishProjection(new PositionConfigurationRejected(
+                    EntityId,
+                    blockReason,
+                    _state.LastConfigurationStamp,
+                    compatibility.Configuration?.Stamp,
+                    _clock()));
                 break;
 
             case PositionConfigurationCompatibilityDecision.TechnicalFailure:
@@ -314,7 +356,11 @@ internal sealed class PositionActor :
     {
         _operationalState = PositionOperationalState.Ready;
         _configurationBlockReason = null;
-        PersistPendingDispatches(() => Stash.UnstashAll());
+        PersistPendingDispatches(() =>
+        {
+            PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));
+            Stash.UnstashAll();
+        });
     }
 
     private void WhenReady(Action handler)
@@ -337,6 +383,17 @@ internal sealed class PositionActor :
         _operationalState,
         _configurationBlockReason,
         _state.LastConfigurationStamp);
+
+    private void PublishProjection(PositionProjectionEvent @event)
+    {
+        if (_projectionPublisher is not null)
+        {
+            _projectionPublisher.Publish(@event);
+            return;
+        }
+
+        Context.System.EventStream.Publish(@event);
+    }
 
     private IActorRef ResolveOccupant(OccupantId occupant, OccupantType occupantType)
     {

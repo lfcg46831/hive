@@ -1,0 +1,7 @@
+{
+  "TaskId": "c6000000-0000-0000-0000-000000000001",
+  "Note": "reproduced on staging",
+  "Priority": "critical",
+  "Deadline": "2026-06-26T11:00:00\u002B00:00",
+  "OccurredAt": "2026-06-26T10:05:00\u002B00:00"
+}

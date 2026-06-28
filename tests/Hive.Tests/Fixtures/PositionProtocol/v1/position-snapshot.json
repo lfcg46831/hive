@@ -1,0 +1,49 @@
+{
+  "TakenAt": "2026-06-26T10:05:00\u002B00:00",
+  "Occupant": "agent-7",
+  "OccupantType": "ai-agent",
+  "Inbox": [
+    {
+      "manifest": "memo",
+      "payload": {
+        "Body": "Heads up: the staging credential rotates tonight.",
+        "Id": "d3000000-0000-0000-0000-000000000001",
+        "OrganizationId": "acme",
+        "From": {
+          "kind": "position",
+          "positionId": "bug-triage"
+        },
+        "To": {
+          "kind": "position",
+          "positionId": "release-manager"
+        },
+        "Thread": "d3000000-0000-0000-0000-0000000000a1",
+        "Priority": "high",
+        "SchemaVersion": 1,
+        "SentAt": "2026-06-21T10:00:00\u002B00:00",
+        "Deadline": null
+      }
+    }
+  ],
+  "OpenTasks": [
+    {
+      "TaskId": "c6000000-0000-0000-0000-000000000001",
+      "Thread": "d3000000-0000-0000-0000-0000000000a1",
+      "Title": "triage incoming regression",
+      "Priority": "critical",
+      "OpenedAt": "2026-06-26T10:00:00\u002B00:00",
+      "Deadline": "2026-06-26T11:00:00\u002B00:00",
+      "CausedBy": "d3000000-0000-0000-0000-000000000001"
+    }
+  ],
+  "ShortMemory": {
+    "current-thread": "customer-impact"
+  },
+  "RecentHistory": [
+    "d3000000-0000-0000-0000-000000000001"
+  ],
+  "ProcessedMessages": [
+    "d3000000-0000-0000-0000-000000000001"
+  ],
+  "LastConfigurationStamp": null
+}

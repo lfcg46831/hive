@@ -33,7 +33,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     public IReadOnlyList<PositionShardingNode> AgentNodes =>
         Nodes.Where(node => node.HasRole(NodeRoleNames.Agents)).ToArray();
 
-    public static async Task<PositionShardingMultiNodeFixture> StartAsync()
+    public static async Task<PositionShardingMultiNodeFixture> StartAsync(bool startAllAgentRegions = true)
     {
         var timeout = TimeSpan.FromSeconds(30);
         var systemName = $"hive-t14a-{Guid.NewGuid():N}";
@@ -51,7 +51,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         try
         {
             await fixture.JoinClusterAsync();
-            await fixture.StartShardingAsync();
+            await fixture.StartShardingAsync(startAllAgentRegions);
             return fixture;
         }
         catch
@@ -134,6 +134,78 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             _timeout);
     }
 
+    public async Task SendThroughAllAgentRegionsAsync(PositionEntityId entity, string keyPrefix)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(keyPrefix);
+
+        var startedNodes = AgentNodes
+            .Where(node => node.Region is not null)
+            .ToArray();
+        if (startedNodes.Length == 0)
+        {
+            throw new InvalidOperationException("No agents shard region has been started.");
+        }
+
+        foreach (var node in startedNodes)
+        {
+            node.Region!.Tell(PositionEnvelope.For(
+                entity,
+                new UpdateShortMemory($"{keyPrefix}-{node.Name}", node.Name)));
+        }
+
+        await WaitForCommittedShortMemoryUpdatesAsync(
+            [entity],
+            key => key.StartsWith(keyPrefix, StringComparison.Ordinal),
+            expectedCount: startedNodes.Length);
+    }
+
+    public async Task StartRemainingAgentShardRegionsAsync()
+    {
+        foreach (var node in AgentNodes.Where(node => node.Region is null))
+        {
+            await StartShardingAsync(node);
+        }
+    }
+
+    public async Task<IReadOnlyList<PositionEntityLocation>> WaitForRebalancedLocationsAsync(
+        IReadOnlyCollection<PositionEntityId> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        if (entities.Count == 0)
+        {
+            return await GetEntityLocationsAsync();
+        }
+
+        var deadline = DateTimeOffset.UtcNow.Add(_timeout);
+        var attempt = 0;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var keyPrefix = $"t14b-rebalance-{attempt:D2}";
+            foreach (var entity in entities)
+            {
+                AgentNodes[0].Region!.Tell(PositionEnvelope.For(
+                    entity,
+                    new UpdateShortMemory(keyPrefix, entity.Value)));
+            }
+
+            var locations = await GetEntityLocationsAsync();
+            var committedEntities = CommittedShortMemoryEntities(
+                key => key.StartsWith("t14b-rebalance-", StringComparison.Ordinal));
+            if (entities.All(entity => committedEntities.Contains(entity.Value))
+                && HasEntityOnSecondAgent(locations)
+                && EntitiesAreActiveExactlyOnce(entities, locations))
+            {
+                return locations;
+            }
+
+            attempt++;
+            await Task.Delay(250);
+        }
+
+        throw new TimeoutException("Position entities did not rebalance without duplicate active entities.");
+    }
+
     public async Task<IReadOnlyList<PositionEntityLocation>> GetEntityLocationsAsync()
     {
         var locations = new List<PositionEntityLocation>();
@@ -176,28 +248,42 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             _timeout);
     }
 
-    private async Task StartShardingAsync()
+    private async Task StartShardingAsync(bool startAllAgentRegions)
     {
-        foreach (var node in AgentNodes)
-        {
-            var sharding = ClusterSharding.Get(node.System);
-            var settings = ClusterShardingSettings.Create(node.System)
-                .WithRole(NodeRoleNames.Agents)
-                .WithRememberEntities(false)
-                .WithPassivateIdleAfter(TimeSpan.FromMinutes(10));
+        var nodes = startAllAgentRegions
+            ? AgentNodes
+            : AgentNodes.Take(1).ToArray();
 
-            node.Region = await sharding
-                .StartAsync(
-                    typeName: PositionEntityId.EntityTypeName,
-                    entityPropsFactory: entityId => Props.Create(() => new PositionActor(
-                        entityId,
-                        node.ConfigurationProvider,
-                        node.Publisher,
-                        () => At)),
-                    settings: settings,
-                    messageExtractor: new PositionMessageExtractor(NumberOfShards))
-                .ConfigureAwait(false);
+        foreach (var node in nodes)
+        {
+            await StartShardingAsync(node);
         }
+    }
+
+    private static async Task StartShardingAsync(PositionShardingNode node)
+    {
+        if (node.Region is not null)
+        {
+            return;
+        }
+
+        var sharding = ClusterSharding.Get(node.System);
+        var settings = ClusterShardingSettings.Create(node.System)
+            .WithRole(NodeRoleNames.Agents)
+            .WithRememberEntities(false)
+            .WithPassivateIdleAfter(TimeSpan.FromMinutes(10));
+
+        node.Region = await sharding
+            .StartAsync(
+                typeName: PositionEntityId.EntityTypeName,
+                entityPropsFactory: entityId => Props.Create(() => new PositionActor(
+                    entityId,
+                    node.ConfigurationProvider,
+                    node.Publisher,
+                    () => At)),
+                settings: settings,
+                messageExtractor: new PositionMessageExtractor(NumberOfShards))
+            .ConfigureAwait(false);
     }
 
     private static PositionShardingNode CreateNode(
@@ -215,6 +301,9 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
                 akka.remote.dot-netty.tcp.hostname = "127.0.0.1"
                 akka.remote.dot-netty.tcp.port = {{port}}
                 akka.cluster.roles = [{{RolesHocon(roles)}}]
+                akka.cluster.sharding.rebalance-interval = 1s
+                akka.cluster.sharding.least-shard-allocation-strategy.rebalance-threshold = 1
+                akka.cluster.sharding.least-shard-allocation-strategy.max-simultaneous-rebalance = {{NumberOfShards}}
                 akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
                 akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
                 akka.actor {
@@ -266,6 +355,59 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         }
 
         throw new TimeoutException("Condition was not met within the allotted time.");
+    }
+
+    private async Task WaitForCommittedShortMemoryUpdatesAsync(
+        IReadOnlyCollection<PositionEntityId> entities,
+        Func<string, bool> keyPredicate,
+        int expectedCount)
+    {
+        var entityValues = entities
+            .Select(entity => entity.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+        await WaitForAsync(
+            () =>
+            {
+                var committed = Nodes
+                    .SelectMany(node => node.Publisher.Events)
+                    .OfType<PositionEventCommitted>()
+                    .Where(candidate => entityValues.Contains(candidate.EntityId.Value)
+                        && candidate.Event is ShortMemoryUpdated updated
+                        && keyPredicate(updated.Key))
+                    .Count();
+
+                return committed >= expectedCount;
+            },
+            _timeout);
+    }
+
+    private HashSet<string> CommittedShortMemoryEntities(Func<string, bool> keyPredicate) =>
+        Nodes
+            .SelectMany(node => node.Publisher.Events)
+            .OfType<PositionEventCommitted>()
+            .Where(candidate => candidate.Event is ShortMemoryUpdated updated && keyPredicate(updated.Key))
+            .Select(candidate => candidate.EntityId.Value)
+            .ToHashSet(StringComparer.Ordinal);
+
+    private bool HasEntityOnSecondAgent(IReadOnlyCollection<PositionEntityLocation> locations) =>
+        locations.Any(location => location.NodeName == AgentNodes[1].Name && location.EntityIds.Count > 0);
+
+    private static bool EntitiesAreActiveExactlyOnce(
+        IReadOnlyCollection<PositionEntityId> entities,
+        IReadOnlyCollection<PositionEntityLocation> locations)
+    {
+        foreach (var entity in entities)
+        {
+            var owners = locations.Count(location =>
+                location.EntityIds.Contains(entity.Value, StringComparer.Ordinal));
+            if (owners != 1)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     public async ValueTask DisposeAsync()

@@ -10,7 +10,11 @@ public sealed class DomainIsolationTests
         "Akka",
         "Microsoft.AspNetCore",
         "Microsoft.Extensions.DependencyInjection",
+        "Microsoft.Extensions.AI",
         "Microsoft.Extensions.Hosting",
+        "Anthropic",
+        "Azure.AI",
+        "OpenAI",
     ];
 
     [Fact]

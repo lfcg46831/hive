@@ -10,6 +10,8 @@ using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Persistence.PostgreSql;
+using Npgsql;
 
 namespace Hive.Tests;
 
@@ -20,33 +22,55 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
 
     private static readonly DateTimeOffset At = new(2026, 6, 28, 10, 0, 0, TimeSpan.Zero);
 
+    private readonly List<PositionShardingNode> _nodes;
+    private readonly string _systemName;
+    private readonly string? _persistenceConnectionString;
     private readonly TimeSpan _timeout;
 
-    private PositionShardingMultiNodeFixture(IReadOnlyList<PositionShardingNode> nodes, TimeSpan timeout)
+    private PositionShardingMultiNodeFixture(
+        string systemName,
+        IEnumerable<PositionShardingNode> nodes,
+        TimeSpan timeout,
+        string? persistenceConnectionString)
     {
-        Nodes = nodes;
+        _systemName = systemName;
+        _nodes = nodes.ToList();
         _timeout = timeout;
+        _persistenceConnectionString = persistenceConnectionString;
     }
 
-    public IReadOnlyList<PositionShardingNode> Nodes { get; }
+    public IReadOnlyList<PositionShardingNode> Nodes => _nodes.ToArray();
 
     public IReadOnlyList<PositionShardingNode> AgentNodes =>
-        Nodes.Where(node => node.HasRole(NodeRoleNames.Agents)).ToArray();
+        _nodes
+            .Where(node => node.IsActive && node.HasRole(NodeRoleNames.Agents))
+            .ToArray();
 
-    public static async Task<PositionShardingMultiNodeFixture> StartAsync(bool startAllAgentRegions = true)
+    public static async Task<PositionShardingMultiNodeFixture> StartAsync(
+        bool startAllAgentRegions = true,
+        string? persistenceConnectionString = null)
     {
         var timeout = TimeSpan.FromSeconds(30);
         var systemName = $"hive-t14a-{Guid.NewGuid():N}";
         var ports = Enumerable.Range(0, 3).Select(_ => GetFreeTcpPort()).ToArray();
 
+        if (!string.IsNullOrWhiteSpace(persistenceConnectionString))
+        {
+            await MigratePersistenceAsync(persistenceConnectionString);
+        }
+
         var nodes = new[]
         {
-            CreateNode(systemName, "agents-1", ports[0], [NodeRoleNames.Agents]),
-            CreateNode(systemName, "agents-2", ports[1], [NodeRoleNames.Agents]),
-            CreateNode(systemName, "api-1", ports[2], [NodeRoleNames.Api]),
+            CreateNode(systemName, "agents-1", ports[0], [NodeRoleNames.Agents], persistenceConnectionString),
+            CreateNode(systemName, "agents-2", ports[1], [NodeRoleNames.Agents], persistenceConnectionString),
+            CreateNode(systemName, "api-1", ports[2], [NodeRoleNames.Api], persistenceConnectionString),
         };
 
-        var fixture = new PositionShardingMultiNodeFixture(nodes, timeout);
+        var fixture = new PositionShardingMultiNodeFixture(
+            systemName,
+            nodes,
+            timeout,
+            persistenceConnectionString);
 
         try
         {
@@ -121,7 +145,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         await WaitForAsync(
             () =>
             {
-                var committed = Nodes
+                var committed = _nodes
                     .SelectMany(node => node.Publisher.Events)
                     .OfType<PositionEventCommitted>()
                     .Where(candidate => candidate.Event is ShortMemoryUpdated updated
@@ -158,6 +182,129 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             [entity],
             key => key.StartsWith(keyPrefix, StringComparison.Ordinal),
             expectedCount: startedNodes.Length);
+    }
+
+    public async Task ChangeOccupantAsync(
+        PositionEntityId entity,
+        OccupantId occupant,
+        OccupantType occupantType)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(occupant);
+
+        Send(entity, new ChangeOccupant(occupant, occupantType));
+        await WaitForCommittedEventAsync<OccupantChanged>(
+            entity,
+            changed => changed.Occupant == occupant && changed.Type == occupantType);
+    }
+
+    public async Task AcceptMessageAsync(PositionEntityId entity, OrgMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(message);
+
+        Send(entity, new AcceptMessage(message));
+        await WaitForCommittedEventAsync<MessageReceived>(
+            entity,
+            received => received.Message.Id == message.Id);
+    }
+
+    public void SendAcceptMessage(PositionEntityId entity, OrgMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(message);
+
+        Send(entity, new AcceptMessage(message));
+    }
+
+    public async Task PassivateAsync(PositionEntityId entity, string reason)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentException.ThrowIfNullOrWhiteSpace(reason);
+
+        Send(entity, new RequestPassivation(reason));
+        await WaitForCommittedEventAsync<PositionPassivated>(
+            entity,
+            passivated => passivated.Reason == reason);
+    }
+
+    public async Task WaitForEntityInactiveAsync(PositionEntityId entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        await WaitForAsync(
+            () =>
+            {
+                foreach (var node in ActiveAgentNodesWithRegions())
+                {
+                    var state = node.Region!.Ask<CurrentShardRegionState>(
+                        GetShardRegionState.Instance,
+                        TimeSpan.FromSeconds(1)).GetAwaiter().GetResult();
+                    if (state.Shards.Any(shard => shard.EntityIds.Contains(entity.Value)))
+                    {
+                        return false;
+                    }
+                }
+
+                return true;
+            },
+            _timeout);
+    }
+
+    public async Task RestartAgentNodeAsync(string nodeName)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(nodeName);
+
+        var node = AgentNodes.Single(candidate => candidate.Name == nodeName);
+        await StopNodeAsync(node);
+
+        var replacement = CreateNode(
+            _systemName,
+            node.Name,
+            GetFreeTcpPort(),
+            node.Roles.ToArray(),
+            _persistenceConnectionString);
+        _nodes.Add(replacement);
+
+        var seed = ActiveClusterAddresses().First();
+        Cluster.Get(replacement.System).JoinSeedNodes([seed]);
+        await WaitForNodeUpAsync(replacement);
+        await StartShardingAsync(replacement);
+    }
+
+    public async Task WaitForDuplicateRejectedAsync(PositionEntityId entity, MessageId message)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(message);
+
+        await WaitForProjectionEventAsync<PositionMessageDuplicateRejected>(
+            entity,
+            rejected => rejected.Message == message);
+    }
+
+    public IReadOnlyList<CommittedPositionEvent<TEvent>> CommittedEvents<TEvent>(PositionEntityId entity)
+        where TEvent : PositionEvent
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        return ProjectionEvents<PositionEventCommitted>(entity)
+            .Where(committed => committed.Event is TEvent)
+            .Select(committed => new CommittedPositionEvent<TEvent>(
+                committed.EntityId,
+                (TEvent)committed.Event))
+            .ToArray();
+    }
+
+    public IReadOnlyList<TEvent> ProjectionEvents<TEvent>(PositionEntityId entity)
+        where TEvent : PositionProjectionEvent
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        return _nodes
+            .SelectMany(node => node.Publisher.Events)
+            .OfType<TEvent>()
+            .Where(candidate => candidate.EntityId == entity)
+            .ToArray();
     }
 
     public async Task StartRemainingAgentShardRegionsAsync()
@@ -209,11 +356,9 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     public async Task<IReadOnlyList<PositionEntityLocation>> GetEntityLocationsAsync()
     {
         var locations = new List<PositionEntityLocation>();
-        foreach (var node in AgentNodes)
+        foreach (var node in ActiveAgentNodesWithRegions())
         {
-            var region = node.Region
-                ?? throw new InvalidOperationException($"Shard region was not started on node '{node.Name}'.");
-            var state = await region.Ask<CurrentShardRegionState>(
+            var state = await node.Region!.Ask<CurrentShardRegionState>(
                 GetShardRegionState.Instance,
                 _timeout);
             var entityIds = state.Shards
@@ -230,20 +375,20 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     private async Task JoinClusterAsync()
     {
         var seed = Address.Parse(
-            $"akka.tcp://{Nodes[0].System.Name}@127.0.0.1:{Nodes[0].Port}");
+            $"akka.tcp://{_nodes[0].System.Name}@127.0.0.1:{_nodes[0].Port}");
         var seeds = new[] { seed };
 
-        foreach (var node in Nodes)
+        foreach (var node in _nodes)
         {
             Cluster.Get(node.System).JoinSeedNodes(seeds);
         }
 
         await WaitForAsync(
-            () => Nodes.All(node =>
+            () => _nodes.All(node =>
             {
                 var cluster = Cluster.Get(node.System);
                 return cluster.SelfMember.Status == MemberStatus.Up
-                    && cluster.State.Members.Count(member => member.Status == MemberStatus.Up) == Nodes.Count;
+                    && cluster.State.Members.Count(member => member.Status == MemberStatus.Up) == _nodes.Count;
             }),
             _timeout);
     }
@@ -290,7 +435,8 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         string systemName,
         string name,
         int port,
-        string[] roles)
+        string[] roles,
+        string? persistenceConnectionString)
     {
         var publisher = new CapturingProjectionPublisher();
         var provider = new DynamicConfigurationProvider();
@@ -304,8 +450,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
                 akka.cluster.sharding.rebalance-interval = 1s
                 akka.cluster.sharding.least-shard-allocation-strategy.rebalance-threshold = 1
                 akka.cluster.sharding.least-shard-allocation-strategy.max-simultaneous-rebalance = {{NumberOfShards}}
-                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
-                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                {{PersistenceHocon(persistenceConnectionString)}}
                 akka.actor {
                   serializers {
                     hive-org-message = "{{typeof(OrgMessageJsonSerializer).AssemblyQualifiedName}}"
@@ -324,8 +469,131 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         return new PositionShardingNode(name, roles, port, system, provider, publisher);
     }
 
+    private static async Task MigratePersistenceAsync(string persistenceConnectionString)
+    {
+        await using var dataSource = NpgsqlDataSource.Create(persistenceConnectionString);
+        await new PostgreSqlPositionPersistenceMigrator(dataSource).MigrateAsync();
+    }
+
+    private void Send(PositionEntityId entity, PositionCommand command)
+    {
+        var region = ActiveAgentNodesWithRegions().FirstOrDefault()?.Region
+            ?? throw new InvalidOperationException("No agents shard region has been started.");
+
+        region.Tell(PositionEnvelope.For(entity, command));
+    }
+
+    private async Task WaitForCommittedEventAsync<TEvent>(
+        PositionEntityId entity,
+        Func<TEvent, bool> predicate)
+        where TEvent : PositionEvent
+    {
+        await WaitForAsync(
+            () => ProjectionEvents<PositionEventCommitted>(entity)
+                .Any(committed => committed.Event is TEvent @event && predicate(@event)),
+            _timeout);
+    }
+
+    private async Task WaitForProjectionEventAsync<TEvent>(
+        PositionEntityId entity,
+        Func<TEvent, bool> predicate)
+        where TEvent : PositionProjectionEvent
+    {
+        await WaitForAsync(
+            () => ProjectionEvents<TEvent>(entity).Any(predicate),
+            _timeout);
+    }
+
+    private async Task StopNodeAsync(PositionShardingNode node)
+    {
+        var cluster = Cluster.Get(node.System);
+        var address = cluster.SelfAddress;
+        cluster.Leave(address);
+
+        await WaitForAsync(
+            () => _nodes
+                .Where(candidate => candidate.IsActive && candidate != node)
+                .All(candidate => Cluster.Get(candidate.System)
+                    .State
+                    .Members
+                    .All(member => member.Address != address)),
+            _timeout);
+
+        await node.System.Terminate().WaitAsync(_timeout);
+        node.Region = null;
+        node.IsActive = false;
+    }
+
+    private async Task WaitForNodeUpAsync(PositionShardingNode node)
+    {
+        await WaitForAsync(
+            () =>
+            {
+                var address = Cluster.Get(node.System).SelfAddress;
+                return Cluster.Get(node.System).SelfMember.Status == MemberStatus.Up
+                    && _nodes
+                        .Where(candidate => candidate.IsActive)
+                        .All(candidate => Cluster.Get(candidate.System)
+                            .State
+                            .Members
+                            .Any(member => member.Address == address
+                                && member.Status == MemberStatus.Up));
+            },
+            _timeout);
+    }
+
+    private IReadOnlyList<Address> ActiveClusterAddresses() =>
+        _nodes
+            .Where(node => node.IsActive)
+            .Select(node => Cluster.Get(node.System).SelfAddress)
+            .ToArray();
+
+    private IReadOnlyList<PositionShardingNode> ActiveAgentNodesWithRegions() =>
+        AgentNodes
+            .Where(node => node.Region is not null)
+            .ToArray();
+
     private static string RolesHocon(IEnumerable<string> roles) =>
         string.Join(", ", roles.Select(role => $"\"{role}\""));
+
+    private static string PersistenceHocon(string? persistenceConnectionString)
+    {
+        if (string.IsNullOrWhiteSpace(persistenceConnectionString))
+        {
+            return """
+                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                """;
+        }
+
+        var escapedConnectionString = EscapeHoconString(persistenceConnectionString);
+        return $$"""
+            akka.persistence.journal.plugin = "akka.persistence.journal.sql"
+            akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.sql"
+            akka.persistence.journal.sql {
+              class = "Akka.Persistence.Sql.Journal.SqlWriteJournal, Akka.Persistence.Sql"
+              connection-string = "{{escapedConnectionString}}"
+              provider-name = "PostgreSQL"
+              table-mapping = default
+              auto-initialize = true
+              warn-on-auto-init-fail = false
+              default.schema-name = "{{PositionPersistenceSchema.SchemaName}}"
+            }
+            akka.persistence.snapshot-store.sql {
+              class = "Akka.Persistence.Sql.Snapshot.SqlSnapshotStore, Akka.Persistence.Sql"
+              connection-string = "{{escapedConnectionString}}"
+              provider-name = "PostgreSQL"
+              table-mapping = default
+              auto-initialize = true
+              warn-on-auto-init-fail = false
+              default.schema-name = "{{PositionPersistenceSchema.SchemaName}}"
+            }
+            """;
+    }
+
+    private static string EscapeHoconString(string value) =>
+        value.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("\"", "\\\"", StringComparison.Ordinal);
 
     private static int GetFreeTcpPort()
     {
@@ -369,7 +637,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         await WaitForAsync(
             () =>
             {
-                var committed = Nodes
+                var committed = _nodes
                     .SelectMany(node => node.Publisher.Events)
                     .OfType<PositionEventCommitted>()
                     .Where(candidate => entityValues.Contains(candidate.EntityId.Value)
@@ -383,7 +651,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     }
 
     private HashSet<string> CommittedShortMemoryEntities(Func<string, bool> keyPredicate) =>
-        Nodes
+        _nodes
             .SelectMany(node => node.Publisher.Events)
             .OfType<PositionEventCommitted>()
             .Where(candidate => candidate.Event is ShortMemoryUpdated updated && keyPredicate(updated.Key))
@@ -412,7 +680,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
-        await Task.WhenAll(Nodes.Select(node => node.System.Terminate()));
+        await Task.WhenAll(_nodes.Select(node => node.System.Terminate()));
     }
 
     private sealed class DynamicConfigurationProvider : IPositionConfigurationProvider
@@ -471,6 +739,11 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     }
 }
 
+internal sealed record CommittedPositionEvent<TEvent>(
+    PositionEntityId EntityId,
+    TEvent Event)
+    where TEvent : PositionEvent;
+
 internal sealed class PositionShardingNode
 {
     public PositionShardingNode(
@@ -502,6 +775,8 @@ internal sealed class PositionShardingNode
     public PositionShardingMultiNodeFixture.CapturingProjectionPublisher Publisher { get; }
 
     public IActorRef? Region { get; internal set; }
+
+    public bool IsActive { get; internal set; } = true;
 
     public bool HasRole(string role) => Roles.Contains(role, StringComparer.OrdinalIgnoreCase);
 }

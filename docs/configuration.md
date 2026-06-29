@@ -325,11 +325,11 @@ HIVE__AIGATEWAY__STUB__COST__ISESTIMATED=true
 
 ### Real provider configuration
 
-The optional real provider reads its secure configuration from `Hive:AiGateway:Real`. US-F0-07-T05a only binds and validates this configuration into immutable settings through `IRealAiGatewayProviderFactory`; the real adapter (US-F0-07-T05b) and its default activation (US-F0-07-T05c) are separate tasks, so binding these keys does not yet route calls to a real provider. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables or user-secrets.
+The optional real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The default suite does not enable it, does not require credentials, and does not open external network connections. The first concrete provider supported by US-F0-07-T05c is OpenAI through `ProviderId=openai`; unsupported real provider ids fail startup as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables or user-secrets.
 
 | Setting | Required | Purpose |
 | --- | --- | --- |
-| `Hive:AiGateway:Real:ProviderId` | yes | Default provider id, applied when the position config omits it. Missing/empty fails with `configuration-invalid`. |
+| `Hive:AiGateway:Real:ProviderId` | yes | Default provider id, applied when the position config omits it. `openai` is the only concrete provider supported by T05c. Missing/empty or unsupported values fail with `configuration-invalid`. |
 | `Hive:AiGateway:Real:ModelId` | yes | Default model id, applied when the position config omits it. Missing/empty fails with `configuration-invalid`. |
 | `Hive:AiGateway:Real:ApiKey` | yes | Secret credential. Infrastructure-only; never logged or exposed to the domain. Missing/empty fails with `credentials-missing`. |
 | `Hive:AiGateway:Real:Endpoint` | no | Absolute endpoint URI. A non-absolute value fails with `configuration-invalid`. |
@@ -340,6 +340,7 @@ The optional real provider reads its secure configuration from `Hive:AiGateway:R
 Example (secret supplied as an environment variable):
 
 ```text
+HIVE__AIGATEWAY__PROVIDER=real
 HIVE__AIGATEWAY__REAL__PROVIDERID=openai
 HIVE__AIGATEWAY__REAL__MODELID=gpt-4o-mini
 HIVE__AIGATEWAY__REAL__ENDPOINT=https://api.example.com/v1

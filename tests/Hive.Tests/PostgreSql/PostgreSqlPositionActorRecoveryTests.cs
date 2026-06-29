@@ -315,12 +315,23 @@ public sealed class PostgreSqlPositionActorRecoveryTests(PostgreSqlFixture fixtu
     private static async Task WaitForReadyAsync(IActorRef actor)
     {
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        PositionRuntimeStatus? latest = null;
+
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var status = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
-            if (status.OperationalState == PositionOperationalState.Ready)
+            try
+            {
+                latest = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+            }
+            catch (AskTimeoutException)
+            {
+                await Task.Delay(25);
+                continue;
+            }
+
+            if (latest.OperationalState == PositionOperationalState.Ready)
             {
                 return;
             }
@@ -328,7 +339,8 @@ public sealed class PostgreSqlPositionActorRecoveryTests(PostgreSqlFixture fixtu
             await Task.Delay(25);
         }
 
-        throw new TimeoutException("PositionActor did not reach Ready.");
+        throw new TimeoutException(
+            $"PositionActor did not reach Ready. Last observed state was {latest?.OperationalState}.");
     }
 
     private static IPositionConfigurationProvider LoadedProvider(

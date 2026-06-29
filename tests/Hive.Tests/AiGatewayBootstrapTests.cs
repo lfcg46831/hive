@@ -2,6 +2,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Configuration;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -27,6 +28,7 @@ public sealed class AiGatewayBootstrapTests
         var gateway = provider.GetRequiredService<IAiGateway>();
 
         Assert.IsType<AiGateway>(gateway);
+        Assert.Null(provider.GetService<IChatClient>());
 
         var response = await gateway.CompleteAsync(Request());
 

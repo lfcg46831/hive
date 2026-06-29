@@ -1,6 +1,7 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Ai;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -186,6 +187,34 @@ public sealed class AiGatewayStubProviderTests
         Assert.Equal("Configured from host settings.", response.Text);
         Assert.NotNull(response.Usage);
         Assert.Equal(8, response.Usage.TotalTokens);
+    }
+
+    [Fact]
+    public async Task AddHiveAiGateway_keeps_stub_when_real_settings_are_present()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Hive:AiGateway:Provider"] = "stub",
+                ["Hive:AiGateway:Stub:Text"] = "Stub remains selected.",
+                ["Hive:AiGateway:Real:ProviderId"] = "openai",
+                ["Hive:AiGateway:Real:ModelId"] = "gpt-4o-mini",
+                ["Hive:AiGateway:Real:ApiKey"] = "secret-key",
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHiveAiGateway(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var gateway = provider.GetRequiredService<IAiGateway>();
+
+        Assert.Null(provider.GetService<IChatClient>());
+        var response = await gateway.CompleteAsync(Request());
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal("Stub remains selected.", response.Text);
+        Assert.NotNull(response.Provider);
+        Assert.Equal("stub", response.Provider.ProviderId);
     }
 
     [Fact]

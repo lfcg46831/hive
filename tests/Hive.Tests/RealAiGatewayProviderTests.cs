@@ -2,6 +2,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Ai;
 using Microsoft.Extensions.AI;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Hive.Tests;
@@ -17,6 +18,54 @@ public sealed class RealAiGatewayProviderTests
         ThreadId.From(Guid.Parse("11111111-1111-1111-1111-111111111111"));
     private static readonly MessageId Message =
         MessageId.From(Guid.Parse("22222222-2222-2222-2222-222222222222"));
+
+    [Fact]
+    public void AddHiveAiGateway_activates_real_openai_provider_when_configured()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Hive:AiGateway:Provider"] = "real",
+                ["Hive:AiGateway:Real:ProviderId"] = "openai",
+                ["Hive:AiGateway:Real:ModelId"] = "gpt-4o-mini",
+                ["Hive:AiGateway:Real:ApiKey"] = ApiKey,
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHiveAiGateway(configuration);
+
+        using var provider = services.BuildServiceProvider();
+
+        Assert.NotNull(provider.GetRequiredService<IChatClient>());
+        Assert.Equal(
+            "RealAiGatewayProvider",
+            provider.GetRequiredService<IAiGatewayProvider>().GetType().Name);
+        Assert.IsType<AiGateway>(provider.GetRequiredService<IAiGateway>());
+    }
+
+    [Fact]
+    public void AddHiveAiGateway_rejects_unsupported_real_provider_without_leaking_secret()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Hive:AiGateway:Provider"] = "real",
+                ["Hive:AiGateway:Real:ProviderId"] = "azure-openai",
+                ["Hive:AiGateway:Real:ModelId"] = "gpt-4o-mini",
+                ["Hive:AiGateway:Real:ApiKey"] = ApiKey,
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHiveAiGateway(configuration);
+
+        using var provider = services.BuildServiceProvider();
+
+        var exception = Assert.Throws<InvalidOperationException>(
+            () => provider.GetRequiredService<IAiGatewayProvider>());
+        Assert.Contains("configuration-invalid", exception.Message);
+        Assert.Contains("unsupported", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(ApiKey, exception.Message);
+    }
 
     [Fact]
     public async Task Maps_successful_response_to_hive_contract()

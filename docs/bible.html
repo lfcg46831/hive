@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.92 (rascunho evolutivo) <strong>Data:</strong> 2026-06-28 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.93 (rascunho evolutivo) <strong>Data:</strong> 2026-06-29 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -188,6 +188,7 @@
 <tr><td>0.90</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T11b</code>: depois de <code>RequestPassivation</code> permitido, o <code>PositionActor</code> persiste <code>PositionPassivated</code> e so entao envia <code>Passivate</code> ao shard parent com <code>PositionPassivationStop</code>; mensagens ja enfileiradas drenam antes do stop e entregas posteriores ficam bufferizadas pelo Cluster Sharding para nova incarnacao.</td></tr>
 <tr><td>0.91</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T11c</code>: uma posicao passivada continua enderecavel pelo <code>PositionEnvelope</code>/<code>PositionEntityId</code> canonico na <code>ShardRegion</code>; mensagens normais, <code>Pulse</code> de scheduler e <code>EventTrigger</code> de subscricao reativam uma nova incarnacao, recuperam o estado persistido e nao duplicam <code>PositionConfigurationApplied</code>.</td></tr>
 <tr><td>0.92</td><td>2026-06-28</td><td>Especificação de <code>US-F0-07-T01</code>: contrato HIVE do <code>AiGateway</code> como DTOs imutáveis e provider-neutral em <code>Hive.Domain.Ai</code>, com identidade <code>OrganizationId</code>/<code>PositionId</code>/<code>ThreadId</code>/<code>MessageId</code>, metadados de provider/modelo, resposta, erro estruturado, usage/custo opcional e fronteiras explícitas face a SDKs, políticas, configuração, auditoria e adapters reais.</td></tr>
+<tr><td>0.93</td><td>2026-06-29</td><td>Decisão de <code>US-F0-07-T02</code>: a primeira fronteira executável do <code>AiGateway</code> é o serviço DI <code>IAiGateway</code>, provider-neutral e testável, escondendo <code>Microsoft.Extensions.AI</code> e SDKs concretos; um eventual <code>AiGatewayActor</code> fica como wrapper fino posterior para <code>US-F0-07-T12</code>/<code>US-F0-08</code> quando forem necessárias mailbox, backpressure, supervisão ou distribuição. Estimativas da F0 validadas sem alteração: <code>US-F0-07-T02</code> mantém esforço <code>5</code> e o Total F0 permanece <code>576</code>.</td></tr>
 </tbody>
 </table>
 
@@ -777,7 +778,9 @@ occupant:
 
 <h3>6.3 AI Gateway</h3>
 
-<p>Ator (ou subsistema de atores) responsável por:</p>
+<p>Subsistema responsável por encapsular chamadas a providers AI. A primeira fronteira executável da F0 é um serviço DI <code>IAiGateway</code>, provider-neutral e testável, que consome o contrato HIVE de <code>Hive.Domain.Ai</code> e esconde <code>Microsoft.Extensions.AI</code> e SDKs concretos. Um <code>AiGatewayActor</code>, se vier a existir, é um wrapper fino posterior sobre <code>IAiGateway</code>, usado apenas quando forem necessárias propriedades próprias do actor model como mailbox, backpressure, supervisão, filas por provider ou distribuição por cluster.</p>
+
+<p>O subsistema é responsável por:</p>
 
 <ul>
 <li>Routing do pedido para o provider correto.</li>
@@ -1883,7 +1886,7 @@ public interface IPositionConfigurationProvider
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-07-T01</strong> — Definir contrato HIVE do gateway: <code>AiGatewayRequest</code>, <code>AiGatewayResponse</code>, <code>AiGatewayError</code>, metadados de provider/modelo, <code>OrganizationId</code>, <code>PositionId</code>, <code>ThreadId</code> e <code>MessageId</code>.</li>
-<li><strong>US-F0-07-T02</strong> — Criar serviço/ator <code>AiGateway</code> como fronteira única entre agentes HIVE e <code>Microsoft.Extensions.AI</code>, sem expor SDKs concretos ao domínio.</li>
+<li><strong>US-F0-07-T02</strong> — Criar <code>IAiGateway</code> como serviço DI e fronteira executável única entre agentes HIVE e <code>Microsoft.Extensions.AI</code>, sem expor SDKs concretos ao domínio. Não introduzir ainda <code>AiGatewayActor</code>; um wrapper actor fino fica reservado para <code>US-F0-07-T12</code>/<code>US-F0-08</code> se a integração precisar de mailbox, backpressure, supervisão ou distribuição.</li>
 <li><strong>US-F0-07-T03</strong> — Mapear configuração de AI da posição a partir do registry: provider, modelo, parâmetros, timeout, modo de processamento, fallback declarado para futuro e limites de custo/chamadas.</li>
 <li><strong>US-F0-07-T04</strong> — Implementar provider stub determinístico compatível com o contrato do gateway, com respostas configuráveis para sucesso, erro, timeout, custo/tokens e tool-call simulado.</li>
 <li><strong>US-F0-07-T05</strong> — Implementar adapter inicial para um provider real configurável via <code>Microsoft.Extensions.AI</code>, mantendo chaves/segredos fora do domínio e carregados por configuração segura.
@@ -1899,7 +1902,7 @@ public interface IPositionConfigurationProvider
 <li><strong>US-F0-07-T09</strong> — Implementar timeout, cancelamento e erro estruturado para falhas de provider, credenciais ausentes, configuração inválida, quota excedida, resposta inválida e budget insuficiente.</li>
 <li><strong>US-F0-07-T10</strong> — Medir duração, provider, modelo, tokens, custo estimado/real e resultado da chamada, emitindo evento de custo/auditoria correlacionado com <code>ThreadId</code> e posição.</li>
 <li><strong>US-F0-07-T11</strong> — Criar envelope de auditoria que regista pedido, resposta, erro, redactions aplicadas e razão de rejeição sem persistir segredos nem PII desnecessária.</li>
-<li><strong>US-F0-07-T12</strong> — Expor API interna para <code>AiAgentActor</code> invocar o gateway com contrato assíncrono, propagando correlation id, cancellation token e razão estruturada de falha.</li>
+<li><strong>US-F0-07-T12</strong> — Expor API interna para <code>AiAgentActor</code> invocar o gateway com contrato assíncrono, propagando correlation id, cancellation token e razão estruturada de falha; se for necessário actor model nesta fronteira, introduzir aqui um <code>AiGatewayActor</code> fino que delega para <code>IAiGateway</code>, sem duplicar políticas nem adapters.</li>
 <li><strong>US-F0-07-T13</strong> — Criar testes unitários do gateway para mapeamento de requests/responses, política de orçamento, timeout, erros estruturados, redaction e normalização de tokens/custo.</li>
 <li><strong>US-F0-07-T14</strong> — Criar testes de integração com provider stub e, quando configurado por segredo local, um provider real opcional, garantindo que a suite default não depende de rede externa.</li>
 </ul>
@@ -1916,6 +1919,9 @@ public interface IPositionConfigurationProvider
 </ul>
 <p><strong>Critérios de aceitação de <code>US-F0-07-T01</code>:</strong> os contratos de domínio do gateway existem como tipos imutáveis e provider-neutral; não referenciam <code>Microsoft.Extensions.AI</code> nem SDKs concretos; não permitem construir pedido/resposta/erro sem <code>OrganizationId</code>, <code>PositionId</code>, <code>ThreadId</code> e <code>MessageId</code>; distinguem sucesso e falha de forma inequívoca; suportam resposta textual, tool calls, finish reason, erro estruturado, usage/custo opcional e metadados de provider/modelo; e deixam explícito que configuração, políticas, adapters, métricas e auditoria pertencem às tarefas seguintes.</p>
 <p><strong>Testes mínimos de <code>US-F0-07-T01</code>:</strong> factories/constructors rejeitam identidades nulas ou inválidas, provider/modelo vazio quando metadata é declarado e respostas ambíguas com sucesso e erro em simultâneo; os códigos de erro e finish reasons têm representação textual estável; usage/custo aceitam ausência sem defaults silenciosos; e um teste de boundary confirma que <code>Hive.Domain</code> não referencia <code>Microsoft.Extensions.AI</code> nem packages de providers.</p>
+<p><strong>Fronteira executável do <code>AiGateway</code> (US-F0-07-T02):</strong> a primeira implementação do gateway é um serviço DI <code>IAiGateway</code>, registado na composição de infraestrutura e consumido por código HIVE através do contrato de <code>Hive.Domain.Ai</code>. A interface expõe uma operação assíncrona sobre <code>AiGatewayRequest</code> e devolve <code>AiGatewayResponse</code>, propagando <code>CancellationToken</code> e mantendo toda a semântica provider-neutral. A implementação concreta pode usar <code>Microsoft.Extensions.AI</code> e adapters de provider, mas esses tipos não atravessam a fronteira para domínio, atores ou user stories consumidoras.</p>
+<p>Esta decisão evita colocar a lógica do gateway dentro de um actor prematuramente. Políticas, normalização, adapters, erros, usage/custo e auditoria ficam testáveis como serviços .NET normais, sem exigir <code>ActorSystem</code>, mailbox, sharding ou supervisão para validar o comportamento base. Um eventual <code>AiGatewayActor</code> fica reservado para <code>US-F0-07-T12</code>/<code>US-F0-08</code> como wrapper fino sobre <code>IAiGateway</code>, apenas quando a integração com <code>AiAgentActor</code> precisar de propriedades de actor model como serialização de chamadas por provider, backpressure, supervisão, circuit-breaker supervisionado, filas ou distribuição por cluster. Esse wrapper não pode duplicar políticas, adapters nem mapeamentos: delega para <code>IAiGateway</code> e preserva o mesmo contrato.</p>
+<p><strong>Critérios de aceitação de <code>US-F0-07-T02</code>:</strong> existe <code>IAiGateway</code> como fronteira DI única; a interface usa apenas tipos HIVE/provider-neutral e <code>CancellationToken</code>; a implementação esconde <code>Microsoft.Extensions.AI</code> e SDKs concretos atrás de infraestrutura; é possível testar sucesso, erro e cancelamento sem criar um actor system; nenhum <code>AiGatewayActor</code> é introduzido nesta tarefa; e a estimativa mantém-se em <code>5</code>, porque a decisão reduz ambiguidade sem acrescentar trabalho actor-model à <code>T02</code>.</p>
 <p><strong>Critério de conclusão:</strong> o <code>AiGateway</code> oferece uma fronteira HIVE estável sobre <code>Microsoft.Extensions.AI</code>, resolve configuração por posição, suporta stub determinístico e um provider real configurável, aplica políticas mínimas de autorização/budget/timeout, normaliza respostas e erros, emite custos/auditoria correlacionados e tem testes unitários e integração sem dependência obrigatória de rede externa.</p>
 </article>
 
@@ -2928,7 +2934,7 @@ public interface IPositionConfigurationProvider
 
 <hr>
 
-<p><em>Proxima iteracao (v0.93): iniciar <code>US-F0-06-T12</code>, consolidando testes unitarios para transicoes de estado, idempotencia, aplicacao de eventos, snapshots, validacao de configuracao e troca de ocupante.</em></p>
+<p><em>Proxima iteracao (v0.94): implementar <code>US-F0-07-T02</code> como servico DI <code>IAiGateway</code>, mantendo <code>AiGatewayActor</code> fora da tarefa ate haver necessidade explicita de actor wrapper.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

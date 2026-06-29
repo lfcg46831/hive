@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HIVE — One Organization. Agents &amp; People.</title>
+<meta name="description" content="HIVE is a hybrid organization platform where AI agents and people work in one auditable command structure, built on the Actor Model.">
+<style>
+  :root{
+    --cream:#F4ECD6;
+    --paper:#EFE4C8;
+    --mustard:#E2A92E;
+    --mustard-deep:#C98A1B;
+    --orange:#C8531F;
+    --rust:#9E3B16;
+    --brown:#3A2A18;
+    --ink:#241A0E;
+    --olive:#6B6A2C;
+    --teal:#1F5E55;
+    --line:#3A2A18;
+    --shadow:rgba(36,26,14,.18);
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html{scroll-behavior:smooth;}
+  body{
+    background:var(--cream);
+    color:var(--ink);
+    font-family:"Helvetica Neue",Helvetica,Arial,"Segoe UI",sans-serif;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+    position:relative;
+  }
+  /* paper grain */
+  body::before{
+    content:"";position:fixed;inset:0;z-index:9999;pointer-events:none;
+    opacity:.045;mix-blend-mode:multiply;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
+  .wrap{max-width:1120px;margin:0 auto;padding:0 28px;}
+  a{color:inherit;}
+  h1,h2,h3{font-weight:800;letter-spacing:-.02em;line-height:1.02;}
+  .mono{font-family:"Courier New",ui-monospace,monospace;}
+  .eyebrow{
+    font-family:"Courier New",monospace;font-size:.72rem;letter-spacing:.34em;
+    text-transform:uppercase;font-weight:700;color:var(--rust);
+  }
+  .rule{height:3px;background:var(--ink);border:0;}
+  .rule-thin{height:1px;background:var(--ink);opacity:.55;border:0;}
+
+  /* ---- top bar ---- */
+  .topbar{border-bottom:3px solid var(--ink);background:var(--mustard);}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;}
+  .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.12em;font-size:1.15rem;}
+  .brand .hex{width:24px;height:24px;display:inline-block;}
+  .nav{display:flex;gap:26px;font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;font-weight:700;}
+  .nav a{text-decoration:none;padding-bottom:2px;border-bottom:2px solid transparent;}
+  .nav a:hover{border-color:var(--ink);}
+  .badge-v{font-family:"Courier New",monospace;font-size:.66rem;border:2px solid var(--ink);padding:2px 7px;letter-spacing:.1em;}
+  @media(max-width:760px){.nav{display:none;}}
+
+  /* ---- hero ---- */
+  .hero{border-bottom:3px solid var(--ink);background:
+     linear-gradient(var(--paper),var(--paper));
+     position:relative;overflow:hidden;}
+  .hero .wrap{padding-top:54px;padding-bottom:54px;position:relative;z-index:2;}
+  .hero-grid{display:grid;grid-template-columns:1.35fr .95fr;gap:40px;align-items:center;}
+  @media(max-width:860px){.hero-grid{grid-template-columns:1fr;gap:30px;}}
+  .hero h1{font-size:clamp(2.6rem,6vw,4.5rem);text-transform:uppercase;}
+  .hero h1 .or{color:var(--orange);}
+  .hero .lede{font-size:1.18rem;max-width:42ch;margin-top:22px;color:var(--brown);}
+  .cta-row{display:flex;gap:14px;flex-wrap:wrap;margin-top:30px;}
+  .btn{
+    display:inline-block;text-decoration:none;font-weight:800;font-size:.82rem;
+    letter-spacing:.12em;text-transform:uppercase;padding:15px 26px;border:3px solid var(--ink);
+    transition:transform .08s ease, box-shadow .08s ease;
+  }
+  .btn-primary{background:var(--orange);color:var(--cream);box-shadow:6px 6px 0 var(--ink);}
+  .btn-primary:hover{transform:translate(-2px,-2px);box-shadow:8px 8px 0 var(--ink);}
+  .btn-ghost{background:transparent;color:var(--ink);box-shadow:6px 6px 0 rgba(36,26,14,.25);}
+  .btn-ghost:hover{background:var(--mustard);transform:translate(-2px,-2px);}
+  .stat-strip{display:flex;gap:0;margin-top:40px;border:3px solid var(--ink);background:var(--cream);}
+  .stat{flex:1;padding:14px 16px;border-right:3px solid var(--ink);}
+  .stat:last-child{border-right:0;}
+  .stat b{display:block;font-size:1.5rem;font-weight:800;color:var(--rust);}
+  .stat span{font-size:.66rem;letter-spacing:.13em;text-transform:uppercase;font-weight:700;}
+  @media(max-width:560px){.stat-strip{flex-wrap:wrap;}.stat{flex:1 1 50%;border-bottom:3px solid var(--ink);}}
+
+  /* hero card / org diagram */
+  .org-card{border:3px solid var(--ink);background:var(--cream);box-shadow:10px 10px 0 var(--ink);}
+  .org-card .head{background:var(--ink);color:var(--cream);font-family:"Courier New",monospace;
+    font-size:.66rem;letter-spacing:.18em;padding:8px 12px;display:flex;justify-content:space-between;text-transform:uppercase;}
+  .org-card .body{padding:18px;}
+  .node{border:2px solid var(--ink);padding:8px 10px;margin:6px 0;display:flex;align-items:center;gap:10px;
+    font-size:.8rem;font-weight:700;background:var(--paper);}
+  .node .dot{width:10px;height:10px;border:2px solid var(--ink);}
+  .node.ai .dot{background:var(--orange);}
+  .node.human .dot{background:var(--teal);}
+  .node.lead{background:var(--mustard);}
+  .node .tag{margin-left:auto;font-family:"Courier New",monospace;font-size:.6rem;letter-spacing:.1em;
+    border:1px solid var(--ink);padding:1px 6px;text-transform:uppercase;font-weight:700;}
+  .indent{margin-left:22px;}
+  .legend{display:flex;gap:16px;margin-top:12px;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;}
+  .legend i{display:inline-block;width:10px;height:10px;border:2px solid var(--ink);margin-right:5px;vertical-align:middle;}
+
+  /* ---- section scaffold ---- */
+  section{border-bottom:3px solid var(--ink);}
+  .sec-pad{padding:64px 0;}
+  .sec-head{display:flex;align-items:baseline;gap:18px;margin-bottom:34px;}
+  .sec-num{font-family:"Courier New",monospace;font-weight:700;font-size:.9rem;color:var(--rust);
+    border:2px solid var(--ink);padding:4px 10px;align-self:flex-start;}
+  .sec-head h2{font-size:clamp(1.7rem,3.6vw,2.7rem);text-transform:uppercase;}
+  .sec-sub{max-width:60ch;color:var(--brown);font-size:1.05rem;margin-top:8px;}
+
+  /* problem band */
+  .band-dark{background:var(--ink);color:var(--cream);}
+  .band-dark .eyebrow{color:var(--mustard);}
+  .band-dark .sec-num{color:var(--mustard);border-color:var(--cream);}
+  .prob-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:3px solid var(--cream);}
+  @media(max-width:680px){.prob-grid{grid-template-columns:1fr;}}
+  .prob{padding:24px;border-right:3px solid var(--cream);border-bottom:3px solid var(--cream);}
+  .prob:nth-child(2n){border-right:0;}
+  .prob:nth-last-child(-n+2){border-bottom:0;}
+  @media(max-width:680px){.prob{border-right:0;}.prob:last-child{border-bottom:0;}}
+  .prob h3{color:var(--mustard);font-size:1.05rem;margin-bottom:8px;letter-spacing:0;}
+  .prob p{font-size:.95rem;color:#E6DCC2;}
+
+  /* concept cards */
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+  @media(max-width:860px){.grid-3{grid-template-columns:1fr 1fr;}}
+  @media(max-width:560px){.grid-3{grid-template-columns:1fr;}}
+  .card{border:3px solid var(--ink);background:var(--cream);padding:22px;box-shadow:6px 6px 0 var(--shadow);}
+  .card .ix{font-family:"Courier New",monospace;font-size:.7rem;color:var(--rust);font-weight:700;letter-spacing:.1em;}
+  .card h3{font-size:1.12rem;margin:8px 0 8px;letter-spacing:0;}
+  .card p{font-size:.92rem;color:var(--brown);}
+  .card.accent{background:var(--mustard);}
+  .card.accent2{background:var(--orange);color:var(--cream);}
+  .card.accent2 .ix,.card.accent2 p{color:var(--paper);}
+
+  /* features list */
+  .feat{display:grid;grid-template-columns:repeat(2,1fr);gap:0;border:3px solid var(--ink);background:var(--cream);}
+  @media(max-width:680px){.feat{grid-template-columns:1fr;}}
+  .feat .item{padding:22px 24px;border-right:3px solid var(--ink);border-bottom:3px solid var(--ink);}
+  .feat .item:nth-child(2n){border-right:0;}
+  .feat .item h3{font-size:1.02rem;letter-spacing:0;margin-bottom:6px;display:flex;align-items:center;gap:10px;}
+  .feat .item .k{font-family:"Courier New",monospace;font-size:.7rem;color:var(--rust);border:2px solid var(--ink);padding:2px 6px;font-weight:700;}
+  .feat .item p{font-size:.9rem;color:var(--brown);}
+  @media(max-width:680px){.feat .item{border-right:0;}}
+
+  /* how it works steps */
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:0;border:3px solid var(--ink);}
+  @media(max-width:760px){.steps{grid-template-columns:1fr 1fr;}}
+  @media(max-width:460px){.steps{grid-template-columns:1fr;}}
+  .step{padding:22px;border-right:3px solid var(--ink);background:var(--cream);color:var(--ink);position:relative;}
+  .step:last-child{border-right:0;}
+  @media(max-width:760px){.step:nth-child(2n){border-right:0;}.step{border-bottom:3px solid var(--ink);}}
+  .step .n{font-size:2.4rem;font-weight:800;color:var(--mustard-deep);line-height:1;}
+  .step h3{font-size:1rem;letter-spacing:0;margin:10px 0 6px;}
+  .step p{font-size:.86rem;color:var(--brown);}
+
+  /* channels */
+  .chan{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+  @media(max-width:760px){.chan{grid-template-columns:1fr;}}
+  .chan .c{border:3px solid var(--ink);padding:22px;}
+  .chan .c .arrow{font-family:"Courier New",monospace;font-weight:700;font-size:1.4rem;}
+  .chan .c.v{background:var(--paper);color:var(--ink);}
+  .chan .c.h{background:var(--mustard);color:var(--ink);}
+  .chan .c.g{background:var(--teal);color:var(--cream);}
+  .chan .c h3{letter-spacing:0;font-size:1.1rem;margin:8px 0;}
+  .chan .c p{font-size:.9rem;}
+  .chan .c.g p{color:#DCEEE9;}
+
+  /* tech / architecture */
+  .arch{display:grid;grid-template-columns:1fr 1fr;gap:34px;align-items:start;}
+  @media(max-width:820px){.arch{grid-template-columns:1fr;}}
+  .stacklist{border:3px solid var(--ink);background:var(--cream);}
+  .stacklist .row{display:flex;justify-content:space-between;gap:14px;padding:13px 16px;border-bottom:1px solid rgba(36,26,14,.3);font-size:.9rem;}
+  .stacklist .row:last-child{border-bottom:0;}
+  .stacklist .row b{font-weight:800;}
+  .stacklist .row span{font-family:"Courier New",monospace;font-size:.78rem;color:var(--rust);text-align:right;}
+  .termcard{border:3px solid var(--ink);background:var(--ink);color:#E6DCC2;box-shadow:8px 8px 0 var(--shadow);}
+  .termcard .bar{background:var(--mustard);color:var(--ink);font-family:"Courier New",monospace;font-size:.66rem;
+    letter-spacing:.14em;padding:7px 12px;text-transform:uppercase;font-weight:700;display:flex;justify-content:space-between;}
+  .termcard pre{font-family:"Courier New",monospace;font-size:.78rem;line-height:1.55;padding:18px;overflow:auto;white-space:pre;}
+  .termcard .y{color:var(--mustard);}
+  .termcard .o{color:#E8895A;}
+  .termcard .c{color:#7FB7AC;}
+  .termcard .d{color:#9b8e72;}
+
+  /* audience */
+  .aud{display:grid;grid-template-columns:repeat(3,1fr);gap:0;border:3px solid var(--ink);background:var(--cream);}
+  @media(max-width:760px){.aud{grid-template-columns:1fr;}}
+  .aud .a{padding:24px;border-right:3px solid var(--ink);color:var(--ink);}
+  .aud .a:last-child{border-right:0;}
+  @media(max-width:760px){.aud .a{border-right:0;border-bottom:3px solid var(--ink);}.aud .a:last-child{border-bottom:0;}}
+  .aud .a .tag{font-family:"Courier New",monospace;font-size:.66rem;color:var(--rust);font-weight:700;letter-spacing:.12em;}
+  .aud .a h3{font-size:1.05rem;margin:8px 0;letter-spacing:0;}
+  .aud .a p{font-size:.9rem;color:var(--brown);}
+
+  /* pricing / plans */
+  .plans{display:grid;grid-template-columns:repeat(3,1fr);gap:22px;}
+  @media(max-width:760px){.plans{grid-template-columns:1fr;}}
+  .plan{border:3px solid var(--ink);background:var(--cream);padding:26px 22px;display:flex;flex-direction:column;}
+  .plan.feature{background:var(--mustard);box-shadow:8px 8px 0 var(--ink);}
+  .plan .ph{font-family:"Courier New",monospace;font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;color:var(--rust);font-weight:700;}
+  .plan h3{font-size:1.5rem;margin:6px 0;}
+  .plan .price{font-size:1rem;color:var(--brown);margin-bottom:14px;}
+  .plan ul{list-style:none;font-size:.9rem;margin-bottom:20px;}
+  .plan ul li{padding:7px 0;border-bottom:1px solid rgba(36,26,14,.25);}
+  .plan ul li::before{content:"▸ ";color:var(--orange);font-weight:800;}
+  .plan .btn{margin-top:auto;text-align:center;}
+
+  /* faq */
+  details{border:3px solid var(--ink);background:var(--cream);margin-bottom:14px;}
+  details summary{cursor:pointer;list-style:none;padding:18px 22px;font-weight:800;font-size:1rem;display:flex;justify-content:space-between;align-items:center;}
+  details summary::-webkit-details-marker{display:none;}
+  details summary::after{content:"+";font-family:"Courier New",monospace;font-size:1.4rem;color:var(--orange);}
+  details[open] summary::after{content:"–";}
+  details .ans{padding:0 22px 20px;font-size:.95rem;color:var(--brown);max-width:75ch;}
+
+  /* big cta */
+  .finale{background:var(--orange);color:var(--cream);text-align:center;}
+  .finale h2{font-size:clamp(2rem,5vw,3.4rem);text-transform:uppercase;}
+  .finale p{max-width:46ch;margin:18px auto 0;font-size:1.1rem;color:#FBEAD8;}
+  .finale .btn-primary{background:var(--ink);color:var(--cream);box-shadow:6px 6px 0 rgba(0,0,0,.3);margin-top:30px;}
+  .finale .btn-primary:hover{background:#000;}
+
+  /* footer */
+  footer{background:var(--ink);color:#C9BE9F;font-size:.82rem;}
+  footer .wrap{padding:40px 28px;display:flex;justify-content:space-between;flex-wrap:wrap;gap:24px;}
+  footer .reg{font-family:"Courier New",monospace;font-size:.66rem;letter-spacing:.1em;color:#8a7e63;}
+  footer a{color:var(--mustard);text-decoration:none;}
+  .crop{position:relative;}
+  .crop::before,.crop::after{content:"";position:absolute;width:14px;height:14px;border:2px solid var(--ink);opacity:.5;}
+  .crop::before{top:10px;left:10px;border-right:0;border-bottom:0;}
+  .crop::after{bottom:10px;right:10px;border-left:0;border-top:0;}
+  .pill{display:inline-block;font-family:"Courier New",monospace;font-size:.64rem;letter-spacing:.12em;
+    text-transform:uppercase;border:2px solid currentColor;padding:3px 9px;font-weight:700;}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<header class="topbar">
+  <div class="wrap">
+    <div class="brand">
+      <svg class="hex" viewBox="0 0 100 100" aria-hidden="true">
+        <polygon points="50,4 92,27 92,73 50,96 8,73 8,27" fill="#241A0E"/>
+        <polygon points="50,20 78,36 78,64 50,80 22,64 22,36" fill="#E2A92E"/>
+        <polygon points="50,34 66,43 66,61 50,70 34,61 34,43" fill="#241A0E"/>
+      </svg>
+      HIVE
+    </div>
+    <nav class="nav">
+      <a href="#concepts">Model</a>
+      <a href="#features">Features</a>
+      <a href="#how">How it works</a>
+      <a href="#tech">Architecture</a>
+      <a href="#plans">Plans</a>
+    </nav>
+    <span class="badge-v">v0.93 · EST. 2026</span>
+  </div>
+</header>
+
+<!-- HERO -->
+<section class="hero crop">
+  <div class="wrap">
+    <div class="hero-grid">
+      <div>
+        <span class="eyebrow">Hybrid organizations · Built on the Actor Model</span>
+        <h1>One organization.<br>Agents <span class="or">&amp;</span> people.</h1>
+        <p class="lede">HIVE runs your company as a living org chart of AI agents and humans — every position, every message, every decision typed, governed, and fully auditable.</p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="#plans">Request a demo</a>
+          <a class="btn btn-ghost" href="#how">See how it works</a>
+        </div>
+        <div class="stat-strip">
+          <div class="stat"><b>1</b><span>Org chart, AI + human</span></div>
+          <div class="stat"><b>100%</b><span>Event-sourced audit</span></div>
+          <div class="stat"><b>∞</b><span>Provider-neutral AI</span></div>
+        </div>
+      </div>
+      <div class="org-card">
+        <div class="head"><span>ORG://acme-delivery</span><span>● LIVE</span></div>
+        <div class="body">
+          <div class="node lead"><span class="dot"></span>CEO <span class="tag">AI · lead</span></div>
+          <div class="indent">
+            <div class="node ai"><span class="dot"></span>Delivery Lead <span class="tag">AI</span></div>
+            <div class="indent">
+              <div class="node ai"><span class="dot"></span>Engineer A <span class="tag">AI</span></div>
+              <div class="node human"><span class="dot"></span>Reviewer <span class="tag">Human</span></div>
+            </div>
+            <div class="node human"><span class="dot"></span>Marketing Dir. <span class="tag">Human</span></div>
+          </div>
+          <div class="legend">
+            <span><i style="background:#C8531F"></i>AI agent</span>
+            <span><i style="background:#1F5E55"></i>Person</span>
+            <span><i style="background:#E2A92E"></i>Unit lead</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- PROBLEM -->
+<section class="band-dark">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">01</span>
+      <div>
+        <span class="eyebrow">The problem</span>
+        <h2>AI agents don't fit your org chart.</h2>
+        <p class="sec-sub" style="color:#E6DCC2">Bolting chatbots onto a business creates ungoverned, untraceable work. HIVE makes agents first-class members of a real organization — with rank, rules, and a paper trail.</p>
+      </div>
+    </div>
+    <div class="prob-grid">
+      <div class="prob"><h3>No chain of command</h3><p>Loose agents act without a superior, peers, or anyone to escalate to. Work happens with no accountability.</p></div>
+      <div class="prob"><h3>No audit trail</h3><p>You can't reconstruct who decided what, when, or why. Compliance and post-mortems become guesswork.</p></div>
+      <div class="prob"><h3>Runaway cost</h3><p>Unbounded loops and proactive runs burn tokens. There's no budget, no ceiling, no per-team accounting.</p></div>
+      <div class="prob"><h3>Humans left out</h3><p>People can't sit in the loop as approvers and teammates — they're an afterthought, not part of the structure.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- CONCEPTS -->
+<section id="concepts">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">02</span>
+      <div>
+        <span class="eyebrow">The model</span>
+        <h2>Everything is an actor.</h2>
+        <p class="sec-sub">Positions, units, connectors, the AI gateway — all live as supervised actors that talk only through typed messages. The result is an organization you can reason about.</p>
+      </div>
+    </div>
+    <div class="grid-3">
+      <div class="card accent">
+        <div class="ix">CONCEPT / A</div>
+        <h3>Position ≠ Occupant</h3>
+        <p>The structure is independent of who fills each seat. Swapping an AI for a human is changing the occupant, not the position — inbox and history stay put.</p>
+      </div>
+      <div class="card">
+        <div class="ix">CONCEPT / B</div>
+        <h3>Messages only</h3>
+        <p>No actor touches another's state. People speak to the system through a proxy actor. Every exchange follows a canonical message protocol.</p>
+      </div>
+      <div class="card accent2">
+        <div class="ix">CONCEPT / C</div>
+        <h3>Provider-neutral AI</h3>
+        <p>The AI layer is an abstraction. Anthropic, OpenAI, Azure, or local models via Ollama/vLLM — configured per position, hot-swappable, no actor knows the difference.</p>
+      </div>
+      <div class="card">
+        <div class="ix">CONCEPT / D</div>
+        <h3>Supervision &amp; resilience</h3>
+        <p>Provider timeouts, invalid responses, exceptions — all handled by the Akka.NET supervision hierarchy: restart, escalate, or notify the organizational superior.</p>
+      </div>
+      <div class="card accent2">
+        <div class="ix">CONCEPT / E</div>
+        <h3>Total auditability</h3>
+        <p>Every message is event-sourced. The organization has reconstructable institutional memory, reconciled with GDPR right-to-erasure by design.</p>
+      </div>
+      <div class="card accent">
+        <div class="ix">CONCEPT / F</div>
+        <h3>Cost is first-class</h3>
+        <p>Every model call has a price. HIVE measures it, caps it with per-position and per-unit budgets, and reports it. Proactive work has its own separate budget.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CHANNELS -->
+<section class="band-dark">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">03</span>
+      <div>
+        <span class="eyebrow">Communication</span>
+        <h2>Three channels, all governed.</h2>
+        <p class="sec-sub" style="color:#E6DCC2">HIVE separates how work flows from how it's authorized — so no agent can quietly route around the rules.</p>
+      </div>
+    </div>
+    <div class="chan">
+      <div class="c v">
+        <span class="arrow">↕</span>
+        <h3>Vertical · Command</h3>
+        <p>Directives flow down and get decomposed into sub-directives. Reports and escalations flow up — only ever to your direct superior.</p>
+      </div>
+      <div class="c h">
+        <span class="arrow">↔</span>
+        <h3>Horizontal · Collaboration</h3>
+        <p>Peers in a unit exchange memos and requests freely. Cross-unit work needs an explicit contract — leaders mediate the rest.</p>
+      </div>
+      <div class="c g">
+        <span class="arrow">⊕</span>
+        <h3>Governance · Approvals</h3>
+        <p>Approval requests route by authority policy. A decision counts only from the authorized approver, on the right thread. Fail-closed, always.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">04</span>
+      <div>
+        <span class="eyebrow">What you get</span>
+        <h2>Capabilities</h2>
+        <p class="sec-sub">A complete operating system for hybrid teams — from the living org chart to budgets, schedules, and human approvals.</p>
+      </div>
+    </div>
+    <div class="feat">
+      <div class="item"><h3><span class="k">01</span>Living org chart</h3><p>A read-only console renders the organization, position state, inbox, and approvals in real time over SignalR.</p></div>
+      <div class="item"><h3><span class="k">02</span>Human-in-the-loop</h3><p>People join as occupants and approvers via email, Teams, Slack, or the app — designed for human latency, with reminders and delegation.</p></div>
+      <div class="item"><h3><span class="k">03</span>Reactive + proactive</h3><p>Agents respond to messages and run declared schedules — daily reports, inbox sweeps, deadline checks — as discrete pulses, never runaway loops.</p></div>
+      <div class="item"><h3><span class="k">04</span>Budgets &amp; cost control</h3><p>Per-position and per-unit budgets, separate ceilings for proactive work, and a daily total cap so routines never cannibalize responses.</p></div>
+      <div class="item"><h3><span class="k">05</span>GitOps definition</h3><p>Organizations, units, positions, prompts, schedules, and authority live in versioned YAML — reviewed by pull request, materialized to the registry.</p></div>
+      <div class="item"><h3><span class="k">06</span>Connectors</h3><p>Pluggable adapters for email (SMTP/IMAP/Graph), chat, HTTP, files, and calendar — the bridge between agents and the outside world.</p></div>
+      <div class="item"><h3><span class="k">07</span>GDPR-ready audit</h3><p>Append-only events avoid direct PII and point to redactable data, reconciling immutable audit with the right to erasure.</p></div>
+      <div class="item"><h3><span class="k">08</span>Kill switch</h3><p>The organization owner sits outside the operating chain. Top-of-chain escalations and policy can pause an agent, a unit, or the whole org — with audit.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section id="how" class="band-dark">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">05</span>
+      <div>
+        <span class="eyebrow">How it works</span>
+        <h2>From a directive to a result.</h2>
+        <p class="sec-sub" style="color:#E6DCC2">One message moves through the organization the way a real task would — delegated, executed, reported, and recorded.</p>
+      </div>
+    </div>
+    <div class="steps">
+      <div class="step"><div class="n">1</div><h3>Directive arrives</h3><p>A superior issues a typed directive to a position. The PositionActor persists it to the inbox.</p></div>
+      <div class="step"><div class="n">2</div><h3>Agent builds context</h3><p>Identity prompt + memory + message + authorized tools go to the provider-neutral AI gateway.</p></div>
+      <div class="step"><div class="n">3</div><h3>It acts</h3><p>Answer, call a tool, delegate to subordinates, ask a peer, or request human approval — within iteration, budget, and time limits.</p></div>
+      <div class="step"><div class="n">4</div><h3>Report &amp; audit</h3><p>Memory updates, results report upward, and every step is event-sourced for the institutional record.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- TECH / ARCHITECTURE -->
+<section id="tech">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">06</span>
+      <div>
+        <span class="eyebrow">Under the hood</span>
+        <h2>Engineered to be trusted.</h2>
+        <p class="sec-sub">A clustered, event-sourced .NET core with a strict message protocol — not a prompt-chaining script.</p>
+      </div>
+    </div>
+    <div class="arch">
+      <div>
+        <div class="stacklist">
+          <div class="row"><b>Runtime</b><span>.NET 8 LTS</span></div>
+          <div class="row"><b>Actor model</b><span>Akka.NET · Cluster · Sharding</span></div>
+          <div class="row"><b>Event sourcing</b><span>Akka.Persistence.Sql</span></div>
+          <div class="row"><b>Persistence</b><span>PostgreSQL</span></div>
+          <div class="row"><b>AI layer</b><span>Microsoft.Extensions.AI + HIVE</span></div>
+          <div class="row"><b>API / UI</b><span>ASP.NET Core · SignalR · React/TS</span></div>
+          <div class="row"><b>Definition</b><span>GitOps · YAML registry</span></div>
+          <div class="row"><b>Observability</b><span>OpenTelemetry</span></div>
+        </div>
+      </div>
+      <div class="termcard">
+        <div class="bar"><span>organization.yaml</span><span>GITOPS</span></div>
+<pre><span class="d"># source of truth, reviewed by PR</span>
+<span class="y">organization:</span>
+  id: acme-delivery
+  owner: { type: human, ref: owner@acme.pt }
+<span class="y">positions:</span>
+  - id: <span class="o">delivery-lead</span>
+    unit: engineering
+    reports_to: ceo
+    occupant:
+      type: <span class="o">ai-agent</span>
+      identity_prompt_ref: engineer-v1
+      <span class="c">schedule:</span>
+        - cron: "0 55 17 * * MON-FRI"
+          instruction: "Send daily report"
+      <span class="c">authority:</span>
+        can_decide: ["bug-triage"]
+        must_escalate: ["deadline-risk"]
+        requires_human_approval: ["prod-release"]</pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- AUDIENCE -->
+<section class="band-dark">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">07</span>
+      <div>
+        <span class="eyebrow">Who it's for</span>
+        <h2>Built for teams that ship.</h2>
+      </div>
+    </div>
+    <div class="aud">
+      <div class="a"><div class="tag">ENGINEERING / DELIVERY</div><h3>Run a delivery org</h3><p>Triage bugs, decompose work, and report status across a hybrid team — the first internal use case HIVE was built around.</p></div>
+      <div class="a"><div class="tag">OPS &amp; COMPLIANCE</div><h3>Prove what happened</h3><p>Event-sourced audit, authority policies, and a GDPR-aware record make oversight and post-mortems trivial.</p></div>
+      <div class="a"><div class="tag">PLATFORM TEAMS</div><h3>Govern agents at scale</h3><p>One provider-neutral, budgeted, supervised platform for every agent in the company — instead of a dozen scripts.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- PLANS -->
+<section id="plans">
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">08</span>
+      <div>
+        <span class="eyebrow">Get started</span>
+        <h2>Plans</h2>
+        <p class="sec-sub">Start with a single team, scale to the whole organization. Pricing scales with positions and AI usage, not seats.</p>
+      </div>
+    </div>
+    <div class="plans">
+      <div class="plan">
+        <div class="ph">Pilot</div>
+        <h3>Team</h3>
+        <div class="price">For one unit, one org tree</div>
+        <ul>
+          <li>Up to 15 positions</li>
+          <li>Single-node deployment</li>
+          <li>Email + chat connectors</li>
+          <li>Community support</li>
+        </ul>
+        <a class="btn btn-ghost" href="#contact">Start a pilot</a>
+      </div>
+      <div class="plan feature">
+        <div class="ph">Most popular</div>
+        <h3>Growth</h3>
+        <div class="price">Clustered, multi-unit</div>
+        <ul>
+          <li>Unlimited positions</li>
+          <li>Clustering &amp; sharding</li>
+          <li>Budgets &amp; cost reporting</li>
+          <li>All connectors + GitOps</li>
+          <li>Priority support</li>
+        </ul>
+        <a class="btn btn-primary" href="#contact">Request a demo</a>
+      </div>
+      <div class="plan">
+        <div class="ph">Regulated</div>
+        <h3>Enterprise</h3>
+        <div class="price">Self-hosted &amp; compliant</div>
+        <ul>
+          <li>Multi-tenant isolation</li>
+          <li>Self-host / private cloud</li>
+          <li>GDPR audit &amp; SSO</li>
+          <li>Local model providers</li>
+          <li>SLA &amp; onboarding</li>
+        </ul>
+        <a class="btn btn-ghost" href="#contact">Talk to us</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FAQ -->
+<section>
+  <div class="wrap sec-pad">
+    <div class="sec-head">
+      <span class="sec-num">09</span>
+      <div>
+        <span class="eyebrow">Questions</span>
+        <h2>FAQ</h2>
+      </div>
+    </div>
+    <details>
+      <summary>Is HIVE another agent framework?</summary>
+      <div class="ans">No. HIVE is an organizational layer. Agents are members of a real command structure with positions, units, a typed message protocol, governance, and audit — not a chain of prompts. It runs on the Actor Model (Akka.NET) for supervision and resilience.</div>
+    </details>
+    <details>
+      <summary>Which AI providers are supported?</summary>
+      <div class="ans">HIVE is provider-neutral via Microsoft.Extensions.AI. Anthropic, OpenAI, Azure OpenAI, and local models (Ollama, vLLM) can coexist, configured per position and hot-swapped without any actor knowing the difference.</div>
+    </details>
+    <details>
+      <summary>How do humans participate?</summary>
+      <div class="ans">A person occupies a position through a proxy actor that relays typed messages via connectors — email, Teams, Slack, or the app. The system assumes humans answer in hours or days, so timeouts, reminders, and delegation are designed around that latency.</div>
+    </details>
+    <details>
+      <summary>How do you keep AI costs under control?</summary>
+      <div class="ans">Cost is a first-class dimension. Every call is measured, capped by per-position and per-unit budgets, and reported. Proactive activity draws from a separate budget so scheduled routines can never cannibalize the capacity to respond to orders.</div>
+    </details>
+    <details>
+      <summary>Is it auditable and GDPR-compliant?</summary>
+      <div class="ans">Yes. All communication is event-sourced into immutable, append-only records that avoid direct PII and point to redactable or encrypted data, reconciling a complete audit trail with the right to erasure under a European GDPR baseline.</div>
+    </details>
+    <details>
+      <summary>How is an organization defined?</summary>
+      <div class="ans">As versioned YAML in Git (GitOps) — units, positions, occupants, prompts, schedules, and authority. On deploy it's validated and materialized into PostgreSQL for fast lookups by the API, actors, and UI. The console is read-only first; visual editing arrives in later phases with export back to YAML.</div>
+    </details>
+  </div>
+</section>
+
+<!-- FINALE -->
+<section id="contact" class="finale">
+  <div class="wrap sec-pad">
+    <span class="pill">Now in early access · v0.93</span>
+    <h2 style="margin-top:18px">Put your agents on the org chart.</h2>
+    <p>See HIVE run a hybrid team end-to-end — directives, approvals, budgets, and a full audit trail. Book a walkthrough with our team.</p>
+    <a class="btn btn-primary" href="mailto:hello@hive.dev?subject=HIVE%20demo%20request">Request a demo →</a>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div>
+      <div class="brand" style="color:var(--mustard);margin-bottom:8px">HIVE</div>
+      <div>Hybrid organizations of AI agents and people, on the Actor Model.</div>
+      <div class="reg" style="margin-top:10px">⊹ FORM N° HV-093 · PRINTED 2026 · DROP-A · OK TO PRINT ⊹</div>
+    </div>
+    <div>
+      <div class="reg" style="margin-bottom:10px">SECTIONS</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <a href="#concepts">The model</a>
+        <a href="#features">Features</a>
+        <a href="#tech">Architecture</a>
+        <a href="#plans">Plans</a>
+      </div>
+    </div>
+    <div>
+      <div class="reg" style="margin-bottom:10px">CONTACT</div>
+      <div style="display:flex;flex-direction:column;gap:6px">
+        <a href="mailto:hello@hive.dev">hello@hive.dev</a>
+        <span>© 2026 HIVE. All rights reserved.</span>
+      </div>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

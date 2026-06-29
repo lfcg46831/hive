@@ -25,7 +25,7 @@ public sealed class PositionShardingMultiNodeFixtureTests
 
         await fixture.ActivateAsync(entities);
 
-        var locations = await fixture.GetEntityLocationsAsync();
+        var locations = await fixture.WaitForAllEntitiesLocatedAsync(entities);
         var locatedEntities = locations
             .SelectMany(location => location.EntityIds)
             .ToHashSet(StringComparer.Ordinal);

@@ -353,6 +353,46 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         throw new TimeoutException("Position entities did not rebalance without duplicate active entities.");
     }
 
+    public async Task<IReadOnlyList<PositionEntityLocation>> WaitForAllEntitiesLocatedAsync(
+        IReadOnlyCollection<PositionEntityId> entities)
+    {
+        ArgumentNullException.ThrowIfNull(entities);
+        if (entities.Count == 0)
+        {
+            return await GetEntityLocationsAsync();
+        }
+
+        var deadline = DateTimeOffset.UtcNow.Add(_timeout);
+        IReadOnlyList<PositionEntityLocation> locations = Array.Empty<PositionEntityLocation>();
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            // Re-send the activation probe so entities dropped by a rebalance
+            // handoff (remember-entities is disabled) are recreated on their
+            // current shard owner before the location snapshot is taken.
+            var region = AgentNodes.First().Region
+                ?? throw new InvalidOperationException("The agents shard region has not been started.");
+            foreach (var entity in entities)
+            {
+                region.Tell(PositionEnvelope.For(
+                    entity,
+                    new UpdateShortMemory(ActivationProbeKey, entity.Value)));
+            }
+
+            locations = await GetEntityLocationsAsync();
+            var located = locations
+                .SelectMany(location => location.EntityIds)
+                .ToHashSet(StringComparer.Ordinal);
+            if (entities.All(entity => located.Contains(entity.Value)))
+            {
+                return locations;
+            }
+
+            await Task.Delay(250);
+        }
+
+        return locations;
+    }
+
     public async Task<IReadOnlyList<PositionEntityLocation>> GetEntityLocationsAsync()
     {
         var locations = new List<PositionEntityLocation>();

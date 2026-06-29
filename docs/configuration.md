@@ -323,6 +323,34 @@ HIVE__AIGATEWAY__STUB__COST__CURRENCY=EUR
 HIVE__AIGATEWAY__STUB__COST__ISESTIMATED=true
 ```
 
+### Real provider configuration
+
+The optional real provider reads its secure configuration from `Hive:AiGateway:Real`. US-F0-07-T05a only binds and validates this configuration into immutable settings through `IRealAiGatewayProviderFactory`; the real adapter (US-F0-07-T05b) and its default activation (US-F0-07-T05c) are separate tasks, so binding these keys does not yet route calls to a real provider. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables or user-secrets.
+
+| Setting | Required | Purpose |
+| --- | --- | --- |
+| `Hive:AiGateway:Real:ProviderId` | yes | Default provider id, applied when the position config omits it. Missing/empty fails with `configuration-invalid`. |
+| `Hive:AiGateway:Real:ModelId` | yes | Default model id, applied when the position config omits it. Missing/empty fails with `configuration-invalid`. |
+| `Hive:AiGateway:Real:ApiKey` | yes | Secret credential. Infrastructure-only; never logged or exposed to the domain. Missing/empty fails with `credentials-missing`. |
+| `Hive:AiGateway:Real:Endpoint` | no | Absolute endpoint URI. A non-absolute value fails with `configuration-invalid`. |
+| `Hive:AiGateway:Real:Temperature` | no | Default sampling temperature (0–2). Out-of-range values fail with `configuration-invalid`. |
+| `Hive:AiGateway:Real:MaxOutputTokens` | no | Default maximum output tokens (> 0). Non-positive values fail with `configuration-invalid`. |
+| `Hive:AiGateway:Real:TimeoutSeconds` | no | Default request timeout in seconds (> 0). Non-positive values fail with `configuration-invalid`. |
+
+Example (secret supplied as an environment variable):
+
+```text
+HIVE__AIGATEWAY__REAL__PROVIDERID=openai
+HIVE__AIGATEWAY__REAL__MODELID=gpt-4o-mini
+HIVE__AIGATEWAY__REAL__ENDPOINT=https://api.example.com/v1
+HIVE__AIGATEWAY__REAL__APIKEY=<secret>
+HIVE__AIGATEWAY__REAL__TEMPERATURE=0.5
+HIVE__AIGATEWAY__REAL__MAXOUTPUTTOKENS=256
+HIVE__AIGATEWAY__REAL__TIMEOUTSECONDS=30
+```
+
+When a position's runtime configuration specifies provider/model, parameters or timeout, those values override these defaults; absent position values fall back to the defaults above without inventing new values.
+
 ## Logging
 
 Both executables get one common, structured logging configuration through the shared bootstrap (US-F0-01-T07). `AddHiveBootstrap` calls `AddHiveStructuredLogging` from `Hive.Infrastructure.Logging`, which clears the default providers and registers the built-in JSON console formatter as the single sink. Output is machine-readable JSON with scopes included and UTC timestamps, so both hosts emit an identical structured stream to stdout — the collection point under Docker Compose.

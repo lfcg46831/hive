@@ -62,4 +62,45 @@ public static class AiGatewayServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Registers the secure configuration binding and factory for the optional
+    /// real AI gateway provider (US-F0-07-T05a). It binds
+    /// <see cref="RealAiGatewayProviderOptions"/> and registers
+    /// <see cref="IRealAiGatewayProviderFactory"/>. It does not activate the real
+    /// provider in the gateway pipeline; the adapter (US-F0-07-T05b) and default
+    /// activation (US-F0-07-T05c) are separate tasks.
+    /// </summary>
+    public static IServiceCollection AddHiveAiGatewayRealConfiguration(
+        this IServiceCollection services,
+        Action<RealAiGatewayProviderOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.AddOptions<RealAiGatewayProviderOptions>();
+
+        if (configure is not null)
+        {
+            services.Configure(configure);
+        }
+
+        services.TryAddSingleton<
+            IRealAiGatewayProviderFactory,
+            RealAiGatewayProviderFactory>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddHiveAiGatewayRealConfiguration(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        return services.AddHiveAiGatewayRealConfiguration(options =>
+            configuration
+                .GetSection(RealAiGatewayProviderOptions.SectionName)
+                .Bind(options));
+    }
 }

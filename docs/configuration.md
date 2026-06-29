@@ -282,6 +282,47 @@ Both executable projects use the standard .NET configuration hierarchy. Base `ap
 
 `Hive.Api` and `Hive.Worker` call the same bootstrap from `Hive.Infrastructure.Configuration`. It binds the `Hive` section to `HiveOptions`, registers it in dependency injection, validates node roles when the host starts, and configures the common structured logging described below.
 
+## AI gateway
+
+The default `IAiGateway` provider remains unavailable until a provider is selected. For local tests and deterministic integration flows, enable the stub provider with:
+
+```text
+HIVE__AIGATEWAY__PROVIDER=stub
+```
+
+Stub responses are configured under `Hive:AiGateway:Stub`:
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `Hive:AiGateway:Stub:ProviderId` | `stub` | Provider id reported in `AiProviderMetadata`. |
+| `Hive:AiGateway:Stub:ModelId` | `deterministic` | Model id reported in `AiProviderMetadata`. |
+| `Hive:AiGateway:Stub:Outcome` | `success` | One of `success`, `error`, `timeout`, or `tool-call`. |
+| `Hive:AiGateway:Stub:Text` | `Stub AI response.` | Text returned for `success` and optional text returned with `tool-call`. Set to empty/null only when a tool call is present. |
+| `Hive:AiGateway:Stub:FinishReason` | `stop` | Finish reason for `success`, using the AI gateway wire values such as `stop`, `length`, or `content-filtered`. `tool-call` always returns `tool-calls`. |
+| `Hive:AiGateway:Stub:Error:Code` | `provider-rejected` for `error`, fixed `timeout` for `timeout` | Error code wire value used by the `error` outcome. |
+| `Hive:AiGateway:Stub:Error:Message` | outcome-specific | Sanitized error message. |
+| `Hive:AiGateway:Stub:Error:IsRetryable` | `false` for `error`, `true` for `timeout` | Retryability on the structured error. |
+| `Hive:AiGateway:Stub:Usage:InputTokens` / `OutputTokens` / `TotalTokens` / `IsEstimated` | unset | Optional token usage returned with successful outcomes. |
+| `Hive:AiGateway:Stub:Cost:Amount` / `Currency` / `IsEstimated` | unset | Optional cost metadata returned with successful outcomes. |
+| `Hive:AiGateway:Stub:ToolCall:Id` / `Name` / `Arguments:*` | `stub-tool-call-1` / `stub.tool` / empty | Simulated tool call returned by the `tool-call` outcome. |
+
+Example:
+
+```text
+HIVE__AIGATEWAY__PROVIDER=stub
+HIVE__AIGATEWAY__STUB__OUTCOME=tool-call
+HIVE__AIGATEWAY__STUB__TEXT=
+HIVE__AIGATEWAY__STUB__TOOLCALL__ID=call-1
+HIVE__AIGATEWAY__STUB__TOOLCALL__NAME=ticket.lookup
+HIVE__AIGATEWAY__STUB__TOOLCALL__ARGUMENTS__ticket=HIVE-123
+HIVE__AIGATEWAY__STUB__USAGE__INPUTTOKENS=12
+HIVE__AIGATEWAY__STUB__USAGE__OUTPUTTOKENS=8
+HIVE__AIGATEWAY__STUB__USAGE__TOTALTOKENS=20
+HIVE__AIGATEWAY__STUB__COST__AMOUNT=0.03
+HIVE__AIGATEWAY__STUB__COST__CURRENCY=EUR
+HIVE__AIGATEWAY__STUB__COST__ISESTIMATED=true
+```
+
 ## Logging
 
 Both executables get one common, structured logging configuration through the shared bootstrap (US-F0-01-T07). `AddHiveBootstrap` calls `AddHiveStructuredLogging` from `Hive.Infrastructure.Logging`, which clears the default providers and registers the built-in JSON console formatter as the single sink. Output is machine-readable JSON with scopes included and UTC timestamps, so both hosts emit an identical structured stream to stdout — the collection point under Docker Compose.

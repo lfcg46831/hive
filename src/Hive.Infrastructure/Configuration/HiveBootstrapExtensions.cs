@@ -29,7 +29,7 @@ public static class HiveBootstrapExtensions
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
-        builder.Services.AddHiveAiGateway();
+        builder.Services.AddHiveAiGateway(builder.Configuration);
         builder.Services.TryAddSingleton<IPositionConfigurationProvider>(serviceProvider =>
         {
             var connectionString = serviceProvider

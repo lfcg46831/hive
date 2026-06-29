@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.93 (rascunho evolutivo) <strong>Data:</strong> 2026-06-29 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 0.94 (rascunho evolutivo) <strong>Data:</strong> 2026-06-29 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -189,6 +189,7 @@
 <tr><td>0.91</td><td>2026-06-27</td><td>Registo de <code>US-F0-06-T11c</code>: uma posicao passivada continua enderecavel pelo <code>PositionEnvelope</code>/<code>PositionEntityId</code> canonico na <code>ShardRegion</code>; mensagens normais, <code>Pulse</code> de scheduler e <code>EventTrigger</code> de subscricao reativam uma nova incarnacao, recuperam o estado persistido e nao duplicam <code>PositionConfigurationApplied</code>.</td></tr>
 <tr><td>0.92</td><td>2026-06-28</td><td>Especificação de <code>US-F0-07-T01</code>: contrato HIVE do <code>AiGateway</code> como DTOs imutáveis e provider-neutral em <code>Hive.Domain.Ai</code>, com identidade <code>OrganizationId</code>/<code>PositionId</code>/<code>ThreadId</code>/<code>MessageId</code>, metadados de provider/modelo, resposta, erro estruturado, usage/custo opcional e fronteiras explícitas face a SDKs, políticas, configuração, auditoria e adapters reais.</td></tr>
 <tr><td>0.93</td><td>2026-06-29</td><td>Decisão de <code>US-F0-07-T02</code>: a primeira fronteira executável do <code>AiGateway</code> é o serviço DI <code>IAiGateway</code>, provider-neutral e testável, escondendo <code>Microsoft.Extensions.AI</code> e SDKs concretos; um eventual <code>AiGatewayActor</code> fica como wrapper fino posterior para <code>US-F0-07-T12</code>/<code>US-F0-08</code> quando forem necessárias mailbox, backpressure, supervisão ou distribuição. Estimativas da F0 validadas sem alteração: <code>US-F0-07-T02</code> mantém esforço <code>5</code> e o Total F0 permanece <code>576</code>.</td></tr>
+<tr><td>0.94</td><td>2026-06-29</td><td>Registo de <code>US-F0-07-T02</code>: <code>IAiGateway</code> passa a fronteira executável provider-neutral registada no bootstrap comum, com implementação inicial em infraestrutura e provider indisponível estruturado até configuração/stub/provider real das tarefas seguintes; <code>AiGatewayActor</code> permanece fora da tarefa.</td></tr>
 </tbody>
 </table>
 
@@ -2934,7 +2935,7 @@ public interface IPositionConfigurationProvider
 
 <hr>
 
-<p><em>Proxima iteracao (v0.94): implementar <code>US-F0-07-T02</code> como servico DI <code>IAiGateway</code>, mantendo <code>AiGatewayActor</code> fora da tarefa ate haver necessidade explicita de actor wrapper.</em></p>
+<p><em>Proxima iteracao (v0.95): implementar <code>US-F0-07-T03</code> para mapear configuracao de AI da posicao a partir do registry.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

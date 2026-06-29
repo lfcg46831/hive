@@ -1,4 +1,5 @@
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Logging;
@@ -28,6 +29,7 @@ public static class HiveBootstrapExtensions
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHiveAiGateway();
         builder.Services.TryAddSingleton<IPositionConfigurationProvider>(serviceProvider =>
         {
             var connectionString = serviceProvider

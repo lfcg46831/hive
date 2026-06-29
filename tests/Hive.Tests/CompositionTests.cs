@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Hive.Domain.Ai;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
@@ -34,6 +35,7 @@ public sealed class CompositionTests(PostgreSqlFixture postgreSql)
                 new[] { NodeRoleNames.Api },
                 app.Services.GetRequiredService<ActiveNodeRoles>().Values);
             Assert.NotNull(app.Services.GetRequiredService<NodeDiagnosticsProvider>());
+            Assert.NotNull(app.Services.GetRequiredService<IAiGateway>());
 
             var readiness = await app.Services
                 .GetRequiredService<HealthCheckService>()
@@ -76,6 +78,7 @@ public sealed class CompositionTests(PostgreSqlFixture postgreSql)
                     .Values
                     .OrderBy(role => role));
             Assert.NotNull(host.Services.GetRequiredService<NodeDiagnosticsProvider>());
+            Assert.NotNull(host.Services.GetRequiredService<IAiGateway>());
 
             var readiness = await host.Services
                 .GetRequiredService<HealthCheckService>()

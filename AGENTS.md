@@ -22,6 +22,12 @@ Cada tipo de informacao tem um dono unico; nao dupliques o mesmo conteudo em mai
 
 Nao acumules narrativa de implementacao no bible nem nos ficheiros de instrucoes (`AGENTS.md`/`CLAUDE.md`), que devem ficar curtos. Regra rapida: decisao para o bible; como operar para `configuration.md`; o que fiz para o commit.
 
+## Arranque de tarefa
+
+- Antes de implementar uma tarefa, confirma em `docs/bible.html` que existe especificacao suficiente e clara (criterios de aceitacao, contratos e fronteiras) e uma estimativa de esforco.
+- Se a especificacao for ambigua ou incompleta, ou se faltar estimativa, faz primeiro esse trabalho no bible (especifica e/ou estima, decompondo em subtarefas quando a estimativa for grande) e so depois implementa.
+- Nao comeces a codificar uma tarefa que nao esteja "pronta" por este criterio.
+
 ## Fecho de tarefas
 
 - Sempre que terminares uma tarefa, gera uma mensagem curta em ingles com o resumo do que foi feito para ser usada no commit do git.

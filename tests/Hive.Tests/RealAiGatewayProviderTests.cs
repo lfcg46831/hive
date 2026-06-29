@@ -137,6 +137,138 @@ public sealed class RealAiGatewayProviderTests
     }
 
     [Fact]
+    public async Task Normalizes_system_context_and_current_content_in_canonical_order()
+    {
+        List<ChatMessage>? capturedMessages = null;
+        var chatClient = new FakeChatClient((messages, _, _) =>
+        {
+            capturedMessages = messages.ToList();
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var request = Request(
+            systemInstruction: "Answer as the triage position.",
+            contextMessages:
+            [
+                new AiGatewayMessage(AiGatewayMessageRole.User, "Earlier request."),
+                new AiGatewayMessage(AiGatewayMessageRole.Assistant, "Earlier answer."),
+                new AiGatewayMessage(AiGatewayMessageRole.Tool, "ticket=HIVE-123"),
+            ]);
+
+        await Gateway(chatClient).CompleteAsync(request);
+
+        Assert.NotNull(capturedMessages);
+        Assert.Equal(
+            [
+                ChatRole.System,
+                ChatRole.User,
+                ChatRole.Assistant,
+                ChatRole.Tool,
+                ChatRole.User,
+            ],
+            capturedMessages!.Select(message => message.Role));
+        Assert.Equal(
+            [
+                "Answer as the triage position.",
+                "Earlier request.",
+                "Earlier answer.",
+                "ticket=HIVE-123",
+                "Classify this bug.",
+            ],
+            capturedMessages.Select(message => message.Text));
+    }
+
+    [Fact]
+    public async Task Normalizes_model_parameters_with_request_values_overriding_provider_defaults()
+    {
+        ChatOptions? capturedOptions = null;
+        var chatClient = new FakeChatClient((_, options, _) =>
+        {
+            capturedOptions = options;
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var request = Request(modelParameters: new AiModelParameters(
+            temperature: 0.8m,
+            maxOutputTokens: 42));
+
+        await Gateway(chatClient, options =>
+        {
+            options.Temperature = 0.2m;
+            options.MaxOutputTokens = 256;
+        }).CompleteAsync(request);
+
+        Assert.NotNull(capturedOptions);
+        Assert.Equal("gpt-4o-mini", capturedOptions!.ModelId);
+        Assert.Equal(0.8f, capturedOptions.Temperature);
+        Assert.Equal(42, capturedOptions.MaxOutputTokens);
+    }
+
+    [Fact]
+    public async Task Normalizes_absent_model_parameters_from_provider_defaults()
+    {
+        ChatOptions? capturedOptions = null;
+        var chatClient = new FakeChatClient((_, options, _) =>
+        {
+            capturedOptions = options;
+            return Task.FromResult(SuccessChatResponse());
+        });
+
+        await Gateway(chatClient, options =>
+        {
+            options.Temperature = 0.4m;
+            options.MaxOutputTokens = 128;
+        }).CompleteAsync(Request());
+
+        Assert.NotNull(capturedOptions);
+        Assert.Equal(0.4f, capturedOptions!.Temperature);
+        Assert.Equal(128, capturedOptions.MaxOutputTokens);
+    }
+
+    [Fact]
+    public async Task Normalizes_tool_definitions_to_non_invocable_function_declarations()
+    {
+        ChatOptions? capturedOptions = null;
+        var chatClient = new FakeChatClient((_, options, _) =>
+        {
+            capturedOptions = options;
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var request = Request(tools:
+        [
+            new AiToolDefinition(
+                "ticket.lookup",
+                "Looks up a ticket.",
+                new Dictionary<string, object?>
+                {
+                    ["type"] = "object",
+                    ["properties"] = new Dictionary<string, object?>
+                    {
+                        ["ticket"] = new Dictionary<string, object?>
+                        {
+                            ["type"] = "string",
+                        },
+                    },
+                    ["required"] = new[] { "ticket" },
+                }),
+        ]);
+
+        await Gateway(chatClient).CompleteAsync(request);
+
+        Assert.NotNull(capturedOptions);
+        var tool = Assert.Single(capturedOptions!.Tools!);
+        var declaration = Assert.IsAssignableFrom<AIFunctionDeclaration>(tool);
+        Assert.Equal("ticket.lookup", declaration.Name);
+        Assert.Equal("Looks up a ticket.", declaration.Description);
+        Assert.Equal(
+            "string",
+            declaration
+                .JsonSchema
+                .GetProperty("properties")
+                .GetProperty("ticket")
+                .GetProperty("type")
+                .GetString());
+    }
+
+    [Fact]
     public async Task Empty_response_maps_to_invalid_provider_response()
     {
         var chatResponse = new ChatResponse(
@@ -206,6 +338,12 @@ public sealed class RealAiGatewayProviderTests
         Assert.Equal("openai", error.Provider.ProviderId);
     }
 
+    private static ChatResponse SuccessChatResponse() =>
+        new(new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            FinishReason = ChatFinishReason.Stop,
+        };
+
     private static IAiGateway Gateway(
         IChatClient chatClient,
         Action<RealAiGatewayProviderOptions>? configure = null)
@@ -225,13 +363,21 @@ public sealed class RealAiGatewayProviderTests
             .GetRequiredService<IAiGateway>();
     }
 
-    private static AiGatewayRequest Request() =>
+    private static AiGatewayRequest Request(
+        string? systemInstruction = null,
+        IEnumerable<AiGatewayMessage>? contextMessages = null,
+        IEnumerable<AiToolDefinition>? tools = null,
+        AiModelParameters? modelParameters = null) =>
         new(
             Organization,
             Position,
             Thread,
             Message,
-            "Classify this bug.");
+            "Classify this bug.",
+            systemInstruction,
+            contextMessages,
+            tools,
+            modelParameters);
 
     private sealed class FakeChatClient : IChatClient
     {

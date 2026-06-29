@@ -9,10 +9,10 @@ namespace Hive.Infrastructure.Ai;
 /// <c>Microsoft.Extensions.AI</c> and back, consuming the validated
 /// <see cref="RealAiGatewayProviderSettings"/> produced by US-F0-07-T05a.
 /// <para>
-/// Its single responsibility is mapping request, response, error, timeout and
-/// cancellation. It does not resolve position configuration beyond the supplied
-/// settings, apply authorization/budget/fallback/retry (US-F0-07-T06–T11),
-/// compute real cost, emit audit, build the concrete provider
+/// Its single responsibility is request normalization plus response, error,
+/// timeout and cancellation mapping. It does not resolve position configuration
+/// beyond the supplied settings, apply authorization/budget/fallback/retry
+/// (US-F0-07-T08-T11), compute real cost, emit audit, build the concrete provider
 /// <see cref="IChatClient"/> (OpenAI/Azure) or decide default activation
 /// (US-F0-07-T05c). The secret credential never leaves the settings instance and
 /// is never copied into a request, response, error message or diagnostic.
@@ -21,6 +21,7 @@ namespace Hive.Infrastructure.Ai;
 internal sealed class RealAiGatewayProvider : IAiGatewayProvider
 {
     private readonly IChatClient _chatClient;
+    private readonly RealAiGatewayRequestNormalizer _normalizer = new();
     private readonly RealAiGatewayProviderSettings _settings;
 
     public RealAiGatewayProvider(
@@ -40,8 +41,7 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
         // Caller-initiated cancellation propagates, never converted to a result.
         cancellationToken.ThrowIfCancellationRequested();
 
-        var messages = BuildMessages(request);
-        var options = BuildOptions(request);
+        var normalized = _normalizer.Normalize(request, _settings);
 
         using var timeoutCts = _settings.Timeout is { } timeout
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
@@ -53,7 +53,10 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
         try
         {
             response = await _chatClient
-                .GetResponseAsync(messages, options, effectiveToken)
+                .GetResponseAsync(
+                    normalized.Messages,
+                    normalized.Options,
+                    effectiveToken)
                 .ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -81,41 +84,6 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
         }
 
         return MapResponse(request, response);
-    }
-
-    private List<ChatMessage> BuildMessages(AiGatewayRequest request)
-    {
-        var messages = new List<ChatMessage>();
-
-        if (request.SystemInstruction is { } systemInstruction)
-        {
-            messages.Add(new ChatMessage(ChatRole.System, systemInstruction));
-        }
-
-        foreach (var contextMessage in request.ContextMessages)
-        {
-            messages.Add(new ChatMessage(
-                MapRole(contextMessage.Role),
-                contextMessage.Content));
-        }
-
-        messages.Add(new ChatMessage(ChatRole.User, request.Content));
-
-        return messages;
-    }
-
-    private ChatOptions BuildOptions(AiGatewayRequest request)
-    {
-        var parameters = request.ModelParameters;
-
-        return new ChatOptions
-        {
-            ModelId = _settings.DefaultProvider.ModelId,
-            Temperature = parameters.Temperature is { } temperature
-                ? (float)temperature
-                : null,
-            MaxOutputTokens = parameters.MaxOutputTokens,
-        };
     }
 
     private AiGatewayResponse MapResponse(
@@ -226,18 +194,6 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
 
         return count > int.MaxValue ? int.MaxValue : (int)count;
     }
-
-    private static ChatRole MapRole(AiGatewayMessageRole role) => role switch
-    {
-        AiGatewayMessageRole.System => ChatRole.System,
-        AiGatewayMessageRole.User => ChatRole.User,
-        AiGatewayMessageRole.Assistant => ChatRole.Assistant,
-        AiGatewayMessageRole.Tool => ChatRole.Tool,
-        _ => throw new ArgumentOutOfRangeException(
-            nameof(role),
-            role,
-            "AI gateway message role is undefined."),
-    };
 
     private AiGatewayResponse Failed(
         AiGatewayRequest request,

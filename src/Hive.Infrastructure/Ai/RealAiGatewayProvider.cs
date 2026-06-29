@@ -22,6 +22,7 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
 {
     private readonly IChatClient _chatClient;
     private readonly RealAiGatewayRequestNormalizer _normalizer = new();
+    private readonly RealAiGatewayResponseNormalizer _responseNormalizer = new();
     private readonly RealAiGatewayProviderSettings _settings;
 
     public RealAiGatewayProvider(
@@ -83,116 +84,7 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
                 isRetryable: true);
         }
 
-        return MapResponse(request, response);
-    }
-
-    private AiGatewayResponse MapResponse(
-        AiGatewayRequest request,
-        ChatResponse response)
-    {
-        var toolCalls = response.Messages
-            .SelectMany(message => message.Contents)
-            .OfType<FunctionCallContent>()
-            .Select(MapToolCall)
-            .ToList();
-
-        var text = string.IsNullOrEmpty(response.Text) ? null : response.Text;
-
-        if (text is null && toolCalls.Count == 0)
-        {
-            return Failed(
-                request,
-                AiGatewayErrorCode.InvalidProviderResponse,
-                "AI gateway real provider returned neither text nor a tool call.",
-                isRetryable: false);
-        }
-
-        var finishReason = MapFinishReason(response.FinishReason, toolCalls.Count > 0);
-        var provider = ResolveProviderMetadata(response.ModelId);
-        var usage = MapUsage(response.Usage);
-
-        return AiGatewayResponse.Succeeded(
-            request.OrganizationId,
-            request.PositionId,
-            request.ThreadId,
-            request.MessageId,
-            text,
-            finishReason,
-            provider,
-            toolCalls.Count == 0 ? null : toolCalls,
-            usage,
-            cost: null);
-    }
-
-    private static AiToolCall MapToolCall(FunctionCallContent content)
-    {
-        IReadOnlyDictionary<string, object?>? arguments = content.Arguments is null
-            ? null
-            : new Dictionary<string, object?>(content.Arguments, StringComparer.Ordinal);
-
-        return new AiToolCall(content.CallId, content.Name, arguments);
-    }
-
-    private AiProviderMetadata ResolveProviderMetadata(string? responseModelId) =>
-        new(
-            _settings.DefaultProvider.ProviderId,
-            string.IsNullOrWhiteSpace(responseModelId)
-                ? _settings.DefaultProvider.ModelId
-                : responseModelId);
-
-    private static AiFinishReason MapFinishReason(
-        ChatFinishReason? finishReason,
-        bool hasToolCalls)
-    {
-        if (finishReason is { } reason)
-        {
-            if (reason == ChatFinishReason.Stop)
-            {
-                return AiFinishReason.Stop;
-            }
-
-            if (reason == ChatFinishReason.Length)
-            {
-                return AiFinishReason.Length;
-            }
-
-            if (reason == ChatFinishReason.ToolCalls)
-            {
-                return AiFinishReason.ToolCalls;
-            }
-
-            if (reason == ChatFinishReason.ContentFilter)
-            {
-                return AiFinishReason.ContentFiltered;
-            }
-
-            return AiFinishReason.Unknown;
-        }
-
-        return hasToolCalls ? AiFinishReason.ToolCalls : AiFinishReason.Stop;
-    }
-
-    private static AiTokenUsage? MapUsage(UsageDetails? usage)
-    {
-        if (usage is null)
-        {
-            return null;
-        }
-
-        return new AiTokenUsage(
-            ToInt(usage.InputTokenCount),
-            ToInt(usage.OutputTokenCount),
-            ToInt(usage.TotalTokenCount));
-    }
-
-    private static int? ToInt(long? value)
-    {
-        if (value is not { } count || count < 0)
-        {
-            return null;
-        }
-
-        return count > int.MaxValue ? int.MaxValue : (int)count;
+        return _responseNormalizer.Normalize(request, response, _settings).Response;
     }
 
     private AiGatewayResponse Failed(

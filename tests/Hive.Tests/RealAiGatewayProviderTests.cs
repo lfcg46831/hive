@@ -107,6 +107,45 @@ public sealed class RealAiGatewayProviderTests
     }
 
     [Fact]
+    public async Task Maps_response_metadata_usage_and_declared_cost_to_hive_contract()
+    {
+        var chatResponse = new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            ResponseId = "response-123",
+            ModelId = "gpt-4o-mini-2024",
+            FinishReason = ChatFinishReason.Stop,
+            Usage = new UsageDetails
+            {
+                InputTokenCount = 19,
+                OutputTokenCount = 8,
+                TotalTokenCount = 27,
+            },
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["hive.cost.amount"] = "0.0142",
+                ["hive.cost.currency"] = "EUR",
+                ["hive.cost.isEstimated"] = true,
+            },
+        };
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
+
+        var response = await Gateway(chatClient).CompleteAsync(Request());
+
+        Assert.True(response.IsSuccess);
+        Assert.NotNull(response.Provider);
+        Assert.Equal("response-123", response.Provider.Metadata["response-id"]);
+        Assert.NotNull(response.Usage);
+        Assert.Equal(19, response.Usage.InputTokens);
+        Assert.Equal(8, response.Usage.OutputTokens);
+        Assert.Equal(27, response.Usage.TotalTokens);
+        Assert.NotNull(response.Cost);
+        Assert.Equal(0.0142m, response.Cost.Amount);
+        Assert.Equal("EUR", response.Cost.Currency);
+        Assert.True(response.Cost.IsEstimated);
+    }
+
+    [Fact]
     public async Task Maps_function_call_to_tool_call()
     {
         var message = new ChatMessage(ChatRole.Assistant, new List<AIContent>
@@ -134,6 +173,30 @@ public sealed class RealAiGatewayProviderTests
         Assert.NotNull(response.Provider);
         // Response omits the model id: falls back to the configured default.
         Assert.Equal("gpt-4o-mini", response.Provider.ModelId);
+    }
+
+    [Fact]
+    public async Task Whitespace_text_with_tool_call_maps_to_tool_call_success_without_text()
+    {
+        var message = new ChatMessage(ChatRole.Assistant, new List<AIContent>
+        {
+            new TextContent("   "),
+            new FunctionCallContent(
+                "call-1",
+                "ticket.lookup",
+                new Dictionary<string, object?> { ["ticket"] = "HIVE-123" }),
+        });
+        var chatResponse = new ChatResponse(message);
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
+
+        var response = await Gateway(chatClient).CompleteAsync(Request());
+
+        Assert.True(response.IsSuccess);
+        Assert.Null(response.Text);
+        Assert.Equal(AiFinishReason.ToolCalls, response.FinishReason);
+        var toolCall = Assert.Single(response.ToolCalls);
+        Assert.Equal("call-1", toolCall.Id);
+        Assert.Equal("ticket.lookup", toolCall.Name);
     }
 
     [Fact]
@@ -287,6 +350,95 @@ public sealed class RealAiGatewayProviderTests
     }
 
     [Fact]
+    public async Task Malformed_declared_cost_maps_to_invalid_provider_response()
+    {
+        var chatResponse = new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            FinishReason = ChatFinishReason.Stop,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["hive.cost.amount"] = "not-a-decimal",
+                ["hive.cost.currency"] = "EUR",
+                ["hive.cost.isEstimated"] = true,
+            },
+        };
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
+
+        var response = await Gateway(chatClient).CompleteAsync(Request());
+
+        Assert.True(response.IsFailure);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.InvalidProviderResponse, error.Code);
+        Assert.False(error.IsRetryable);
+    }
+
+    [Fact]
+    public async Task Non_finite_declared_cost_maps_to_invalid_provider_response()
+    {
+        var chatResponse = new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            FinishReason = ChatFinishReason.Stop,
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["hive.cost.amount"] = double.NaN,
+                ["hive.cost.currency"] = "EUR",
+                ["hive.cost.isEstimated"] = true,
+            },
+        };
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
+
+        var response = await Gateway(chatClient).CompleteAsync(Request());
+
+        Assert.True(response.IsFailure);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.InvalidProviderResponse, error.Code);
+        Assert.False(error.IsRetryable);
+    }
+
+    [Fact]
+    public void Response_normalizer_captures_redactable_raw_snapshot()
+    {
+        var normalizer = new RealAiGatewayResponseNormalizer();
+        var chatResponse = new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            ResponseId = "response-123",
+            ModelId = "gpt-4o-mini-2024",
+            RawRepresentation = "{\"id\":\"response-123\",\"secret\":\"redact-me\"}",
+            AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                ["provider-region"] = "eu-west",
+                ["complex-provider-value"] = new Dictionary<string, object?>
+                {
+                    ["secret"] = "redact-me",
+                },
+            },
+        };
+
+        var normalized = normalizer.Normalize(
+            Request(),
+            chatResponse,
+            Settings());
+
+        Assert.True(normalized.Response.IsSuccess);
+        Assert.Null(normalized.Response.Cost);
+        Assert.NotNull(normalized.RawResponse);
+        Assert.Equal("openai", normalized.RawResponse.ProviderId);
+        Assert.Equal("gpt-4o-mini-2024", normalized.RawResponse.ModelId);
+        Assert.Equal("response-123", normalized.RawResponse.ResponseId);
+        Assert.Equal(
+            "{\"id\":\"response-123\",\"secret\":\"redact-me\"}",
+            normalized.RawResponse.RawRepresentation);
+        Assert.Equal("eu-west", normalized.RawResponse.AdditionalProperties["provider-region"]);
+        Assert.DoesNotContain(
+            "redact-me",
+            normalized.RawResponse.AdditionalProperties["complex-provider-value"]);
+        Assert.Contains("TextContent", normalized.RawResponse.ContentTypes);
+    }
+
+    [Fact]
     public async Task Internal_timeout_maps_to_retryable_timeout()
     {
         var chatClient = new FakeChatClient(async (_, _, cancellationToken) =>
@@ -362,6 +514,12 @@ public sealed class RealAiGatewayProviderTests
             .BuildServiceProvider()
             .GetRequiredService<IAiGateway>();
     }
+
+    private static RealAiGatewayProviderSettings Settings() =>
+        new(
+            ApiKey,
+            new AiProviderMetadata("openai", "gpt-4o-mini"),
+            new AiModelParameters());
 
     private static AiGatewayRequest Request(
         string? systemInstruction = null,

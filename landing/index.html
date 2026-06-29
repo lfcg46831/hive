@@ -49,14 +49,19 @@
 
   /* ---- top bar ---- */
   .topbar{border-bottom:3px solid var(--ink);background:var(--mustard);}
-  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:58px;gap:18px;}
   .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.12em;font-size:1.15rem;}
   .brand .hex{width:24px;height:24px;display:inline-block;}
   .nav{display:flex;gap:26px;font-size:.74rem;letter-spacing:.16em;text-transform:uppercase;font-weight:700;}
   .nav a{text-decoration:none;padding-bottom:2px;border-bottom:2px solid transparent;}
   .nav a:hover{border-color:var(--ink);}
+  .tb-right{display:flex;align-items:center;gap:12px;}
   .badge-v{font-family:"Courier New",monospace;font-size:.66rem;border:2px solid var(--ink);padding:2px 7px;letter-spacing:.1em;}
-  @media(max-width:760px){.nav{display:none;}}
+  .langsel{display:flex;border:2px solid var(--ink);font-family:"Courier New",monospace;font-size:.66rem;font-weight:700;letter-spacing:.08em;}
+  .langsel button{background:transparent;border:0;padding:5px 9px;cursor:pointer;color:var(--ink);font:inherit;}
+  .langsel button[aria-pressed="true"]{background:var(--ink);color:var(--mustard);}
+  .langsel button+button{border-left:2px solid var(--ink);}
+  @media(max-width:760px){.nav{display:none;}.badge-v{display:none;}}
 
   /* ---- hero ---- */
   .hero{border-bottom:3px solid var(--ink);background:
@@ -92,14 +97,14 @@
   .org-card .body{padding:18px;}
   .node{border:2px solid var(--ink);padding:8px 10px;margin:6px 0;display:flex;align-items:center;gap:10px;
     font-size:.8rem;font-weight:700;background:var(--paper);}
-  .node .dot{width:10px;height:10px;border:2px solid var(--ink);}
+  .node .dot{width:10px;height:10px;border:2px solid var(--ink);flex:none;}
   .node.ai .dot{background:var(--orange);}
   .node.human .dot{background:var(--teal);}
   .node.lead{background:var(--mustard);}
   .node .tag{margin-left:auto;font-family:"Courier New",monospace;font-size:.6rem;letter-spacing:.1em;
     border:1px solid var(--ink);padding:1px 6px;text-transform:uppercase;font-weight:700;}
   .indent{margin-left:22px;}
-  .legend{display:flex;gap:16px;margin-top:12px;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;}
+  .legend{display:flex;gap:16px;margin-top:12px;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;font-weight:700;flex-wrap:wrap;}
   .legend i{display:inline-block;width:10px;height:10px;border:2px solid var(--ink);margin-right:5px;vertical-align:middle;}
 
   /* ---- section scaffold ---- */
@@ -142,7 +147,7 @@
   .feat .item{padding:22px 24px;border-right:3px solid var(--ink);border-bottom:3px solid var(--ink);}
   .feat .item:nth-child(2n){border-right:0;}
   .feat .item h3{font-size:1.02rem;letter-spacing:0;margin-bottom:6px;display:flex;align-items:center;gap:10px;}
-  .feat .item .k{font-family:"Courier New",monospace;font-size:.7rem;color:var(--rust);border:2px solid var(--ink);padding:2px 6px;font-weight:700;}
+  .feat .item .k{font-family:"Courier New",monospace;font-size:.7rem;color:var(--rust);border:2px solid var(--ink);padding:2px 6px;font-weight:700;flex:none;}
   .feat .item p{font-size:.9rem;color:var(--brown);}
   @media(max-width:680px){.feat .item{border-right:0;}}
 
@@ -211,9 +216,9 @@
 
   /* faq */
   details{border:3px solid var(--ink);background:var(--cream);margin-bottom:14px;}
-  details summary{cursor:pointer;list-style:none;padding:18px 22px;font-weight:800;font-size:1rem;display:flex;justify-content:space-between;align-items:center;}
+  details summary{cursor:pointer;list-style:none;padding:18px 22px;font-weight:800;font-size:1rem;display:flex;justify-content:space-between;align-items:center;gap:14px;}
   details summary::-webkit-details-marker{display:none;}
-  details summary::after{content:"+";font-family:"Courier New",monospace;font-size:1.4rem;color:var(--orange);}
+  details summary::after{content:"+";font-family:"Courier New",monospace;font-size:1.4rem;color:var(--orange);flex:none;}
   details[open] summary::after{content:"–";}
   details .ans{padding:0 22px 20px;font-size:.95rem;color:var(--brown);max-width:75ch;}
 
@@ -251,13 +256,19 @@
       HIVE
     </div>
     <nav class="nav">
-      <a href="#concepts">Model</a>
-      <a href="#features">Features</a>
-      <a href="#how">How it works</a>
-      <a href="#tech">Architecture</a>
-      <a href="#plans">Plans</a>
+      <a href="#concepts" data-i18n="nav.model">Model</a>
+      <a href="#features" data-i18n="nav.features">Features</a>
+      <a href="#how" data-i18n="nav.how">How it works</a>
+      <a href="#tech" data-i18n="nav.tech">Architecture</a>
+      <a href="#plans" data-i18n="nav.plans">Plans</a>
     </nav>
-    <span class="badge-v">v0.93 · EST. 2026</span>
+    <div class="tb-right">
+      <div class="langsel" role="group" aria-label="Language">
+        <button type="button" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" data-lang="pt" aria-pressed="false">PT</button>
+      </div>
+      <span class="badge-v">v0.93 · EST. 2026</span>
+    </div>
   </div>
 </header>
 
@@ -266,35 +277,35 @@
   <div class="wrap">
     <div class="hero-grid">
       <div>
-        <span class="eyebrow">Hybrid organizations · Built on the Actor Model</span>
-        <h1>One organization.<br>Agents <span class="or">&amp;</span> people.</h1>
-        <p class="lede">HIVE runs your company as a living org chart of AI agents and humans — every position, every message, every decision typed, governed, and fully auditable.</p>
+        <span class="eyebrow" data-i18n="hero.eyebrow">Hybrid organizations · Built on the Actor Model</span>
+        <h1 data-i18n="hero.h1">One organization.<br>Agents <span class="or">&amp;</span> people.</h1>
+        <p class="lede" data-i18n="hero.lede">HIVE runs your company as a living org chart of AI agents and humans — every position, every message, every decision typed, governed, and fully auditable.</p>
         <div class="cta-row">
-          <a class="btn btn-primary" href="#plans">Request a demo</a>
-          <a class="btn btn-ghost" href="#how">See how it works</a>
+          <a class="btn btn-primary" href="#plans" data-i18n="hero.cta1">Request a demo</a>
+          <a class="btn btn-ghost" href="#how" data-i18n="hero.cta2">See how it works</a>
         </div>
         <div class="stat-strip">
-          <div class="stat"><b>1</b><span>Org chart, AI + human</span></div>
-          <div class="stat"><b>100%</b><span>Event-sourced audit</span></div>
-          <div class="stat"><b>∞</b><span>Provider-neutral AI</span></div>
+          <div class="stat"><b>1</b><span data-i18n="hero.stat1">Org chart, AI + human</span></div>
+          <div class="stat"><b>100%</b><span data-i18n="hero.stat2">Event-sourced audit</span></div>
+          <div class="stat"><b>∞</b><span data-i18n="hero.stat3">Provider-neutral AI</span></div>
         </div>
       </div>
       <div class="org-card">
-        <div class="head"><span>ORG://acme-delivery</span><span>● LIVE</span></div>
+        <div class="head"><span>ORG://acme-delivery</span><span data-i18n="org.live">● LIVE</span></div>
         <div class="body">
-          <div class="node lead"><span class="dot"></span>CEO <span class="tag">AI · lead</span></div>
+          <div class="node lead"><span class="dot"></span><span data-i18n="org.ceo">CEO</span> <span class="tag" data-i18n="org.tagLead">AI · lead</span></div>
           <div class="indent">
-            <div class="node ai"><span class="dot"></span>Delivery Lead <span class="tag">AI</span></div>
+            <div class="node ai"><span class="dot"></span><span data-i18n="org.dlead">Delivery Lead</span> <span class="tag" data-i18n="org.tagAi">AI</span></div>
             <div class="indent">
-              <div class="node ai"><span class="dot"></span>Engineer A <span class="tag">AI</span></div>
-              <div class="node human"><span class="dot"></span>Reviewer <span class="tag">Human</span></div>
+              <div class="node ai"><span class="dot"></span><span data-i18n="org.eng">Engineer A</span> <span class="tag" data-i18n="org.tagAi2">AI</span></div>
+              <div class="node human"><span class="dot"></span><span data-i18n="org.rev">Reviewer</span> <span class="tag" data-i18n="org.tagHuman">Human</span></div>
             </div>
-            <div class="node human"><span class="dot"></span>Marketing Dir. <span class="tag">Human</span></div>
+            <div class="node human"><span class="dot"></span><span data-i18n="org.mkt">Marketing Dir.</span> <span class="tag" data-i18n="org.tagHuman2">Human</span></div>
           </div>
           <div class="legend">
-            <span><i style="background:#C8531F"></i>AI agent</span>
-            <span><i style="background:#1F5E55"></i>Person</span>
-            <span><i style="background:#E2A92E"></i>Unit lead</span>
+            <span><i style="background:#C8531F"></i><span data-i18n="org.legAi">AI agent</span></span>
+            <span><i style="background:#1F5E55"></i><span data-i18n="org.legPerson">Person</span></span>
+            <span><i style="background:#E2A92E"></i><span data-i18n="org.legLead">Unit lead</span></span>
           </div>
         </div>
       </div>
@@ -308,16 +319,16 @@
     <div class="sec-head">
       <span class="sec-num">01</span>
       <div>
-        <span class="eyebrow">The problem</span>
-        <h2>AI agents don't fit your org chart.</h2>
-        <p class="sec-sub" style="color:#E6DCC2">Bolting chatbots onto a business creates ungoverned, untraceable work. HIVE makes agents first-class members of a real organization — with rank, rules, and a paper trail.</p>
+        <span class="eyebrow" data-i18n="prob.eyebrow">The problem</span>
+        <h2 data-i18n="prob.h2">AI agents don't fit your org chart.</h2>
+        <p class="sec-sub" style="color:#E6DCC2" data-i18n="prob.sub">Bolting chatbots onto a business creates ungoverned, untraceable work. HIVE makes agents first-class members of a real organization — with rank, rules, and a paper trail.</p>
       </div>
     </div>
     <div class="prob-grid">
-      <div class="prob"><h3>No chain of command</h3><p>Loose agents act without a superior, peers, or anyone to escalate to. Work happens with no accountability.</p></div>
-      <div class="prob"><h3>No audit trail</h3><p>You can't reconstruct who decided what, when, or why. Compliance and post-mortems become guesswork.</p></div>
-      <div class="prob"><h3>Runaway cost</h3><p>Unbounded loops and proactive runs burn tokens. There's no budget, no ceiling, no per-team accounting.</p></div>
-      <div class="prob"><h3>Humans left out</h3><p>People can't sit in the loop as approvers and teammates — they're an afterthought, not part of the structure.</p></div>
+      <div class="prob"><h3 data-i18n="prob.1h">No chain of command</h3><p data-i18n="prob.1p">Loose agents act without a superior, peers, or anyone to escalate to. Work happens with no accountability.</p></div>
+      <div class="prob"><h3 data-i18n="prob.2h">No audit trail</h3><p data-i18n="prob.2p">You can't reconstruct who decided what, when, or why. Compliance and post-mortems become guesswork.</p></div>
+      <div class="prob"><h3 data-i18n="prob.3h">Runaway cost</h3><p data-i18n="prob.3p">Unbounded loops and proactive runs burn tokens. There's no budget, no ceiling, no per-team accounting.</p></div>
+      <div class="prob"><h3 data-i18n="prob.4h">Humans left out</h3><p data-i18n="prob.4p">People can't sit in the loop as approvers and teammates — they're an afterthought, not part of the structure.</p></div>
     </div>
   </div>
 </section>
@@ -328,41 +339,41 @@
     <div class="sec-head">
       <span class="sec-num">02</span>
       <div>
-        <span class="eyebrow">The model</span>
-        <h2>Everything is an actor.</h2>
-        <p class="sec-sub">Positions, units, connectors, the AI gateway — all live as supervised actors that talk only through typed messages. The result is an organization you can reason about.</p>
+        <span class="eyebrow" data-i18n="con.eyebrow">The model</span>
+        <h2 data-i18n="con.h2">Everything is an actor.</h2>
+        <p class="sec-sub" data-i18n="con.sub">Positions, units, connectors, the AI gateway — all live as supervised actors that talk only through typed messages. The result is an organization you can reason about.</p>
       </div>
     </div>
     <div class="grid-3">
       <div class="card accent">
-        <div class="ix">CONCEPT / A</div>
-        <h3>Position ≠ Occupant</h3>
-        <p>The structure is independent of who fills each seat. Swapping an AI for a human is changing the occupant, not the position — inbox and history stay put.</p>
+        <div class="ix" data-i18n="con.ixA">CONCEPT / A</div>
+        <h3 data-i18n="con.aH">Position ≠ Occupant</h3>
+        <p data-i18n="con.aP">The structure is independent of who fills each seat. Swapping an AI for a human is changing the occupant, not the position — inbox and history stay put.</p>
       </div>
       <div class="card">
-        <div class="ix">CONCEPT / B</div>
-        <h3>Messages only</h3>
-        <p>No actor touches another's state. People speak to the system through a proxy actor. Every exchange follows a canonical message protocol.</p>
+        <div class="ix" data-i18n="con.ixB">CONCEPT / B</div>
+        <h3 data-i18n="con.bH">Messages only</h3>
+        <p data-i18n="con.bP">No actor touches another's state. People speak to the system through a proxy actor. Every exchange follows a canonical message protocol.</p>
       </div>
       <div class="card accent2">
-        <div class="ix">CONCEPT / C</div>
-        <h3>Provider-neutral AI</h3>
-        <p>The AI layer is an abstraction. Anthropic, OpenAI, Azure, or local models via Ollama/vLLM — configured per position, hot-swappable, no actor knows the difference.</p>
+        <div class="ix" data-i18n="con.ixC">CONCEPT / C</div>
+        <h3 data-i18n="con.cH">Provider-neutral AI</h3>
+        <p data-i18n="con.cP">The AI layer is an abstraction. Anthropic, OpenAI, Azure, or local models via Ollama/vLLM — configured per position, hot-swappable, no actor knows the difference.</p>
       </div>
       <div class="card">
-        <div class="ix">CONCEPT / D</div>
-        <h3>Supervision &amp; resilience</h3>
-        <p>Provider timeouts, invalid responses, exceptions — all handled by the Akka.NET supervision hierarchy: restart, escalate, or notify the organizational superior.</p>
+        <div class="ix" data-i18n="con.ixD">CONCEPT / D</div>
+        <h3 data-i18n="con.dH">Supervision &amp; resilience</h3>
+        <p data-i18n="con.dP">Provider timeouts, invalid responses, exceptions — all handled by the Akka.NET supervision hierarchy: restart, escalate, or notify the organizational superior.</p>
       </div>
       <div class="card accent2">
-        <div class="ix">CONCEPT / E</div>
-        <h3>Total auditability</h3>
-        <p>Every message is event-sourced. The organization has reconstructable institutional memory, reconciled with GDPR right-to-erasure by design.</p>
+        <div class="ix" data-i18n="con.ixE">CONCEPT / E</div>
+        <h3 data-i18n="con.eH">Total auditability</h3>
+        <p data-i18n="con.eP">Every message is event-sourced. The organization has reconstructable institutional memory, reconciled with GDPR right-to-erasure by design.</p>
       </div>
       <div class="card accent">
-        <div class="ix">CONCEPT / F</div>
-        <h3>Cost is first-class</h3>
-        <p>Every model call has a price. HIVE measures it, caps it with per-position and per-unit budgets, and reports it. Proactive work has its own separate budget.</p>
+        <div class="ix" data-i18n="con.ixF">CONCEPT / F</div>
+        <h3 data-i18n="con.fH">Cost is first-class</h3>
+        <p data-i18n="con.fP">Every model call has a price. HIVE measures it, caps it with per-position and per-unit budgets, and reports it. Proactive work has its own separate budget.</p>
       </div>
     </div>
   </div>
@@ -374,26 +385,26 @@
     <div class="sec-head">
       <span class="sec-num">03</span>
       <div>
-        <span class="eyebrow">Communication</span>
-        <h2>Three channels, all governed.</h2>
-        <p class="sec-sub" style="color:#E6DCC2">HIVE separates how work flows from how it's authorized — so no agent can quietly route around the rules.</p>
+        <span class="eyebrow" data-i18n="ch.eyebrow">Communication</span>
+        <h2 data-i18n="ch.h2">Three channels, all governed.</h2>
+        <p class="sec-sub" style="color:#E6DCC2" data-i18n="ch.sub">HIVE separates how work flows from how it's authorized — so no agent can quietly route around the rules.</p>
       </div>
     </div>
     <div class="chan">
       <div class="c v">
         <span class="arrow">↕</span>
-        <h3>Vertical · Command</h3>
-        <p>Directives flow down and get decomposed into sub-directives. Reports and escalations flow up — only ever to your direct superior.</p>
+        <h3 data-i18n="ch.vH">Vertical · Command</h3>
+        <p data-i18n="ch.vP">Directives flow down and get decomposed into sub-directives. Reports and escalations flow up — only ever to your direct superior.</p>
       </div>
       <div class="c h">
         <span class="arrow">↔</span>
-        <h3>Horizontal · Collaboration</h3>
-        <p>Peers in a unit exchange memos and requests freely. Cross-unit work needs an explicit contract — leaders mediate the rest.</p>
+        <h3 data-i18n="ch.hH">Horizontal · Collaboration</h3>
+        <p data-i18n="ch.hP">Peers in a unit exchange memos and requests freely. Cross-unit work needs an explicit contract — leaders mediate the rest.</p>
       </div>
       <div class="c g">
         <span class="arrow">⊕</span>
-        <h3>Governance · Approvals</h3>
-        <p>Approval requests route by authority policy. A decision counts only from the authorized approver, on the right thread. Fail-closed, always.</p>
+        <h3 data-i18n="ch.gH">Governance · Approvals</h3>
+        <p data-i18n="ch.gP">Approval requests route by authority policy. A decision counts only from the authorized approver, on the right thread. Fail-closed, always.</p>
       </div>
     </div>
   </div>
@@ -405,20 +416,20 @@
     <div class="sec-head">
       <span class="sec-num">04</span>
       <div>
-        <span class="eyebrow">What you get</span>
-        <h2>Capabilities</h2>
-        <p class="sec-sub">A complete operating system for hybrid teams — from the living org chart to budgets, schedules, and human approvals.</p>
+        <span class="eyebrow" data-i18n="feat.eyebrow">What you get</span>
+        <h2 data-i18n="feat.h2">Capabilities</h2>
+        <p class="sec-sub" data-i18n="feat.sub">A complete operating system for hybrid teams — from the living org chart to budgets, schedules, and human approvals.</p>
       </div>
     </div>
     <div class="feat">
-      <div class="item"><h3><span class="k">01</span>Living org chart</h3><p>A read-only console renders the organization, position state, inbox, and approvals in real time over SignalR.</p></div>
-      <div class="item"><h3><span class="k">02</span>Human-in-the-loop</h3><p>People join as occupants and approvers via email, Teams, Slack, or the app — designed for human latency, with reminders and delegation.</p></div>
-      <div class="item"><h3><span class="k">03</span>Reactive + proactive</h3><p>Agents respond to messages and run declared schedules — daily reports, inbox sweeps, deadline checks — as discrete pulses, never runaway loops.</p></div>
-      <div class="item"><h3><span class="k">04</span>Budgets &amp; cost control</h3><p>Per-position and per-unit budgets, separate ceilings for proactive work, and a daily total cap so routines never cannibalize responses.</p></div>
-      <div class="item"><h3><span class="k">05</span>GitOps definition</h3><p>Organizations, units, positions, prompts, schedules, and authority live in versioned YAML — reviewed by pull request, materialized to the registry.</p></div>
-      <div class="item"><h3><span class="k">06</span>Connectors</h3><p>Pluggable adapters for email (SMTP/IMAP/Graph), chat, HTTP, files, and calendar — the bridge between agents and the outside world.</p></div>
-      <div class="item"><h3><span class="k">07</span>GDPR-ready audit</h3><p>Append-only events avoid direct PII and point to redactable data, reconciling immutable audit with the right to erasure.</p></div>
-      <div class="item"><h3><span class="k">08</span>Kill switch</h3><p>The organization owner sits outside the operating chain. Top-of-chain escalations and policy can pause an agent, a unit, or the whole org — with audit.</p></div>
+      <div class="item"><h3><span class="k">01</span><span data-i18n="feat.1h">Living org chart</span></h3><p data-i18n="feat.1p">A read-only console renders the organization, position state, inbox, and approvals in real time over SignalR.</p></div>
+      <div class="item"><h3><span class="k">02</span><span data-i18n="feat.2h">Human-in-the-loop</span></h3><p data-i18n="feat.2p">People join as occupants and approvers via email, Teams, Slack, or the app — designed for human latency, with reminders and delegation.</p></div>
+      <div class="item"><h3><span class="k">03</span><span data-i18n="feat.3h">Reactive + proactive</span></h3><p data-i18n="feat.3p">Agents respond to messages and run declared schedules — daily reports, inbox sweeps, deadline checks — as discrete pulses, never runaway loops.</p></div>
+      <div class="item"><h3><span class="k">04</span><span data-i18n="feat.4h">Budgets &amp; cost control</span></h3><p data-i18n="feat.4p">Per-position and per-unit budgets, separate ceilings for proactive work, and a daily total cap so routines never cannibalize responses.</p></div>
+      <div class="item"><h3><span class="k">05</span><span data-i18n="feat.5h">GitOps definition</span></h3><p data-i18n="feat.5p">Organizations, units, positions, prompts, schedules, and authority live in versioned YAML — reviewed by pull request, materialized to the registry.</p></div>
+      <div class="item"><h3><span class="k">06</span><span data-i18n="feat.6h">Connectors</span></h3><p data-i18n="feat.6p">Pluggable adapters for email (SMTP/IMAP/Graph), chat, HTTP, files, and calendar — the bridge between agents and the outside world.</p></div>
+      <div class="item"><h3><span class="k">07</span><span data-i18n="feat.7h">GDPR-ready audit</span></h3><p data-i18n="feat.7p">Append-only events avoid direct PII and point to redactable data, reconciling immutable audit with the right to erasure.</p></div>
+      <div class="item"><h3><span class="k">08</span><span data-i18n="feat.8h">Kill switch</span></h3><p data-i18n="feat.8p">The organization owner sits outside the operating chain. Top-of-chain escalations and policy can pause an agent, a unit, or the whole org — with audit.</p></div>
     </div>
   </div>
 </section>
@@ -429,16 +440,16 @@
     <div class="sec-head">
       <span class="sec-num">05</span>
       <div>
-        <span class="eyebrow">How it works</span>
-        <h2>From a directive to a result.</h2>
-        <p class="sec-sub" style="color:#E6DCC2">One message moves through the organization the way a real task would — delegated, executed, reported, and recorded.</p>
+        <span class="eyebrow" data-i18n="how.eyebrow">How it works</span>
+        <h2 data-i18n="how.h2">From a directive to a result.</h2>
+        <p class="sec-sub" style="color:#E6DCC2" data-i18n="how.sub">One message moves through the organization the way a real task would — delegated, executed, reported, and recorded.</p>
       </div>
     </div>
     <div class="steps">
-      <div class="step"><div class="n">1</div><h3>Directive arrives</h3><p>A superior issues a typed directive to a position. The PositionActor persists it to the inbox.</p></div>
-      <div class="step"><div class="n">2</div><h3>Agent builds context</h3><p>Identity prompt + memory + message + authorized tools go to the provider-neutral AI gateway.</p></div>
-      <div class="step"><div class="n">3</div><h3>It acts</h3><p>Answer, call a tool, delegate to subordinates, ask a peer, or request human approval — within iteration, budget, and time limits.</p></div>
-      <div class="step"><div class="n">4</div><h3>Report &amp; audit</h3><p>Memory updates, results report upward, and every step is event-sourced for the institutional record.</p></div>
+      <div class="step"><div class="n">1</div><h3 data-i18n="how.1h">Directive arrives</h3><p data-i18n="how.1p">A superior issues a typed directive to a position. The PositionActor persists it to the inbox.</p></div>
+      <div class="step"><div class="n">2</div><h3 data-i18n="how.2h">Agent builds context</h3><p data-i18n="how.2p">Identity prompt + memory + message + authorized tools go to the provider-neutral AI gateway.</p></div>
+      <div class="step"><div class="n">3</div><h3 data-i18n="how.3h">It acts</h3><p data-i18n="how.3p">Answer, call a tool, delegate to subordinates, ask a peer, or request human approval — within iteration, budget, and time limits.</p></div>
+      <div class="step"><div class="n">4</div><h3 data-i18n="how.4h">Report &amp; audit</h3><p data-i18n="how.4p">Memory updates, results report upward, and every step is event-sourced for the institutional record.</p></div>
     </div>
   </div>
 </section>
@@ -449,27 +460,27 @@
     <div class="sec-head">
       <span class="sec-num">06</span>
       <div>
-        <span class="eyebrow">Under the hood</span>
-        <h2>Engineered to be trusted.</h2>
-        <p class="sec-sub">A clustered, event-sourced .NET core with a strict message protocol — not a prompt-chaining script.</p>
+        <span class="eyebrow" data-i18n="tech.eyebrow">Under the hood</span>
+        <h2 data-i18n="tech.h2">Engineered to be trusted.</h2>
+        <p class="sec-sub" data-i18n="tech.sub">A clustered, event-sourced .NET core with a strict message protocol — not a prompt-chaining script.</p>
       </div>
     </div>
     <div class="arch">
       <div>
         <div class="stacklist">
-          <div class="row"><b>Runtime</b><span>.NET 8 LTS</span></div>
-          <div class="row"><b>Actor model</b><span>Akka.NET · Cluster · Sharding</span></div>
-          <div class="row"><b>Event sourcing</b><span>Akka.Persistence.Sql</span></div>
-          <div class="row"><b>Persistence</b><span>PostgreSQL</span></div>
-          <div class="row"><b>AI layer</b><span>Microsoft.Extensions.AI + HIVE</span></div>
-          <div class="row"><b>API / UI</b><span>ASP.NET Core · SignalR · React/TS</span></div>
-          <div class="row"><b>Definition</b><span>GitOps · YAML registry</span></div>
-          <div class="row"><b>Observability</b><span>OpenTelemetry</span></div>
+          <div class="row"><b data-i18n="tech.r1">Runtime</b><span>.NET 8 LTS</span></div>
+          <div class="row"><b data-i18n="tech.r2">Actor model</b><span>Akka.NET · Cluster · Sharding</span></div>
+          <div class="row"><b data-i18n="tech.r3">Event sourcing</b><span>Akka.Persistence.Sql</span></div>
+          <div class="row"><b data-i18n="tech.r4">Persistence</b><span>PostgreSQL</span></div>
+          <div class="row"><b data-i18n="tech.r5">AI layer</b><span>Microsoft.Extensions.AI + HIVE</span></div>
+          <div class="row"><b data-i18n="tech.r6">API / UI</b><span>ASP.NET Core · SignalR · React/TS</span></div>
+          <div class="row"><b data-i18n="tech.r7">Definition</b><span>GitOps · YAML registry</span></div>
+          <div class="row"><b data-i18n="tech.r8">Observability</b><span>OpenTelemetry</span></div>
         </div>
       </div>
       <div class="termcard">
         <div class="bar"><span>organization.yaml</span><span>GITOPS</span></div>
-<pre><span class="d"># source of truth, reviewed by PR</span>
+<pre><span class="d" data-i18n="tech.cmt"># source of truth, reviewed by PR</span>
 <span class="y">organization:</span>
   id: acme-delivery
   owner: { type: human, ref: owner@acme.pt }
@@ -482,7 +493,7 @@
       identity_prompt_ref: engineer-v1
       <span class="c">schedule:</span>
         - cron: "0 55 17 * * MON-FRI"
-          instruction: "Send daily report"
+          instruction: "<span data-i18n="tech.sched">Send daily report</span>"
       <span class="c">authority:</span>
         can_decide: ["bug-triage"]
         must_escalate: ["deadline-risk"]
@@ -498,14 +509,14 @@
     <div class="sec-head">
       <span class="sec-num">07</span>
       <div>
-        <span class="eyebrow">Who it's for</span>
-        <h2>Built for teams that ship.</h2>
+        <span class="eyebrow" data-i18n="aud.eyebrow">Who it's for</span>
+        <h2 data-i18n="aud.h2">Built for teams that ship.</h2>
       </div>
     </div>
     <div class="aud">
-      <div class="a"><div class="tag">ENGINEERING / DELIVERY</div><h3>Run a delivery org</h3><p>Triage bugs, decompose work, and report status across a hybrid team — the first internal use case HIVE was built around.</p></div>
-      <div class="a"><div class="tag">OPS &amp; COMPLIANCE</div><h3>Prove what happened</h3><p>Event-sourced audit, authority policies, and a GDPR-aware record make oversight and post-mortems trivial.</p></div>
-      <div class="a"><div class="tag">PLATFORM TEAMS</div><h3>Govern agents at scale</h3><p>One provider-neutral, budgeted, supervised platform for every agent in the company — instead of a dozen scripts.</p></div>
+      <div class="a"><div class="tag" data-i18n="aud.1t">ENGINEERING / DELIVERY</div><h3 data-i18n="aud.1h">Run a delivery org</h3><p data-i18n="aud.1p">Triage bugs, decompose work, and report status across a hybrid team — the first internal use case HIVE was built around.</p></div>
+      <div class="a"><div class="tag" data-i18n="aud.2t">OPS &amp; COMPLIANCE</div><h3 data-i18n="aud.2h">Prove what happened</h3><p data-i18n="aud.2p">Event-sourced audit, authority policies, and a GDPR-aware record make oversight and post-mortems trivial.</p></div>
+      <div class="a"><div class="tag" data-i18n="aud.3t">PLATFORM TEAMS</div><h3 data-i18n="aud.3h">Govern agents at scale</h3><p data-i18n="aud.3p">One provider-neutral, budgeted, supervised platform for every agent in the company — instead of a dozen scripts.</p></div>
     </div>
   </div>
 </section>
@@ -516,49 +527,49 @@
     <div class="sec-head">
       <span class="sec-num">08</span>
       <div>
-        <span class="eyebrow">Get started</span>
-        <h2>Plans</h2>
-        <p class="sec-sub">Start with a single team, scale to the whole organization. Pricing scales with positions and AI usage, not seats.</p>
+        <span class="eyebrow" data-i18n="plans.eyebrow">Get started</span>
+        <h2 data-i18n="plans.h2">Plans</h2>
+        <p class="sec-sub" data-i18n="plans.sub">Start with a single team, scale to the whole organization. Pricing scales with positions and AI usage, not seats.</p>
       </div>
     </div>
     <div class="plans">
       <div class="plan">
-        <div class="ph">Pilot</div>
-        <h3>Team</h3>
-        <div class="price">For one unit, one org tree</div>
+        <div class="ph" data-i18n="plans.1ph">Pilot</div>
+        <h3 data-i18n="plans.1h">Team</h3>
+        <div class="price" data-i18n="plans.1price">For one unit, one org tree</div>
         <ul>
-          <li>Up to 15 positions</li>
-          <li>Single-node deployment</li>
-          <li>Email + chat connectors</li>
-          <li>Community support</li>
+          <li data-i18n="plans.1l1">Up to 15 positions</li>
+          <li data-i18n="plans.1l2">Single-node deployment</li>
+          <li data-i18n="plans.1l3">Email + chat connectors</li>
+          <li data-i18n="plans.1l4">Community support</li>
         </ul>
-        <a class="btn btn-ghost" href="#contact">Start a pilot</a>
+        <a class="btn btn-ghost" href="#contact" data-i18n="plans.1btn">Start a pilot</a>
       </div>
       <div class="plan feature">
-        <div class="ph">Most popular</div>
-        <h3>Growth</h3>
-        <div class="price">Clustered, multi-unit</div>
+        <div class="ph" data-i18n="plans.2ph">Most popular</div>
+        <h3 data-i18n="plans.2h">Growth</h3>
+        <div class="price" data-i18n="plans.2price">Clustered, multi-unit</div>
         <ul>
-          <li>Unlimited positions</li>
-          <li>Clustering &amp; sharding</li>
-          <li>Budgets &amp; cost reporting</li>
-          <li>All connectors + GitOps</li>
-          <li>Priority support</li>
+          <li data-i18n="plans.2l1">Unlimited positions</li>
+          <li data-i18n="plans.2l2">Clustering &amp; sharding</li>
+          <li data-i18n="plans.2l3">Budgets &amp; cost reporting</li>
+          <li data-i18n="plans.2l4">All connectors + GitOps</li>
+          <li data-i18n="plans.2l5">Priority support</li>
         </ul>
-        <a class="btn btn-primary" href="#contact">Request a demo</a>
+        <a class="btn btn-primary" href="#contact" data-i18n="plans.2btn">Request a demo</a>
       </div>
       <div class="plan">
-        <div class="ph">Regulated</div>
-        <h3>Enterprise</h3>
-        <div class="price">Self-hosted &amp; compliant</div>
+        <div class="ph" data-i18n="plans.3ph">Regulated</div>
+        <h3 data-i18n="plans.3h">Enterprise</h3>
+        <div class="price" data-i18n="plans.3price">Self-hosted &amp; compliant</div>
         <ul>
-          <li>Multi-tenant isolation</li>
-          <li>Self-host / private cloud</li>
-          <li>GDPR audit &amp; SSO</li>
-          <li>Local model providers</li>
-          <li>SLA &amp; onboarding</li>
+          <li data-i18n="plans.3l1">Multi-tenant isolation</li>
+          <li data-i18n="plans.3l2">Self-host / private cloud</li>
+          <li data-i18n="plans.3l3">GDPR audit &amp; SSO</li>
+          <li data-i18n="plans.3l4">Local model providers</li>
+          <li data-i18n="plans.3l5">SLA &amp; onboarding</li>
         </ul>
-        <a class="btn btn-ghost" href="#contact">Talk to us</a>
+        <a class="btn btn-ghost" href="#contact" data-i18n="plans.3btn">Talk to us</a>
       </div>
     </div>
   </div>
@@ -570,33 +581,33 @@
     <div class="sec-head">
       <span class="sec-num">09</span>
       <div>
-        <span class="eyebrow">Questions</span>
-        <h2>FAQ</h2>
+        <span class="eyebrow" data-i18n="faq.eyebrow">Questions</span>
+        <h2 data-i18n="faq.h2">FAQ</h2>
       </div>
     </div>
     <details>
-      <summary>Is HIVE another agent framework?</summary>
-      <div class="ans">No. HIVE is an organizational layer. Agents are members of a real command structure with positions, units, a typed message protocol, governance, and audit — not a chain of prompts. It runs on the Actor Model (Akka.NET) for supervision and resilience.</div>
+      <summary data-i18n="faq.q1">Is HIVE another agent framework?</summary>
+      <div class="ans" data-i18n="faq.a1">No. HIVE is an organizational layer. Agents are members of a real command structure with positions, units, a typed message protocol, governance, and audit — not a chain of prompts. It runs on the Actor Model (Akka.NET) for supervision and resilience.</div>
     </details>
     <details>
-      <summary>Which AI providers are supported?</summary>
-      <div class="ans">HIVE is provider-neutral via Microsoft.Extensions.AI. Anthropic, OpenAI, Azure OpenAI, and local models (Ollama, vLLM) can coexist, configured per position and hot-swapped without any actor knowing the difference.</div>
+      <summary data-i18n="faq.q2">Which AI providers are supported?</summary>
+      <div class="ans" data-i18n="faq.a2">HIVE is provider-neutral via Microsoft.Extensions.AI. Anthropic, OpenAI, Azure OpenAI, and local models (Ollama, vLLM) can coexist, configured per position and hot-swapped without any actor knowing the difference.</div>
     </details>
     <details>
-      <summary>How do humans participate?</summary>
-      <div class="ans">A person occupies a position through a proxy actor that relays typed messages via connectors — email, Teams, Slack, or the app. The system assumes humans answer in hours or days, so timeouts, reminders, and delegation are designed around that latency.</div>
+      <summary data-i18n="faq.q3">How do humans participate?</summary>
+      <div class="ans" data-i18n="faq.a3">A person occupies a position through a proxy actor that relays typed messages via connectors — email, Teams, Slack, or the app. The system assumes humans answer in hours or days, so timeouts, reminders, and delegation are designed around that latency.</div>
     </details>
     <details>
-      <summary>How do you keep AI costs under control?</summary>
-      <div class="ans">Cost is a first-class dimension. Every call is measured, capped by per-position and per-unit budgets, and reported. Proactive activity draws from a separate budget so scheduled routines can never cannibalize the capacity to respond to orders.</div>
+      <summary data-i18n="faq.q4">How do you keep AI costs under control?</summary>
+      <div class="ans" data-i18n="faq.a4">Cost is a first-class dimension. Every call is measured, capped by per-position and per-unit budgets, and reported. Proactive activity draws from a separate budget so scheduled routines can never cannibalize the capacity to respond to orders.</div>
     </details>
     <details>
-      <summary>Is it auditable and GDPR-compliant?</summary>
-      <div class="ans">Yes. All communication is event-sourced into immutable, append-only records that avoid direct PII and point to redactable or encrypted data, reconciling a complete audit trail with the right to erasure under a European GDPR baseline.</div>
+      <summary data-i18n="faq.q5">Is it auditable and GDPR-compliant?</summary>
+      <div class="ans" data-i18n="faq.a5">Yes. All communication is event-sourced into immutable, append-only records that avoid direct PII and point to redactable or encrypted data, reconciling a complete audit trail with the right to erasure under a European GDPR baseline.</div>
     </details>
     <details>
-      <summary>How is an organization defined?</summary>
-      <div class="ans">As versioned YAML in Git (GitOps) — units, positions, occupants, prompts, schedules, and authority. On deploy it's validated and materialized into PostgreSQL for fast lookups by the API, actors, and UI. The console is read-only first; visual editing arrives in later phases with export back to YAML.</div>
+      <summary data-i18n="faq.q6">How is an organization defined?</summary>
+      <div class="ans" data-i18n="faq.a6">As versioned YAML in Git (GitOps) — units, positions, occupants, prompts, schedules, and authority. On deploy it's validated and materialized into PostgreSQL for fast lookups by the API, actors, and UI. The console is read-only first; visual editing arrives in later phases with export back to YAML.</div>
     </details>
   </div>
 </section>
@@ -604,10 +615,10 @@
 <!-- FINALE -->
 <section id="contact" class="finale">
   <div class="wrap sec-pad">
-    <span class="pill">Now in early access · v0.93</span>
-    <h2 style="margin-top:18px">Put your agents on the org chart.</h2>
-    <p>See HIVE run a hybrid team end-to-end — directives, approvals, budgets, and a full audit trail. Book a walkthrough with our team.</p>
-    <a class="btn btn-primary" href="mailto:hello@hive.dev?subject=HIVE%20demo%20request">Request a demo →</a>
+    <span class="pill" data-i18n="fin.pill">Now in early access · v0.93</span>
+    <h2 style="margin-top:18px" data-i18n="fin.h2">Put your agents on the org chart.</h2>
+    <p data-i18n="fin.p">See HIVE run a hybrid team end-to-end — directives, approvals, budgets, and a full audit trail. Book a walkthrough with our team.</p>
+    <a class="btn btn-primary" href="mailto:hello@hive.dev?subject=HIVE%20demo%20request" data-i18n="fin.btn">Request a demo →</a>
   </div>
 </section>
 
@@ -616,27 +627,177 @@
   <div class="wrap">
     <div>
       <div class="brand" style="color:var(--mustard);margin-bottom:8px">HIVE</div>
-      <div>Hybrid organizations of AI agents and people, on the Actor Model.</div>
+      <div data-i18n="foot.tag">Hybrid organizations of AI agents and people, on the Actor Model.</div>
       <div class="reg" style="margin-top:10px">⊹ FORM N° HV-093 · PRINTED 2026 · DROP-A · OK TO PRINT ⊹</div>
     </div>
     <div>
-      <div class="reg" style="margin-bottom:10px">SECTIONS</div>
+      <div class="reg" style="margin-bottom:10px" data-i18n="foot.sections">SECTIONS</div>
       <div style="display:flex;flex-direction:column;gap:6px">
-        <a href="#concepts">The model</a>
-        <a href="#features">Features</a>
-        <a href="#tech">Architecture</a>
-        <a href="#plans">Plans</a>
+        <a href="#concepts" data-i18n="foot.l1">The model</a>
+        <a href="#features" data-i18n="foot.l2">Features</a>
+        <a href="#tech" data-i18n="foot.l3">Architecture</a>
+        <a href="#plans" data-i18n="foot.l4">Plans</a>
       </div>
     </div>
     <div>
-      <div class="reg" style="margin-bottom:10px">CONTACT</div>
+      <div class="reg" style="margin-bottom:10px" data-i18n="foot.contact">CONTACT</div>
       <div style="display:flex;flex-direction:column;gap:6px">
         <a href="mailto:hello@hive.dev">hello@hive.dev</a>
-        <span>© 2026 HIVE. All rights reserved.</span>
+        <span data-i18n="foot.copy">© 2026 HIVE. All rights reserved.</span>
       </div>
     </div>
   </div>
 </footer>
+
+<script>
+/* ---- i18n ---- */
+const I18N = {
+  en: {
+    _meta: { title: "HIVE — One Organization. Agents & People.", desc: "HIVE is a hybrid organization platform where AI agents and people work in one auditable command structure, built on the Actor Model." }
+    /* English is the source: defaults live in the markup, so no keys needed here. */
+  },
+  pt: {
+    _meta: { title: "HIVE — Uma organização. Agentes e pessoas.", desc: "O HIVE é uma plataforma de organização híbrida onde agentes de IA e pessoas trabalham numa única estrutura de comando auditável, sobre o Actor Model." },
+
+    "nav.model":"Modelo", "nav.features":"Funcionalidades", "nav.how":"Como funciona", "nav.tech":"Arquitetura", "nav.plans":"Planos",
+
+    "hero.eyebrow":"Organizações híbridas · Sobre o Actor Model",
+    "hero.h1":"Uma organização.<br>Agentes <span class=\"or\">&amp;</span> pessoas.",
+    "hero.lede":"O HIVE gere a tua empresa como um organograma vivo de agentes de IA e pessoas — cada posição, cada mensagem, cada decisão tipada, governada e totalmente auditável.",
+    "hero.cta1":"Pedir demonstração", "hero.cta2":"Ver como funciona",
+    "hero.stat1":"Organograma, IA + humano", "hero.stat2":"Auditoria event-sourced", "hero.stat3":"IA neutra de fornecedor",
+
+    "org.live":"● AO VIVO",
+    "org.ceo":"CEO", "org.tagLead":"IA · líder",
+    "org.dlead":"Delivery Lead", "org.tagAi":"IA",
+    "org.eng":"Engenheiro A", "org.tagAi2":"IA",
+    "org.rev":"Revisor", "org.tagHuman":"Humano",
+    "org.mkt":"Dir. Marketing", "org.tagHuman2":"Humano",
+    "org.legAi":"Agente IA", "org.legPerson":"Pessoa", "org.legLead":"Líder de unidade",
+
+    "prob.eyebrow":"O problema",
+    "prob.h2":"Os agentes de IA não cabem no teu organograma.",
+    "prob.sub":"Colar chatbots a um negócio cria trabalho não governado e sem rasto. O HIVE torna os agentes membros de pleno direito de uma organização real — com hierarquia, regras e registo.",
+    "prob.1h":"Sem cadeia de comando", "prob.1p":"Agentes soltos agem sem superior, pares ou alguém a quem escalar. O trabalho acontece sem responsabilização.",
+    "prob.2h":"Sem rasto de auditoria", "prob.2p":"Não consegues reconstruir quem decidiu o quê, quando ou porquê. Compliance e post-mortems viram adivinhação.",
+    "prob.3h":"Custo descontrolado", "prob.3p":"Loops sem limite e execuções proativas queimam tokens. Não há orçamento, teto nem contabilidade por equipa.",
+    "prob.4h":"Humanos de fora", "prob.4p":"As pessoas não conseguem estar no circuito como aprovadores e colegas — são um acessório, não parte da estrutura.",
+
+    "con.eyebrow":"O modelo",
+    "con.h2":"Tudo é um ator.",
+    "con.sub":"Posições, unidades, conectores, o gateway de IA — tudo vive como atores supervisionados que comunicam apenas por mensagens tipadas. O resultado é uma organização sobre a qual consegues raciocinar.",
+    "con.ixA":"CONCEITO / A", "con.aH":"Posição ≠ Ocupante", "con.aP":"A estrutura é independente de quem ocupa cada lugar. Trocar uma IA por um humano é mudar o ocupante, não a posição — a inbox e o histórico ficam.",
+    "con.ixB":"CONCEITO / B", "con.bH":"Só mensagens", "con.bP":"Nenhum ator acede ao estado de outro. As pessoas falam com o sistema através de um ator-proxy. Cada troca segue um protocolo canónico de mensagens.",
+    "con.ixC":"CONCEITO / C", "con.cH":"IA neutra de fornecedor", "con.cP":"A camada de IA é uma abstração. Anthropic, OpenAI, Azure ou modelos locais via Ollama/vLLM — configurados por posição, trocáveis a quente, sem que nenhum ator note a diferença.",
+    "con.ixD":"CONCEITO / D", "con.dH":"Supervisão &amp; resiliência", "con.dP":"Timeouts do fornecedor, respostas inválidas, exceções — tudo tratado pela hierarquia de supervisão Akka.NET: reiniciar, escalar ou notificar o superior organizacional.",
+    "con.ixE":"CONCEITO / E", "con.eH":"Auditabilidade total", "con.eP":"Cada mensagem é event-sourced. A organização tem memória institucional reconstruível, reconciliada com o direito ao apagamento do RGPD por desenho.",
+    "con.ixF":"CONCEITO / F", "con.fH":"Custo em primeiro plano", "con.fP":"Cada chamada ao modelo tem preço. O HIVE mede-o, limita-o com orçamentos por posição e por unidade, e reporta-o. O trabalho proativo tem orçamento próprio.",
+
+    "ch.eyebrow":"Comunicação",
+    "ch.h2":"Três canais, todos governados.",
+    "ch.sub":"O HIVE separa como o trabalho flui de como é autorizado — para que nenhum agente contorne as regras em silêncio.",
+    "ch.vH":"Vertical · Comando", "ch.vP":"As diretivas descem e são decompostas em subdiretivas. Relatórios e escalamentos sobem — sempre e só para o teu superior direto.",
+    "ch.hH":"Horizontal · Colaboração", "ch.hP":"Pares de uma unidade trocam memos e pedidos livremente. Trabalho entre unidades exige contrato explícito — os líderes mediam o resto.",
+    "ch.gH":"Governança · Aprovações", "ch.gP":"Pedidos de aprovação roteiam por política de autoridade. Uma decisão só conta vinda do aprovador autorizado, na thread certa. Fail-closed, sempre.",
+
+    "feat.eyebrow":"O que recebes",
+    "feat.h2":"Capacidades",
+    "feat.sub":"Um sistema operativo completo para equipas híbridas — do organograma vivo a orçamentos, agendas e aprovações humanas.",
+    "feat.1h":"Organograma vivo", "feat.1p":"Uma consola read-only mostra a organização, o estado das posições, a inbox e as aprovações em tempo real via SignalR.",
+    "feat.2h":"Humano no circuito", "feat.2p":"As pessoas entram como ocupantes e aprovadores via email, Teams, Slack ou app — desenhado para a latência humana, com lembretes e delegação.",
+    "feat.3h":"Reativo + proativo", "feat.3p":"Os agentes respondem a mensagens e correm agendas declaradas — relatórios diários, varrimentos de inbox, verificação de prazos — como pulsos discretos, nunca loops descontrolados.",
+    "feat.4h":"Orçamentos &amp; custo", "feat.4p":"Orçamentos por posição e por unidade, tetos separados para o trabalho proativo, e um teto diário total para que as rotinas nunca canibalizem as respostas.",
+    "feat.5h":"Definição GitOps", "feat.5p":"Organizações, unidades, posições, prompts, agendas e autoridade vivem em YAML versionado — revisto por pull request, materializado no registry.",
+    "feat.6h":"Conectores", "feat.6p":"Adaptadores plugáveis para email (SMTP/IMAP/Graph), chat, HTTP, ficheiros e calendário — a ponte entre os agentes e o mundo exterior.",
+    "feat.7h":"Auditoria pronta para RGPD", "feat.7p":"Eventos append-only evitam PII direta e apontam para dados redatáveis, reconciliando auditoria imutável com o direito ao apagamento.",
+    "feat.8h":"Kill switch", "feat.8p":"O dono da organização está fora da cadeia operacional. Escalamentos de topo e políticas podem pausar um agente, uma unidade ou toda a organização — com auditoria.",
+
+    "how.eyebrow":"Como funciona",
+    "how.h2":"De uma diretiva a um resultado.",
+    "how.sub":"Uma mensagem percorre a organização como percorreria uma tarefa real — delegada, executada, reportada e registada.",
+    "how.1h":"Chega a diretiva", "how.1p":"Um superior emite uma diretiva tipada para uma posição. O PositionActor persiste-a na inbox.",
+    "how.2h":"O agente monta o contexto", "how.2p":"Prompt de identidade + memória + mensagem + ferramentas autorizadas seguem para o gateway de IA neutro de fornecedor.",
+    "how.3h":"Age", "how.3p":"Responde, usa uma ferramenta, delega em subordinados, pergunta a um par ou pede aprovação humana — dentro de limites de iteração, orçamento e tempo.",
+    "how.4h":"Reporta &amp; audita", "how.4p":"A memória atualiza-se, os resultados sobem em relatório e cada passo é event-sourced para o registo institucional.",
+
+    "tech.eyebrow":"Por dentro",
+    "tech.h2":"Engenharia para ser confiável.",
+    "tech.sub":"Um núcleo .NET em cluster e event-sourced, com um protocolo de mensagens rígido — não um script de encadeamento de prompts.",
+    "tech.r1":"Runtime", "tech.r2":"Modelo de atores", "tech.r3":"Event sourcing", "tech.r4":"Persistência", "tech.r5":"Camada de IA", "tech.r6":"API / UI", "tech.r7":"Definição", "tech.r8":"Observabilidade",
+    "tech.cmt":"# fonte de verdade, revista por PR", "tech.sched":"Enviar relatório diário",
+
+    "aud.eyebrow":"Para quem é",
+    "aud.h2":"Feito para equipas que entregam.",
+    "aud.1t":"ENGENHARIA / DELIVERY", "aud.1h":"Gerir uma org de delivery", "aud.1p":"Triagem de bugs, decompor trabalho e reportar estado numa equipa híbrida — o primeiro caso de uso interno em torno do qual o HIVE foi construído.",
+    "aud.2t":"OPS &amp; COMPLIANCE", "aud.2h":"Provar o que aconteceu", "aud.2p":"Auditoria event-sourced, políticas de autoridade e um registo consciente do RGPD tornam triviais a supervisão e os post-mortems.",
+    "aud.3t":"EQUIPAS DE PLATAFORMA", "aud.3h":"Governar agentes à escala", "aud.3p":"Uma plataforma única, neutra de fornecedor, orçamentada e supervisionada para cada agente da empresa — em vez de uma dúzia de scripts.",
+
+    "plans.eyebrow":"Começar",
+    "plans.h2":"Planos",
+    "plans.sub":"Começa com uma equipa, escala para toda a organização. O preço acompanha posições e uso de IA, não lugares.",
+    "plans.1ph":"Piloto", "plans.1h":"Equipa", "plans.1price":"Para uma unidade, uma árvore",
+    "plans.1l1":"Até 15 posições", "plans.1l2":"Implementação single-node", "plans.1l3":"Conectores email + chat", "plans.1l4":"Suporte comunidade", "plans.1btn":"Iniciar piloto",
+    "plans.2ph":"Mais popular", "plans.2h":"Growth", "plans.2price":"Em cluster, multi-unidade",
+    "plans.2l1":"Posições ilimitadas", "plans.2l2":"Clustering &amp; sharding", "plans.2l3":"Orçamentos &amp; relatórios de custo", "plans.2l4":"Todos os conectores + GitOps", "plans.2l5":"Suporte prioritário", "plans.2btn":"Pedir demonstração",
+    "plans.3ph":"Regulado", "plans.3h":"Enterprise", "plans.3price":"Self-hosted &amp; compliant",
+    "plans.3l1":"Isolamento multi-tenant", "plans.3l2":"Self-host / cloud privada", "plans.3l3":"Auditoria RGPD &amp; SSO", "plans.3l4":"Fornecedores de modelos locais", "plans.3l5":"SLA &amp; onboarding", "plans.3btn":"Falar connosco",
+
+    "faq.eyebrow":"Perguntas", "faq.h2":"FAQ",
+    "faq.q1":"O HIVE é mais uma framework de agentes?", "faq.a1":"Não. O HIVE é uma camada organizacional. Os agentes são membros de uma estrutura de comando real com posições, unidades, um protocolo de mensagens tipado, governança e auditoria — não uma cadeia de prompts. Corre sobre o Actor Model (Akka.NET) para supervisão e resiliência.",
+    "faq.q2":"Que fornecedores de IA são suportados?", "faq.a2":"O HIVE é neutro de fornecedor via Microsoft.Extensions.AI. Anthropic, OpenAI, Azure OpenAI e modelos locais (Ollama, vLLM) podem coexistir, configurados por posição e trocados a quente sem que nenhum ator note a diferença.",
+    "faq.q3":"Como participam os humanos?", "faq.a3":"Uma pessoa ocupa uma posição através de um ator-proxy que encaminha mensagens tipadas via conectores — email, Teams, Slack ou app. O sistema assume que os humanos respondem em horas ou dias, por isso timeouts, lembretes e delegação são desenhados para essa latência.",
+    "faq.q4":"Como mantêm os custos de IA sob controlo?", "faq.a4":"O custo é uma dimensão de primeira classe. Cada chamada é medida, limitada por orçamentos por posição e por unidade, e reportada. A atividade proativa usa um orçamento separado para que as rotinas agendadas nunca canibalizem a capacidade de responder a ordens.",
+    "faq.q5":"É auditável e compatível com o RGPD?", "faq.a5":"Sim. Toda a comunicação é event-sourced em registos imutáveis e append-only que evitam PII direta e apontam para dados redatáveis ou cifrados, reconciliando um rasto de auditoria completo com o direito ao apagamento sob um baseline europeu de RGPD.",
+    "faq.q6":"Como se define uma organização?", "faq.a6":"Como YAML versionado em Git (GitOps) — unidades, posições, ocupantes, prompts, agendas e autoridade. No deploy é validado e materializado em PostgreSQL para consultas rápidas pela API, atores e UI. A consola é read-only primeiro; a edição visual chega em fases posteriores com export de volta para YAML.",
+
+    "fin.pill":"Agora em acesso antecipado · v0.93",
+    "fin.h2":"Põe os teus agentes no organograma.",
+    "fin.p":"Vê o HIVE gerir uma equipa híbrida ponta a ponta — diretivas, aprovações, orçamentos e um rasto de auditoria completo. Marca uma demonstração com a nossa equipa.",
+    "fin.btn":"Pedir demonstração →",
+
+    "foot.tag":"Organizações híbridas de agentes de IA e pessoas, sobre o Actor Model.",
+    "foot.sections":"SECÇÕES", "foot.l1":"O modelo", "foot.l2":"Funcionalidades", "foot.l3":"Arquitetura", "foot.l4":"Planos",
+    "foot.contact":"CONTACTO", "foot.copy":"© 2026 HIVE. Todos os direitos reservados."
+  }
+};
+
+const SUPPORTED = ["en","pt"];
+const STORE_KEY = "hive_lang";
+
+// keep a copy of the original (English) HTML for each translatable node
+const NODES = Array.from(document.querySelectorAll("[data-i18n]"));
+NODES.forEach(el => { el.dataset.i18nSrc = el.innerHTML; });
+
+function applyLang(lang){
+  if(!SUPPORTED.includes(lang)) lang = "en";
+  const dict = I18N[lang] || {};
+  NODES.forEach(el => {
+    const key = el.getAttribute("data-i18n");
+    el.innerHTML = (lang === "en") ? el.dataset.i18nSrc : (dict[key] != null ? dict[key] : el.dataset.i18nSrc);
+  });
+  const meta = (I18N[lang] && I18N[lang]._meta) || I18N.en._meta;
+  document.title = meta.title;
+  const md = document.querySelector('meta[name="description"]');
+  if(md) md.setAttribute("content", meta.desc);
+  document.documentElement.lang = (lang === "pt") ? "pt-PT" : "en";
+  document.querySelectorAll(".langsel button").forEach(b =>
+    b.setAttribute("aria-pressed", String(b.dataset.lang === lang)));
+  try{ localStorage.setItem(STORE_KEY, lang); }catch(e){}
+}
+
+document.querySelectorAll(".langsel button").forEach(b =>
+  b.addEventListener("click", () => applyLang(b.dataset.lang)));
+
+(function init(){
+  let lang = "en";
+  try{ lang = localStorage.getItem(STORE_KEY); }catch(e){}
+  if(!lang){
+    const nav = (navigator.language || "en").toLowerCase();
+    lang = nav.startsWith("pt") ? "pt" : "en";
+  }
+  applyLang(lang);
+})();
+</script>
 
 </body>
 </html>

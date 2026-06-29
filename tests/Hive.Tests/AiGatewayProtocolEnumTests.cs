@@ -74,6 +74,32 @@ public sealed class AiGatewayProtocolEnumTests
             Enum.GetValues<AiGatewayErrorCode>());
     }
 
+    [Fact]
+    public void Processing_modes_have_stable_values()
+    {
+        Assert.Equal(1, (int)AiProcessingMode.Interactive);
+        Assert.Equal(2, (int)AiProcessingMode.Batch);
+        Assert.Equal(
+            [
+                AiProcessingMode.Interactive,
+                AiProcessingMode.Batch,
+            ],
+            Enum.GetValues<AiProcessingMode>());
+    }
+
+    [Theory]
+    [InlineData(AiProcessingMode.Interactive, "interactive")]
+    [InlineData(AiProcessingMode.Batch, "batch")]
+    public void Processing_mode_wire_values_round_trip_canonically(
+        AiProcessingMode value,
+        string wireValue)
+    {
+        Assert.Equal(wireValue, AiProcessingModeContract.ToWireValue(value));
+        Assert.Equal(value, AiProcessingModeContract.ParseWireValue(wireValue));
+        Assert.True(AiProcessingModeContract.TryParseWireValue(wireValue, out var parsed));
+        Assert.Equal(value, parsed);
+    }
+
     [Theory]
     [InlineData(AiGatewayErrorCode.ConfigurationInvalid, "configuration-invalid")]
     [InlineData(AiGatewayErrorCode.ProviderNotAuthorized, "provider-not-authorized")]
@@ -113,6 +139,10 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Throws<ArgumentException>(() => AiGatewayErrorCodeContract.ParseWireValue(value));
         Assert.False(AiGatewayErrorCodeContract.TryParseWireValue(value, out var errorCode));
         Assert.Equal(default, errorCode);
+
+        Assert.Throws<ArgumentException>(() => AiProcessingModeContract.ParseWireValue(value));
+        Assert.False(AiProcessingModeContract.TryParseWireValue(value, out var processingMode));
+        Assert.Equal(default, processingMode);
     }
 
     [Fact]
@@ -127,5 +157,10 @@ public sealed class AiGatewayProtocolEnumTests
             () => AiGatewayErrorCodeContract.RequireDefined((AiGatewayErrorCode)0, "code"));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AiGatewayErrorCodeContract.ToWireValue((AiGatewayErrorCode)0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiProcessingModeContract.RequireDefined((AiProcessingMode)0, "processingMode"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiProcessingModeContract.ToWireValue((AiProcessingMode)0));
     }
 }

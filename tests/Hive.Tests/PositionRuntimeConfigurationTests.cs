@@ -30,6 +30,7 @@ public sealed class PositionRuntimeConfigurationTests
         Assert.Equal(OrganizationId.From("acme"), configuration.OrganizationId);
         Assert.Equal(PositionId.From("bug-triage"), configuration.PositionId);
         Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
+        Assert.Null(configuration.Occupant.AiGateway);
         Assert.Equal("daily", Assert.Single(configuration.Schedules).Id);
 
         Assert.Throws<ArgumentNullException>(

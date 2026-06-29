@@ -18,7 +18,8 @@ public sealed record AiConfiguration
         string? processing = null,
         string? batchWindow = null,
         IReadOnlyList<AiFallbackConfiguration>? fallback = null,
-        BudgetConfiguration? budget = null)
+        BudgetConfiguration? budget = null,
+        string? timeout = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(model);
@@ -29,6 +30,7 @@ public sealed record AiConfiguration
         MaxTokens = maxTokens;
         Processing = processing;
         BatchWindow = batchWindow;
+        Timeout = timeout;
         Fallback = fallback ?? Array.Empty<AiFallbackConfiguration>();
         Budget = budget;
     }
@@ -50,6 +52,9 @@ public sealed record AiConfiguration
 
     /// <summary>The optional batch window descriptor, relevant for batch processing.</summary>
     public string? BatchWindow { get; }
+
+    /// <summary>The optional per-call timeout descriptor declared for the gateway.</summary>
+    public string? Timeout { get; }
 
     /// <summary>The ordered fallback chain tried when the primary provider fails; empty when none.</summary>
     public IReadOnlyList<AiFallbackConfiguration> Fallback { get; }

@@ -58,6 +58,7 @@ public sealed class OrganizationConfigurationParserTests
                 model: claude-sonnet-4-6
                 temperature: 0.7
                 max_tokens: 4096
+                timeout: PT30S
                 processing: interactive
                 batch_window: null
                 fallback:
@@ -156,6 +157,7 @@ public sealed class OrganizationConfigurationParserTests
         Assert.Equal("claude-sonnet-4-6", ai.Model);
         Assert.Equal(0.7, ai.Temperature);
         Assert.Equal(4096, ai.MaxTokens);
+        Assert.Equal("PT30S", ai.Timeout);
         Assert.Equal("interactive", ai.Processing);
         Assert.Null(ai.BatchWindow);
 

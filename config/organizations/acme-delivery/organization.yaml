@@ -34,7 +34,18 @@ positions:
       ai:
         provider: stub
         model: deterministic
+        temperature: 0.2
+        max_tokens: 1024
+        timeout: PT30S
         processing: interactive
+        fallback:
+          - provider: stub
+            model: deterministic-backup
+        budget:
+          reactive_max_eur_per_day: 5.00
+          proactive_max_eur_per_day: 1.00
+          total_max_eur_per_day: 6.00
+          max_calls_per_hour: 60
       authority:
         can_decide: ["prioridades-trimestrais"]
         must_escalate: ["compromissos-orcamentais"]
@@ -50,7 +61,18 @@ positions:
       ai:
         provider: stub
         model: deterministic
+        temperature: 0.2
+        max_tokens: 1024
+        timeout: PT30S
         processing: interactive
+        fallback:
+          - provider: stub
+            model: deterministic-backup
+        budget:
+          reactive_max_eur_per_day: 5.00
+          proactive_max_eur_per_day: 1.00
+          total_max_eur_per_day: 6.00
+          max_calls_per_hour: 60
       schedule:
         - id: relatorio-diario
           cron: "0 55 17 * * MON-FRI"

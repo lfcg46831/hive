@@ -83,6 +83,7 @@ public sealed class OrganizationConfigurationModelTests
         Assert.Equal("claude-sonnet-4-6", ai.Model);
         Assert.Equal(0.7, ai.Temperature);
         Assert.Equal(4096, ai.MaxTokens);
+        Assert.Equal("PT30S", ai.Timeout);
         Assert.Equal("interactive", ai.Processing);
         Assert.Collection(
             ai.Fallback,
@@ -257,6 +258,7 @@ public sealed class OrganizationConfigurationModelTests
                     model: "claude-sonnet-4-6",
                     temperature: 0.7,
                     maxTokens: 4096,
+                    timeout: "PT30S",
                     processing: "interactive",
                     fallback: [new AiFallbackConfiguration("openai", "gpt-4.1")],
                     budget: new BudgetConfiguration(

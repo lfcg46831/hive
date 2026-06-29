@@ -1,4 +1,5 @@
 using System.Reflection;
+using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
@@ -40,6 +41,23 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
         Assert.Equal("engineer-v1", configuration.Occupant.IdentityPromptRef);
         Assert.NotNull(configuration.Occupant.Ai);
+        var aiGateway = configuration.Occupant.AiGateway;
+        Assert.NotNull(aiGateway);
+        Assert.Equal("stub", aiGateway.Primary.ProviderId);
+        Assert.Equal("deterministic", aiGateway.Primary.ModelId);
+        Assert.Equal(0.2m, aiGateway.Parameters.Temperature);
+        Assert.Equal(1024, aiGateway.Parameters.MaxOutputTokens);
+        Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.Timeout);
+        Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
+        var fallback = Assert.Single(aiGateway.Fallback);
+        Assert.Equal("stub", fallback.ProviderId);
+        Assert.Equal("deterministic-backup", fallback.ModelId);
+        var limits = aiGateway.CostLimits;
+        Assert.NotNull(limits);
+        Assert.Equal(5.00m, limits.ReactiveMaxEurPerDay);
+        Assert.Equal(1.00m, limits.ProactiveMaxEurPerDay);
+        Assert.Equal(6.00m, limits.TotalMaxEurPerDay);
+        Assert.Equal(60, limits.MaxCallsPerHour);
         Assert.Equal(["triagem-de-bugs"], configuration.Authority.CanDecide);
         Assert.Equal(["risco-de-prazo-critico"], configuration.Authority.MustEscalate);
         Assert.Equal(["release-em-producao"], configuration.Authority.RequiresHumanApproval);
@@ -114,6 +132,62 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
         Assert.True(result.IsBlocking);
         Assert.Contains("occupant", result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static TheoryData<AiConfiguration, string> InvalidAiGatewayConfigurations => new()
+    {
+        { new AiConfiguration("stub", "deterministic", processing: "streaming"), "processing" },
+        { new AiConfiguration("stub", "deterministic", timeout: "soon"), "timeout" },
+        { new AiConfiguration("stub", "deterministic", temperature: 4.5), "temperature" },
+        { new AiConfiguration("stub", "deterministic", budget: new BudgetConfiguration(maxCallsPerHour: -1)), "budget" },
+    };
+
+    [Theory]
+    [MemberData(nameof(InvalidAiGatewayConfigurations))]
+    public async Task Provider_rejects_invalid_ai_gateway_projection_as_incomplete(
+        AiConfiguration ai,
+        string expectedReason)
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var invalid = new RegistryEntry<RegistryOccupant>(
+            original.Value with { Ai = ai },
+            original.Fingerprint,
+            original.UpdatedAt);
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = invalid;
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
+        Assert.True(result.IsBlocking);
+        Assert.Contains(expectedReason, result.Reason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Provider_leaves_gateway_configuration_null_when_ai_block_is_absent()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var withoutAi = new RegistryEntry<RegistryOccupant>(
+            original.Value with { Ai = null },
+            original.Fingerprint,
+            original.UpdatedAt);
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = withoutAi;
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Loaded, result.Status);
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        Assert.Null(configuration.Occupant.Ai);
+        Assert.Null(configuration.Occupant.AiGateway);
     }
 
     [Fact]

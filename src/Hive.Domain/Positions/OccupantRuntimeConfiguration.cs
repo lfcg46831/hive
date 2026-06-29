@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Ai;
 using Hive.Domain.Organization.Configuration;
 
 namespace Hive.Domain.Positions;
@@ -15,7 +16,8 @@ public sealed record OccupantRuntimeConfiguration
         AiConfiguration? ai = null,
         WorkingHoursConfiguration? workingHours = null,
         IEnumerable<SubscriptionConfiguration>? subscriptions = null,
-        IEnumerable<ToolConfiguration>? tools = null)
+        IEnumerable<ToolConfiguration>? tools = null,
+        AiPositionRuntimeConfiguration? aiGateway = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -30,6 +32,7 @@ public sealed record OccupantRuntimeConfiguration
             ? null
             : CommandText.RequireContent(identityPromptRef, nameof(identityPromptRef));
         Ai = ai;
+        AiGateway = aiGateway;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -43,6 +46,9 @@ public sealed record OccupantRuntimeConfiguration
 
     /// <summary>The AI runtime configuration, when declared for this occupant.</summary>
     public AiConfiguration? Ai { get; }
+
+    /// <summary>The gateway-facing AI runtime projection, when declared for this occupant.</summary>
+    public AiPositionRuntimeConfiguration? AiGateway { get; }
 
     /// <summary>The configured working-hours window, when declared.</summary>
     public WorkingHoursConfiguration? WorkingHours { get; }

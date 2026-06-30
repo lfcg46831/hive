@@ -4,6 +4,7 @@ using Hive.Infrastructure.Ai;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Net;
 
 namespace Hive.Tests;
 
@@ -101,7 +102,7 @@ public sealed class RealAiGatewayProviderTests
         Assert.Equal(11, response.Usage.InputTokens);
         Assert.Equal(7, response.Usage.OutputTokens);
         Assert.Equal(18, response.Usage.TotalTokens);
-        // Cost computation is US-F0-07-T09/T10, not this adapter.
+        // Cost computation is US-F0-07-T10, not this adapter.
         Assert.Null(response.Cost);
         Assert.Empty(response.ToolCalls);
     }
@@ -476,7 +477,8 @@ public sealed class RealAiGatewayProviderTests
     public async Task Provider_exception_maps_to_provider_unavailable_without_revealing_secret()
     {
         var chatClient = new FakeChatClient((_, _, _) =>
-            throw new InvalidOperationException("upstream returned 503"));
+            throw new InvalidOperationException(
+                $"upstream returned 503 with payload {ApiKey}"));
 
         var response = await Gateway(chatClient).CompleteAsync(Request());
 
@@ -484,8 +486,47 @@ public sealed class RealAiGatewayProviderTests
         var error = Assert.IsType<AiGatewayError>(response.Error);
         Assert.Equal(AiGatewayErrorCode.ProviderUnavailable, error.Code);
         Assert.True(error.IsRetryable);
-        Assert.Contains("upstream returned 503", error.Message);
+        Assert.Contains("provider-unavailable", error.Message);
+        Assert.DoesNotContain("upstream returned 503", error.Message);
         Assert.DoesNotContain(ApiKey, error.Message);
+        Assert.DoesNotContain(nameof(InvalidOperationException), error.Message);
+        Assert.NotNull(error.Provider);
+        Assert.Equal("openai", error.Provider.ProviderId);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized, AiGatewayErrorCode.CredentialsMissing, false)]
+    [InlineData(HttpStatusCode.Forbidden, AiGatewayErrorCode.CredentialsMissing, false)]
+    [InlineData(HttpStatusCode.RequestTimeout, AiGatewayErrorCode.Timeout, true)]
+    [InlineData(HttpStatusCode.TooManyRequests, AiGatewayErrorCode.QuotaExceeded, true)]
+    [InlineData(HttpStatusCode.BadRequest, AiGatewayErrorCode.ProviderRejected, false)]
+    [InlineData(HttpStatusCode.NotFound, AiGatewayErrorCode.ProviderRejected, false)]
+    [InlineData(HttpStatusCode.Conflict, AiGatewayErrorCode.ProviderRejected, false)]
+    [InlineData(HttpStatusCode.UnprocessableEntity, AiGatewayErrorCode.ProviderRejected, false)]
+    [InlineData(HttpStatusCode.InternalServerError, AiGatewayErrorCode.ProviderUnavailable, true)]
+    [InlineData(HttpStatusCode.ServiceUnavailable, AiGatewayErrorCode.ProviderUnavailable, true)]
+    [InlineData(HttpStatusCode.GatewayTimeout, AiGatewayErrorCode.Timeout, true)]
+    public async Task Provider_http_status_failures_map_to_structured_errors(
+        HttpStatusCode statusCode,
+        AiGatewayErrorCode expectedCode,
+        bool expectedRetryable)
+    {
+        var chatClient = new FakeChatClient((_, _, _) =>
+            throw new HttpRequestException(
+                $"provider payload {ApiKey}",
+                inner: null,
+                statusCode));
+
+        var response = await Gateway(chatClient).CompleteAsync(Request());
+
+        Assert.True(response.IsFailure);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(expectedCode, error.Code);
+        Assert.Equal(expectedRetryable, error.IsRetryable);
+        Assert.Contains(((int)statusCode).ToString(), error.Message);
+        Assert.DoesNotContain("provider payload", error.Message);
+        Assert.DoesNotContain(ApiKey, error.Message);
+        Assert.DoesNotContain(nameof(HttpRequestException), error.Message);
         Assert.NotNull(error.Provider);
         Assert.Equal("openai", error.Provider.ProviderId);
     }

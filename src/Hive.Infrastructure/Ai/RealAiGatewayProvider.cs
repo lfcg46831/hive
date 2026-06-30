@@ -1,5 +1,7 @@
 using Hive.Domain.Ai;
 using Microsoft.Extensions.AI;
+using System.ClientModel;
+using System.Net;
 
 namespace Hive.Infrastructure.Ai;
 
@@ -70,23 +72,30 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
         {
             // Cancellation that did not originate from the caller is the internal
             // timeout firing (or a provider-initiated abort): a retryable timeout.
-            return Failed(
-                request,
-                AiGatewayErrorCode.Timeout,
-                "AI gateway real provider timed out waiting for the model response.",
-                isRetryable: true);
+            return Failed(request, ProviderFailure.Timeout(statusCode: null));
         }
-        catch (Exception ex)
+        catch (ClientResultException ex)
         {
-            return Failed(
-                request,
-                AiGatewayErrorCode.ProviderUnavailable,
-                $"AI gateway real provider failed to complete the request: {ex.Message}",
-                isRetryable: true);
+            return Failed(request, ProviderFailure.FromStatus(ex.Status));
+        }
+        catch (HttpRequestException ex) when (ex.StatusCode is { } statusCode)
+        {
+            return Failed(request, ProviderFailure.FromStatus((int)statusCode));
+        }
+        catch (HttpRequestException)
+        {
+            return Failed(request, ProviderFailure.ProviderUnavailable(statusCode: null));
+        }
+        catch (Exception)
+        {
+            return Failed(request, ProviderFailure.ProviderUnavailable(statusCode: null));
         }
 
         return _responseNormalizer.Normalize(request, response, _settings).Response;
     }
+
+    private AiGatewayResponse Failed(AiGatewayRequest request, ProviderFailure failure) =>
+        Failed(request, failure.Code, failure.Message, failure.IsRetryable);
 
     private AiGatewayResponse Failed(
         AiGatewayRequest request,
@@ -104,4 +113,52 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
             new AiProviderMetadata(
                 request.Provider?.ProviderId ?? _settings.DefaultProvider.ProviderId,
                 request.Provider?.ModelId ?? _settings.DefaultProvider.ModelId)));
+
+    private sealed record ProviderFailure(
+        AiGatewayErrorCode Code,
+        string Message,
+        bool IsRetryable)
+    {
+        public static ProviderFailure FromStatus(int statusCode)
+        {
+            return statusCode switch
+            {
+                401 or 403 => new(
+                    AiGatewayErrorCode.CredentialsMissing,
+                    BuildMessage(AiGatewayErrorCode.CredentialsMissing, statusCode),
+                    IsRetryable: false),
+                408 or 504 => Timeout(statusCode),
+                429 => new(
+                    AiGatewayErrorCode.QuotaExceeded,
+                    BuildMessage(AiGatewayErrorCode.QuotaExceeded, statusCode),
+                    IsRetryable: true),
+                >= 400 and < 500 => new(
+                    AiGatewayErrorCode.ProviderRejected,
+                    BuildMessage(AiGatewayErrorCode.ProviderRejected, statusCode),
+                    IsRetryable: false),
+                >= 500 and < 600 => ProviderUnavailable(statusCode),
+                _ => ProviderUnavailable(statusCode),
+            };
+        }
+
+        public static ProviderFailure Timeout(int? statusCode) =>
+            new(
+                AiGatewayErrorCode.Timeout,
+                BuildMessage(AiGatewayErrorCode.Timeout, statusCode),
+                IsRetryable: true);
+
+        public static ProviderFailure ProviderUnavailable(int? statusCode) =>
+            new(
+                AiGatewayErrorCode.ProviderUnavailable,
+                BuildMessage(AiGatewayErrorCode.ProviderUnavailable, statusCode),
+                IsRetryable: true);
+
+        private static string BuildMessage(AiGatewayErrorCode code, int? statusCode)
+        {
+            var wireCode = AiGatewayErrorCodeContract.ToWireValue(code);
+            return statusCode is { } status
+                ? $"AI gateway real provider failed ({wireCode}, status {status})."
+                : $"AI gateway real provider failed ({wireCode}).";
+        }
+    }
 }

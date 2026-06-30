@@ -75,6 +75,19 @@ public sealed class AiGatewayProtocolEnumTests
     }
 
     [Fact]
+    public void Gateway_call_results_have_stable_values()
+    {
+        Assert.Equal(1, (int)AiGatewayCallResult.Succeeded);
+        Assert.Equal(2, (int)AiGatewayCallResult.Failed);
+        Assert.Equal(
+            [
+                AiGatewayCallResult.Succeeded,
+                AiGatewayCallResult.Failed,
+            ],
+            Enum.GetValues<AiGatewayCallResult>());
+    }
+
+    [Fact]
     public void Processing_modes_have_stable_values()
     {
         Assert.Equal(1, (int)AiProcessingMode.Interactive);
@@ -125,6 +138,20 @@ public sealed class AiGatewayProtocolEnumTests
     }
 
     [Theory]
+    [InlineData(AiGatewayCallResult.Succeeded, "succeeded")]
+    [InlineData(AiGatewayCallResult.Failed, "failed")]
+    public void Gateway_call_result_wire_values_round_trip_canonically(
+        AiGatewayCallResult value,
+        string wireValue)
+    {
+        Assert.Equal(wireValue, AiGatewayCallResultContract.ToWireValue(value));
+        Assert.Equal(value, AiGatewayCallResultContract.ParseWireValue(wireValue));
+        Assert.True(AiGatewayCallResultContract.TryParseWireValue(wireValue, out var parsed));
+        Assert.Equal(value, parsed);
+    }
+
+
+    [Theory]
     [InlineData("")]
     [InlineData("tool-calls ")]
     [InlineData("ToolCalls")]
@@ -143,6 +170,10 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Throws<ArgumentException>(() => AiProcessingModeContract.ParseWireValue(value));
         Assert.False(AiProcessingModeContract.TryParseWireValue(value, out var processingMode));
         Assert.Equal(default, processingMode);
+
+        Assert.Throws<ArgumentException>(() => AiGatewayCallResultContract.ParseWireValue(value));
+        Assert.False(AiGatewayCallResultContract.TryParseWireValue(value, out var result));
+        Assert.Equal(default, result);
     }
 
     [Fact]
@@ -162,5 +193,10 @@ public sealed class AiGatewayProtocolEnumTests
             () => AiProcessingModeContract.RequireDefined((AiProcessingMode)0, "processingMode"));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AiProcessingModeContract.ToWireValue((AiProcessingMode)0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiGatewayCallResultContract.RequireDefined((AiGatewayCallResult)0, "result"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiGatewayCallResultContract.ToWireValue((AiGatewayCallResult)0));
     }
 }

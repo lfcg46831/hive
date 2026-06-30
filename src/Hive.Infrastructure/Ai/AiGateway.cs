@@ -5,23 +5,45 @@ namespace Hive.Infrastructure.Ai;
 public sealed class AiGateway : IAiGateway
 {
     private readonly IAiGatewayProvider _provider;
+    private readonly IAiGatewayAuditPublisher _auditPublisher;
+    private readonly TimeProvider _timeProvider;
 
-    public AiGateway(IAiGatewayProvider provider)
+    public AiGateway(
+        IAiGatewayProvider provider,
+        IAiGatewayAuditPublisher? auditPublisher = null,
+        TimeProvider? timeProvider = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public Task<AiGatewayResponse> CompleteAsync(
+    public async Task<AiGatewayResponse> CompleteAsync(
         AiGatewayRequest request,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
         cancellationToken.ThrowIfCancellationRequested();
 
+        var startedAt = _timeProvider.GetUtcNow();
         var policyResult = ApplyPolicy(request);
-        return policyResult.Error is { } error
-            ? Task.FromResult(AiGatewayResponse.Failed(error))
-            : _provider.CompleteAsync(policyResult.Request!, cancellationToken);
+        var effectiveRequest = policyResult.Request ?? request;
+        var response = policyResult.Error is { } error
+            ? AiGatewayResponse.Failed(error)
+            : await _provider
+                .CompleteAsync(effectiveRequest, cancellationToken)
+                .ConfigureAwait(false);
+
+        ArgumentNullException.ThrowIfNull(response);
+
+        var completedAt = _timeProvider.GetUtcNow();
+        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
+            effectiveRequest,
+            response,
+            startedAt,
+            completedAt));
+
+        return response;
     }
 
     private static AiGatewayPolicyResult ApplyPolicy(AiGatewayRequest request)

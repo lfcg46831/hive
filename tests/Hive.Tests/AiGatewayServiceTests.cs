@@ -50,6 +50,127 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_publishes_success_cost_audit_event_after_provider_returns()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 9, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(125);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var usage = new AiTokenUsage(12, 8, 20, isEstimated: false);
+        var cost = new AiCostMetadata(0.03m, "EUR", isEstimated: true);
+        var request = Request(provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "The bug is reproducible.",
+            AiFinishReason.Stop,
+            providerMetadata,
+            usage: usage,
+            cost: cost);
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var timeProvider = new SequenceTimeProvider(startedAt, completedAt);
+        var provider = new RecordingAiGatewayProvider(response);
+        var gateway = new AiGateway(provider, audit, timeProvider);
+
+        var result = await gateway.CompleteAsync(request);
+
+        Assert.Same(response, result);
+        var published = Assert.Single(audit.Events);
+        Assert.Equal(Organization, published.OrganizationId);
+        Assert.Equal(Position, published.PositionId);
+        Assert.Equal(Thread, published.ThreadId);
+        Assert.Equal(Message, published.MessageId);
+        Assert.Equal(startedAt, published.StartedAt);
+        Assert.Equal(completedAt, published.CompletedAt);
+        Assert.Equal(TimeSpan.FromMilliseconds(125), published.Duration);
+        Assert.Equal(AiGatewayCallResult.Succeeded, published.Result);
+        Assert.Equal(providerMetadata, published.Provider);
+        Assert.Equal(usage, published.Usage);
+        Assert.Equal(cost, published.Cost);
+        Assert.Null(published.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_publishes_provider_failure_cost_audit_event()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 10, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(250);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var error = new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            AiGatewayErrorCode.QuotaExceeded,
+            "Provider quota exceeded.",
+            isRetryable: true,
+            providerMetadata);
+        var response = AiGatewayResponse.Failed(error);
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var timeProvider = new SequenceTimeProvider(startedAt, completedAt);
+        var provider = new RecordingAiGatewayProvider(response);
+        var gateway = new AiGateway(provider, audit, timeProvider);
+
+        var result = await gateway.CompleteAsync(Request(provider: providerMetadata));
+
+        Assert.Same(response, result);
+        var published = Assert.Single(audit.Events);
+        Assert.Equal(AiGatewayCallResult.Failed, published.Result);
+        Assert.Equal(providerMetadata, published.Provider);
+        Assert.Equal(AiGatewayErrorCode.QuotaExceeded, published.ErrorCode);
+        Assert.True(published.IsRetryable);
+        Assert.Null(published.Usage);
+        Assert.Null(published.Cost);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_publishes_policy_failure_without_calling_provider()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 11, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(5);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var request = Request(
+            provider: providerMetadata,
+            policy: Policy(
+                authorizedModels: [providerMetadata],
+                hasAvailableBudget: false));
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(
+            provider,
+            audit,
+            new SequenceTimeProvider(startedAt, completedAt));
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var published = Assert.Single(audit.Events);
+        Assert.Equal(AiGatewayCallResult.Failed, published.Result);
+        Assert.Equal(providerMetadata, published.Provider);
+        Assert.Equal(AiGatewayErrorCode.BudgetInsufficient, published.ErrorCode);
+        Assert.False(published.IsRetryable);
+        Assert.Equal(TimeSpan.FromMilliseconds(5), published.Duration);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_does_not_publish_audit_event_when_precanceled()
+    {
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider, audit, TimeProvider.System);
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAsync<OperationCanceledException>(
+            async () => await gateway.CompleteAsync(Request(), cancellation.Token));
+
+        Assert.Empty(audit.Events);
+        Assert.Equal(0, provider.CallCount);
+    }
+
+    [Fact]
     public async Task CompleteAsync_applies_valid_policy_and_caps_request_before_calling_provider()
     {
         var requestedProvider = new AiProviderMetadata("openai", "gpt-4.1");
@@ -250,6 +371,34 @@ public sealed class AiGatewayServiceTests
             CancellationToken = cancellationToken;
 
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class CapturingAiGatewayAuditPublisher : IAiGatewayAuditPublisher
+    {
+        private readonly List<AiGatewayCostAuditEvent> _events = new();
+
+        public IReadOnlyList<AiGatewayCostAuditEvent> Events => _events;
+
+        public void Publish(AiGatewayCostAuditEvent @event)
+        {
+            _events.Add(@event);
+        }
+    }
+
+    private sealed class SequenceTimeProvider(params DateTimeOffset[] timestamps)
+        : TimeProvider
+    {
+        private int _index;
+
+        public override DateTimeOffset GetUtcNow()
+        {
+            if (_index >= timestamps.Length)
+            {
+                return timestamps[^1];
+            }
+
+            return timestamps[_index++];
         }
     }
 }

@@ -25,7 +25,7 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         cancellationToken.ThrowIfCancellationRequested();
 
         var options = _options.Value ?? new StubAiGatewayProviderOptions();
-        var provider = CreateProvider(options);
+        var provider = request.Provider ?? CreateProvider(options);
         var outcome = RequireOutcome(options.Outcome);
 
         var response = outcome switch

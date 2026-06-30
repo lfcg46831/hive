@@ -49,7 +49,7 @@ internal sealed class RealAiGatewayRequestNormalizer
 
         var options = new ChatOptions
         {
-            ModelId = settings.DefaultProvider.ModelId,
+            ModelId = request.Provider?.ModelId ?? settings.DefaultProvider.ModelId,
             Temperature = parameters.Temperature is { } temperature
                 ? (float)temperature
                 : null,

@@ -20,7 +20,7 @@ internal sealed class RealAiGatewayResponseNormalizer
         ArgumentNullException.ThrowIfNull(response);
         ArgumentNullException.ThrowIfNull(settings);
 
-        var rawResponse = CaptureRawResponse(response, settings);
+        var rawResponse = CaptureRawResponse(response, settings, request.Provider);
 
         List<AiToolCall> toolCalls;
         try
@@ -65,7 +65,7 @@ internal sealed class RealAiGatewayResponseNormalizer
                 request.MessageId,
                 text,
                 MapFinishReason(response.FinishReason, toolCalls.Count > 0),
-                ResolveProviderMetadata(response, settings),
+                ResolveProviderMetadata(response, settings, request.Provider),
                 toolCalls.Count == 0 ? null : toolCalls,
                 MapUsage(response.Usage),
                 cost),
@@ -86,7 +86,8 @@ internal sealed class RealAiGatewayResponseNormalizer
 
     private static AiProviderMetadata ResolveProviderMetadata(
         ChatResponse response,
-        RealAiGatewayProviderSettings settings)
+        RealAiGatewayProviderSettings settings,
+        AiProviderMetadata? requestProvider)
     {
         var metadata = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -96,9 +97,9 @@ internal sealed class RealAiGatewayResponseNormalizer
         }
 
         return new AiProviderMetadata(
-            settings.DefaultProvider.ProviderId,
+            requestProvider?.ProviderId ?? settings.DefaultProvider.ProviderId,
             string.IsNullOrWhiteSpace(response.ModelId)
-                ? settings.DefaultProvider.ModelId
+                ? requestProvider?.ModelId ?? settings.DefaultProvider.ModelId
                 : response.ModelId,
             metadata.Count == 0 ? null : metadata);
     }
@@ -295,12 +296,13 @@ internal sealed class RealAiGatewayResponseNormalizer
             message,
             isRetryable: false,
             new AiProviderMetadata(
-                settings.DefaultProvider.ProviderId,
-                settings.DefaultProvider.ModelId)));
+                request.Provider?.ProviderId ?? settings.DefaultProvider.ProviderId,
+                request.Provider?.ModelId ?? settings.DefaultProvider.ModelId)));
 
     private static RedactableAiGatewayProviderResponse CaptureRawResponse(
         ChatResponse response,
-        RealAiGatewayProviderSettings settings)
+        RealAiGatewayProviderSettings settings,
+        AiProviderMetadata? requestProvider)
     {
         var additionalProperties = new Dictionary<string, string>(StringComparer.Ordinal);
 
@@ -313,9 +315,9 @@ internal sealed class RealAiGatewayResponseNormalizer
         }
 
         return new RedactableAiGatewayProviderResponse(
-            settings.DefaultProvider.ProviderId,
+            requestProvider?.ProviderId ?? settings.DefaultProvider.ProviderId,
             string.IsNullOrWhiteSpace(response.ModelId)
-                ? settings.DefaultProvider.ModelId
+                ? requestProvider?.ModelId ?? settings.DefaultProvider.ModelId
                 : response.ModelId,
             response.ResponseId,
             ToRedactableScalar(response.RawRepresentation),

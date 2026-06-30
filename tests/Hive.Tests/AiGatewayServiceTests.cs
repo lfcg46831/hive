@@ -49,13 +49,179 @@ public sealed class AiGatewayServiceTests
         Assert.Equal(cancellation.Token, provider.CancellationToken);
     }
 
-    private static AiGatewayRequest Request() =>
+    [Fact]
+    public async Task CompleteAsync_applies_valid_policy_and_caps_request_before_calling_provider()
+    {
+        var requestedProvider = new AiProviderMetadata("openai", "gpt-4.1");
+        var request = Request(
+            provider: requestedProvider,
+            processingMode: AiProcessingMode.Interactive,
+            tools:
+            [
+                new AiToolDefinition("ticket.lookup", "Looks up a ticket."),
+            ],
+            modelParameters: new AiModelParameters(maxOutputTokens: 512),
+            timeout: TimeSpan.FromSeconds(20),
+            policy: Policy(
+                authorizedModels: [requestedProvider],
+                maxOutputTokens: 128,
+                maxTimeout: TimeSpan.FromSeconds(5),
+                allowedProcessingModes: [AiProcessingMode.Interactive],
+                authorizedTools: ["ticket.lookup"]));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal(1, provider.CallCount);
+        Assert.NotSame(request, provider.Request);
+        Assert.NotNull(provider.Request);
+        Assert.Equal(requestedProvider, provider.Request!.Provider);
+        Assert.Equal(AiProcessingMode.Interactive, provider.Request.ProcessingMode);
+        Assert.Equal(128, provider.Request.ModelParameters.MaxOutputTokens);
+        Assert.Equal(TimeSpan.FromSeconds(5), provider.Request.Timeout);
+        Assert.Single(provider.Request.Tools);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_provider_not_authorized_without_calling_provider()
+    {
+        var request = Request(
+            provider: new AiProviderMetadata("anthropic", "claude-haiku"),
+            policy: Policy(
+                authorizedModels: [new AiProviderMetadata("openai", "gpt-4.1")]));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.ProviderNotAuthorized, error.Code);
+        Assert.False(error.IsRetryable);
+        Assert.NotNull(error.Provider);
+        Assert.Equal("anthropic", error.Provider.ProviderId);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_model_not_authorized_without_calling_provider()
+    {
+        var request = Request(
+            provider: new AiProviderMetadata("openai", "gpt-4.1"),
+            policy: Policy(
+                authorizedModels: [new AiProviderMetadata("openai", "gpt-4o-mini")]));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.ModelNotAuthorized, error.Code);
+        Assert.False(error.IsRetryable);
+        Assert.NotNull(error.Provider);
+        Assert.Equal("gpt-4.1", error.Provider.ModelId);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_unavailable_budget_without_calling_provider()
+    {
+        var request = Request(
+            provider: new AiProviderMetadata("openai", "gpt-4.1"),
+            policy: Policy(
+                authorizedModels: [new AiProviderMetadata("openai", "gpt-4.1")],
+                hasAvailableBudget: false));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.BudgetInsufficient, error.Code);
+        Assert.False(error.IsRetryable);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_tool_not_authorized_without_calling_provider()
+    {
+        var request = Request(
+            provider: new AiProviderMetadata("openai", "gpt-4.1"),
+            tools: [new AiToolDefinition("ticket.delete", "Deletes a ticket.")],
+            policy: Policy(
+                authorizedModels: [new AiProviderMetadata("openai", "gpt-4.1")],
+                authorizedTools: ["ticket.lookup"]));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.ToolNotAuthorized, error.Code);
+        Assert.False(error.IsRetryable);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_rejects_processing_mode_not_allowed_without_calling_provider()
+    {
+        var request = Request(
+            provider: new AiProviderMetadata("openai", "gpt-4.1"),
+            processingMode: AiProcessingMode.Batch,
+            policy: Policy(
+                authorizedModels: [new AiProviderMetadata("openai", "gpt-4.1")],
+                allowedProcessingModes: [AiProcessingMode.Interactive]));
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(provider);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, error.Code);
+        Assert.False(error.IsRetryable);
+    }
+
+    private static AiGatewayRequest Request(
+        AiProviderMetadata? provider = null,
+        AiProcessingMode? processingMode = null,
+        IEnumerable<AiToolDefinition>? tools = null,
+        AiModelParameters? modelParameters = null,
+        TimeSpan? timeout = null,
+        AiGatewayPolicy? policy = null) =>
         new(
             Organization,
             Position,
             Thread,
             Message,
-            "Classify this bug.");
+            "Classify this bug.",
+            tools: tools,
+            modelParameters: modelParameters,
+            provider: provider,
+            processingMode: processingMode,
+            timeout: timeout,
+            policy: policy);
+
+    private static AiGatewayPolicy Policy(
+        IEnumerable<AiProviderMetadata> authorizedModels,
+        bool hasAvailableBudget = true,
+        int? maxOutputTokens = null,
+        TimeSpan? maxTimeout = null,
+        IEnumerable<AiProcessingMode>? allowedProcessingModes = null,
+        IEnumerable<string>? authorizedTools = null) =>
+        new(
+            authorizedModels,
+            hasAvailableBudget,
+            maxOutputTokens,
+            maxTimeout,
+            allowedProcessingModes,
+            authorizedTools);
 
     private static AiGatewayResponse SuccessResponse() =>
         AiGatewayResponse.Succeeded(

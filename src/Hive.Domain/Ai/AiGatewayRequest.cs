@@ -14,12 +14,28 @@ public sealed record AiGatewayRequest
         IEnumerable<AiGatewayMessage>? contextMessages = null,
         IEnumerable<AiToolDefinition>? tools = null,
         AiModelParameters? modelParameters = null,
-        IReadOnlyDictionary<string, string>? metadata = null)
+        IReadOnlyDictionary<string, string>? metadata = null,
+        AiProviderMetadata? provider = null,
+        AiProcessingMode? processingMode = null,
+        TimeSpan? timeout = null,
+        AiGatewayPolicy? policy = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
         ArgumentNullException.ThrowIfNull(threadId);
         ArgumentNullException.ThrowIfNull(messageId);
+        if (processingMode is { } mode)
+        {
+            AiProcessingModeContract.RequireDefined(mode, nameof(processingMode));
+        }
+
+        if (timeout is { } timeoutValue && timeoutValue <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                "AI gateway request timeout must be greater than zero.");
+        }
 
         OrganizationId = organizationId;
         PositionId = positionId;
@@ -35,6 +51,10 @@ public sealed record AiGatewayRequest
         Tools = AiContractGuards.Snapshot(tools, nameof(tools));
         ModelParameters = modelParameters ?? AiModelParameters.Default;
         Metadata = AiContractGuards.SnapshotMetadata(metadata, nameof(metadata));
+        Provider = provider;
+        ProcessingMode = processingMode;
+        Timeout = timeout;
+        Policy = policy;
     }
 
     public OrganizationId OrganizationId { get; }
@@ -56,4 +76,12 @@ public sealed record AiGatewayRequest
     public AiModelParameters ModelParameters { get; }
 
     public IReadOnlyDictionary<string, string> Metadata { get; }
+
+    public AiProviderMetadata? Provider { get; }
+
+    public AiProcessingMode? ProcessingMode { get; }
+
+    public TimeSpan? Timeout { get; }
+
+    public AiGatewayPolicy? Policy { get; }
 }

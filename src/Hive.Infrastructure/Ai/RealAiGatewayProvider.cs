@@ -44,10 +44,11 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
 
         var normalized = _normalizer.Normalize(request, _settings);
 
-        using var timeoutCts = _settings.Timeout is { } timeout
+        var timeout = request.Timeout ?? _settings.Timeout;
+        using var timeoutCts = timeout is not null
             ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken)
             : null;
-        timeoutCts?.CancelAfter(_settings.Timeout!.Value);
+        timeoutCts?.CancelAfter(timeout!.Value);
         var effectiveToken = timeoutCts?.Token ?? cancellationToken;
 
         ChatResponse response;
@@ -101,6 +102,6 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
             message,
             isRetryable,
             new AiProviderMetadata(
-                _settings.DefaultProvider.ProviderId,
-                _settings.DefaultProvider.ModelId)));
+                request.Provider?.ProviderId ?? _settings.DefaultProvider.ProviderId,
+                request.Provider?.ModelId ?? _settings.DefaultProvider.ModelId)));
 }

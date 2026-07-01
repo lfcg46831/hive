@@ -66,6 +66,9 @@ internal sealed class AiAgentActor : ReceiveActor
                 .ConfigureAwait(false);
             replyTo.Tell(result);
         });
+        Receive<AiDirectiveProcessingRequest>(_ =>
+        {
+        });
         Receive<OrgMessage>(_ =>
         {
         });

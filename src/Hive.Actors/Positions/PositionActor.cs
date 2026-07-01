@@ -284,8 +284,28 @@ internal sealed class PositionActor :
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
             ResolveOccupant(dispatchEvent.Occupant, dispatchEvent.OccupantType)
-                .Tell(dispatchedMessage);
+                .Tell(CreateOccupantPayload(dispatchEvent, dispatchedMessage));
         }
+    }
+
+    private object CreateOccupantPayload(MessageDispatched dispatchEvent, OrgMessage message)
+    {
+        if (dispatchEvent.OccupantType == OccupantType.AiAgent
+            && message is Hive.Domain.Messaging.Directive directive)
+        {
+            var runtimeConfiguration = _runtimeConfiguration
+                ?? throw new InvalidOperationException(
+                    $"PositionActor '{PersistenceId}' cannot dispatch an AI directive before runtime configuration is loaded.");
+
+            return AiDirectiveProcessingRequest.Create(
+                EntityId,
+                runtimeConfiguration,
+                _state,
+                dispatchEvent.Occupant,
+                directive);
+        }
+
+        return message;
     }
 
     private void BeginConfigurationLoad()

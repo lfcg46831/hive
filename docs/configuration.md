@@ -352,6 +352,18 @@ HIVE__AIGATEWAY__REAL__TIMEOUTSECONDS=30
 
 When a position's runtime configuration specifies provider/model, parameters or timeout, those values override these defaults; absent position values fall back to the defaults above without inventing new values.
 
+### Optional real-provider integration smoke test
+
+The default test suite does not call external AI providers. The optional real-provider smoke test runs only when both local test variables below are present:
+
+| Variable | Required for smoke test | Purpose |
+| --- | --- | --- |
+| `HIVE_AI_GATEWAY_REAL_TEST_API_KEY` | yes | Secret API key used only by the optional test. Do not commit it. |
+| `HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID` | yes | Model id to request for the optional test. |
+| `HIVE_AI_GATEWAY_REAL_TEST_ENDPOINT` | no | Optional absolute endpoint override. |
+
+When either required variable is absent, the test exits before configuring or resolving the real provider. The key must not appear in assertions, logs, snapshots, or committed configuration.
+
 ## Logging
 
 Both executables get one common, structured logging configuration through the shared bootstrap (US-F0-01-T07). `AddHiveBootstrap` calls `AddHiveStructuredLogging` from `Hive.Infrastructure.Logging`, which clears the default providers and registers the built-in JSON console formatter as the single sink. Output is machine-readable JSON with scopes included and UTC timestamps, so both hosts emit an identical structured stream to stdout — the collection point under Docker Compose.

@@ -49,6 +49,8 @@ internal sealed class AiAgentActor : ReceiveActor
 {
     private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiDirectiveExecutionContext> _directiveExecutionContexts =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -71,7 +73,14 @@ internal sealed class AiAgentActor : ReceiveActor
         });
         Receive<AiDirectiveProcessingRequest>(request =>
         {
-            var snapshot = AiDirectiveProcessingSnapshot.Received(request);
+            var context = AiDirectiveExecutionContext.From(request);
+            var snapshot = AiDirectiveProcessingSnapshot
+                .Received(request)
+                .AdvanceTo(
+                    AiDirectiveProcessingStatus.ContextAssembled,
+                    reason: "execution context assembled");
+
+            _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveProcessingSnapshots[request.CorrelationId] = snapshot;
         });
         Receive<GetAiDirectiveProcessingSnapshot>(query =>
@@ -81,6 +90,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 out var snapshot)
                 ? AiDirectiveProcessingSnapshotQueryResult.FoundSnapshot(snapshot)
                 : AiDirectiveProcessingSnapshotQueryResult.Missing(query.CorrelationId));
+        });
+        Receive<GetAiDirectiveExecutionContext>(query =>
+        {
+            Sender.Tell(_directiveExecutionContexts.TryGetValue(
+                query.CorrelationId,
+                out var context)
+                ? AiDirectiveExecutionContextQueryResult.FoundContext(context)
+                : AiDirectiveExecutionContextQueryResult.Missing(query.CorrelationId));
         });
         Receive<OrgMessage>(_ =>
         {

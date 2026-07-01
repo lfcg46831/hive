@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Text.RegularExpressions;
 using Hive.Domain.Ai;
 
@@ -168,7 +169,7 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
     private static object? RedactValue(
         object? value,
         string path,
-        string key,
+        string? key,
         List<AiGatewayAuditRedaction> redactions)
     {
         if (value is null)
@@ -186,7 +187,32 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
             return RedactData(data, path, redactions);
         }
 
+        if (value is IEnumerable sequence)
+        {
+            return RedactSequence(sequence, path, redactions);
+        }
+
         return value;
+    }
+
+    private static IReadOnlyList<object?> RedactSequence(
+        IEnumerable sequence,
+        string path,
+        List<AiGatewayAuditRedaction> redactions)
+    {
+        var redacted = new List<object?>();
+        var index = 0;
+        foreach (var item in sequence)
+        {
+            redacted.Add(RedactValue(
+                item,
+                $"{path}[{index}]",
+                key: null,
+                redactions));
+            index++;
+        }
+
+        return redacted;
     }
 
     private static string? RedactOptionalText(

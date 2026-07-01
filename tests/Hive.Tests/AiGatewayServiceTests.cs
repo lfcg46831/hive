@@ -208,6 +208,93 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_redacts_nested_structured_arrays_in_detailed_audit()
+    {
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var request = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Classify this bug.",
+            tools:
+            [
+                new AiToolDefinition(
+                    "ticket.update",
+                    "Updates ticket fields.",
+                    new Dictionary<string, object?>
+                    {
+                        ["examples"] = new object?[]
+                        {
+                            "owner jane@example.com",
+                            new Dictionary<string, object?>
+                            {
+                                ["token"] = "sk-nested123456789",
+                            },
+                        },
+                    }),
+            ],
+            provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Updated ticket.",
+            AiFinishReason.ToolCalls,
+            providerMetadata,
+            [
+                new AiToolCall(
+                    "call-1",
+                    "ticket.update",
+                    new Dictionary<string, object?>
+                    {
+                        ["recipients"] = new object?[]
+                        {
+                            "jane@example.com",
+                            new Dictionary<string, object?>
+                            {
+                                ["password"] = "super-secret",
+                            },
+                        },
+                    }),
+            ]);
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(response);
+        var gateway = new AiGateway(
+            provider,
+            auditPublisher: null,
+            TimeProvider.System,
+            detailedAudit);
+
+        var result = await gateway.CompleteAsync(request);
+
+        Assert.Same(response, result);
+        var envelope = Assert.Single(detailedAudit.Envelopes);
+        var requestExamples = Assert.IsAssignableFrom<IReadOnlyList<object?>>(
+            envelope.Request.Tools[0].ParametersSchema["examples"]);
+        Assert.Equal("owner [redacted:email]", Assert.IsType<string>(requestExamples[0]));
+        var requestNested = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+            requestExamples[1]);
+        Assert.Equal("[redacted:secret]", Assert.IsType<string>(requestNested["token"]));
+
+        var responseRecipients = Assert.IsAssignableFrom<IReadOnlyList<object?>>(
+            envelope.Response!.ToolCalls[0].Arguments["recipients"]);
+        Assert.Equal("[redacted:email]", Assert.IsType<string>(responseRecipients[0]));
+        var responseNested = Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(
+            responseRecipients[1]);
+        Assert.Equal("[redacted:secret]", Assert.IsType<string>(responseNested["password"]));
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "request.tools[0].parametersSchema.examples[0]" &&
+                         redaction.Reason == "email");
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "response.toolCalls[0].arguments.recipients[1].password" &&
+                         redaction.Reason == "sensitive-field");
+    }
+
+    [Fact]
     public async Task CompleteAsync_publishes_provider_failure_cost_audit_event()
     {
         var startedAt = new DateTimeOffset(2026, 6, 30, 10, 0, 0, TimeSpan.Zero);

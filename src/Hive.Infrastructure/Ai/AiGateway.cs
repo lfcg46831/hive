@@ -7,15 +7,19 @@ public sealed class AiGateway : IAiGateway
     private readonly IAiGatewayProvider _provider;
     private readonly IAiGatewayAuditPublisher _auditPublisher;
     private readonly TimeProvider _timeProvider;
+    private readonly IAiGatewayDetailedAuditPublisher _detailedAuditPublisher;
 
     public AiGateway(
         IAiGatewayProvider provider,
         IAiGatewayAuditPublisher? auditPublisher = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IAiGatewayDetailedAuditPublisher? detailedAuditPublisher = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _detailedAuditPublisher =
+            detailedAuditPublisher ?? NoopAiGatewayDetailedAuditPublisher.Instance;
     }
 
     public async Task<AiGatewayResponse> CompleteAsync(
@@ -42,6 +46,12 @@ public sealed class AiGateway : IAiGateway
             response,
             startedAt,
             completedAt));
+        _detailedAuditPublisher.Publish(
+            AiGatewayDetailedAuditEnvelopeFactory.FromResponse(
+                effectiveRequest,
+                response,
+                startedAt,
+                completedAt));
 
         return response;
     }
@@ -61,6 +71,7 @@ public sealed class AiGateway : IAiGateway
         }
 
         var effectiveProvider = providerResult.Provider!;
+        var requestWithEffectiveProvider = ApplyProvider(request, effectiveProvider);
 
         if (!policy.HasAvailableBudget)
         {
@@ -68,7 +79,8 @@ public sealed class AiGateway : IAiGateway
                 request,
                 AiGatewayErrorCode.BudgetInsufficient,
                 "AI gateway budget is insufficient for this position.",
-                effectiveProvider));
+                effectiveProvider),
+                requestWithEffectiveProvider);
         }
 
         if (policy.AllowedProcessingModes.Length > 0 &&
@@ -79,7 +91,8 @@ public sealed class AiGateway : IAiGateway
                 request,
                 AiGatewayErrorCode.ConfigurationInvalid,
                 "AI gateway processing mode is not allowed for this position.",
-                effectiveProvider));
+                effectiveProvider),
+                requestWithEffectiveProvider);
         }
 
         foreach (var tool in request.Tools)
@@ -90,7 +103,8 @@ public sealed class AiGateway : IAiGateway
                     request,
                     AiGatewayErrorCode.ToolNotAuthorized,
                     $"AI gateway tool '{tool.Name}' is not authorized for this position.",
-                    effectiveProvider));
+                    effectiveProvider),
+                    requestWithEffectiveProvider);
             }
         }
 
@@ -195,6 +209,32 @@ public sealed class AiGateway : IAiGateway
         return limit;
     }
 
+    private static AiGatewayRequest ApplyProvider(
+        AiGatewayRequest request,
+        AiProviderMetadata provider)
+    {
+        if (Equals(request.Provider, provider))
+        {
+            return request;
+        }
+
+        return new AiGatewayRequest(
+            request.OrganizationId,
+            request.PositionId,
+            request.ThreadId,
+            request.MessageId,
+            request.Content,
+            request.SystemInstruction,
+            request.ContextMessages,
+            request.Tools,
+            request.ModelParameters,
+            request.Metadata,
+            provider,
+            request.ProcessingMode,
+            request.Timeout,
+            request.Policy);
+    }
+
     private static bool SameProvider(
         AiProviderMetadata left,
         AiProviderMetadata right) =>
@@ -227,8 +267,10 @@ public sealed class AiGateway : IAiGateway
         public static AiGatewayPolicyResult Success(AiGatewayRequest request) =>
             new(request, Error: null);
 
-        public static AiGatewayPolicyResult Failure(AiGatewayError error) =>
-            new(Request: null, error);
+        public static AiGatewayPolicyResult Failure(
+            AiGatewayError error,
+            AiGatewayRequest? request = null) =>
+            new(request, error);
     }
 
     private sealed record AiGatewayPolicyProviderResult(

@@ -23,6 +23,8 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiGatewayProvider, UnavailableAiGatewayProvider>();
         services.TryAddSingleton<IAiGatewayAuditPublisher>(
             _ => NoopAiGatewayAuditPublisher.Instance);
+        services.TryAddSingleton<IAiGatewayDetailedAuditPublisher>(
+            _ => NoopAiGatewayDetailedAuditPublisher.Instance);
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
         services.TryAddSingleton<IAiGateway, AiGateway>();
 

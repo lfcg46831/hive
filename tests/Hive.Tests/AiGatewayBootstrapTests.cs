@@ -29,6 +29,7 @@ public sealed class AiGatewayBootstrapTests
 
         Assert.IsType<AiGateway>(gateway);
         Assert.NotNull(provider.GetRequiredService<IAiGatewayAuditPublisher>());
+        Assert.NotNull(provider.GetRequiredService<IAiGatewayDetailedAuditPublisher>());
         Assert.Null(provider.GetService<IChatClient>());
 
         var response = await gateway.CompleteAsync(Request());

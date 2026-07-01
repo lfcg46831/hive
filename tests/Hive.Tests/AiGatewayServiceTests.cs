@@ -92,6 +92,122 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_publishes_redacted_detailed_audit_envelope_for_success()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 9, 30, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(150);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var usage = new AiTokenUsage(15, 9, 24, isEstimated: false);
+        var cost = new AiCostMetadata(0.04m, "EUR", isEstimated: true);
+        var request = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Classify jane@example.com with token=sk-request123456789.",
+            systemInstruction: "Never reveal api_key=sk-system123456789.",
+            contextMessages:
+            [
+                new AiGatewayMessage(
+                    AiGatewayMessageRole.User,
+                    "Previous requester was john@example.com."),
+            ],
+            tools:
+            [
+                new AiToolDefinition(
+                    "ticket.update",
+                    "Updates the requester jane@example.com.",
+                    new Dictionary<string, object?> { ["secret"] = "sk-tool123456789" }),
+            ],
+            metadata: new Dictionary<string, string>
+            {
+                ["api-key"] = "sk-metadata123456789",
+                ["purpose"] = "triage",
+            },
+            provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Notify jane@example.com with token=sk-response123456789.",
+            AiFinishReason.ToolCalls,
+            providerMetadata,
+            [
+                new AiToolCall(
+                    "call-1",
+                    "ticket.update",
+                    new Dictionary<string, object?>
+                    {
+                        ["email"] = "jane@example.com",
+                        ["password"] = "super-secret",
+                    }),
+            ],
+            usage,
+            cost);
+        var costAudit = new CapturingAiGatewayAuditPublisher();
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(response);
+        var gateway = new AiGateway(
+            provider,
+            costAudit,
+            new SequenceTimeProvider(startedAt, completedAt),
+            detailedAudit);
+
+        var result = await gateway.CompleteAsync(request);
+
+        Assert.Same(response, result);
+        var envelope = Assert.Single(detailedAudit.Envelopes);
+        Assert.Equal(Organization, envelope.OrganizationId);
+        Assert.Equal(Position, envelope.PositionId);
+        Assert.Equal(Thread, envelope.ThreadId);
+        Assert.Equal(Message, envelope.MessageId);
+        Assert.Equal(startedAt, envelope.StartedAt);
+        Assert.Equal(completedAt, envelope.CompletedAt);
+        Assert.Equal(TimeSpan.FromMilliseconds(150), envelope.Duration);
+        Assert.Equal(AiGatewayCallResult.Succeeded, envelope.Result);
+        Assert.Equal(providerMetadata, envelope.Provider);
+        Assert.Equal(usage, envelope.Usage);
+        Assert.Equal(cost, envelope.Cost);
+        Assert.Null(envelope.Error);
+        Assert.Null(envelope.RejectionReason);
+
+        Assert.DoesNotContain("jane@example.com", envelope.Request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-request", envelope.Request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-system", envelope.Request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Equal("[redacted:secret]", envelope.Request.Metadata["api-key"]);
+        Assert.Equal("triage", envelope.Request.Metadata["purpose"]);
+        Assert.DoesNotContain(
+            "john@example.com",
+            envelope.Request.ContextMessages[0].Content,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "jane@example.com",
+            envelope.Request.Tools[0].Description,
+            StringComparison.Ordinal);
+        Assert.Equal(
+            "[redacted:secret]",
+            Assert.IsType<string>(envelope.Request.Tools[0].ParametersSchema["secret"]));
+
+        Assert.NotNull(envelope.Response);
+        Assert.DoesNotContain("jane@example.com", envelope.Response!.Text, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-response", envelope.Response.Text, StringComparison.Ordinal);
+        var toolCall = Assert.Single(envelope.Response.ToolCalls);
+        Assert.Equal("[redacted:email]", Assert.IsType<string>(toolCall.Arguments["email"]));
+        Assert.Equal("[redacted:secret]", Assert.IsType<string>(toolCall.Arguments["password"]));
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "request.content" && redaction.Reason == "email");
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "request.metadata.api-key" &&
+                         redaction.Reason == "sensitive-field");
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "response.text" && redaction.Reason == "secret");
+    }
+
+    [Fact]
     public async Task CompleteAsync_publishes_provider_failure_cost_audit_event()
     {
         var startedAt = new DateTimeOffset(2026, 6, 30, 10, 0, 0, TimeSpan.Zero);
@@ -125,6 +241,51 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_publishes_redacted_detailed_audit_envelope_for_provider_failure()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 10, 30, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(80);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var error = new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            AiGatewayErrorCode.ProviderRejected,
+            "Provider rejected jane@example.com with token=sk-error123456789.",
+            isRetryable: false,
+            providerMetadata);
+        var response = AiGatewayResponse.Failed(error);
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(response);
+        var gateway = new AiGateway(
+            provider,
+            auditPublisher: null,
+            new SequenceTimeProvider(startedAt, completedAt),
+            detailedAudit);
+
+        var result = await gateway.CompleteAsync(Request(provider: providerMetadata));
+
+        Assert.Same(response, result);
+        var envelope = Assert.Single(detailedAudit.Envelopes);
+        Assert.Equal(AiGatewayCallResult.Failed, envelope.Result);
+        Assert.Equal(providerMetadata, envelope.Provider);
+        Assert.Equal("provider-rejected", envelope.RejectionReason);
+        Assert.Null(envelope.Response);
+        Assert.NotNull(envelope.Error);
+        Assert.Equal(AiGatewayErrorCode.ProviderRejected, envelope.Error!.Code);
+        Assert.False(envelope.Error.IsRetryable);
+        Assert.DoesNotContain("jane@example.com", envelope.Error.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-error", envelope.Error.Message, StringComparison.Ordinal);
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "error.message" && redaction.Reason == "email");
+        Assert.Contains(
+            envelope.Redactions,
+            redaction => redaction.Path == "error.message" && redaction.Reason == "secret");
+    }
+
+    [Fact]
     public async Task CompleteAsync_publishes_policy_failure_without_calling_provider()
     {
         var startedAt = new DateTimeOffset(2026, 6, 30, 11, 0, 0, TimeSpan.Zero);
@@ -155,11 +316,51 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_publishes_detailed_audit_for_policy_rejection_without_calling_provider()
+    {
+        var startedAt = new DateTimeOffset(2026, 6, 30, 11, 30, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(5);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-4.1");
+        var request = Request(
+            policy: Policy(
+                authorizedModels: [providerMetadata],
+                hasAvailableBudget: false));
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
+        var provider = new RecordingAiGatewayProvider(SuccessResponse());
+        var gateway = new AiGateway(
+            provider,
+            auditPublisher: null,
+            new SequenceTimeProvider(startedAt, completedAt),
+            detailedAudit);
+
+        var response = await gateway.CompleteAsync(request);
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, provider.CallCount);
+        var envelope = Assert.Single(detailedAudit.Envelopes);
+        Assert.Equal(AiGatewayCallResult.Failed, envelope.Result);
+        Assert.Equal(providerMetadata, envelope.Provider);
+        Assert.Equal(providerMetadata, envelope.Request.Provider);
+        Assert.Equal("budget-insufficient", envelope.RejectionReason);
+        Assert.Null(envelope.Response);
+        Assert.NotNull(envelope.Error);
+        Assert.Equal(AiGatewayErrorCode.BudgetInsufficient, envelope.Error!.Code);
+        Assert.False(envelope.Error.IsRetryable);
+        Assert.Equal(startedAt, envelope.StartedAt);
+        Assert.Equal(completedAt, envelope.CompletedAt);
+    }
+
+    [Fact]
     public async Task CompleteAsync_does_not_publish_audit_event_when_precanceled()
     {
         var audit = new CapturingAiGatewayAuditPublisher();
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
         var provider = new RecordingAiGatewayProvider(SuccessResponse());
-        var gateway = new AiGateway(provider, audit, TimeProvider.System);
+        var gateway = new AiGateway(
+            provider,
+            audit,
+            TimeProvider.System,
+            detailedAudit);
         using var cancellation = new CancellationTokenSource();
         await cancellation.CancelAsync();
 
@@ -167,6 +368,7 @@ public sealed class AiGatewayServiceTests
             async () => await gateway.CompleteAsync(Request(), cancellation.Token));
 
         Assert.Empty(audit.Events);
+        Assert.Empty(detailedAudit.Envelopes);
         Assert.Equal(0, provider.CallCount);
     }
 
@@ -383,6 +585,19 @@ public sealed class AiGatewayServiceTests
         public void Publish(AiGatewayCostAuditEvent @event)
         {
             _events.Add(@event);
+        }
+    }
+
+    private sealed class CapturingAiGatewayDetailedAuditPublisher
+        : IAiGatewayDetailedAuditPublisher
+    {
+        private readonly List<AiGatewayAuditEnvelope> _envelopes = new();
+
+        public IReadOnlyList<AiGatewayAuditEnvelope> Envelopes => _envelopes;
+
+        public void Publish(AiGatewayAuditEnvelope envelope)
+        {
+            _envelopes.Add(envelope);
         }
     }
 

@@ -272,6 +272,7 @@ internal sealed class PositionActor :
 
     private void ApplyPersisted(PositionEvent persisted)
     {
+        var previousOccupantKey = CurrentOccupantKey();
         OrgMessage? dispatchedMessage = null;
         if (persisted is MessageDispatched dispatched)
         {
@@ -280,6 +281,13 @@ internal sealed class PositionActor :
 
         _state = _state.Apply(persisted);
         PublishProjection(new PositionEventCommitted(EntityId, persisted));
+
+        if (persisted is OccupantChanged changed)
+        {
+            StopObsoleteOccupant(
+                previousOccupantKey,
+                new PositionOccupantKey(changed.Occupant, changed.Type));
+        }
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
@@ -466,6 +474,26 @@ internal sealed class PositionActor :
         var actor = Context.ActorOf(_occupantFactory.Create(occupant, occupantType), ChildName(key));
         _occupantActors.Add(key, actor);
         return actor;
+    }
+
+    private PositionOccupantKey? CurrentOccupantKey() =>
+        _state.Occupant is { } occupant && _state.OccupantType is { } occupantType
+            ? new PositionOccupantKey(occupant, occupantType)
+            : null;
+
+    private void StopObsoleteOccupant(
+        PositionOccupantKey? previous,
+        PositionOccupantKey current)
+    {
+        if (previous is not { } previousKey || previousKey == current)
+        {
+            return;
+        }
+
+        if (_occupantActors.Remove(previousKey, out var actor))
+        {
+            Context.Stop(actor);
+        }
     }
 
     private static string ChildName(PositionOccupantKey key)

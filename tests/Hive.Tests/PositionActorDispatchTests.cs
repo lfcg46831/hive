@@ -230,6 +230,139 @@ public sealed class PositionActorDispatchTests
         }
     }
 
+    [Fact]
+    public async Task Occupant_change_stops_previous_managed_child_before_dispatching_to_new_child()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(4, "sha256:v4");
+        var firstOccupant = OccupantId.From("agent-7");
+        var nextOccupant = OccupantId.From("agent-8");
+        var firstMessage = SampleMessage(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000601"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000601"));
+        var secondMessage = SampleMessage(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000602"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000602"));
+        var system = CreateActorSystem("position-dispatch-managed-child");
+        var factory = new TrackingOccupantFactory();
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                entity,
+                new PositionSnapshot(
+                    At,
+                    firstOccupant,
+                    OccupantType.AiAgent,
+                    lastConfigurationStamp: stamp));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, stamp),
+                    factory,
+                    () => At.AddMinutes(1))),
+                "position-dispatch-managed-child-actor");
+
+            await WaitForReadyAsync(actor);
+
+            var firstDeliveryTask = factory.NextDeliveryAsync();
+            actor.Tell(new AcceptMessage(firstMessage));
+            var firstDelivery = await firstDeliveryTask.WaitAsync(Timeout());
+
+            Assert.Equal(firstMessage, firstDelivery.Message);
+            Assert.Equal(firstOccupant, firstDelivery.Occupant);
+            Assert.Equal(OccupantType.AiAgent, firstDelivery.OccupantType);
+
+            actor.Tell(new ChangeOccupant(nextOccupant, OccupantType.AiAgent));
+            var stopped = await factory
+                .StopOfAsync(firstDelivery.Child)
+                .WaitAsync(Timeout());
+
+            Assert.Equal(firstOccupant, stopped.Occupant);
+            Assert.Equal(OccupantType.AiAgent, stopped.OccupantType);
+
+            var secondDeliveryTask = factory.NextDeliveryAsync();
+            actor.Tell(new AcceptMessage(secondMessage));
+            var secondDelivery = await secondDeliveryTask.WaitAsync(Timeout());
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+            Assert.Equal(secondMessage, secondDelivery.Message);
+            Assert.Equal(nextOccupant, secondDelivery.Occupant);
+            Assert.Equal(OccupantType.AiAgent, secondDelivery.OccupantType);
+            Assert.NotEqual(firstDelivery.Child, secondDelivery.Child);
+            Assert.Empty(state.Inbox);
+            Assert.Equal(nextOccupant, state.Occupant);
+            Assert.Equal(OccupantType.AiAgent, state.OccupantType);
+            Assert.Contains(firstMessage.Id, state.ProcessedMessages);
+            Assert.Contains(secondMessage.Id, state.ProcessedMessages);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Repeated_deliveries_to_same_occupant_reuse_managed_child()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(5, "sha256:v5");
+        var occupant = OccupantId.From("agent-7");
+        var firstMessage = SampleMessage(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000701"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000701"));
+        var secondMessage = SampleMessage(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000702"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000702"));
+        var system = CreateActorSystem("position-dispatch-reuse-managed-child");
+        var factory = new TrackingOccupantFactory();
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                entity,
+                new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    lastConfigurationStamp: stamp));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, stamp),
+                    factory,
+                    () => At.AddMinutes(1))),
+                "position-dispatch-reuse-managed-child-actor");
+
+            await WaitForReadyAsync(actor);
+
+            var firstDeliveryTask = factory.NextDeliveryAsync();
+            actor.Tell(new AcceptMessage(firstMessage));
+            var firstDelivery = await firstDeliveryTask.WaitAsync(Timeout());
+
+            var secondDeliveryTask = factory.NextDeliveryAsync();
+            actor.Tell(new AcceptMessage(secondMessage));
+            var secondDelivery = await secondDeliveryTask.WaitAsync(Timeout());
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+            Assert.Equal(occupant, firstDelivery.Occupant);
+            Assert.Equal(occupant, secondDelivery.Occupant);
+            Assert.Equal(firstDelivery.Child, secondDelivery.Child);
+            Assert.Empty(state.Inbox);
+            Assert.Equal(new[] { firstMessage.Id, secondMessage.Id }, state.RecentHistory);
+            Assert.Contains(firstMessage.Id, state.ProcessedMessages);
+            Assert.Contains(secondMessage.Id, state.ProcessedMessages);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static ActorSystem CreateActorSystem(string namePrefix) =>
         ActorSystem.Create(
             $"{namePrefix}-{Guid.NewGuid():N}",
@@ -414,6 +547,112 @@ public sealed class PositionActorDispatchTests
         }
     }
 
+    private sealed class TrackingOccupantFactory : IPositionOccupantFactory
+    {
+        private readonly object _gate = new();
+        private readonly Queue<TrackedDelivery> _deliveries = new();
+        private readonly Queue<TaskCompletionSource<TrackedDelivery>> _deliveryWaiters = new();
+        private readonly Dictionary<IActorRef, TrackedChildStopped> _stopped = new();
+        private readonly Dictionary<IActorRef, TaskCompletionSource<TrackedChildStopped>> _stopWaiters = new();
+
+        public Props Create(OccupantId occupant, OccupantType occupantType) =>
+            Props.Create(() => new TrackingOccupantActor(occupant, occupantType, this));
+
+        public Task<TrackedDelivery> NextDeliveryAsync()
+        {
+            lock (_gate)
+            {
+                if (_deliveries.TryDequeue(out var delivery))
+                {
+                    return Task.FromResult(delivery);
+                }
+
+                var waiter = new TaskCompletionSource<TrackedDelivery>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _deliveryWaiters.Enqueue(waiter);
+                return waiter.Task;
+            }
+        }
+
+        public Task<TrackedChildStopped> StopOfAsync(IActorRef child)
+        {
+            lock (_gate)
+            {
+                if (_stopped.TryGetValue(child, out var stopped))
+                {
+                    return Task.FromResult(stopped);
+                }
+
+                var waiter = new TaskCompletionSource<TrackedChildStopped>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+                _stopWaiters[child] = waiter;
+                return waiter.Task;
+            }
+        }
+
+        internal void Delivered(TrackedDelivery delivery)
+        {
+            TaskCompletionSource<TrackedDelivery>? waiter = null;
+            lock (_gate)
+            {
+                if (_deliveryWaiters.TryDequeue(out waiter))
+                {
+                }
+                else
+                {
+                    _deliveries.Enqueue(delivery);
+                    return;
+                }
+            }
+
+            waiter.SetResult(delivery);
+        }
+
+        internal void Stopped(TrackedChildStopped stopped)
+        {
+            TaskCompletionSource<TrackedChildStopped>? waiter = null;
+            lock (_gate)
+            {
+                _stopped[stopped.Child] = stopped;
+                if (_stopWaiters.Remove(stopped.Child, out waiter))
+                {
+                }
+                else
+                {
+                    return;
+                }
+            }
+
+            waiter.SetResult(stopped);
+        }
+    }
+
+    private sealed class TrackingOccupantActor : ReceiveActor
+    {
+        private readonly OccupantId _occupant;
+        private readonly OccupantType _occupantType;
+        private readonly TrackingOccupantFactory _factory;
+
+        public TrackingOccupantActor(
+            OccupantId occupant,
+            OccupantType occupantType,
+            TrackingOccupantFactory factory)
+        {
+            _occupant = occupant;
+            _occupantType = occupantType;
+            _factory = factory;
+
+            ReceiveAny(message =>
+                _factory.Delivered(new TrackedDelivery(message, _occupant, _occupantType, Self)));
+        }
+
+        protected override void PostStop()
+        {
+            _factory.Stopped(new TrackedChildStopped(_occupant, _occupantType, Self));
+            base.PostStop();
+        }
+    }
+
     private sealed class PositionActorPersistenceProbe : ReceivePersistentActor
     {
         private readonly List<PositionEvent> _events = new();
@@ -452,6 +691,17 @@ public sealed class PositionActorDispatchTests
         object Message,
         OccupantId Occupant,
         OccupantType OccupantType);
+
+    private sealed record TrackedDelivery(
+        object Message,
+        OccupantId Occupant,
+        OccupantType OccupantType,
+        IActorRef Child);
+
+    private sealed record TrackedChildStopped(
+        OccupantId Occupant,
+        OccupantType OccupantType,
+        IActorRef Child);
 
     private sealed record SeedSnapshot(PositionSnapshot Snapshot);
 

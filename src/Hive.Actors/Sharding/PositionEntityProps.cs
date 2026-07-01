@@ -11,13 +11,21 @@ namespace Hive.Actors.Sharding;
 internal sealed class PositionEntityProps : IPositionEntityProps
 {
     private readonly IPositionConfigurationProvider _configurationProvider;
+    private readonly IPositionOccupantFactory _occupantFactory;
 
-    public PositionEntityProps(IPositionConfigurationProvider configurationProvider)
+    public PositionEntityProps(
+        IPositionConfigurationProvider configurationProvider,
+        IAiAgentGatewayInvoker aiGatewayInvoker)
     {
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
+        _occupantFactory = new PositionOccupantFactory(aiGatewayInvoker);
     }
 
     public Props Create(string entityId) =>
-        Props.Create(() => new PositionActor(entityId, _configurationProvider));
+        Props.Create(() => new PositionActor(
+            entityId,
+            _configurationProvider,
+            _occupantFactory,
+            () => DateTimeOffset.UtcNow));
 }

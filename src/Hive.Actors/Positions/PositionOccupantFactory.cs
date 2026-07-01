@@ -14,13 +14,28 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 {
     public static PositionOccupantFactory Instance { get; } = new();
 
+    private readonly IAiAgentGatewayInvoker _aiGatewayInvoker;
+
+    public PositionOccupantFactory()
+        : this(UnavailableAiAgentGatewayInvoker.Instance)
+    {
+    }
+
+    public PositionOccupantFactory(IAiAgentGatewayInvoker aiGatewayInvoker)
+    {
+        _aiGatewayInvoker = aiGatewayInvoker
+            ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
+    }
+
     public Props Create(OccupantId occupant, OccupantType occupantType)
     {
         ArgumentNullException.ThrowIfNull(occupant);
 
         return occupantType switch
         {
-            OccupantType.AiAgent => Props.Create(() => new AiAgentActor(occupant)),
+            OccupantType.AiAgent => Props.Create(() => new AiAgentActor(
+                occupant,
+                _aiGatewayInvoker)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -33,15 +48,32 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 internal sealed class AiAgentActor : ReceiveActor
 {
     public AiAgentActor(OccupantId occupant)
+        : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
+    {
+    }
+
+    public AiAgentActor(OccupantId occupant, IAiAgentGatewayInvoker gatewayInvoker)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
+        GatewayInvoker = gatewayInvoker
+            ?? throw new ArgumentNullException(nameof(gatewayInvoker));
 
+        ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
+        {
+            var replyTo = Sender;
+            var result = await GatewayInvoker
+                .InvokeAsync(invocation, CancellationToken.None)
+                .ConfigureAwait(false);
+            replyTo.Tell(result);
+        });
         Receive<OrgMessage>(_ =>
         {
         });
     }
 
     public OccupantId Occupant { get; }
+
+    internal IAiAgentGatewayInvoker GatewayInvoker { get; }
 }
 
 internal sealed class HumanProxyActor : ReceiveActor

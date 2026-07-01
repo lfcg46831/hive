@@ -3,6 +3,7 @@ using Akka.Hosting;
 using Akka.Persistence.Sql.Hosting;
 using Akka.Persistence.Hosting;
 using Akka.Remote.Hosting;
+using Hive.Actors.Positions;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Domain.Messaging;
@@ -100,6 +101,7 @@ public static class HiveActorSystemBootstrapExtensions
         // the host starts it only on nodes that declare the agents role, through the existing
         // IRoleWorkload seam. The entity Props seam now supplies the persistent PositionActor
         // (US-F0-06-T06b); TryAdd keeps the wiring replaceable for later entity behaviour.
+        builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(

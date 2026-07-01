@@ -47,6 +47,9 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 
 internal sealed class AiAgentActor : ReceiveActor
 {
+    private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
+        new(StringComparer.Ordinal);
+
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
     {
@@ -66,8 +69,18 @@ internal sealed class AiAgentActor : ReceiveActor
                 .ConfigureAwait(false);
             replyTo.Tell(result);
         });
-        Receive<AiDirectiveProcessingRequest>(_ =>
+        Receive<AiDirectiveProcessingRequest>(request =>
         {
+            var snapshot = AiDirectiveProcessingSnapshot.Received(request);
+            _directiveProcessingSnapshots[request.CorrelationId] = snapshot;
+        });
+        Receive<GetAiDirectiveProcessingSnapshot>(query =>
+        {
+            Sender.Tell(_directiveProcessingSnapshots.TryGetValue(
+                query.CorrelationId,
+                out var snapshot)
+                ? AiDirectiveProcessingSnapshotQueryResult.FoundSnapshot(snapshot)
+                : AiDirectiveProcessingSnapshotQueryResult.Missing(query.CorrelationId));
         });
         Receive<OrgMessage>(_ =>
         {

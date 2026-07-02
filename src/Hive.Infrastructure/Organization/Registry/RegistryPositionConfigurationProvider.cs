@@ -14,10 +14,20 @@ namespace Hive.Infrastructure.Organization.Registry;
 public sealed class RegistryPositionConfigurationProvider : IPositionConfigurationProvider
 {
     private readonly IOrganizationRegistryReader _registryReader;
+    private readonly string _organizationsRoot;
 
     public RegistryPositionConfigurationProvider(IOrganizationRegistryReader registryReader)
+        : this(registryReader, Path.Combine("config", "organizations"))
+    {
+    }
+
+    public RegistryPositionConfigurationProvider(
+        IOrganizationRegistryReader registryReader,
+        string organizationsRoot)
     {
         _registryReader = registryReader ?? throw new ArgumentNullException(nameof(registryReader));
+        ArgumentException.ThrowIfNullOrWhiteSpace(organizationsRoot);
+        _organizationsRoot = organizationsRoot;
     }
 
     public async Task<PositionRuntimeConfigurationLoadResult> LoadAsync(
@@ -51,7 +61,7 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
         return Project(snapshot, entityId);
     }
 
-    private static PositionRuntimeConfigurationLoadResult Project(
+    private PositionRuntimeConfigurationLoadResult Project(
         OrganizationRegistrySnapshot snapshot,
         PositionEntityId entityId)
     {
@@ -134,6 +144,16 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
             return PositionRuntimeConfigurationLoadResult.Incomplete(aiReason);
         }
 
+        if (!TryProjectIdentityPrompt(
+                entityId,
+                organization,
+                occupant,
+                out var identityPrompt,
+                out var identityPromptReason))
+        {
+            return PositionRuntimeConfigurationLoadResult.Incomplete(identityPromptReason);
+        }
+
         try
         {
             return PositionRuntimeConfigurationLoadResult.Loaded(
@@ -153,7 +173,8 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         occupant.WorkingHours,
                         occupant.Subscriptions,
                         occupant.Tools,
-                        aiGateway),
+                        aiGateway,
+                        identityPrompt),
                     new PositionAuthorityRuntimeConfiguration(
                         authority.CanDecide,
                         authority.MustEscalate,
@@ -170,6 +191,135 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
             return PositionRuntimeConfigurationLoadResult.Incomplete(
                 $"Registry snapshot for position '{entityId.Value}' is not a complete runtime configuration: {exception.Message}");
         }
+    }
+
+    private bool TryProjectIdentityPrompt(
+        PositionEntityId entityId,
+        RegistryOrganization organization,
+        RegistryOccupant occupant,
+        out IdentityPromptRuntimeConfiguration? identityPrompt,
+        out string reason)
+    {
+        identityPrompt = null;
+        reason = string.Empty;
+
+        if (occupant.Type != OccupantType.AiAgent)
+        {
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(occupant.IdentityPromptRef))
+        {
+            reason = $"Registry snapshot for position '{entityId.Value}' is missing an identity prompt reference for its AI occupant.";
+            return false;
+        }
+
+        if (organization.Prompts is null)
+        {
+            reason = $"Registry snapshot for organization '{entityId.Organization.Value}' is missing the identity prompt catalog.";
+            return false;
+        }
+
+        var matches = organization.Prompts
+            .Where(prompt => string.Equals(
+                prompt.Id,
+                occupant.IdentityPromptRef,
+                StringComparison.Ordinal))
+            .ToArray();
+        if (matches.Length != 1)
+        {
+            reason = matches.Length == 0
+                ? $"Identity prompt reference '{occupant.IdentityPromptRef}' for position '{entityId.Value}' does not exist in the organization prompt catalog."
+                : $"Identity prompt reference '{occupant.IdentityPromptRef}' for position '{entityId.Value}' is ambiguous in the organization prompt catalog.";
+            return false;
+        }
+
+        var prompt = matches[0];
+        if (!TryReadIdentityPromptFile(
+                entityId.Organization,
+                prompt,
+                out var content,
+                out reason))
+        {
+            reason = $"Identity prompt '{prompt.Id}' for position '{entityId.Value}' could not be loaded: {reason}";
+            return false;
+        }
+
+        try
+        {
+            identityPrompt = new IdentityPromptRuntimeConfiguration(
+                prompt.Id,
+                prompt.Path,
+                content);
+            return true;
+        }
+        catch (ArgumentException exception)
+        {
+            reason = $"Identity prompt '{prompt.Id}' for position '{entityId.Value}' is invalid: {exception.Message}";
+            return false;
+        }
+    }
+
+    private bool TryReadIdentityPromptFile(
+        OrganizationId organizationId,
+        PromptConfiguration prompt,
+        out string content,
+        out string reason)
+    {
+        content = string.Empty;
+        reason = string.Empty;
+
+        string organizationDirectory;
+        string resolvedPath;
+        try
+        {
+            organizationDirectory = EnsureTrailingDirectorySeparator(
+                Path.GetFullPath(Path.Combine(_organizationsRoot, organizationId.Value)));
+            resolvedPath = Path.GetFullPath(prompt.Path, organizationDirectory);
+        }
+        catch (Exception exception)
+            when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+        {
+            reason = $"path '{prompt.Path}' cannot be resolved: {exception.Message}";
+            return false;
+        }
+
+        if (Path.IsPathRooted(prompt.Path))
+        {
+            reason = $"path '{prompt.Path}' must be relative to the organization directory.";
+            return false;
+        }
+
+        if (!IsInsideDirectory(resolvedPath, organizationDirectory))
+        {
+            reason = $"path '{prompt.Path}' resolves outside the organization directory.";
+            return false;
+        }
+
+        if (!File.Exists(resolvedPath))
+        {
+            reason = $"path '{prompt.Path}' does not exist.";
+            return false;
+        }
+
+        try
+        {
+            content = File.ReadAllText(resolvedPath);
+        }
+        catch (Exception exception)
+            when (exception is UnauthorizedAccessException or IOException)
+        {
+            reason = $"path '{prompt.Path}' cannot be read: {exception.Message}";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(content))
+        {
+            reason = $"path '{prompt.Path}' contains an empty identity prompt.";
+            return false;
+        }
+
+        return true;
     }
 
     private static bool TryCreateStamp(
@@ -334,5 +484,21 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
             budget.ProactiveMaxEurPerDay,
             budget.TotalMaxEurPerDay,
             budget.MaxCallsPerHour);
+    }
+
+    private static bool IsInsideDirectory(string candidatePath, string directoryRoot)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return Path.GetFullPath(candidatePath).StartsWith(directoryRoot, comparison);
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return Path.EndsInDirectorySeparator(fullPath)
+            ? fullPath
+            : fullPath + Path.DirectorySeparatorChar;
     }
 }

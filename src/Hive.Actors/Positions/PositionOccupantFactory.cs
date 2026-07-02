@@ -77,13 +77,20 @@ internal sealed class AiAgentActor : ReceiveActor
         Receive<AiDirectiveProcessingRequest>(request =>
         {
             var context = AiDirectiveExecutionContext.From(request);
-            var prompt = AiDirectivePrompt.CreateInitialRequest(context);
-            var snapshot = AiDirectiveProcessingSnapshot
-                .Received(request)
-                .AdvanceTo(
-                    AiDirectiveProcessingStatus.ContextAssembled,
-                    reason: "execution context assembled");
+            var received = AiDirectiveProcessingSnapshot.Received(request);
+            if (context.IdentityPrompt is null)
+            {
+                _directiveExecutionContexts[request.CorrelationId] = context;
+                _directiveProcessingSnapshots[request.CorrelationId] = received.AdvanceTo(
+                    AiDirectiveProcessingStatus.Failed,
+                    reason: IdentityPromptFailureReason(context));
+                return;
+            }
 
+            var prompt = AiDirectivePrompt.CreateInitialRequest(context);
+            var snapshot = received.AdvanceTo(
+                AiDirectiveProcessingStatus.ContextAssembled,
+                reason: "execution context assembled");
             _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveInitialPrompts[request.CorrelationId] = prompt;
             _directiveProcessingSnapshots[request.CorrelationId] = snapshot;
@@ -120,6 +127,9 @@ internal sealed class AiAgentActor : ReceiveActor
     public OccupantId Occupant { get; }
 
     internal IAiAgentGatewayInvoker GatewayInvoker { get; }
+
+    private static string IdentityPromptFailureReason(AiDirectiveExecutionContext context) =>
+        $"Identity prompt '{context.IdentityPromptRef ?? "<missing>"}' was not resolved; directive processing stopped before gateway request.";
 }
 
 internal sealed class HumanProxyActor : ReceiveActor

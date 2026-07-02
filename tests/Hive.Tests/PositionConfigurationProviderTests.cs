@@ -40,6 +40,10 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("Europe/Lisbon", configuration.Position.Timezone);
         Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
         Assert.Equal("engineer-v1", configuration.Occupant.IdentityPromptRef);
+        Assert.NotNull(configuration.Occupant.IdentityPrompt);
+        Assert.Equal("engineer-v1", configuration.Occupant.IdentityPrompt.Id);
+        Assert.Equal("prompts/engineer-v1.md", configuration.Occupant.IdentityPrompt.Path);
+        Assert.Contains("Delivery Lead", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
         Assert.NotNull(configuration.Occupant.Ai);
         var aiGateway = configuration.Occupant.AiGateway;
         Assert.NotNull(aiGateway);
@@ -191,6 +195,56 @@ public sealed class PositionConfigurationProviderTests
     }
 
     [Fact]
+    public async Task Provider_rejects_ai_occupant_when_identity_prompt_ref_is_orphaned()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var orphaned = new RegistryEntry<RegistryOccupant>(
+            original.Value with { IdentityPromptRef = "missing-prompt" },
+            original.Fingerprint,
+            original.UpdatedAt);
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = orphaned;
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)),
+            OrganizationsRoot);
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
+        Assert.True(result.IsBlocking);
+        Assert.Contains("identity prompt", result.Reason, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("missing-prompt", result.Reason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Provider_rejects_ai_occupant_when_identity_prompt_file_is_unreadable()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var temporaryRoot = Path.Combine(Path.GetTempPath(), $"hive-prompts-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(Path.Combine(temporaryRoot, "acme-delivery", "prompts"));
+
+        try
+        {
+            IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+                new SnapshotReader(_ => snapshot),
+                temporaryRoot);
+
+            var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+            Assert.Equal(PositionRuntimeConfigurationLoadStatus.Incomplete, result.Status);
+            Assert.True(result.IsBlocking);
+            Assert.Contains("identity prompt", result.Reason, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("engineer-v1", result.Reason, StringComparison.Ordinal);
+        }
+        finally
+        {
+            Directory.Delete(temporaryRoot, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task Provider_rejects_snapshot_without_valid_stamp()
     {
         var snapshot = await ImportedSnapshotAsync();
@@ -306,6 +360,9 @@ public sealed class PositionConfigurationProviderTests
             throw new InvalidOperationException("Could not locate the Hive repository root.");
         }
     }
+
+    private static string OrganizationsRoot =>
+        Path.Combine(RepositoryRoot, "config", "organizations");
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

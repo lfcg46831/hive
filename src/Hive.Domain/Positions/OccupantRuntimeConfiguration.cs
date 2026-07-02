@@ -17,7 +17,8 @@ public sealed record OccupantRuntimeConfiguration
         WorkingHoursConfiguration? workingHours = null,
         IEnumerable<SubscriptionConfiguration>? subscriptions = null,
         IEnumerable<ToolConfiguration>? tools = null,
-        AiPositionRuntimeConfiguration? aiGateway = null)
+        AiPositionRuntimeConfiguration? aiGateway = null,
+        IdentityPromptRuntimeConfiguration? identityPrompt = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -31,8 +32,17 @@ public sealed record OccupantRuntimeConfiguration
         IdentityPromptRef = identityPromptRef is null
             ? null
             : CommandText.RequireContent(identityPromptRef, nameof(identityPromptRef));
+        if (identityPrompt is not null
+            && !string.Equals(identityPrompt.Id, IdentityPromptRef, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Resolved identity prompt must match the occupant identity prompt reference.",
+                nameof(identityPrompt));
+        }
+
         Ai = ai;
         AiGateway = aiGateway;
+        IdentityPrompt = identityPrompt;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -43,6 +53,9 @@ public sealed record OccupantRuntimeConfiguration
 
     /// <summary>The identity prompt reference into the prompt catalog, when declared.</summary>
     public string? IdentityPromptRef { get; }
+
+    /// <summary>The resolved identity prompt content, when materialized for an AI occupant.</summary>
+    public IdentityPromptRuntimeConfiguration? IdentityPrompt { get; }
 
     /// <summary>The AI runtime configuration, when declared for this occupant.</summary>
     public AiConfiguration? Ai { get; }

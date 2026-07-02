@@ -54,6 +54,32 @@ public sealed class PositionRuntimeConfigurationTests
     }
 
     [Fact]
+    public void Occupant_runtime_configuration_preserves_resolved_identity_prompt_when_it_matches_ref()
+    {
+        var identityPrompt = new IdentityPromptRuntimeConfiguration(
+            "engineer-v1",
+            "prompts/engineer-v1.md",
+            "# Engineer identity");
+
+        var occupant = new OccupantRuntimeConfiguration(
+            OccupantType.AiAgent,
+            identityPromptRef: "engineer-v1",
+            identityPrompt: identityPrompt);
+
+        Assert.Same(identityPrompt, occupant.IdentityPrompt);
+        Assert.Throws<ArgumentException>(() =>
+            new IdentityPromptRuntimeConfiguration(
+                "engineer-v1",
+                "prompts/engineer-v1.md",
+                " "));
+        Assert.Throws<ArgumentException>(() =>
+            new OccupantRuntimeConfiguration(
+                OccupantType.AiAgent,
+                identityPromptRef: "other-v1",
+                identityPrompt: identityPrompt));
+    }
+
+    [Fact]
     public void Load_result_distinguishes_loaded_blocking_and_technical_outcomes()
     {
         var configuration = RuntimeConfiguration("acme", "bug-triage", new PositionConfigurationStamp(2, "sha256:v2"));

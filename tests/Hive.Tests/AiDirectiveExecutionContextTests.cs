@@ -33,6 +33,10 @@ public sealed class AiDirectiveExecutionContextTests
         Assert.Equal(request.PositionId, context.PositionId);
         Assert.Equal(request.Occupant, context.Occupant);
         Assert.Equal("triage-v1", context.IdentityPromptRef);
+        Assert.NotNull(context.IdentityPrompt);
+        Assert.Equal("triage-v1", context.IdentityPrompt.Id);
+        Assert.Equal("prompts/triage-v1.md", context.IdentityPrompt.Path);
+        Assert.Equal("You are responsible for triaging incoming bugs.", context.IdentityPrompt.Content);
         Assert.Equal(request.Limits, context.Limits);
         Assert.Equal(request.PersistedContext.LastConfigurationStamp, context.LastConfigurationStamp);
 
@@ -228,7 +232,13 @@ public sealed class AiDirectiveExecutionContextTests
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
-                    timeout: TimeSpan.FromSeconds(15))),
+                    timeout: TimeSpan.FromSeconds(15)),
+                identityPrompt: includeOptionalContext
+                    ? new IdentityPromptRuntimeConfiguration(
+                        "triage-v1",
+                        "prompts/triage-v1.md",
+                        "You are responsible for triaging incoming bugs.")
+                    : null),
             includeOptionalContext
                 ? new PositionAuthorityRuntimeConfiguration(
                     canDecide: ["bug.triage"],

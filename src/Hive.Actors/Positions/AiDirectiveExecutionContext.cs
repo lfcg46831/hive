@@ -14,6 +14,7 @@ internal sealed record AiDirectiveExecutionContext
         PositionId positionId,
         OccupantId occupant,
         string? identityPromptRef,
+        IdentityPromptRuntimeConfiguration? identityPrompt,
         AiDirectiveExecutionDirective directive,
         AiDirectiveExecutionRelation relation,
         AiDirectiveExecutionAuthority authority,
@@ -34,6 +35,7 @@ internal sealed record AiDirectiveExecutionContext
         IdentityPromptRef = identityPromptRef is null
             ? null
             : AiAgentGatewayText.Require(identityPromptRef, nameof(identityPromptRef));
+        IdentityPrompt = identityPrompt;
         Directive = directive ?? throw new ArgumentNullException(nameof(directive));
         Relation = relation ?? throw new ArgumentNullException(nameof(relation));
         Authority = authority ?? throw new ArgumentNullException(nameof(authority));
@@ -57,6 +59,8 @@ internal sealed record AiDirectiveExecutionContext
     public OccupantId Occupant { get; }
 
     public string? IdentityPromptRef { get; }
+
+    public IdentityPromptRuntimeConfiguration? IdentityPrompt { get; }
 
     public AiDirectiveExecutionDirective Directive { get; }
 
@@ -92,6 +96,7 @@ internal sealed record AiDirectiveExecutionContext
             request.PositionId,
             request.Occupant,
             request.RuntimeContext.OccupantConfiguration.IdentityPromptRef,
+            request.RuntimeContext.OccupantConfiguration.IdentityPrompt,
             AiDirectiveExecutionDirective.FromDirective(request.Directive),
             new AiDirectiveExecutionRelation(
                 request.RuntimeContext.Position.Unit,

@@ -14,6 +14,13 @@ internal sealed class PostgreSqlPositionConfigurationProvider :
     private readonly RegistryPositionConfigurationProvider _inner;
 
     public PostgreSqlPositionConfigurationProvider(string connectionString)
+        : this(connectionString, Path.Combine("config", "organizations"))
+    {
+    }
+
+    public PostgreSqlPositionConfigurationProvider(
+        string connectionString,
+        string organizationsRoot)
     {
         if (string.IsNullOrWhiteSpace(connectionString))
         {
@@ -22,7 +29,8 @@ internal sealed class PostgreSqlPositionConfigurationProvider :
 
         _dataSource = NpgsqlDataSource.Create(connectionString);
         _inner = new RegistryPositionConfigurationProvider(
-            new PostgreSqlOrganizationRegistry(_dataSource));
+            new PostgreSqlOrganizationRegistry(_dataSource),
+            organizationsRoot);
     }
 
     public Task<PositionRuntimeConfigurationLoadResult> LoadAsync(

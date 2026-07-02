@@ -35,10 +35,15 @@ public static class HiveBootstrapExtensions
             var connectionString = serviceProvider
                 .GetRequiredService<IConfiguration>()
                 .GetConnectionString(ConnectionStringNames.PostgreSql);
+            var organizationsRoot = serviceProvider
+                .GetRequiredService<IOptions<HiveOptions>>()
+                .Value
+                .Organizations
+                .RootPath;
 
             return string.IsNullOrWhiteSpace(connectionString)
                 ? new UnavailablePositionConfigurationProvider(ConnectionStringNames.PostgreSql)
-                : new PostgreSqlPositionConfigurationProvider(connectionString);
+                : new PostgreSqlPositionConfigurationProvider(connectionString, organizationsRoot);
         });
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryImportHostedService>();

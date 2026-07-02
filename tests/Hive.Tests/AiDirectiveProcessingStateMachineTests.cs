@@ -214,7 +214,11 @@ public sealed class AiDirectiveProcessingStateMachineTests
                 identityPromptRef: "triage-v1",
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "triage"),
-                    new AiModelParameters(maxOutputTokens: 256))),
+                    new AiModelParameters(maxOutputTokens: 256)),
+                identityPrompt: new IdentityPromptRuntimeConfiguration(
+                    "triage-v1",
+                    "prompts/triage-v1.md",
+                    "You are responsible for triaging incoming bugs.")),
             new PositionAuthorityRuntimeConfiguration());
 
         return AiDirectiveProcessingRequest.Create(

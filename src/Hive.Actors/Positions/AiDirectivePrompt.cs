@@ -10,13 +10,14 @@ internal static class AiDirectivePrompt
     public static AiGatewayRequest CreateInitialRequest(AiDirectiveExecutionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
+        var identityPrompt = RequireIdentityPrompt(context);
 
         return new AiGatewayRequest(
             context.OrganizationId,
             context.PositionId,
             context.Directive.ThreadId,
             context.Directive.MessageId,
-            BuildContent(context),
+            BuildContent(context, identityPrompt),
             BuildSystemInstruction(),
             modelParameters: EffectiveModelParameters(context),
             metadata: Metadata(context),
@@ -41,7 +42,9 @@ internal static class AiDirectivePrompt
                 "Do not invent routing, approval, facts, authority, tools, or subordinate positions.",
             ]);
 
-    private static string BuildContent(AiDirectiveExecutionContext context)
+    private static string BuildContent(
+        AiDirectiveExecutionContext context,
+        IdentityPromptRuntimeConfiguration identityPrompt)
     {
         var builder = new StringBuilder();
 
@@ -55,6 +58,7 @@ internal static class AiDirectivePrompt
         builder.AppendLine($"ProcessingMode: {ProcessingMode(context)}");
         builder.AppendLine();
 
+        AppendIdentityPrompt(builder, identityPrompt);
         AppendDirective(builder, context);
         AppendAuthority(builder, context);
         AppendTools(builder, context);
@@ -66,6 +70,24 @@ internal static class AiDirectivePrompt
 
         return builder.ToString().TrimEnd();
     }
+
+    private static void AppendIdentityPrompt(
+        StringBuilder builder,
+        IdentityPromptRuntimeConfiguration identityPrompt)
+    {
+        builder.AppendLine("IdentityPrompt:");
+        builder.AppendLine($"Ref: {identityPrompt.Id}");
+        builder.AppendLine($"Path: {identityPrompt.Path}");
+        builder.AppendLine("Content:");
+        builder.AppendLine(identityPrompt.Content.TrimEnd());
+        builder.AppendLine();
+    }
+
+    private static IdentityPromptRuntimeConfiguration RequireIdentityPrompt(
+        AiDirectiveExecutionContext context) =>
+        context.IdentityPrompt
+        ?? throw new InvalidOperationException(
+            "AI directive initial request requires a resolved identity prompt.");
 
     private static void AppendDirective(StringBuilder builder, AiDirectiveExecutionContext context)
     {
@@ -203,6 +225,11 @@ internal static class AiDirectivePrompt
         if (context.IdentityPromptRef is { } identityPromptRef)
         {
             metadata["identity_prompt_ref"] = identityPromptRef;
+        }
+
+        if (context.IdentityPrompt is { } identityPrompt)
+        {
+            metadata["identity_prompt_path"] = identityPrompt.Path;
         }
 
         return metadata;

@@ -57,6 +57,9 @@ public sealed class AiDirectivePromptTests
 
         Assert.Contains($"CorrelationId: {processingRequest.CorrelationId}", request.Content, StringComparison.Ordinal);
         Assert.Contains("IdentityPromptRef: triage-v1", request.Content, StringComparison.Ordinal);
+        Assert.Contains("IdentityPrompt:", request.Content, StringComparison.Ordinal);
+        Assert.Contains("Path: prompts/triage-v1.md", request.Content, StringComparison.Ordinal);
+        Assert.Contains("You are responsible for triaging incoming bugs.", request.Content, StringComparison.Ordinal);
         Assert.Contains("Objective: Triage checkout regression", request.Content, StringComparison.Ordinal);
         Assert.Contains("Context: Customer reports checkout failures.", request.Content, StringComparison.Ordinal);
         Assert.Contains("DirectiveId: cccccccc-0000-0000-0000-000000000904", request.Content, StringComparison.Ordinal);
@@ -82,7 +85,8 @@ public sealed class AiDirectivePromptTests
 
         var request = AiDirectivePrompt.CreateInitialRequest(context);
 
-        Assert.Contains("IdentityPromptRef: <none>", request.Content, StringComparison.Ordinal);
+        Assert.Contains("IdentityPromptRef: triage-v1", request.Content, StringComparison.Ordinal);
+        Assert.Contains("You are responsible for triaging incoming bugs.", request.Content, StringComparison.Ordinal);
         Assert.Contains("ParentDirectiveId: <none>", request.Content, StringComparison.Ordinal);
         Assert.Contains("Deadline: <none>", request.Content, StringComparison.Ordinal);
         Assert.Contains("ReportsTo: <none>", request.Content, StringComparison.Ordinal);
@@ -120,6 +124,40 @@ public sealed class AiDirectivePromptTests
             Assert.Equal(processingRequest.MessageId, promptResult.Request!.MessageId);
             Assert.Contains("Return JSON only", promptResult.Request.SystemInstruction, StringComparison.Ordinal);
             Assert.Equal(AiDirectiveProcessingStatus.ContextAssembled, snapshotResult.Snapshot!.Status);
+            Assert.Equal(0, invoker.CallCount);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_fails_closed_when_identity_prompt_is_not_resolved()
+    {
+        var processingRequest = Request(includeOptionalContext: false, includeIdentityPrompt: false);
+        var invoker = new ThrowingInvoker();
+        var system = ActorSystem.Create($"ai-agent-prompt-fail-closed-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(processingRequest.Occupant, invoker)),
+                "agent");
+
+            actor.Tell(processingRequest);
+
+            var snapshotResult = await WaitForSnapshotAsync(actor, processingRequest.CorrelationId);
+            var promptResult = await actor.Ask<AiDirectiveInitialPromptQueryResult>(
+                new GetAiDirectiveInitialPrompt(processingRequest.CorrelationId),
+                Timeout());
+
+            Assert.Equal(AiDirectiveProcessingStatus.Failed, snapshotResult.Snapshot!.Status);
+            Assert.Contains(
+                "identity prompt",
+                snapshotResult.Snapshot.TerminalReason,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.False(promptResult.Found);
             Assert.Equal(0, invoker.CallCount);
         }
         finally
@@ -176,7 +214,30 @@ public sealed class AiDirectivePromptTests
         throw new TimeoutException("AI directive initial prompt was not built.");
     }
 
-    private static AiDirectiveProcessingRequest Request(bool includeOptionalContext)
+    private static async Task<AiDirectiveProcessingSnapshotQueryResult> WaitForSnapshotAsync(
+        IActorRef actor,
+        string correlationId)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var result = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(correlationId),
+                TimeSpan.FromSeconds(1));
+            if (result.Found)
+            {
+                return result;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("AI directive processing snapshot was not recorded.");
+    }
+
+    private static AiDirectiveProcessingRequest Request(
+        bool includeOptionalContext,
+        bool includeIdentityPrompt = true)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -212,7 +273,7 @@ public sealed class AiDirectivePromptTests
                 timezone: "Europe/Lisbon"),
             new OccupantRuntimeConfiguration(
                 OccupantType.AiAgent,
-                identityPromptRef: includeOptionalContext ? "triage-v1" : null,
+                identityPromptRef: includeIdentityPrompt ? "triage-v1" : null,
                 tools: includeOptionalContext
                     ? [new ToolConfiguration("jira", ["issues/read", "issues/comment"])]
                     : null,
@@ -220,7 +281,13 @@ public sealed class AiDirectivePromptTests
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: TimeSpan.FromSeconds(15),
-                    processingMode: AiProcessingMode.Batch)),
+                    processingMode: AiProcessingMode.Batch),
+                identityPrompt: includeIdentityPrompt
+                    ? new IdentityPromptRuntimeConfiguration(
+                        "triage-v1",
+                        "prompts/triage-v1.md",
+                        "You are responsible for triaging incoming bugs.")
+                    : null),
             includeOptionalContext
                 ? new PositionAuthorityRuntimeConfiguration(
                     canDecide: ["bug.triage"],

@@ -1,3 +1,5 @@
+using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Organization.Configuration.Validation;
 using Hive.Infrastructure.Organization.Registry;
 
 namespace Hive.Infrastructure.Organization.Configuration;
@@ -71,6 +73,14 @@ public sealed class OrganizationConfigurationDirectoryImporter
                     + $"'{configuration.Organization.Id.Value}'.");
             }
 
+            var promptPathValidation = ValidatePromptPaths(configuration, directory);
+            if (promptPathValidation.Count > 0)
+            {
+                throw new InvalidDataException(
+                    $"Organization configuration '{filePath}' failed prompt path validation:{Environment.NewLine}"
+                    + string.Join(Environment.NewLine, promptPathValidation));
+            }
+
             var result = await _importer
                 .ImportAsync(configuration, cancellationToken)
                 .ConfigureAwait(false);
@@ -85,5 +95,95 @@ public sealed class OrganizationConfigurationDirectoryImporter
         }
 
         return results.AsReadOnly();
+    }
+
+    private static IReadOnlyList<OrganizationConfigurationValidationError> ValidatePromptPaths(
+        OrganizationConfiguration configuration,
+        string organizationDirectory)
+    {
+        var errors = new List<OrganizationConfigurationValidationError>();
+        var root = EnsureTrailingDirectorySeparator(Path.GetFullPath(organizationDirectory));
+
+        for (var index = 0; index < configuration.Prompts.Count; index++)
+        {
+            var prompt = configuration.Prompts[index];
+            var fieldPath = $"prompts[{index}].path";
+            string resolvedPath;
+            try
+            {
+                resolvedPath = Path.GetFullPath(prompt.Path, root);
+            }
+            catch (Exception exception)
+                when (exception is ArgumentException or NotSupportedException or PathTooLongException)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "prompt-path-invalid",
+                    fieldPath,
+                    $"Prompt path '{prompt.Path}' cannot be resolved: {exception.Message}"));
+                continue;
+            }
+
+            if (Path.IsPathRooted(prompt.Path))
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "prompt-path-not-relative",
+                    fieldPath,
+                    $"Prompt path '{prompt.Path}' resolves to '{resolvedPath}', but prompt paths must be relative to organization directory '{organizationDirectory}'."));
+                continue;
+            }
+
+            if (!IsInsideDirectory(resolvedPath, root))
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "prompt-path-outside-organization-tree",
+                    fieldPath,
+                    $"Prompt path '{prompt.Path}' resolves to '{resolvedPath}', which is outside organization directory '{organizationDirectory}'."));
+                continue;
+            }
+
+            if (!File.Exists(resolvedPath))
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "prompt-path-not-found",
+                    fieldPath,
+                    $"Prompt path '{prompt.Path}' resolves to '{resolvedPath}', but the file does not exist."));
+                continue;
+            }
+
+            try
+            {
+                using var stream = File.Open(
+                    resolvedPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite | FileShare.Delete);
+            }
+            catch (Exception exception)
+                when (exception is UnauthorizedAccessException or IOException)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "prompt-path-not-readable",
+                    fieldPath,
+                    $"Prompt path '{prompt.Path}' resolves to '{resolvedPath}', but the file cannot be read: {exception.Message}"));
+            }
+        }
+
+        return errors;
+    }
+
+    private static bool IsInsideDirectory(string candidatePath, string directoryRoot)
+    {
+        var comparison = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return Path.GetFullPath(candidatePath).StartsWith(directoryRoot, comparison);
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        var fullPath = Path.GetFullPath(path);
+        return Path.EndsInDirectorySeparator(fullPath)
+            ? fullPath
+            : fullPath + Path.DirectorySeparatorChar;
     }
 }

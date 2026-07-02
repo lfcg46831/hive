@@ -2223,7 +2223,7 @@ public interface IPositionConfigurationProvider
 </li>
 <li><strong>US-F0-08-T11</strong> — Atualizar memória curta e estado de tarefa através do <code>PositionActor</code> após resultado aceite, garantindo que o estado recuperável continua a pertencer à posição.</li>
 <li><strong>US-F0-08-T12</strong> — Emitir auditoria estruturada para contexto usado, chamada ao gateway, decisão interpretada, mensagens produzidas, limites aplicados e razões de escalamento/falha, respeitando redaction.</li>
-<li><strong>US-F0-08-T13</strong> — Criar testes unitários com provider stub para montagem de contexto, prompt de triagem, interpretação de respostas, limites de iteração/budget/timeout, routing inválido e outputs malformados.</li>
+<li><strong>US-F0-08-T13</strong> — Criar testes unitários com provider stub para montagem de contexto, prompt de triagem, interpretação de respostas, limites de iteração/budget/timeout, routing inválido e outputs malformados. Prontidão: executar apenas depois de <code>US-F0-08-T06</code>–<code>T12</code> e dos pré-requisitos <code>US-F0-11-T01</code>–<code>T04</code> estarem implementados; se alguma dessas fatias faltar, a tarefa fica bloqueada e não deve introduzir stubs ou asserts para contratos ainda inexistentes.</li>
 <li><strong>US-F0-08-T14</strong> — Criar testes de integração para o fluxo <code>Directive → PositionActor → AiAgentActor → AiGateway stub → Report/Escalation/Directive</code>, validando persistência de estado, auditoria e correlação por <code>ThreadId</code>/<code>DirectiveId</code>.
 <ul>
 <li><strong>US-F0-08-T14a</strong> — Criar fixture de integração com <code>PositionActor</code>, <code>AiAgentActor</code> e <code>AiGateway</code> stub configurável por cenário.</li>

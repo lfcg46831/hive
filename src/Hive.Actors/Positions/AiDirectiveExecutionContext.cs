@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -20,6 +21,9 @@ internal sealed record AiDirectiveExecutionContext
         ImmutableArray<AiDirectiveShortMemoryEntry> shortMemory,
         ImmutableArray<PersistedTask> openTasks,
         ImmutableArray<MessageId> recentHistory,
+        AiProviderMetadata? provider,
+        AiModelParameters modelParameters,
+        AiProcessingMode? processingMode,
         AiDirectiveProcessingLimits limits,
         PositionConfigurationStamp? lastConfigurationStamp)
     {
@@ -37,6 +41,9 @@ internal sealed record AiDirectiveExecutionContext
         ShortMemory = RequireItems(shortMemory, nameof(shortMemory));
         OpenTasks = RequireItems(openTasks, nameof(openTasks));
         RecentHistory = RequireItems(recentHistory, nameof(recentHistory));
+        Provider = provider;
+        ModelParameters = modelParameters ?? throw new ArgumentNullException(nameof(modelParameters));
+        ProcessingMode = processingMode;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
         LastConfigurationStamp = lastConfigurationStamp;
     }
@@ -64,6 +71,12 @@ internal sealed record AiDirectiveExecutionContext
     public ImmutableArray<PersistedTask> OpenTasks { get; }
 
     public ImmutableArray<MessageId> RecentHistory { get; }
+
+    public AiProviderMetadata? Provider { get; }
+
+    public AiModelParameters ModelParameters { get; }
+
+    public AiProcessingMode? ProcessingMode { get; }
 
     public AiDirectiveProcessingLimits Limits { get; }
 
@@ -95,6 +108,10 @@ internal sealed record AiDirectiveExecutionContext
                 .OrderBy(task => task.TaskId.Value)
                 .ToImmutableArray(),
             request.PersistedContext.RecentHistory,
+            request.RuntimeContext.OccupantConfiguration.AiGateway?.Primary,
+            request.RuntimeContext.OccupantConfiguration.AiGateway?.Parameters
+                ?? AiModelParameters.Default,
+            request.RuntimeContext.OccupantConfiguration.AiGateway?.ProcessingMode,
             request.Limits,
             request.PersistedContext.LastConfigurationStamp);
     }

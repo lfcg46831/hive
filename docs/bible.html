@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 1.07 (rascunho evolutivo) <strong>Data:</strong> 2026-07-01 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 1.17 (rascunho evolutivo) <strong>Data:</strong> 2026-07-02 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -204,6 +204,15 @@
 <tr><td>1.06</td><td>2026-07-01</td><td>Especificacao de <code>US-F0-08-T03</code>: a maquina de estados minima do processamento no <code>AiAgentActor</code> passa a ter estados canonicos e transicoes deterministicas para recebido, contexto montado, pedido ao <code>AiGateway</code>, resposta interpretada, resultado emitido, falhado ou escalado, mantendo o estado recuperavel no <code>PositionActor</code>; estimativa mantem-se <code>3</code>.</td></tr>
 <tr><td>1.07</td><td>2026-07-01</td><td>Especificacao de <code>US-F0-08-T04</code>: a montagem de contexto do <code>AiAgentActor</code> passa a produzir um snapshot interno imutavel e deterministico com prompt de identidade por referencia, diretiva, memoria curta, tarefas abertas, historico recente permitido, autoridade, ferramentas autorizadas e relacao organizacional direta, sem resolver catalogos, executar ferramentas ou invocar o <code>AiGateway</code>; estimativa mantem-se <code>5</code>.</td></tr>
 <tr><td>1.08</td><td>2026-07-01</td><td>Decisao do mecanismo de runtime da maquina de estados de <code>US-F0-08</code>: a partir de <code>T06</code>/<code>T10</code> o <code>AiAgentActor</code> conduz o comportamento por <code>Become</code> a partir do contrato puro de <code>T03</code>, com timers nativos do Akka.NET para as fases assincronas; <code>FSM&lt;TState,TData&gt;</code> so e adotado se a DSL de <code>StateTimeout</code> por estado compensar re-codificar a maquina, e <code>PersistentFSM</code> fica proibido enquanto a fonte de verdade recuperavel continuar no <code>PositionActor</code>.</td></tr>
+<tr><td>1.09</td><td>2026-07-01</td><td>Especificacao de <code>US-F0-08-T05</code>: o prompt/template inicial de triagem de bugs do <code>AiAgentActor</code> e provider-neutral, construido a partir do contexto de execucao ja montado, exige saida JSON estruturada com intencao <code>Report</code>, <code>Escalation</code> ou <code>Directive</code> descendente permitida, e nao interpreta nem valida semanticamente a resposta do provider; estimativa mantem-se <code>3</code>.</td></tr>
+<tr><td>1.10</td><td>2026-07-02</td><td>Ajuste de desenho de <code>US-F0-08-T05</code>: a composicao do prompt inicial fica numa API pura de dominio do actor, sem introduzir um <code>*Builder</code> por template; novos prompts devem ser adicionados apenas quando houver necessidade concreta, nao como hierarquia prematura de builders.</td></tr>
+<tr><td>1.11</td><td>2026-07-02</td><td>Clarificacao de acoplamento em <code>US-F0-08-T05</code>: o <code>AiAgentActor</code> pede apenas um prompt inicial de diretiva; o facto de a F0 usar um template de triagem de bugs fica encapsulado na API de prompt e nao aparece no fluxo do actor.</td></tr>
+<tr><td>1.12</td><td>2026-07-02</td><td>Clarificacao de autoridade em <code>US-F0-08-T05</code>: o prompt inicial nao transforma qualquer posicao AI em triagista de bugs; triagem de bugs so e tratada quando a autoridade/contexto da posicao o permitir, caso contrario a saida esperada deve ser escalamento.</td></tr>
+<tr><td>1.13</td><td>2026-07-02</td><td>Resolução de Q13 (taxonomia e binding da autoridade): novo §4.9 com catálogo de domínios de ação (chaves namespaced, <code>gate</code> mínimo, predicados <code>match</code> objetivos), binding híbrido de precedência assimétrica via campo estruturado <code>acting_under</code> de vocabulário fechado, configuração esparsa de <code>authority</code> (<code>can_decide</code> + <code>overrides</code>) refletida em §4.8 e §6.2, regras para ações retidas e evolução do catálogo, e limites explícitos (posição vs. ocupante, ocupantes humanos, conteúdo dentro de <code>can_decide</code>). Correção da referência errada a Q12 em §4.4 (a Q12 do §14 é health checks) e abertura de Q14 (forma da diretiva de autorização vinculada à ação retida)</td></tr>
+<tr><td>1.14</td><td>2026-07-02</td><td>Resolução de Q14 (§9.11): <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> como tipos canónicos do canal de governança para resolver escalamentos de gate, com <code>RetainedActionId</code> e <code>ActionFingerprint</code> fixados na retenção, uso único por construção, <code>ExpiresAt</code> obrigatório, verificação determinística no resume, emissão gateada pela chave de confiança <code>governance.authorize-retained-action</code> e regra de que um grant nunca rebaixa <code>human-approval</code>; taxonomia de §9.4 e índice de §9.10 estendidos com os dois tipos</td></tr>
+<tr><td>1.15</td><td>2026-07-02</td><td>Backlog dos contratos de §4.9/§9.11 em F0: nova subsecção F0.6 com <code>US-F0-11</code> (catálogo <code>action-domains</code>, migração da <code>authority</code> esparsa, injeção de <code>acting_under</code>, extractors, resolução do gate e retenção de ações, total <code>50</code>) e <code>US-F0-12</code> (identidades <code>RetainedActionId</code>/<code>ActionFingerprint</code>, tipos <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code>, <code>AuthorizationRoutingValidator</code>, máquina de estados da ação retida e verificação no resume, total <code>40</code>); Total F0 passa de <code>576</code> para <code>666</code>; âncoras de implementação de §4.9/§9.11 e das linhas Q13/Q14 apontadas às novas US; spec de <code>US-F0-08-T04</code> alinhada com a shape esparsa de autoridade (migração em <code>US-F0-11-T04</code>)</td></tr>
+<tr><td>1.16</td><td>2026-07-02</td><td>Nota de ordem de execução e dependências em F0.6: <code>US-F0-11-T01</code>–<code>T04</code> antes da continuação de <code>US-F0-08</code> a partir de <code>T06</code> (<code>US-F0-08-T05</code> fecha com a shape antiga e é realinhada por <code>US-F0-11-T04</code>), <code>US-F0-11-T05</code>–<code>T10</code> intercaladas com <code>US-F0-08-T08</code>–<code>T10</code>, <code>US-F0-10</code> dependente de <code>US-F0-11</code> e <code>US-F0-12</code> a fechar a fase</td></tr>
+<tr><td>1.17</td><td>2026-07-02</td><td>Fecho da lacuna de resolução de prompts de identidade: nova <code>US-F0-08-T05b</code> (seam que resolve <code>IdentityPromptRef</code> → path do catálogo → conteúdo do ficheiro versionado incluído no <code>AiGatewayRequest</code>, fail-closed para referência órfã ou ficheiro ilegível, antes de <code>T06</code>; esforço <code>3</code>) e nova <code>US-F0-05-T13</code> (validação fail-fast na importação de que <code>prompts[].path</code> existe e é legível; esforço <code>2</code>); nota em F0.6 de que a injeção das <code>description</code> do catálogo na prompt de identidade (§7.1) depende de <code>T05b</code>; totais <code>US-F0-05</code> 52→54, <code>US-F0-08</code> 71→74, Total F0 666→671</td></tr>
 </tbody>
 </table>
 
@@ -360,7 +369,7 @@
 <li>Se o aprovador configurado estiver ausente ou a decisão expirar, a política define substituição, lembrete ou escalamento; não há fallback implícito para comunicação vertical/horizontal.</li>
 </ul>
 
-<p><strong>Princípio de aplicação da autoridade <em>(direção — Q12)</em>.</strong> As chaves de <code>can_decide</code>/<code>must_escalate</code>/<code>requires_human_approval</code> (§4.8, §6.2) são <strong>vocabulário controlado</strong> declarado no <code>registry</code>, não definições semânticas. O seu significado é aplicado no <strong>ponto onde o efeito sai do agente</strong> — a invocação de ferramenta ou a emissão de mensagem organizacional — e nunca dentro do raciocínio do modelo. Garantias fixadas nesta fase, antes de fechar os detalhes:</p>
+<p><strong>Princípio de aplicação da autoridade <em>(decisão — resolve Q13; anteriormente referida por engano como Q12)</em>.</strong> As chaves de autoridade (§4.8, §4.9, §6.2) são <strong>vocabulário controlado</strong> declarado no <code>registry</code>, não definições semânticas. O seu significado é aplicado no <strong>ponto onde o efeito sai do agente</strong> — a invocação de ferramenta ou a emissão de mensagem organizacional — e nunca dentro do raciocínio do modelo. Garantias fixadas nesta fase, antes de fechar os detalhes:</p>
 
 <ol>
 <li><strong>Fail-closed.</strong> Uma ação cuja chave não consta de nenhuma lista, ou uma chave desconhecida, é tratada como não-permitida (escala/recusa + auditoria); nunca há <code>allow</code> silencioso.</li>
@@ -369,7 +378,7 @@
 <li><strong>Vocabulário no Git/registry.</strong> As chaves são declaradas e validadas no YAML (§4.8); a prompt apenas as referencia, mantendo o Git como fonte de verdade.</li>
 </ol>
 
-<p><strong>Em aberto (Q12, não bloqueia a F0):</strong> a grafia/namespacing da taxonomia de chaves de ação e o mecanismo de binding ação-concreta→chave — declaração da chave pela própria ferramenta, classificação assistida pelo agente, ou ambos — ficam para §6.2 e o loop do <code>AiAgentActor</code> em <code>US-F0-08</code>.</p>
+<p><strong>Decisão (v1.13, fecha Q13):</strong> a taxonomia de chaves e o binding ação-concreta→chave seguem o modelo de <strong>catálogo de domínios de ação</strong> com <strong>binding híbrido de precedência assimétrica</strong>, definido como contrato em §4.9: os gates de escalamento e aprovação são ativados por <em>predicados objetivos</em> sobre atributos observáveis da ação, ignorando a classificação do modelo; <code>can_decide</code> é ativado por <em>intenção declarada</em> num campo estruturado de vocabulário fechado; match objetivo vence sempre intenção declarada, e uma ação sem match escala por omissão. Regra síntese: <strong>para permitir confia-se no agente; para travar, não</strong> — um erro de classificação do modelo só pode apertar o gate, nunca alargá-lo.</p>
 
 <h3>4.5 Padrões de trabalho</h3>
 
@@ -424,7 +433,7 @@
 
 <h3>4.8 Schema YAML inicial da organização <em>(contrato)</em></h3>
 
-<p>Esta secção fixa a <strong>forma canónica</strong> do YAML que descreve uma organização (<code>US-F0-05-T01</code>): os blocos de topo, os campos de cada bloco e como a árvore de comando de §4.1/§4.2 é expressa em dados. O contrato define a <em>shape</em>, não a sua materialização: o modelo tipado fica em <code>US-F0-05-T03</code>, o parser com erros legíveis em <code>US-F0-05-T04</code>, as convenções de ficheiros/pastas GitOps em <code>US-F0-05-T02</code> (operacional, em <code>docs/configuration.md</code>), a organização exemplo de Engenharia/Delivery em <code>US-F0-05-T08</code>, e as regras de validação (unicidade, referências cruzadas e regras estruturais) em <code>US-F0-05-T05</code>–<code>T07</code>. O interior de cada posição (ocupante AI/humano, budgets, ferramentas, working hours) reutiliza o contrato de §6.2 e o ritmo proativo de §4.6 sem os redefinir aqui.</p>
+<p>Esta secção fixa a <strong>forma canónica</strong> do YAML que descreve uma organização (<code>US-F0-05-T01</code>): os blocos de topo, os campos de cada bloco e como a árvore de comando de §4.1/§4.2 é expressa em dados. O contrato define a <em>shape</em>, não a sua materialização: o modelo tipado fica em <code>US-F0-05-T03</code>, o parser com erros legíveis em <code>US-F0-05-T04</code>, as convenções de ficheiros/pastas GitOps em <code>US-F0-05-T02</code> (operacional, em <code>docs/configuration.md</code>), a organização exemplo de Engenharia/Delivery em <code>US-F0-05-T08</code>, e as regras de validação (unicidade, referências cruzadas e regras estruturais) em <code>US-F0-05-T05</code>–<code>T07</code>. O interior de cada posição (ocupante AI/humano, budgets, ferramentas, working hours) reutiliza o contrato de §6.2 e o ritmo proativo de §4.6 sem os redefinir aqui; o bloco <code>authority</code> segue o contrato do catálogo de domínios de ação de §4.9.</p>
 
 <p>Um documento de organização tem quatro blocos de topo: <code>organization</code> (cabeçalho e owner), <code>prompts</code> (catálogo de prompts de identidade referenciáveis), <code>units</code> (árvore de unidades com liderança) e <code>positions</code> (posições, sua unidade, superior direto e configuração de §6.2). As relações de comando não são um bloco separado: emergem de <code>units[].leadership</code>, <code>positions[].unit</code> e <code>positions[].reports_to</code>.</p>
 
@@ -461,10 +470,8 @@ positions:
       type: ai-agent           # ai-agent | human
       identity_prompt_ref: ceo-v1
       # ai / budget / tools / working_hours: ver §6.2
-      authority:               # §6.2
-        can_decide: ["prioridades-trimestrais"]
-        must_escalate: ["compromissos-orcamentais"]
-        requires_human_approval: ["mudancas-de-estrutura"]
+      authority:               # esparsa — chaves e binding no catálogo (§4.9)
+        can_decide: ["org.quarterly-priorities"]
   - id: delivery-lead
     name: Delivery Lead
     unit: engenharia
@@ -479,10 +486,12 @@ positions:
       subscriptions:           # reação a eventos — ver §6.2
         - event: directive-deadline-approaching
           within: PT4H
-      authority:
-        can_decide: ["triagem-de-bugs"]
-        must_escalate: ["risco-de-prazo-critico"]
-        requires_human_approval: ["release-em-producao"]
+      authority:               # escalamento/aprovação vêm dos predicados do catálogo (§4.9)
+        can_decide: ["delivery.bug-triage"]
+        overrides:
+          - key: comms.external-official
+            gate: human-approval   # aperta o mínimo do catálogo (escalate → human-approval)
+            approver: ceo
 </code></pre>
 
 <p>Campos e semântica por bloco:</p>
@@ -503,11 +512,79 @@ positions:
 <tr><td><code>positions[].id</code></td><td>Sim</td><td><code>PositionId</code> único.</td></tr>
 <tr><td><code>positions[].unit</code></td><td>Sim</td><td><code>UnitId</code> a que a posição pertence; toda a posição pertence a uma unidade.</td></tr>
 <tr><td><code>positions[].reports_to</code></td><td>Sim</td><td><code>PositionId</code> do superior organizacional direto; <code>null</code> apenas na liderança da raiz, cujos escalamentos sobem para <code>organization.owner</code> (§4.2).</td></tr>
-<tr><td><code>positions[].occupant</code></td><td>Sim</td><td>Ocupante e configuração da posição: <code>type</code> (<code>ai-agent</code>/<code>human</code>), <code>identity_prompt_ref</code>, <code>schedule</code>, <code>subscriptions</code>, <code>authority</code>, e — para <code>ai-agent</code> — <code>ai</code>/<code>budget</code>/<code>tools</code>/<code>working_hours</code> conforme §6.2.</td></tr>
+<tr><td><code>positions[].occupant</code></td><td>Sim</td><td>Ocupante e configuração da posição: <code>type</code> (<code>ai-agent</code>/<code>human</code>), <code>identity_prompt_ref</code>, <code>schedule</code>, <code>subscriptions</code>, <code>authority</code> (contrato de §4.9: <code>can_decide</code> + <code>overrides</code>), e — para <code>ai-agent</code> — <code>ai</code>/<code>budget</code>/<code>tools</code>/<code>working_hours</code> conforme §6.2.</td></tr>
 </tbody>
 </table>
 
 <p><strong>Relações de comando (derivadas).</strong> A árvore lógica de §4.1 e o routing vertical de §4.2 são reconstruídos a partir destes campos, sem um bloco dedicado: <code>positions[].unit</code> dá a pertença à unidade; <code>positions[].reports_to</code> dá a aresta de comando superior→subordinado direto; <code>units[].leadership</code> identifica o comandante de cada unidade; a liderança da raiz tem <code>reports_to: null</code> e escala para <code>organization.owner</code>. É esta informação que <code>US-F0-05-T09</code> materializa no registry/read model e que alimenta <code>IOrganizationRelations</code> (§9.8, <code>US-F0-04</code>). A colaboração horizontal entre unidades (§4.3, <code>allowed_peer_channels</code>) não faz parte deste schema inicial e fica para uma evolução posterior do contrato.</p>
+
+<h3>4.9 Catálogo de domínios de ação e binding da autoridade <em>(contrato — resolve Q13)</em></h3>
+
+<p>Esta secção fecha a parte deixada em aberto por §4.4: a taxonomia das chaves de autoridade e o mecanismo determinístico que liga uma ação concreta (invocação de ferramenta ou emissão de mensagem organizacional) a uma chave e ao gate correspondente. Define a <em>shape</em> e as regras; a implementação — catálogo, migração da <code>authority</code> esparsa, binding e gate no ponto de saída do <code>AiAgentActor</code> — pertence a <code>US-F0-11</code>, estendendo o padrão de validação da organização de <code>US-F0-05-T05</code>–<code>T07</code>.</p>
+
+<p><strong>Catálogo.</strong> Um ficheiro versionado em Git (<code>action-domains</code>), separado dos documentos de organização, declara todos os domínios de ação da organização. Cada domínio tem: <code>key</code> namespaced na forma <code>dominio.acao</code> (ex.: <code>delivery.bug-triage</code>, <code>finance.commitments</code>), <code>description</code> legível (reutilizada na prompt de identidade por injeção automática, §7.1), <code>gate</code> <strong>mínimo</strong> (<code>decide</code> | <code>escalate</code> | <code>human-approval</code>) e, opcionalmente, predicados <code>match</code>. Toda a chave usada em qualquer bloco <code>authority</code> tem de existir no catálogo; referências órfãs falham a validação. O catálogo começa grosseiro (dezenas de chaves, não centenas): lacunas de cobertura resultam em escalamento, que indica onde refinar.</p>
+
+<pre><code class="language-yaml">version: 1
+defaults:
+  unmatched_action: escalate      # fail-closed: ação sem match objetivo e sem chave declarada válida
+
+domains:
+  - key: delivery.bug-triage      # chave de confiança: sem match, ativada por acting_under
+    description: Classificar, priorizar e atribuir bugs internamente
+    gate: decide
+
+  - key: delivery.release-prod    # chave objetiva: match aplica-se a toda a organização
+    description: Promover código ou configuração para produção
+    gate: human-approval
+    match:
+      - action: tool
+        tool: http
+        method: POST
+        url: &quot;https://ci.acme.pt/pipelines/*/promote&quot;
+
+  - key: comms.external-official
+    description: Comunicação oficial para fora da organização
+    gate: escalate                # mínimo: posições podem apertar para human-approval
+    match:
+      - action: tool
+        tool: email
+        recipient: external       # atributo derivado pelo extractor do conector
+</code></pre>
+
+<p><strong>Dois tipos de chave.</strong> Chaves <em>de confiança</em> (sem <code>match</code>, sempre <code>gate: decide</code>) são ativadas por intenção declarada pelo agente e só têm efeito quando listadas no <code>can_decide</code> de uma posição. Chaves <em>objetivas</em> (com <code>match</code>) são ativadas pelas características observáveis da ação e aplicam-se a <strong>toda a organização</strong>, independentemente do que cada posição declara: o predicado e a severidade viajam juntos, uma vez, no catálogo.</p>
+
+<p><strong>Gate mínimo.</strong> O <code>gate</code> do catálogo é um piso de governança: uma posição pode <em>apertar</em> (override para gate mais severo e/ou <code>approver</code> específico), nunca descer abaixo do mínimo — a validação rejeita o contrário. Os três mínimos correspondem a três afirmações organizacionais: <code>decide</code> — existem posições de confiança para decidir isto sozinhas (quais, diz cada posição); <code>escalate</code> — nenhum agente decide isto por iniciativa própria, mas a hierarquia resolve sem humanos (com backstop natural: um escalamento na liderança da raiz sobe para o <code>OrganizationOwner</code>, §4.2); <code>human-approval</code> — a decisão tem de sair da máquina. O mínimo <code>escalate</code> destina-se à classe estreita de domínios onde o iniciador nunca pode ser o decisor (ações em que o agente é parte interessada — o próprio budget, a própria configuração, a própria alçada — e princípio dos quatro olhos por política); para domínios em que <em>algumas</em> posições devem decidir, o mínimo correto é <code>decide</code>.</p>
+
+<p><strong>Configuração esparsa da posição.</strong> O bloco <code>authority</code> de uma posição reduz-se a <code>can_decide</code> (chaves com mínimo <code>decide</code> que a posição pode decidir sozinha) e <code>overrides</code> opcionais (apertar o gate de uma chave objetiva e/ou definir o seu <code>approver</code>). Não existem listas <code>must_escalate</code>/<code>requires_human_approval</code> por posição: esse comportamento vem dos predicados e mínimos do catálogo. O silêncio é sempre seguro — uma posição sem <code>authority</code> não decide nada e escala tudo; configuração mínima produz o comportamento mais conservador, nunca o mais permissivo.</p>
+
+<pre><code class="language-yaml">authority:                        # só o delta face ao catálogo
+  can_decide: [delivery.bug-triage]
+  overrides:
+    - key: comms.external-official
+      gate: human-approval        # aperta o mínimo (escalate → human-approval)
+      approver: ceo
+</code></pre>
+
+<p><strong>Binding — intenção declarada.</strong> A camada HIVE injeta em cada schema de ferramenta apresentado ao modelo, e nos metadados de emissão de mensagem organizacional (§9.5), um campo obrigatório <code>acting_under</code> cujo <code>enum</code> contém apenas o <code>can_decide</code> da posição — o modelo não consegue sintaticamente declarar uma chave que não tem. Campo ausente ou valor inválido é tratado como não-declarado (fail-closed) e auditado; recorrência sinaliza problema de prompt ou de catálogo. A prompt de identidade explica o significado das chaves (a partir das <code>description</code> do catálogo), mas informa a escolha — não a decide.</p>
+
+<p><strong>Binding — atributos observáveis.</strong> Os predicados <code>match</code> avaliam exclusivamente: atributos <em>diretos</em> da ação estruturada e validada (tool id, método, URL/scope, tipo de mensagem, destinatário) e atributos <em>derivados</em> calculados por extractors determinísticos declarados no contrato de cada conector (ex.: <code>recipient: external</code>, <code>amount_eur</code>) — nunca juízo do modelo. Regra de validação no arranque: um predicado que referencia um atributo que o contrato da ferramenta correspondente não declara fornecer é configuração inválida; não existem predicados que silenciosamente não avaliam. Os extractors são código crítico de segurança: um bug num extractor é um predicado que não dispara, pelo que têm testes de contrato obrigatórios.</p>
+
+<p><strong>Resolução do gate (ordem determinística).</strong> Recebida a ação concreta e a chave declarada:</p>
+
+<ol>
+<li>Avaliar todos os predicados do catálogo sobre os atributos da ação. Se disparar <code>human-approval</code> (mínimo ou override da posição) → reter a ação e emitir <code>ApprovalRequest</code> ao aprovador resolvido; se dispararem várias chaves <code>human-approval</code> com aprovadores distintos, <strong>todas</strong> exigem decisão favorável (união — conservador e determinístico).</li>
+<li>Senão, se disparar <code>escalate</code> → reter a ação e emitir <code>Escalation</code> ao superior direto (<code>reports_to</code>), com a ação e o contexto anexados.</li>
+<li>Senão, se <code>acting_under</code> estiver declarado e pertencer ao <code>can_decide</code> da posição → permitir e auditar com a chave.</li>
+<li>Senão → <code>defaults.unmatched_action</code> (<code>escalate</code>): fail-closed que mantém a organização a funcionar — a decisão sobe em vez de morrer.</li>
+</ol>
+
+<p>Em todos os casos: match objetivo vence intenção declarada; múltiplos matches → o mais severo ganha; um erro de classificação do modelo só pode apertar o gate, nunca alargá-lo.</p>
+
+<p><strong>Ações retidas e evolução do catálogo.</strong> Uma ação retida persiste com a correlação completa (thread, linhagem de diretiva) e fixa a versão/hash da política sob a qual foi avaliada (<code>ApprovalPolicyRef</code>, §9). No resume (após <code>ApprovalDecision</code> favorável ou diretiva de autorização), se a política em vigor tiver <em>apertado</em> entretanto, a ação é reavaliada contra a política nova; se tiver afrouxado, vale a versão fixada. Renomear ou remover uma chave do catálogo com referências vivas é uma migração explícita, não uma edição livre.</p>
+
+<p><strong>Resolução por escalamento.</strong> O superior resolve uma <code>Escalation</code> de gate emitindo uma diretiva de autorização; a reexecução da ação retida referencia essa autorização e o gate verifica-a deterministicamente pela linhagem de diretivas (§9.6) — nunca por alegação do agente. A forma da autorização — <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code>, vinculação por <code>RetainedActionId</code> + <code>ActionFingerprint</code>, uso único, expiração obrigatória e verificação determinística — é o contrato de §9.11 <em>(resolve Q14)</em>.</p>
+
+<p><strong>Limites explícitos.</strong> (i) A autoridade pertence à <strong>posição</strong>, nunca ao ocupante; a configuração do ocupante pode estreitar a alçada efetiva (budget, ferramentas), nunca alargá-la. (ii) Para ocupantes humanos, o gate vincula apenas as ações mediadas pelo protocolo HIVE (mensagens, aprovações, ferramentas do sistema); fora do sistema, a alçada é consultiva — não se assuma garantia que não existe. (iii) Dentro do <code>can_decide</code>, o gate não avalia conteúdo: limita o raio de ação de um agente manipulado (ex.: prompt injection via conector), mas não elimina abuso dentro do domínio permitido; a defesa aí é a auditoria (§10, §11).</p>
 
 <hr>
 
@@ -784,12 +861,14 @@ occupant:
       scope: [&quot;https://api.empresa.pt/*&quot;]
     - connector: files
       scope: [&quot;read:/shared/marketing&quot;]
-  authority:
-    can_decide: [&quot;conteudo-blog&quot;, &quot;respostas-redes-sociais&quot;]
-    must_escalate: [&quot;compromissos-orcamentais&quot;, &quot;comunicacao-externa-oficial&quot;]
-    requires_human_approval: [&quot;publicacao-final&quot;]</code></pre>
+  authority:                      # esparsa — chaves e binding no catálogo (§4.9)
+    can_decide: [&quot;marketing.blog-content&quot;, &quot;marketing.social-replies&quot;]
+    overrides:
+      - key: comms.external-official
+        gate: human-approval      # aperta o mínimo do catálogo
+        approver: marketing-lead</code></pre>
 
-<p>Neste exemplo, o budget reativo é 5 EUR/dia e o proativo é 1 EUR/dia adicional; o teto global explícito impede que a soma ultrapasse 6 EUR/dia. O campo <code>timezone</code> pertence à posição e é herdado por <code>schedule</code> e <code>working_hours</code>; <code>working_hours.end</code> é exclusivo, portanto 18:00 já está fora do horário normal.</p>
+<p>Neste exemplo, o budget reativo é 5 EUR/dia e o proativo é 1 EUR/dia adicional; o teto global explícito impede que a soma ultrapasse 6 EUR/dia. O campo <code>timezone</code> pertence à posição e é herdado por <code>schedule</code> e <code>working_hours</code>; <code>working_hours.end</code> é exclusivo, portanto 18:00 já está fora do horário normal. O bloco <code>authority</code> é esparso por construção: escalamento e aprovação obrigatórios vêm dos predicados objetivos e gates mínimos do catálogo de domínios de ação (§4.9); a posição declara apenas o seu <code>can_decide</code> e <code>overrides</code> que apertam o mínimo.</p>
 
 <h3>6.3 AI Gateway</h3>
 
@@ -1103,6 +1182,8 @@ enum SystemEndpointKind
 <tr><td><code>PeerResponse</code></td><td>Horizontal</td><td>Entre pares</td><td>Resposta a um <code>PeerRequest</code>.</td><td>Quando uma posição responde, recusa ou clarifica um pedido de par.</td></tr>
 <tr><td><code>ApprovalRequest</code></td><td>Governança</td><td>Requerente → aprovador autorizado por política</td><td>Pedido de aprovação humana ou organizacional para uma ação.</td><td>Quando uma política de autoridade exige aprovação antes de executar uma ação.</td></tr>
 <tr><td><code>ApprovalDecision</code></td><td>Governança</td><td>Aprovador autorizado → requerente/thread original</td><td>Decisão de aprovação ou rejeição, com razão opcional.</td><td>Quando uma pessoa, posição ou papel autorizado responde ao <code>ApprovalRequest</code> correlacionado.</td></tr>
+<tr><td><code>AuthorizationGrant</code></td><td>Governança</td><td>Destinatário do escalamento de gate → requerente/thread original</td><td>Autorização vinculada de reexecução de uma ação retida.</td><td>Quando o superior (ou o <code>OrganizationOwner</code>) resolve favoravelmente uma <code>Escalation</code> de gate; contrato em §9.11.</td></tr>
+<tr><td><code>AuthorizationDenial</code></td><td>Governança</td><td>Destinatário do escalamento de gate → requerente/thread original</td><td>Negação fundamentada da reexecução de uma ação retida.</td><td>Quando o superior (ou o <code>OrganizationOwner</code>) resolve desfavoravelmente uma <code>Escalation</code> de gate; contrato em §9.11.</td></tr>
 <tr><td><code>Pulse</code></td><td>Sistema / scheduler</td><td>Sistema → posição</td><td>Disparo agendado idempotente para proatividade declarada.</td><td>Quando um schedule configurado deve ativar uma rotina de posição.</td></tr>
 <tr><td><code>EventTrigger</code></td><td>Sistema / eventos</td><td>Sistema → posição</td><td>Disparo por subscrição de evento de domínio.</td><td>Quando uma posição subscreveu eventos como prazo próximo, bloqueio ou budget threshold.</td></tr>
 </tbody>
@@ -1406,6 +1487,8 @@ public sealed record ValidationResult(
 <tr><td><code>PeerResponse</code></td><td><code>peer-response.json</code></td><td>position → position</td><td><code>InReplyTo</code>, <code>Body</code></td></tr>
 <tr><td><code>ApprovalRequest</code></td><td><code>approval-request.json</code></td><td>position → position</td><td><code>Action</code>, <code>Justification</code>, <code>Policy</code> (<code>ApprovalPolicyRef</code>)</td></tr>
 <tr><td><code>ApprovalDecision</code></td><td><code>approval-decision.json</code></td><td>organization-owner → position</td><td><code>RequestId</code>, <code>Approved</code>, <code>Reason</code> (opc.)</td></tr>
+<tr><td><code>AuthorizationGrant</code></td><td><code>authorization-grant.json</code></td><td>position → position</td><td><code>InReplyTo</code>, <code>RetainedActionId</code>, <code>Fingerprint</code>, <code>Key</code>, <code>ExpiresAt</code>, <code>Reason</code> (opc.)</td></tr>
+<tr><td><code>AuthorizationDenial</code></td><td><code>authorization-denial.json</code></td><td>position → position</td><td><code>InReplyTo</code>, <code>RetainedActionId</code>, <code>Reason</code></td></tr>
 <tr><td><code>Pulse</code></td><td><code>pulse.json</code></td><td>system (<code>scheduler</code>) → position</td><td><code>ScheduleId</code>, <code>Payload</code></td></tr>
 <tr><td><code>EventTrigger</code></td><td><code>event-trigger.json</code></td><td>system (<code>domain-events</code>) → position</td><td><code>EventType</code>, <code>Payload</code></td></tr>
 </tbody>
@@ -1414,6 +1497,81 @@ public sealed record ValidationResult(
 <p><strong>Evolução aditiva (compatível), aplicada.</strong> Acrescentar um campo <em>opcional</em> é compatível e não exige migração de journals (§9.9). Exemplo: adicionar <code>Labels</code> opcional a <code>Memo</code>. Um produtor novo passa a emitir <code>"Labels": ["staging"]</code>; um reader antigo ignora a propriedade desconhecida e continua a ler o resto do envelope; um reader novo tolera a sua ausência em payloads antigos sem aplicar defaults silenciosos. O <code>SchemaVersion</code> só precisa de subir se a semântica do tipo deixar de ser interpretável corretamente por leitores anteriores — o que não acontece num campo verdadeiramente opcional.</p>
 
 <p><strong>Evolução disruptiva, aplicada.</strong> Renomear ou remover um campo, alterar valores wire, alterar o mapeamento de canal, alterar o manifest ou o identificador do serializer, ou alargar um conjunto fechado de §9.5 são alterações de schema explícitas (§9.9). Exemplo: renomear <code>Memo.Body</code> para <code>Memo.Text</code>. O procedimento é: (1) incrementar o <code>SchemaVersion</code> do envelope; (2) congelar o fixture da versão anterior e adicionar um fixture da nova versão, alimentando os testes de compatibilidade de <code>US-F0-03-T11</code> (leitura controlada de versões anteriores e rejeição de versões desconhecidas); (3) manter o manifest (<code>memo</code>) e o identificador numérico do serializer inalterados enquanto existirem journals com a versão antiga, já que o manifest — e não o nome do record CLR — é o que viaja no wire. Os records de <code>Hive.Domain.Messaging</code> permanecem a fonte única do schema; não se introduz IDL paralela.</p>
+
+
+<h3>9.11 Autorização de ações retidas <em>(contrato — resolve Q14)</em></h3>
+
+<p>Esta secção fecha a parte deixada em aberto por §4.9 (resolução por escalamento): a forma da autorização que resolve uma <code>Escalation</code> de gate, a sua vinculação à instância da ação retida, o uso único, a expiração e a verificação determinística. Define a <em>shape</em> e as regras; a implementação — tipos, validador de routing, máquina de estados da ação retida e verificação no resume — pertence a <code>US-F0-12</code>, seguindo o padrão dos validadores de governança de <code>US-F0-04</code>.</p>
+
+<p><strong>Tipos canónicos próprios, não <code>Directive</code> livre.</strong> A resolução de um escalamento de gate usa dois tipos dedicados do canal de governança: <code>AuthorizationGrant</code> e <code>AuthorizationDenial</code> (§9.4). Uma <code>Directive</code> é texto interpretado pelo modelo; a autorização é verificada por código no gate e exige payload estruturado com regras próprias em <code>MessageContractRules</code> (§9.7), ao lado de <code>ApprovalRequest</code>/<code>ApprovalDecision</code>. A expressão "diretiva de autorização" usada anteriormente em §4.9 refere estes tipos.</p>
+
+<p><strong>Identidade da ação retida.</strong> Uma ação retida ganha identidade lógica própria no momento da retenção: <code>RetainedActionId</code> (família de identidades de §9.1), distinta do envelope e da diretiva em processamento. A retenção persiste também um <code>ActionFingerprint</code>: hash canónico da ação concreta — tool id, argumentos validados e atributos derivados pelos extractors (§4.9) — calculado sobre a serialização determinística de ADR-007 (ordenação estável de chaves, sem defaults silenciosos). O par (<code>RetainedActionId</code>, <code>ActionFingerprint</code>) é a âncora de toda a verificação posterior.</p>
+
+<p>Esboço C# alinhado com a taxonomia canónica:</p>
+
+<pre><code class="language-csharp">record AuthorizationGrant(
+    ... ,                                  // envelope OrgMessage comum
+    MessageId InReplyTo,                   // Escalation de gate original
+    RetainedActionId RetainedActionId,     // instância única autorizada
+    ActionFingerprint Fingerprint,         // hash canónico da ação retida
+    AuthorityKey Key,                      // chave sob a qual a ação foi retida (auditoria)
+    DateTimeOffset ExpiresAt,              // obrigatório; nunca infinito
+    string? Reason) : OrgMessage;
+
+record AuthorizationDenial(
+    ... ,
+    MessageId InReplyTo,
+    RetainedActionId RetainedActionId,
+    string Reason) : OrgMessage;           // Reason obrigatório na negação</code></pre>
+
+<p>Campos e semântica:</p>
+
+<table>
+<thead>
+<tr><th>Campo</th><th>Obrigatoriedade</th><th>Semântica</th></tr>
+</thead>
+<tbody>
+<tr><td><code>InReplyTo</code></td><td>Sempre</td><td>Referencia o <code>MessageId</code> da <code>Escalation</code> de gate original, na mesma organização e <code>ThreadId</code>. Sem correlação válida, a mensagem é rejeitada e auditada — espelho da regra de <code>ApprovalDecision</code> (§4.4).</td></tr>
+<tr><td><code>RetainedActionId</code></td><td>Sempre</td><td>Identifica exatamente uma instância de ação retida. Um grant nunca autoriza uma classe de ações, um domínio ou ações futuras.</td></tr>
+<tr><td><code>Fingerprint</code></td><td>Sempre em <code>AuthorizationGrant</code></td><td>Tem de coincidir com o fingerprint persistido na retenção. Se o agente re-emitir a ação com qualquer diferença observável, o fingerprint não coincide, o grant não se aplica e a ação é avaliada do zero pelo gate — elimina a classe "autorizaram X, executo X'".</td></tr>
+<tr><td><code>Key</code></td><td>Sempre em <code>AuthorizationGrant</code></td><td>Chave de autoridade que disparou a retenção; viaja para auditoria e para o refinamento futuro do âmbito do emissor (ver abaixo).</td></tr>
+<tr><td><code>ExpiresAt</code></td><td>Sempre em <code>AuthorizationGrant</code></td><td>Instante de expiração, estritamente posterior a <code>SentAt</code>; o default vem de política (proposta F0: 24h), nunca é ilimitado. Avaliação por relógio injetável (<code>TimeProvider</code>), como no <code>ApprovalRoutingValidator</code>.</td></tr>
+<tr><td><code>Reason</code></td><td>Opcional no grant; obrigatório na denial</td><td>Justificação legível; na negação alimenta o contexto com que o agente prossegue.</td></tr>
+</tbody>
+</table>
+
+<p><strong>Routing e emissor autorizado.</strong> <code>AuthorizationGrant</code> e <code>AuthorizationDenial</code> pertencem ao canal de governança: origem <code>PositionEndpointRef</code> ou <code>OrganizationOwnerEndpointRef</code> (o owner resolve escalamentos da liderança da raiz, §4.2), destino <code>PositionEndpointRef</code> da posição requerente. A rota só é aceite quando o emissor é o destinatário da <code>Escalation</code> original — verificado por correlação com o registo do escalamento, nunca por alegação do agente. Mensagens duplicadas, expiradas, de emissor não autorizado ou sem correlação são rejeitadas e auditadas, exatamente como decisões de aprovação (§4.4).</p>
+
+<p><strong>Autorizar é também uma ação gateada.</strong> A emissão de um <code>AuthorizationGrant</code> passa pelo próprio mecanismo de §4.9, sob uma chave de confiança declarada no catálogo de domínios de ação:</p>
+
+<pre><code class="language-yaml">domains:
+  - key: governance.authorize-retained-action
+    description: Autorizar a reexecução de uma ação retida escalada por um subordinado direto
+    gate: decide            # chave de confiança: só tem efeito via can_decide
+</code></pre>
+
+<p>Só uma posição com <code>governance.authorize-retained-action</code> no seu <code>can_decide</code> consegue emitir grants — o <code>enum</code> de <code>acting_under</code> nem sequer oferece a chave às restantes. Um superior sem esta chave que tente resolver o escalamento cai no default fail-closed e o seu próprio escalamento sobe um nível: a cascata até ao <code>OrganizationOwner</code> fica garantida pelo mecanismo existente, sem código especial. O refinamento por domínio (ex.: <code>governance.authorize.finance</code>, validado contra o <code>Key</code> do grant) é evolução aditiva do catálogo, não requisito da F0.</p>
+
+<p><strong>Ciclo de vida e uso único.</strong> A ação retida tem uma máquina de estados persistida no <code>PositionActor</code>, junto do restante estado recuperável:</p>
+
+<pre><code>Retained ──AuthorizationGrant aceite──▶ Authorized ──resume verificado──▶ Consumed
+   │                                        │
+   ├─AuthorizationDenial aceite──▶ Denied   └─ExpiresAt ultrapassado──▶ Expired → re-escala
+   └─política apertada no resume──▶ Retained (nova avaliação)</code></pre>
+
+<p>O uso único é consequência da vinculação, não uma flag: cada <code>RetainedActionId</code> existe uma vez, aceita no máximo um grant ativo (grants subsequentes são duplicados rejeitados) e transita para <code>Consumed</code> na primeira reexecução bem-sucedida. Replays são absorvidos pela idempotência por <code>MessageId</code>. Um grant sobre uma instância <code>Expired</code> não a ressuscita: a expiração re-escala com contexto ("autorização expirou"), e lembretes/substituição vêm de política, sem fallback implícito — coerente com §4.4 e com o princípio de que humanos têm latência.</p>
+
+<p><strong>Verificação no resume (ordem determinística).</strong> Recebido o resume de uma ação retida:</p>
+
+<ol>
+<li>Existe grant aceite para o <code>RetainedActionId</code>, no estado <code>Authorized</code>, na mesma organização/thread; caso contrário, a ação permanece retida (fail-closed).</li>
+<li><code>Fingerprint</code> do grant coincide com o fingerprint persistido; divergência invalida o grant para esta execução e devolve a ação ao gate como ação nova.</li>
+<li><code>ExpiresAt</code> ainda não foi ultrapassado (relógio injetável); expirado → <code>Expired</code> + re-escalamento.</li>
+<li>Reavaliação de política conforme §4.9: se a política em vigor tiver apertado face à versão fixada na retenção, a ação é reavaliada; se disparar <code>human-approval</code>, o grant <strong>não</strong> substitui o <code>ApprovalDecision</code> — a ação volta a <code>Retained</code> e emite <code>ApprovalRequest</code>. Um <code>AuthorizationGrant</code> só resolve gates <code>escalate</code>, nunca rebaixa <code>human-approval</code>.</li>
+<li>Verificações cumpridas → executar, transitar para <code>Consumed</code> e auditar com a referência ao grant, à chave e ao <code>ApprovalPolicyRef</code> aplicado.</li>
+</ol>
+
+<p><strong>Limites explícitos.</strong> (i) Um grant não é transitivo nem delegável: autoriza uma instância, emitido por quem recebeu o escalamento; se esse superior não pode decidir, escala — não delega a autorização. (ii) Um grant não altera <code>can_decide</code> nem o catálogo: autorizações recorrentes para a mesma chave são sinal para evoluir a configuração (dar a chave à posição ou refinar o catálogo), visível na auditoria. (iii) <code>AuthorizationDenial</code> encerra a instância (<code>Denied</code>) e devolve o <code>Reason</code> ao agente como contexto de processamento; não impede o agente de propor um caminho alternativo, que será uma ação nova com o seu próprio gate.</p>
 
 <hr>
 
@@ -1499,13 +1657,15 @@ public sealed record ValidationResult(
 <tr><td><code>US-F0-02</code></td><td><code>T01</code>=3, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=2, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=1, <code>T11</code>=1, <code>T12</code>=5</td><td><strong>34</strong></td></tr>
 <tr><td><code>US-F0-03</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=1, <code>T03b</code>=2, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=3, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>45</strong></td></tr>
 <tr><td><code>US-F0-04</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=2</td><td><strong>48</strong></td></tr>
-<tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09a</code>=3, <code>T09b</code>=3, <code>T09c</code>=2, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5</td><td><strong>52</strong></td></tr>
+<tr><td><code>US-F0-05</code></td><td><code>T01</code>=5, <code>T02</code>=2, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09a</code>=3, <code>T09b</code>=3, <code>T09c</code>=2, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=5, <code>T13</code>=2</td><td><strong>54</strong></td></tr>
 <tr><td><code>US-F0-06</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=0 (sem efeito), <code>T07</code>=5, <code>T08a</code>=2, <code>T08b</code>=2, <code>T08c</code>=2, <code>T08d</code>=2, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=5, <code>T13a</code>=3, <code>T13b</code>=3, <code>T13c</code>=2, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>87</strong></td></tr>
 <tr><td><code>US-F0-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=5, <code>T04</code>=5, <code>T05a</code>=3, <code>T05b</code>=3, <code>T05c</code>=2, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14</code>=5</td><td><strong>69</strong></td></tr>
-<tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=5, <code>T09</code>=5, <code>T10a</code>=3, <code>T10b</code>=3, <code>T10c</code>=2, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>71</strong></td></tr>
+<tr><td><code>US-F0-08</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=3, <code>T05b</code>=3, <code>T06</code>=5, <code>T07a</code>=3, <code>T07b</code>=3, <code>T07c</code>=2, <code>T08</code>=5, <code>T09</code>=5, <code>T10a</code>=3, <code>T10b</code>=3, <code>T10c</code>=2, <code>T11</code>=5, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>74</strong></td></tr>
 <tr><td><code>US-F0-09</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03a</code>=3, <code>T03b</code>=3, <code>T03c</code>=2, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>73</strong></td></tr>
 <tr><td><code>US-F0-10</code></td><td><code>T01</code>=2, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=5, <code>T06a</code>=3, <code>T06b</code>=3, <code>T06c</code>=2, <code>T07</code>=3, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=5, <code>T11a</code>=3, <code>T11b</code>=3, <code>T11c</code>=2, <code>T12</code>=3, <code>T13</code>=5, <code>T14a</code>=3, <code>T14b</code>=3, <code>T14c</code>=2</td><td><strong>66</strong></td></tr>
-<tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>576</strong></td></tr>
+<tr><td><code>US-F0-11</code></td><td><code>T01</code>=3, <code>T02</code>=3, <code>T03</code>=5, <code>T04</code>=5, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=5, <code>T08</code>=5, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=5, <code>T12</code>=5</td><td><strong>50</strong></td></tr>
+<tr><td><code>US-F0-12</code></td><td><code>T01</code>=3, <code>T02</code>=3, <code>T03</code>=3, <code>T04</code>=5, <code>T05</code>=5, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=5</td><td><strong>40</strong></td></tr>
+<tr><td><strong>Total F0</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>671</strong></td></tr>
 </tbody>
 </table>
 
@@ -1729,6 +1889,7 @@ Política de aprovação: requires-human-approval (versão v3), aprovador resolv
 <li><strong>US-F0-05-T10</strong> — Persistir registry/read model em PostgreSQL com versão da configuração, hash/fingerprint e timestamp de import.</li>
 <li><strong>US-F0-05-T11</strong> — Expor API interna read-only para consultar organização, unidades, posições, relações de comando e configuração de posição.</li>
 <li><strong>US-F0-05-T12</strong> — Criar testes para YAML válido, YAML inválido, referências quebradas, ciclos, liderança em falta/duplicada, liderança raiz ausente, <code>OrganizationOwner</code> ausente e import idempotente.</li>
+<li><strong>US-F0-05-T13</strong> — Validar na importação que cada <code>prompts[].path</code> aponta para um ficheiro existente e legível dentro da árvore GitOps da organização, falhando fail-fast com erro legível (caminho do campo e path resolvido) antes de qualquer escrita no registry; um path errado nunca chega a runtime.</li>
 </ul>
 <p><strong>Contrato de importação idempotente (US-F0-05-T09):</strong> o importer recebe o modelo tipado e executa, antes de qualquer escrita, as validações de unicidade, referências cruzadas e estrutura de <code>T05</code>–<code>T07</code>. Uma configuração inválida devolve os erros agregados e ordenados e não produz plano nem altera o registry. Sobre uma configuração válida calcula um fingerprint <code>SHA-256</code> da projeção semântica canónica em UTF-8: entidades e conjuntos são ordenados pelas suas chaves estáveis, enquanto valores escalares preservam exatamente o valor validado. Assim, alterar apenas a ordem de declaração não cria uma nova versão funcional. A versão do registry é monotónica por organização, começa em <code>1</code> na primeira materialização e só incrementa quando o fingerprint muda.</p>
 <p>O plano compara o snapshot atual com o alvo e enumera operações determinísticas de criação, atualização e remoção, ordenadas por tipo de entidade e chave. A remoção de entradas ausentes do novo YAML é parte da convergência GitOps e impede dados obsoletos. O read model materializado contém o cabeçalho da organização e projeções imutáveis de unidades, posições, ocupantes inline (identificados pela respetiva <code>PositionId</code>), autoridade por posição e schedules pela chave composta <code>PositionId</code>/<code>ScheduleId</code>, além do <code>OrganizationRelationsSnapshot</code> derivado de <code>unit</code>/<code>reports_to</code>/<code>leadership</code>. A projeção de autoridade conserva <code>can_decide</code>, <code>must_escalate</code> e <code>requires_human_approval</code>; não inventa um binding para <code>ApprovalPolicyRef</code> ou aprovador que o schema ainda não declara.</p>
@@ -2042,6 +2203,7 @@ public interface IPositionConfigurationProvider
 <li><strong>US-F0-08-T03</strong> — Definir a máquina de estados mínima do processamento: recebido, contexto montado, pedido ao <code>AiGateway</code>, resposta interpretada, resultado emitido, falhado ou escalado.</li>
 <li><strong>US-F0-08-T04</strong> — Montar contexto de execução com prompt de identidade, diretiva, memória curta relevante, histórico recente permitido, políticas da posição, ferramentas autorizadas e relações organizacionais necessárias.</li>
 <li><strong>US-F0-08-T05</strong> — Criar prompt/template inicial para triagem de bugs, exigindo saída estruturada que indique intenção: <code>Report</code>, <code>Escalation</code> ou <code>Directive</code> descendente permitida.</li>
+<li><strong>US-F0-08-T05b</strong> — Resolver o catálogo de prompts de identidade: seam de infraestrutura que resolve <code>IdentityPromptRef</code> para o <code>path</code> declarado no catálogo do registry, carrega o conteúdo do ficheiro versionado e inclui-o como secção de identidade do <code>AiGatewayRequest</code> antes da invocação de <code>T06</code>; referência ausente/órfã ou ficheiro ilegível é falha estruturada fail-closed (escalamento ou erro auditável), nunca prompt vazio silencioso. A injeção automática das <code>description</code> do catálogo de domínios de ação na prompt de identidade (§4.9/§7.1) assenta neste resolver e é ativada por <code>US-F0-11</code>.</li>
 <li><strong>US-F0-08-T06</strong> — Invocar o <code>AiGateway</code> com contrato assíncrono, propagando correlation id, cancellation token, timeout, budget disponível, limites de tokens e máximo de iterações.</li>
 <li><strong>US-F0-08-T07</strong> — Implementar interpretação estrita da resposta do provider para uma decisão HIVE tipada, rejeitando ou escalando respostas vazias, malformadas, ambíguas ou fora do schema esperado.
 <ul>
@@ -2081,10 +2243,13 @@ public interface IPositionConfigurationProvider
 <p><strong>Criterios de aceitacao de <code>US-F0-08-T03</code>:</strong> existe um tipo testavel para o estado do processamento que preserva <code>CorrelationId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>MessageId</code>, estado atual, historico de transicoes e razao terminal quando existir; transicoes fora da ordem definida ou tentativas de avancar depois de estado terminal sao rejeitadas de forma deterministica; o <code>AiAgentActor</code> ao receber uma diretiva AI passa para <code>Received</code> e expoe esse snapshot por mensagem interna de consulta, sem criar fonte de verdade recuperavel; a ausencia de processamento ativo ou de correlation id conhecido responde com snapshot ausente em vez de excecao; a API nao contem tipos de SDK, MCP, provider concreto nem payload bruto; e a estimativa mantem-se <code>3</code>.</p>
 <p><strong>Testes minimos de <code>US-F0-08-T03</code>:</strong> a maquina cria snapshot inicial em <code>Received</code> com identidades e historico correto; avancos validos seguem a ordem <code>Received</code> -> <code>ContextAssembled</code> -> <code>GatewayRequested</code> -> <code>ResponseInterpreted</code> -> terminal; avancos invalidos e avancos apos terminal falham; o <code>AiAgentActor</code> guarda apenas o snapshot in-memory do pedido recebido e responde a consultas por correlation id; e consultas sem pedido correspondente retornam vazio.</p>
 <p><strong>Mecanismo de runtime da maquina de estados (US-F0-08-T06/T10):</strong> a maquina de estados de processamento tem dois niveis. O contrato interno definido em <code>US-F0-08-T03</code> — snapshot, estados canonicos, transicoes deterministicas e correlacao — permanece a fonte pura e testavel sem actor, e <code>T03</code> mantem apenas a fatia de runtime ai descrita (entrada em <code>Received</code> e query de snapshot in-memory). A partir de <code>US-F0-08-T06</code> e <code>US-F0-08-T10</code>, quando existirem fases assincronas reais (montagem de contexto, chamada ao <code>AiGateway</code>, espera por resposta, timeout e iteracoes), o <code>AiAgentActor</code> conduz o comportamento por <code>Become</code> a partir do contrato puro, que calcula a proxima transicao a partir do snapshot, e agenda timeouts com timers nativos do Akka.NET; <code>FSM&lt;TState,TData&gt;</code> so e adotado se a DSL de <code>StateTimeout</code> por estado compensar re-codificar a maquina no actor. Nao usar <code>PersistentFSM</code> enquanto a fonte de verdade recuperavel continuar no <code>PositionActor</code>, para nao introduzir uma segunda persistencia concorrente com a da posicao.</p>
-<p><strong>Contexto de execucao da diretiva (US-F0-08-T04):</strong> o <code>AiAgentActor</code> monta, a partir de <code>AiDirectiveProcessingRequest</code>, um snapshot interno imutavel em <code>Hive.Actors.Positions</code> que prepara a chamada futura ao gateway sem a executar. O contexto contem: identidade da organizacao/posicao/ocupante e <code>CorrelationId</code>; referencia ao prompt de identidade (<code>IdentityPromptRef</code>) sem resolver o catalogo de prompts; dados canonicos da <code>Directive</code> (origem, destino, prioridade, prazo, <code>ThreadId</code>, <code>DirectiveId</code>, <code>ParentDirectiveId</code>, objetivo e contexto textual); memoria curta relevante do snapshot persistido com ordenacao deterministica por chave; tarefas abertas ordenadas por <code>TaskId</code>; historico recente permitido como ids de mensagens em ordem de replay, porque a F0 ainda nao materializa corpos historicos no <code>PositionState</code>; politicas da posicao (<code>can_decide</code>, <code>must_escalate</code>, <code>requires_human_approval</code>); ferramentas autorizadas declaradas no ocupante como pares conector/escopos, sem converter ainda para definicoes executaveis; e relacao organizacional direta conhecida pela configuracao runtime (<code>UnitId</code> e <code>ReportsTo</code>).</p>
+<p><strong>Contexto de execucao da diretiva (US-F0-08-T04):</strong> o <code>AiAgentActor</code> monta, a partir de <code>AiDirectiveProcessingRequest</code>, um snapshot interno imutavel em <code>Hive.Actors.Positions</code> que prepara a chamada futura ao gateway sem a executar. O contexto contem: identidade da organizacao/posicao/ocupante e <code>CorrelationId</code>; referencia ao prompt de identidade (<code>IdentityPromptRef</code>) sem resolver o catalogo de prompts; dados canonicos da <code>Directive</code> (origem, destino, prioridade, prazo, <code>ThreadId</code>, <code>DirectiveId</code>, <code>ParentDirectiveId</code>, objetivo e contexto textual); memoria curta relevante do snapshot persistido com ordenacao deterministica por chave; tarefas abertas ordenadas por <code>TaskId</code>; historico recente permitido como ids de mensagens em ordem de replay, porque a F0 ainda nao materializa corpos historicos no <code>PositionState</code>; politicas de autoridade da posicao na shape esparsa de §4.9 (<code>can_decide</code> e <code>overrides</code>; a migracao da shape antiga pertence a <code>US-F0-11-T04</code>); ferramentas autorizadas declaradas no ocupante como pares conector/escopos, sem converter ainda para definicoes executaveis; e relacao organizacional direta conhecida pela configuracao runtime (<code>UnitId</code> e <code>ReportsTo</code>).</p>
 <p>A T04 nao le YAML, registry, catalogo de prompts, segredos ou providers externos; nao chama <code>IAiGateway</code>, nao constroi ainda <code>AiGatewayRequest</code> final, nao executa ferramentas, nao aplica routing/autoridade sobre mensagens resultantes, nao atualiza memoria/tarefas persistidas e nao interpreta respostas de provider. Se faltar prompt de identidade, ferramentas, politicas, historico ou superior direto, o contexto preserva essa ausencia de forma explicita em vez de aplicar defaults silenciosos; falhas de forma do proprio pedido continuam a ser rejeicoes por construtor/factory.</p>
 <p><strong>Criterios de aceitacao de <code>US-F0-08-T04</code>:</strong> existe um tipo/factory testavel para montar o contexto de execucao a partir de <code>AiDirectiveProcessingRequest</code>; o resultado e imutavel, sem SDKs, MCP, payload bruto de provider ou segredos; a montagem preserva identidade, diretiva, prompt ref, limites, memoria curta, tarefas abertas, historico recente permitido, autoridade, ferramentas e relacao organizacional direta; a ordenacao de colecoes e deterministica; o <code>AiAgentActor</code> ao receber uma diretiva AI regista o snapshot <code>Received</code>, monta o contexto, avanca para <code>ContextAssembled</code> e expoe o contexto por query interna usando <code>CorrelationId</code>; a ausencia de contexto para correlation id desconhecido responde como missing; e a estimativa mantem-se <code>5</code>.</p>
 <p><strong>Testes minimos de <code>US-F0-08-T04</code>:</strong> a factory rejeita pedido nulo; um pedido com prompt ref, memoria curta, tarefa aberta, historico recente, autoridade, ferramenta autorizada e <code>ReportsTo</code> produz contexto imutavel com essas partes preservadas e ordenadas; um pedido sem opcionais produz colecoes vazias e campos ausentes explicitos; o actor guarda o contexto montado e a consulta por correlation id devolve snapshot em <code>ContextAssembled</code>; e a consulta de contexto desconhecido devolve missing sem excecao.</p>
+<p><strong>Prompt/template inicial de triagem de bugs (US-F0-08-T05):</strong> a partir de <code>AiDirectiveExecutionContext</code>, o <code>AiAgentActor</code> passa a ter uma API pura e testavel para construir o pedido textual inicial de diretiva, em contrato HIVE/provider-neutral, sem criar uma hierarquia de builders por template, sem resolver o ficheiro apontado por <code>IdentityPromptRef</code>, sem executar ferramentas, sem invocar <code>IAiGateway</code> e sem interpretar a resposta. Nesta fatia F0, o prompt inicial suporta o caso de triagem de bugs apenas quando a autoridade/contexto da posicao o permitir; uma posicao sem essa autoridade deve ser orientada a escalar em vez de agir como triagista. O template inclui a diretiva atual, identificadores de correlacao, memoria curta, tarefas abertas, historico recente permitido apenas por ids, autoridade, ferramentas autorizadas como declaracoes informativas e relacao organizacional direta. A resposta exigida ao provider e JSON estrito, sem Markdown, com uma unica intencao <code>Report</code>, <code>Escalation</code> ou <code>Directive</code>; <code>Directive</code> so pode ser escolhida quando o alvo descendente permitido estiver explicitamente presente no contexto, e o agente deve escalar em vez de inventar routing, aprovacao, factos ou autoridade.</p>
+<p><strong>Criterios de aceitacao de <code>US-F0-08-T05</code>:</strong> existe uma funcao testavel para transformar <code>AiDirectiveExecutionContext</code> num pedido inicial de diretiva, preservando organizacao, posicao, <code>ThreadId</code>, <code>MessageId</code>, <code>DirectiveId</code>, <code>CorrelationId</code>, limites de timeout/tokens, autoridade e provider/modelo ja presentes na configuracao runtime; o prompt declara explicitamente o formato JSON esperado e restringe a intencao a <code>Report</code>, <code>Escalation</code> ou <code>Directive</code>; colecoes aparecem em ordem deterministica; ausencias opcionais sao representadas como vazio/ausente de forma explicita; o <code>AiAgentActor</code> ao receber uma diretiva AI monta e guarda o prompt inicial consultavel por <code>CorrelationId</code>, mantendo o snapshot em <code>ContextAssembled</code>, sem referenciar explicitamente bug triage no fluxo do actor e sem atribuir essa competencia a posicoes que nao a declarem; nao ha chamada ao gateway, parsing de output, validacao de routing, atualizacao de memoria/tarefas nem emissao de mensagens organizacionais nesta tarefa; e a estimativa mantem-se <code>3</code>.</p>
+<p><strong>Testes minimos de <code>US-F0-08-T05</code>:</strong> a funcao rejeita contexto nulo; um contexto completo gera prompt/request com conteudo deterministico que inclui diretiva, memoria curta ordenada, tarefas abertas ordenadas, ferramentas, autoridade, relacao direta, limites e schema JSON de intencao; um contexto sem opcionais gera seccoes vazias explicitas sem defaults silenciosos; o texto do prompt proibe Markdown, routing inventado e <code>Directive</code> sem alvo descendente permitido; o actor guarda o prompt inicial depois da montagem de contexto e devolve missing para correlation id desconhecido; e testes garantem que a construcao do prompt nao chama <code>IAiGateway</code>.</p>
 <p><strong>Critério de conclusão:</strong> o <code>AiAgentActor</code> processa uma <code>Directive</code> vertical através do <code>AiGateway</code>, monta contexto controlado, respeita limites de iteração/timeout/budget, interpreta respostas em mensagens organizacionais canónicas, valida routing/autoridade antes de emitir resultados, atualiza estado persistido via <code>PositionActor</code>, audita a jornada e tem testes unitários e integração para sucesso, escalamento, erro e rejeição de output inválido.</p>
 </article>
 
@@ -2181,6 +2346,62 @@ public interface IPositionConfigurationProvider
 </li>
 </ul>
 <p><strong>Critério de conclusão:</strong> o vertical slice F0 corre em Docker Compose, carrega a organização de Engenharia/Delivery, aceita um bug de exemplo, cria uma <code>Directive</code> de triagem, processa-a por <code>PositionActor</code>/<code>AiAgentActor</code>/<code>AiGateway</code> stub, produz <code>Report</code> ou <code>Escalation</code> canónico, persiste e audita toda a jornada, permite consulta por <code>ThreadId</code>/<code>DirectiveId</code> após restart e tem testes end-to-end para sucesso, escalamento, falha e idempotência.</p>
+</article>
+
+<h4>F0.6 — Autoridade aplicada: catálogo de domínios de ação e autorização de ações retidas</h4>
+<p><strong>Ordem de execução e dependências.</strong> A posição desta subsecção no documento não implica execução depois de F0.5. <code>US-F0-11-T01</code>–<code>T04</code> (catálogo e migração da <code>authority</code> esparsa) executam antes da continuação de <code>US-F0-08</code> a partir de <code>T06</code>, para não construir invocação do gateway, interpretação de respostas e emissão de mensagens sobre a shape revogada; <code>US-F0-08-T05</code>, já em curso à data desta nota, fecha com a shape antiga do contexto e é realinhada pela migração de <code>US-F0-11-T04</code>. <code>US-F0-11-T05</code>–<code>T10</code> intercalam com <code>US-F0-08-T08</code>–<code>T10</code>, onde o gate se integra no ponto de saída do agente. <code>US-F0-10</code> depende de <code>US-F0-11</code>: a organização exemplo do vertical slice declara <code>can_decide</code> contra o catálogo e a emissão de <code>Report</code>/<code>Escalation</code> passa pelo gate de §4.9. <code>US-F0-12</code> fecha a fase depois de <code>US-F0-10</code>, exigindo apenas a retenção persistida de <code>US-F0-11-T08</code>/<code>T09</code>. A injeção automática das <code>description</code> do catálogo na prompt de identidade (§4.9/§7.1) depende do resolver de prompts de <code>US-F0-08-T05b</code>.</p>
+<article>
+<h5>US-F0-11 — Catálogo de domínios de ação e gate de autoridade</h5>
+<p><strong>Como</strong> plataforma, <strong>quero</strong> que toda a ação que sai de um agente — invocação de ferramenta ou emissão de mensagem organizacional — passe por um gate determinístico baseado no catálogo de domínios de ação (§4.9), <strong>para</strong> que um erro de classificação do modelo só possa apertar a governança, nunca alargá-la.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li>O catálogo <code>action-domains</code> versionado carrega com validação fail-fast: chaves órfãs em blocos <code>authority</code>, gates inválidos, chaves de confiança com <code>match</code> e predicados sobre atributos não declarados pelos contratos das ferramentas falham a validação.</li>
+<li>O bloco <code>authority</code> das posições usa a shape esparsa de §4.9 (<code>can_decide</code> + <code>overrides</code> que só apertam) em todo o pipeline: modelo tipado, parser, validação, YAML exemplo, registry e contexto de execução do agente.</li>
+<li>A resolução do gate segue a ordem determinística de §4.9: predicados objetivos vencem intenção declarada, múltiplos matches aplicam o mais severo, e uma ação sem match e sem <code>acting_under</code> válido escala por omissão (fail-closed).</li>
+<li>Ações retidas persistem no <code>PositionActor</code> com <code>RetainedActionId</code>, <code>ActionFingerprint</code> e <code>ApprovalPolicyRef</code> fixados na retenção.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li><strong>US-F0-11-T01</strong> — Definir modelo tipado do catálogo <code>action-domains</code>: <code>AuthorityKey</code> namespaced, <code>description</code>, <code>gate</code> mínimo (<code>decide</code>/<code>escalate</code>/<code>human-approval</code>), predicados <code>match</code> e <code>defaults.unmatched_action</code>, como records imutáveis sem defaults silenciosos.</li>
+<li><strong>US-F0-11-T02</strong> — Implementar parser YAML do catálogo com erros legíveis agregados (caminho do campo, linha/coluna), seguindo o padrão de <code>US-F0-05-T04</code> e mantendo <code>Hive.Domain</code> sem dependências de YAML.</li>
+<li><strong>US-F0-11-T03</strong> — Validar catálogo e binding estático: unicidade de chaves, chaves de confiança sem <code>match</code> ⇒ <code>gate: decide</code>, referências órfãs de <code>authority</code> ao catálogo, <code>overrides</code> que só apertam o gate mínimo, <code>approver</code> existente e predicados apenas sobre atributos que o contrato da ferramenta declara fornecer.</li>
+<li><strong>US-F0-11-T04</strong> — Migrar <code>authority</code> para a shape esparsa de §4.9 (<code>can_decide</code> + <code>overrides</code>, removendo <code>must_escalate</code>/<code>requires_human_approval</code>) em modelo tipado, parser e testes de <code>US-F0-05</code>, organização exemplo <code>acme-delivery</code>, registry PostgreSQL (reader/writer/migration) e <code>AiDirectiveExecutionContext</code> de <code>US-F0-08-T04</code>.</li>
+<li><strong>US-F0-11-T05</strong> — Injetar <code>acting_under</code> como campo obrigatório de vocabulário fechado (enum apenas com o <code>can_decide</code> da posição) nos schemas de ferramentas apresentados ao modelo e nos metadados de emissão de mensagem organizacional; campo ausente ou inválido é tratado como não-declarado (fail-closed) e auditado.</li>
+<li><strong>US-F0-11-T06</strong> — Definir extractors determinísticos de atributos derivados declarados no contrato de cada conector (ex.: <code>recipient: external</code>), com testes de contrato obrigatórios por serem código crítico de segurança.</li>
+<li><strong>US-F0-11-T07</strong> — Implementar a resolução determinística do gate como função pura de domínio, na ordem de §4.9: predicados <code>human-approval</code> (união de aprovadores distintos) → <code>escalate</code> → <code>acting_under</code> ∈ <code>can_decide</code> → <code>defaults.unmatched_action</code>, com match objetivo a vencer sempre a intenção declarada.</li>
+<li><strong>US-F0-11-T08</strong> — Integrar o gate no ponto de saída do <code>AiAgentActor</code> (tool call e emissão de mensagem organizacional), retendo a ação gateada e emitindo <code>ApprovalRequest</code> ao aprovador resolvido ou <code>Escalation</code> ao superior direto conforme o gate.</li>
+<li><strong>US-F0-11-T09</strong> — Persistir ações retidas no <code>PositionActor</code> (eventos, snapshot e serializer versionável) com <code>RetainedActionId</code>, <code>ActionFingerprint</code>, <code>ApprovalPolicyRef</code> e correlação completa (thread, linhagem de diretiva), no estado inicial <code>Retained</code>.</li>
+<li><strong>US-F0-11-T10</strong> — Emitir auditoria estruturada do gate: ação permitida com chave, ação retida com gate e razão, fail-closed por omissão e <code>acting_under</code> ausente/inválido, com redaction.</li>
+<li><strong>US-F0-11-T11</strong> — Criar testes unitários para parser/validação do catálogo, resolução do gate (precedência assimétrica, união de aprovadores, mais severo ganha, fail-closed), <code>overrides</code> e tratamento de <code>acting_under</code>.</li>
+<li><strong>US-F0-11-T12</strong> — Criar testes de integração com a organização exemplo e catálogo: ação permitida por <code>can_decide</code>, ação retida por predicado objetivo, override que aperta para <code>human-approval</code> e escalamento por omissão sem match.</li>
+</ul>
+<p><strong>Critério de conclusão:</strong> o catálogo <code>action-domains</code> carrega e valida fail-fast, o bloco <code>authority</code> esparso substitui a shape antiga em todo o pipeline, o <code>AiAgentActor</code> resolve o gate deterministicamente na ordem de §4.9 antes de qualquer efeito sair do agente, ações retidas persistem com fingerprint e política fixados, tudo é auditado e há testes unitários e de integração para permissão, retenção, override e fail-closed.</p>
+</article>
+
+<article>
+<h5>US-F0-12 — Autorização de ações retidas</h5>
+<p><strong>Como</strong> plataforma, <strong>quero</strong> resolver escalamentos de gate com autorizações vinculadas, de uso único e expiráveis (§9.11), <strong>para</strong> que a reexecução de uma ação retida seja verificada deterministicamente por código e nunca por alegação do agente.</p>
+<p><strong>Critérios de aceitação:</strong></p>
+<ul>
+<li><code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> existem como tipos canónicos do canal de governança, com regras em <code>MessageContractRules</code> e serialização versionável.</li>
+<li>Um grant só se aplica com <code>RetainedActionId</code> e <code>ActionFingerprint</code> coincidentes, dentro de <code>ExpiresAt</code>, emitido pelo destinatário da <code>Escalation</code> original e com uso único por construção.</li>
+<li>Um grant só resolve gates <code>escalate</code>: nunca rebaixa <code>human-approval</code>, e política apertada entretanto obriga a reavaliação no resume.</li>
+<li>A emissão de grants é gateada pela chave <code>governance.authorize-retained-action</code>, com cascata fail-closed até ao <code>OrganizationOwner</code>.</li>
+</ul>
+<p><strong>Tarefas:</strong></p>
+<ul>
+<li><strong>US-F0-12-T01</strong> — Definir as identidades <code>RetainedActionId</code> e <code>ActionFingerprint</code> na família de §9.1, com hash canónico da ação (tool id, argumentos validados e atributos derivados) sobre a serialização determinística de ADR-007.</li>
+<li><strong>US-F0-12-T02</strong> — Definir os records <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> com envelope <code>OrgMessage</code>, campos e obrigatoriedades de §9.11 (<code>InReplyTo</code>, <code>RetainedActionId</code>, <code>Fingerprint</code>, <code>Key</code>, <code>ExpiresAt</code>, <code>Reason</code>) e regras próprias em <code>MessageContractRules</code>.</li>
+<li><strong>US-F0-12-T03</strong> — Implementar serializers/manifests versionáveis e fixtures canónicos <code>authorization-grant.json</code>/<code>authorization-denial.json</code> (§9.10), seguindo o padrão de <code>US-F0-03-T08</code>/<code>T09</code>.</li>
+<li><strong>US-F0-12-T04</strong> — Implementar <code>AuthorizationRoutingValidator</code> no padrão dos validadores de governança de <code>US-F0-04</code>: correlação com a <code>Escalation</code> de gate original (mesma organização/<code>ThreadId</code>), emissor igual ao destinatário do escalamento, e rejeição auditada de duplicados, expirados (relógio via <code>TimeProvider</code>), emissor não autorizado ou correlação ausente.</li>
+<li><strong>US-F0-12-T05</strong> — Implementar a máquina de estados persistida da ação retida no <code>PositionActor</code>: <code>Retained</code> → <code>Authorized</code> → <code>Consumed</code>, <code>Denied</code>, <code>Expired</code> → re-escalamento com contexto, e retorno a <code>Retained</code> quando a política apertar no resume, com no máximo um grant ativo por instância.</li>
+<li><strong>US-F0-12-T06</strong> — Implementar a verificação determinística no resume, na ordem de §9.11: grant aceite em <code>Authorized</code>, fingerprint coincidente, <code>ExpiresAt</code> não ultrapassado, reavaliação de política apertada (incluindo a assimetria em que <code>human-approval</code> exige <code>ApprovalDecision</code> e não é substituído pelo grant), execução, transição para <code>Consumed</code> e auditoria.</li>
+<li><strong>US-F0-12-T07</strong> — Gatear a emissão de <code>AuthorizationGrant</code> pela chave de confiança <code>governance.authorize-retained-action</code> declarada no catálogo e no <code>can_decide</code> do emissor, com o superior sem a chave a cair no default fail-closed e o seu escalamento a subir um nível.</li>
+<li><strong>US-F0-12-T08</strong> — Emitir auditoria estruturada do ciclo de vida: grant/denial aceites e rejeitados com razão, expiração, consumo com referência ao grant/chave/<code>ApprovalPolicyRef</code> e re-escalamento, com redaction.</li>
+<li><strong>US-F0-12-T09</strong> — Criar testes unitários para identidades/fingerprint, contratos e <code>MessageContractRules</code>, <code>AuthorizationRoutingValidator</code>, máquina de estados e verificação de resume.</li>
+<li><strong>US-F0-12-T10</strong> — Criar testes de integração: escalamento de gate → grant → resume verificado → <code>Consumed</code>; denial com <code>Reason</code> devolvido ao agente; expiração → re-escalamento; fingerprint divergente avaliado como ação nova; e grant duplicado rejeitado.</li>
+</ul>
+<p><strong>Critério de conclusão:</strong> uma <code>Escalation</code> de gate é resolvida por <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> validados por routing de governança, a reexecução da ação retida é verificada deterministicamente (instância, fingerprint, expiração, política) antes de executar e consumir a autorização, grants nunca rebaixam <code>human-approval</code>, a emissão é gateada por <code>governance.authorize-retained-action</code>, todo o ciclo de vida é auditado e há testes unitários e de integração para grant, denial, expiração, divergência e duplicados.</p>
 </article>
 </section>
 
@@ -2729,6 +2950,8 @@ public interface IPositionConfigurationProvider
 <tr><td>Q10</td><td>Qual é o <strong>caso de uso interno concreto</strong> (primeiro cliente)? Que organização, que funções, que conectores prioritários?</td><td>Valida todo o desenho; define a F1</td><td><strong>Resolvida (v0.3)</strong>: Engenharia/Delivery. Ver §1.4</td></tr>
 <tr><td>Q11</td><td>Ordem de arranque entre o <code>ActorSystem</code> e os workloads por role (<code>IRoleWorkload</code>): o seam deve garantir que o sistema está <em>Up</em> antes de arrancar workloads que dependem dele?</td><td>§5.10, seam de ativação por role</td><td><strong>Resolvida (v0.80)</strong>: o seam <code>IRoleWorkload</code> garante que o <code>ActorSystem</code> está <em>Up</em> antes de inicializar o Cluster Sharding do workload <code>agents</code>, falhando o arranque de forma observável se o sistema não atingir <em>Up</em> dentro do timeout. Ver <code>US-F0-06-T04d</code>.</td></tr>
 <tr><td>Q12</td><td>Como expõem os nós backend (<code>Hive.Worker</code>: roles <code>agents</code>/<code>gateway</code>/<code>connectors</code>) as verificações <code>live</code>/<code>ready</code> para orquestração, dado que não têm servidor HTTP? (listener HTTP mínimo no Worker, comando CLI de healthcheck, ou probe TCP)</td><td>§11.1, health checks Docker</td><td><strong>Adiada para <code>US-F0-02-T08</code>/<code>T09</code></strong>: a T09 expõe o endpoint só no <code>Hive.Api</code>; o mecanismo de sonda dos nós backend é decidido quando o Docker Compose precisar deles.</td></tr>
+<tr><td>Q13</td><td>Taxonomia das chaves de autoridade e binding ação-concreta→chave (princípio fixado em §4.4, que a referia por engano como Q12)</td><td>§4.4, §4.9, §6.2, implementação em <code>US-F0-11</code></td><td><strong>Resolvida (v1.13)</strong>: catálogo de domínios de ação com <code>gate</code> mínimo e binding híbrido de precedência assimétrica — predicados objetivos para escalar/aprovar, intenção declarada (<code>acting_under</code> de vocabulário fechado) para <code>can_decide</code>, default fail-closed <code>escalate</code>. Ver §4.9</td></tr>
+<tr><td>Q14</td><td>Forma da diretiva de autorização que resolve uma <code>Escalation</code> de gate: vinculação à instância da ação retida, uso único, expiração e verificação por linhagem (§9.6)</td><td>Taxonomia do §9, implementação em <code>US-F0-12</code></td><td><strong>Resolvida (v1.14)</strong>: tipos de governança <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> com vinculação à instância (<code>RetainedActionId</code> + <code>ActionFingerprint</code>), uso único por construção, expiração obrigatória, emissão gateada por <code>governance.authorize-retained-action</code> e assimetria com <code>human-approval</code>. Ver §9.11</td></tr>
 </tbody>
 </table>
 

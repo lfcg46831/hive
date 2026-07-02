@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -51,6 +52,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveExecutionContext> _directiveExecutionContexts =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiGatewayRequest> _directiveInitialPrompts =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -74,6 +77,7 @@ internal sealed class AiAgentActor : ReceiveActor
         Receive<AiDirectiveProcessingRequest>(request =>
         {
             var context = AiDirectiveExecutionContext.From(request);
+            var prompt = AiDirectivePrompt.CreateInitialRequest(context);
             var snapshot = AiDirectiveProcessingSnapshot
                 .Received(request)
                 .AdvanceTo(
@@ -81,6 +85,7 @@ internal sealed class AiAgentActor : ReceiveActor
                     reason: "execution context assembled");
 
             _directiveExecutionContexts[request.CorrelationId] = context;
+            _directiveInitialPrompts[request.CorrelationId] = prompt;
             _directiveProcessingSnapshots[request.CorrelationId] = snapshot;
         });
         Receive<GetAiDirectiveProcessingSnapshot>(query =>
@@ -98,6 +103,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 out var context)
                 ? AiDirectiveExecutionContextQueryResult.FoundContext(context)
                 : AiDirectiveExecutionContextQueryResult.Missing(query.CorrelationId));
+        });
+        Receive<GetAiDirectiveInitialPrompt>(query =>
+        {
+            Sender.Tell(_directiveInitialPrompts.TryGetValue(
+                query.CorrelationId,
+                out var request)
+                ? AiDirectiveInitialPromptQueryResult.FoundRequest(query.CorrelationId, request)
+                : AiDirectiveInitialPromptQueryResult.Missing(query.CorrelationId));
         });
         Receive<OrgMessage>(_ =>
         {

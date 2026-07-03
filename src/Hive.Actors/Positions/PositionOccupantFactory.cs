@@ -56,6 +56,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiAgentGatewayInvocationResult> _directiveGatewayInvocations =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiDirectiveInterpretationResult> _directiveInterpretations =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -109,6 +111,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveGatewayInvocationQueryResult.FoundResult(result)
                 : AiDirectiveGatewayInvocationQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiDirectiveInterpretationResult>(query =>
+        {
+            Sender.Tell(_directiveInterpretations.TryGetValue(
+                query.CorrelationId,
+                out var result)
+                ? AiDirectiveInterpretationQueryResult.FoundResult(result)
+                : AiDirectiveInterpretationQueryResult.Missing(query.CorrelationId));
+        });
         Receive<OrgMessage>(_ =>
         {
         });
@@ -152,13 +162,29 @@ internal sealed class AiAgentActor : ReceiveActor
                     timeout?.Token ?? CancellationToken.None)
                 .ConfigureAwait(false);
             _directiveGatewayInvocations[request.CorrelationId] = result;
+            var interpretation = AiDirectiveDecisionInterpreter.Interpret(result);
+            _directiveInterpretations[request.CorrelationId] = interpretation;
 
-            if (result.IsFailure)
+            if (interpretation.IsDecision)
+            {
+                _directiveProcessingSnapshots[request.CorrelationId] =
+                    gatewayRequested.AdvanceTo(
+                        AiDirectiveProcessingStatus.ResponseInterpreted,
+                        reason: "AI gateway response interpreted");
+            }
+            else if (interpretation.IsStructuredError)
             {
                 _directiveProcessingSnapshots[request.CorrelationId] =
                     gatewayRequested.AdvanceTo(
                         AiDirectiveProcessingStatus.Failed,
-                        reason: GatewayFailureReason(result));
+                        reason: interpretation.Failure!.AuditReason);
+            }
+            else if (interpretation.RequiresEscalation)
+            {
+                _directiveProcessingSnapshots[request.CorrelationId] =
+                    gatewayRequested.AdvanceTo(
+                        AiDirectiveProcessingStatus.Escalated,
+                        reason: interpretation.Failure!.AuditReason);
             }
         }
         catch (OperationCanceledException) when (timeout?.IsCancellationRequested == true)
@@ -182,11 +208,6 @@ internal sealed class AiAgentActor : ReceiveActor
 
     private static CancellationTokenSource? CreateGatewayTimeout(TimeSpan? timeout) =>
         timeout is { } value ? new CancellationTokenSource(value) : null;
-
-    private static string GatewayFailureReason(AiAgentGatewayInvocationResult result) =>
-        result.FailureReason is { } error
-            ? $"AI gateway request failed with '{error.Code}'."
-            : "AI gateway request failed without a structured reason.";
 
     private static string GatewayTimeoutReason(TimeSpan? timeout) =>
         timeout is { } value

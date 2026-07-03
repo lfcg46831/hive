@@ -101,7 +101,7 @@ public sealed class AiDirectiveExecutionContextTests
     }
 
     [Fact]
-    public async Task AiAgentActor_assembles_context_before_advancing_snapshot_to_gateway_requested()
+    public async Task AiAgentActor_assembles_context_before_advancing_snapshot_to_response_interpreted()
     {
         var request = Request(includeOptionalContext: true);
         var system = ActorSystem.Create($"ai-agent-context-{Guid.NewGuid():N}");
@@ -125,12 +125,13 @@ public sealed class AiDirectiveExecutionContextTests
             Assert.Equal(request.CorrelationId, contextResult.CorrelationId);
             Assert.Equal(request.DirectiveId, contextResult.Context!.Directive.DirectiveId);
             Assert.True(snapshotResult.Found);
-            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshotResult.Snapshot!.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.ResponseInterpreted, snapshotResult.Snapshot!.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
                     AiDirectiveProcessingStatus.GatewayRequested,
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
                 ],
                 snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
         }
@@ -305,7 +306,7 @@ public sealed class AiDirectiveExecutionContextTests
                     invocation.Request.PositionId,
                     invocation.Request.ThreadId,
                     invocation.Request.MessageId,
-                    "ok",
+                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}",
                     AiFinishReason.Stop)));
     }
 }

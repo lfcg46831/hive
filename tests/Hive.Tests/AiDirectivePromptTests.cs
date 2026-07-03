@@ -155,14 +155,15 @@ public sealed class AiDirectivePromptTests
             Assert.True(gatewayResult.Found);
             Assert.True(gatewayResult.Result!.IsSuccess);
             Assert.Equal(processingRequest.CorrelationId, gatewayResult.Result.CorrelationId);
-            Assert.Equal("ok", gatewayResult.Result.Response.Text);
+            Assert.Contains("\"intent\":\"Report\"", gatewayResult.Result.Response.Text, StringComparison.Ordinal);
 
-            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshotResult.Snapshot!.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.ResponseInterpreted, snapshotResult.Snapshot!.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
                     AiDirectiveProcessingStatus.GatewayRequested,
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
                 ],
                 snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
         }
@@ -490,7 +491,7 @@ public sealed class AiDirectivePromptTests
                     invocation.Request.PositionId,
                     invocation.Request.ThreadId,
                     invocation.Request.MessageId,
-                    "ok",
+                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}",
                     AiFinishReason.Stop)));
         }
     }

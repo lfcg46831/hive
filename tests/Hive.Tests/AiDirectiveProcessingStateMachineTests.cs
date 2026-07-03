@@ -96,7 +96,7 @@ public sealed class AiDirectiveProcessingStateMachineTests
     }
 
     [Fact]
-    public async Task AiAgentActor_records_gateway_requested_snapshot_and_returns_it_by_correlation()
+    public async Task AiAgentActor_records_response_interpreted_snapshot_and_returns_it_by_correlation()
     {
         var request = Request();
         var system = ActorSystem.Create($"ai-agent-state-{Guid.NewGuid():N}");
@@ -118,12 +118,13 @@ public sealed class AiDirectiveProcessingStateMachineTests
             Assert.Equal(request.ThreadId, snapshot.ThreadId);
             Assert.Equal(request.DirectiveId, snapshot.DirectiveId);
             Assert.Equal(request.MessageId, snapshot.MessageId);
-            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshot.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.ResponseInterpreted, snapshot.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
                     AiDirectiveProcessingStatus.GatewayRequested,
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
                 ],
                 snapshot.History.Select(transition => transition.Status).ToArray());
         }
@@ -244,7 +245,7 @@ public sealed class AiDirectiveProcessingStateMachineTests
                     invocation.Request.PositionId,
                     invocation.Request.ThreadId,
                     invocation.Request.MessageId,
-                    "ok",
+                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}",
                     AiFinishReason.Stop)));
     }
 }

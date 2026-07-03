@@ -189,9 +189,8 @@ internal sealed class OrganizationRegistryProjection
         var authority = position.Occupant.Authority;
         return new RegistryAuthority(
             position.Id,
-            Sorted(authority?.CanDecide),
-            Sorted(authority?.MustEscalate),
-            Sorted(authority?.RequiresHumanApproval));
+            Sorted(authority?.CanDecide.Select(key => key.Value)),
+            SortedOverrides(authority?.Overrides));
     }
 
     private static AiConfiguration? Clone(AiConfiguration? ai)
@@ -249,8 +248,19 @@ internal sealed class OrganizationRegistryProjection
 
     private static ProjectedEntry<T> Project<T>(T value) => new(value, ComputeFingerprint(value));
 
-    private static IReadOnlyList<string> Sorted(IReadOnlyList<string>? values) =>
+    private static IReadOnlyList<string> Sorted(IEnumerable<string>? values) =>
         ReadOnly((values ?? Array.Empty<string>()).OrderBy(value => value, StringComparer.Ordinal));
+
+    private static IReadOnlyList<RegistryAuthorityOverride> SortedOverrides(
+        IReadOnlyList<AuthorityOverrideConfiguration>? values) =>
+        ReadOnly((values ?? Array.Empty<AuthorityOverrideConfiguration>())
+            .Select(item => new RegistryAuthorityOverride(
+                item.Key.Value,
+                item.Gate,
+                item.Approver))
+            .OrderBy(item => item.Key, StringComparer.Ordinal)
+            .ThenBy(item => item.Gate)
+            .ThenBy(item => item.Approver, StringComparer.Ordinal));
 
     private static IReadOnlyList<T> ReadOnly<T>(IEnumerable<T> values) =>
         Array.AsReadOnly(values.ToArray());

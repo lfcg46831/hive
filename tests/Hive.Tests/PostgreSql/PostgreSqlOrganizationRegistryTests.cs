@@ -1,6 +1,7 @@
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using Npgsql;
@@ -44,6 +45,12 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal(2, reloaded.Occupants.Count);
         Assert.Equal(2, reloaded.Authorities.Count);
         Assert.Single(reloaded.Schedules);
+        var authority = reloaded.Authorities[PositionId.From("delivery-lead")].Value;
+        Assert.Equal(["delivery.bug-triage"], authority.CanDecide);
+        var authorityOverride = Assert.Single(authority.Overrides);
+        Assert.Equal("comms.external-official", authorityOverride.Key);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("ceo", authorityOverride.Approver);
 
         await using var command = secondDataSource.CreateCommand(
             """

@@ -1,5 +1,6 @@
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -148,7 +149,13 @@ public sealed class AiDirectiveProcessingProtocolTests
                 aiGateway: aiGateway),
             new PositionAuthorityRuntimeConfiguration(
                 canDecide: ["bug.triage"],
-                mustEscalate: ["customer.data.request"]));
+                overrides:
+                [
+                    new PositionAuthorityOverrideRuntimeConfiguration(
+                        "customer.data-request",
+                        ActionDomainGate.Escalate,
+                        "delivery-lead"),
+                ]));
 
     private static PositionRuntimeDescriptor Descriptor() =>
         new(

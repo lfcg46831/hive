@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -67,8 +68,10 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("Deadline: 2026-07-01T18:00:00.0000000+00:00", request.Content, StringComparison.Ordinal);
         Assert.Contains("ReportsTo: delivery-lead", request.Content, StringComparison.Ordinal);
         Assert.Contains("CanDecide: bug.triage", request.Content, StringComparison.Ordinal);
-        Assert.Contains("MustEscalate: customer.data.request", request.Content, StringComparison.Ordinal);
-        Assert.Contains("RequiresHumanApproval: spend.money", request.Content, StringComparison.Ordinal);
+        Assert.Contains("AuthorityOverrides:", request.Content, StringComparison.Ordinal);
+        Assert.Contains("- comms.external-official: human-approval (approver: delivery-lead)", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("MustEscalate", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("RequiresHumanApproval", request.Content, StringComparison.Ordinal);
         Assert.Contains("AuthorizedTools:", request.Content, StringComparison.Ordinal);
         Assert.Contains("- jira: issues/read, issues/comment", request.Content, StringComparison.Ordinal);
         AssertContainsInOrder(request.Content, "- alpha: first", "- zeta: last");
@@ -94,8 +97,7 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("OpenTasks: <empty>", request.Content, StringComparison.Ordinal);
         Assert.Contains("RecentHistory: <empty>", request.Content, StringComparison.Ordinal);
         Assert.Contains("CanDecide: <empty>", request.Content, StringComparison.Ordinal);
-        Assert.Contains("MustEscalate: <empty>", request.Content, StringComparison.Ordinal);
-        Assert.Contains("RequiresHumanApproval: <empty>", request.Content, StringComparison.Ordinal);
+        Assert.Contains("AuthorityOverrides: <empty>", request.Content, StringComparison.Ordinal);
         Assert.Contains("AuthorizedTools: <empty>", request.Content, StringComparison.Ordinal);
     }
 
@@ -291,8 +293,13 @@ public sealed class AiDirectivePromptTests
             includeOptionalContext
                 ? new PositionAuthorityRuntimeConfiguration(
                     canDecide: ["bug.triage"],
-                    mustEscalate: ["customer.data.request"],
-                    requiresHumanApproval: ["spend.money"])
+                    overrides:
+                    [
+                        new PositionAuthorityOverrideRuntimeConfiguration(
+                            "comms.external-official",
+                            ActionDomainGate.HumanApproval,
+                            "delivery-lead"),
+                    ])
                 : new PositionAuthorityRuntimeConfiguration());
 
         var state = includeOptionalContext

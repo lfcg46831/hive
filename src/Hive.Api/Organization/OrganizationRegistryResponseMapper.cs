@@ -1,5 +1,6 @@
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Infrastructure.Organization.Registry;
 
 namespace Hive.Api.Organization;
@@ -90,8 +91,12 @@ internal static class OrganizationRegistryResponseMapper
             MapOccupant(occupant),
             new AuthorityResponse(
                 authority.Value.CanDecide.ToArray(),
-                authority.Value.MustEscalate.ToArray(),
-                authority.Value.RequiresHumanApproval.ToArray(),
+                authority.Value.Overrides
+                    .Select(item => new AuthorityOverrideResponse(
+                        item.Key,
+                        GateWireValue(item.Gate),
+                        item.Approver))
+                    .ToArray(),
                 authority.UpdatedAt),
             snapshot.Schedules
                 .Where(pair => pair.Key.PositionId == positionId)
@@ -166,4 +171,13 @@ internal static class OrganizationRegistryResponseMapper
                     ai.Budget.ProactiveMaxEurPerDay,
                     ai.Budget.TotalMaxEurPerDay,
                     ai.Budget.MaxCallsPerHour));
+
+    private static string GateWireValue(ActionDomainGate gate) =>
+        gate switch
+        {
+            ActionDomainGate.Decide => "decide",
+            ActionDomainGate.Escalate => "escalate",
+            ActionDomainGate.HumanApproval => "human-approval",
+            _ => throw new InvalidOperationException("Unknown action-domain gate."),
+        };
 }

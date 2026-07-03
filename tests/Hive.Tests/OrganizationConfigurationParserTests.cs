@@ -1,3 +1,4 @@
+using Hive.Domain.Governance;
 using Hive.Domain.Organization.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
 
@@ -83,9 +84,11 @@ public sealed class OrganizationConfigurationParserTests
                 - connector: http
                   scope: ["https://api.empresa.pt/*"]
               authority:
-                can_decide: ["triagem-de-bugs"]
-                must_escalate: ["risco-de-prazo-critico"]
-                requires_human_approval: ["release-em-producao"]
+                can_decide: ["delivery.bug-triage"]
+                overrides:
+                  - key: comms.external-official
+                    gate: human-approval
+                    approver: ceo
         """;
 
     private static OrganizationConfigurationParser Parser => new();
@@ -205,9 +208,11 @@ public sealed class OrganizationConfigurationParserTests
             });
 
         var authority = occupant.Authority!;
-        Assert.Equal(new[] { "triagem-de-bugs" }, authority.CanDecide);
-        Assert.Equal(new[] { "risco-de-prazo-critico" }, authority.MustEscalate);
-        Assert.Equal(new[] { "release-em-producao" }, authority.RequiresHumanApproval);
+        Assert.Equal(new[] { "delivery.bug-triage" }, authority.CanDecide.Select(key => key.Value));
+        var authorityOverride = Assert.Single(authority.Overrides);
+        Assert.Equal("comms.external-official", authorityOverride.Key.Value);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("ceo", authorityOverride.Approver);
     }
 
     [Fact]
@@ -420,6 +425,41 @@ public sealed class OrganizationConfigurationParserTests
 
         Assert.True(result.IsSuccess, string.Join("\n", result.Errors.Select(error => error.ToString())));
         Assert.Equal(2, result.Configuration!.Units.Count);
+    }
+
+    [Fact]
+    public void Deprecated_authority_lists_are_rejected()
+    {
+        const string yaml = """
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            positions:
+              - id: ceo
+                unit: raiz
+                reports_to: null
+                occupant:
+                  type: ai-agent
+                  authority:
+                    can_decide: ["org.quarterly-priorities"]
+                    must_escalate: ["finance.commitments"]
+                    requires_human_approval: ["org.structure-change"]
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(
+            result.Errors,
+            error => error.FieldPath == "positions[0].occupant.authority.must_escalate"
+                && error.Message.Contains("no longer supported", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            result.Errors,
+            error => error.FieldPath == "positions[0].occupant.authority.requires_human_approval"
+                && error.Message.Contains("no longer supported", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

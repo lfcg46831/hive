@@ -47,9 +47,7 @@ positions:
           total_max_eur_per_day: 6.00
           max_calls_per_hour: 60
       authority:
-        can_decide: ["prioridades-trimestrais"]
-        must_escalate: ["compromissos-orcamentais"]
-        requires_human_approval: ["mudancas-de-estrutura"]
+        can_decide: ["org.quarterly-priorities"]
   - id: delivery-lead
     name: Delivery Lead
     unit: engenharia
@@ -78,6 +76,8 @@ positions:
           cron: "0 55 17 * * MON-FRI"
           instruction: "Compilar e enviar relatorio diario ao superior"
       authority:
-        can_decide: ["triagem-de-bugs"]
-        must_escalate: ["risco-de-prazo-critico"]
-        requires_human_approval: ["release-em-producao"]
+        can_decide: ["delivery.bug-triage"]
+        overrides:
+          - key: comms.external-official
+            gate: human-approval
+            approver: ceo

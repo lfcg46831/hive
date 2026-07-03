@@ -307,15 +307,14 @@ internal static class PostgreSqlOrganizationRegistryWriter
         await using var command = new NpgsqlCommand(
             """
             INSERT INTO registry.authorities (
-                organization_id, position_id, can_decide, must_escalate, requires_human_approval,
+                organization_id, position_id, can_decide, overrides,
                 entry_fingerprint, updated_at)
             VALUES (
-                @organization_id, @position_id, @can_decide, @must_escalate, @requires_human_approval,
+                @organization_id, @position_id, @can_decide, @overrides,
                 @entry_fingerprint, @updated_at)
             ON CONFLICT (organization_id, position_id) DO UPDATE SET
                 can_decide = EXCLUDED.can_decide,
-                must_escalate = EXCLUDED.must_escalate,
-                requires_human_approval = EXCLUDED.requires_human_approval,
+                overrides = EXCLUDED.overrides,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
             """,
@@ -324,8 +323,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddText(command, "organization_id", organizationId.Value);
         AddText(command, "position_id", value.PositionId.Value);
         AddJson(command, "can_decide", value.CanDecide);
-        AddJson(command, "must_escalate", value.MustEscalate);
-        AddJson(command, "requires_human_approval", value.RequiresHumanApproval);
+        AddJson(command, "overrides", value.Overrides);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

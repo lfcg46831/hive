@@ -1,4 +1,5 @@
 using System.Globalization;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using YamlDotNet.Core;
@@ -470,11 +471,85 @@ public sealed class OrganizationConfigurationParser
             return null;
         }
 
-        var canDecide = OptionalStringList(authority, "can_decide", authorityPath, context);
-        var mustEscalate = OptionalStringList(authority, "must_escalate", authorityPath, context);
-        var requiresHumanApproval = OptionalStringList(authority, "requires_human_approval", authorityPath, context);
+        RejectDeprecatedAuthorityList(authority, "must_escalate", authorityPath, context);
+        RejectDeprecatedAuthorityList(authority, "requires_human_approval", authorityPath, context);
 
-        return new AuthorityConfiguration(canDecide, mustEscalate, requiresHumanApproval);
+        var canDecide = OptionalStringList(authority, "can_decide", authorityPath, context);
+        var overrides = ReadAuthorityOverrides(authority, authorityPath, context);
+
+        try
+        {
+            return new AuthorityConfiguration(canDecide, overrides);
+        }
+        catch (ArgumentException exception)
+        {
+            context.AddAt(authority, authorityPath, $"invalid authority configuration: {exception.Message}");
+            return null;
+        }
+    }
+
+    private static void RejectDeprecatedAuthorityList(
+        YamlMappingNode authority,
+        string key,
+        string path,
+        ParseContext context)
+    {
+        var node = Child(authority, key);
+        if (node is not null)
+        {
+            context.AddAt(
+                node,
+                $"{path}.{key}",
+                $"field '{key}' is no longer supported; use catalog predicates and authority.overrides instead.");
+        }
+    }
+
+    private static IReadOnlyList<AuthorityOverrideConfiguration> ReadAuthorityOverrides(
+        YamlMappingNode authority,
+        string path,
+        ParseContext context)
+    {
+        var sequence = OptionalSequence(authority, "overrides", $"{path}.overrides", context);
+        if (sequence is null)
+        {
+            return Array.Empty<AuthorityOverrideConfiguration>();
+        }
+
+        var overrides = new List<AuthorityOverrideConfiguration>(sequence.Children.Count);
+        for (var index = 0; index < sequence.Children.Count; index++)
+        {
+            var overridePath = $"{path}.overrides[{index}]";
+            if (sequence.Children[index] is not YamlMappingNode entry)
+            {
+                context.AddAt(sequence.Children[index], overridePath, "each authority override must be a mapping with 'key' and 'gate'.");
+                continue;
+            }
+
+            var keyNode = Child(entry, "key");
+            var gateNode = Child(entry, "gate");
+            var key = RequireScalar(entry, "key", overridePath, context);
+            var gateValue = RequireScalar(entry, "gate", overridePath, context);
+            var approver = OptionalScalar(entry, "approver", overridePath, context);
+            var gate = gateValue is null
+                ? null
+                : ReadActionDomainGate(gateValue, gateNode!, $"{overridePath}.gate", context);
+
+            if (key is null || gate is null)
+            {
+                continue;
+            }
+
+            try
+            {
+                overrides.Add(new AuthorityOverrideConfiguration(key, gate.Value, approver));
+            }
+            catch (ArgumentException exception)
+            {
+                context.AddAt(keyNode ?? entry, overridePath, $"invalid authority override: {exception.Message}");
+            }
+        }
+
+        return overrides;
     }
 
     private static IReadOnlyList<ScheduleEntryConfiguration> ReadSchedule(YamlMappingNode occupant, string path, ParseContext context)
@@ -598,6 +673,26 @@ public sealed class OrganizationConfigurationParser
                 return OccupantType.Human;
             default:
                 context.AddAt(node, path, $"unknown occupant type '{value}'; expected 'ai-agent' or 'human'.");
+                return null;
+        }
+    }
+
+    private static ActionDomainGate? ReadActionDomainGate(
+        string value,
+        YamlNode node,
+        string path,
+        ParseContext context)
+    {
+        switch (value)
+        {
+            case "decide":
+                return ActionDomainGate.Decide;
+            case "escalate":
+                return ActionDomainGate.Escalate;
+            case "human-approval":
+                return ActionDomainGate.HumanApproval;
+            default:
+                context.AddAt(node, path, $"unknown gate '{value}'; expected 'decide', 'escalate' or 'human-approval'.");
                 return null;
         }
     }

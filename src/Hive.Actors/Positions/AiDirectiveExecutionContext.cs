@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -228,22 +229,16 @@ internal sealed record AiDirectiveExecutionRelation
 internal sealed record AiDirectiveExecutionAuthority
 {
     private AiDirectiveExecutionAuthority(
-        ImmutableArray<string> canDecide,
-        ImmutableArray<string> mustEscalate,
-        ImmutableArray<string> requiresHumanApproval)
+        ImmutableArray<AuthorityKey> canDecide,
+        ImmutableArray<AiDirectiveExecutionAuthorityOverride> overrides)
     {
-        CanDecide = RequireTextItems(canDecide, nameof(canDecide));
-        MustEscalate = RequireTextItems(mustEscalate, nameof(mustEscalate));
-        RequiresHumanApproval = RequireTextItems(
-            requiresHumanApproval,
-            nameof(requiresHumanApproval));
+        CanDecide = RequireAuthorityKeys(canDecide, nameof(canDecide));
+        Overrides = RequireOverrides(overrides, nameof(overrides));
     }
 
-    public ImmutableArray<string> CanDecide { get; }
+    public ImmutableArray<AuthorityKey> CanDecide { get; }
 
-    public ImmutableArray<string> MustEscalate { get; }
-
-    public ImmutableArray<string> RequiresHumanApproval { get; }
+    public ImmutableArray<AiDirectiveExecutionAuthorityOverride> Overrides { get; }
 
     public static AiDirectiveExecutionAuthority From(
         PositionAuthorityRuntimeConfiguration authority)
@@ -252,12 +247,16 @@ internal sealed record AiDirectiveExecutionAuthority
 
         return new AiDirectiveExecutionAuthority(
             authority.CanDecide,
-            authority.MustEscalate,
-            authority.RequiresHumanApproval);
+            authority.Overrides
+                .Select(overrideConfiguration => new AiDirectiveExecutionAuthorityOverride(
+                    overrideConfiguration.Key,
+                    overrideConfiguration.Gate,
+                    overrideConfiguration.Approver))
+                .ToImmutableArray());
     }
 
-    private static ImmutableArray<string> RequireTextItems(
-        ImmutableArray<string> values,
+    private static ImmutableArray<AuthorityKey> RequireAuthorityKeys(
+        ImmutableArray<AuthorityKey> values,
         string parameterName)
     {
         if (values.IsDefault)
@@ -267,10 +266,63 @@ internal sealed record AiDirectiveExecutionAuthority
 
         foreach (var value in values)
         {
-            AiAgentGatewayText.Require(value, parameterName);
+            if (value is null)
+            {
+                throw new ArgumentException("Collection cannot contain null items.", parameterName);
+            }
         }
 
         return values;
+    }
+
+    private static ImmutableArray<AiDirectiveExecutionAuthorityOverride> RequireOverrides(
+        ImmutableArray<AiDirectiveExecutionAuthorityOverride> values,
+        string parameterName)
+    {
+        if (values.IsDefault)
+        {
+            throw new ArgumentException("Collection cannot be default.", parameterName);
+        }
+
+        foreach (var value in values)
+        {
+            if (value is null)
+            {
+                throw new ArgumentException("Collection cannot contain null items.", parameterName);
+            }
+        }
+
+        return values;
+    }
+}
+
+internal sealed record AiDirectiveExecutionAuthorityOverride
+{
+    public AiDirectiveExecutionAuthorityOverride(
+        AuthorityKey key,
+        ActionDomainGate gate,
+        string? approver = null)
+    {
+        Key = key ?? throw new ArgumentNullException(nameof(key));
+        Gate = RequireDefined(gate, nameof(gate));
+        Approver = approver is null ? null : AiAgentGatewayText.Require(approver, nameof(approver));
+    }
+
+    public AuthorityKey Key { get; }
+
+    public ActionDomainGate Gate { get; }
+
+    public string? Approver { get; }
+
+    private static TEnum RequireDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentException($"Value '{value}' is not a defined {typeof(TEnum).Name}.", parameterName);
+        }
+
+        return value;
     }
 }
 

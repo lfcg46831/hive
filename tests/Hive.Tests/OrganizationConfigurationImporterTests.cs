@@ -1,5 +1,6 @@
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Organization;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
@@ -289,9 +290,8 @@ public sealed class OrganizationConfigurationImporterTests
             occupant.Authority is null
                 ? null
                 : new AuthorityConfiguration(
-                    occupant.Authority.CanDecide.Reverse().ToArray(),
-                    occupant.Authority.MustEscalate.Reverse().ToArray(),
-                    occupant.Authority.RequiresHumanApproval.Reverse().ToArray()),
+                    occupant.Authority.CanDecide.Select(key => key.Value).Reverse().ToArray(),
+                    occupant.Authority.Overrides.Reverse().ToArray()),
             occupant.Schedule.Reverse().ToArray(),
             occupant.Subscriptions.Reverse().ToArray(),
             occupant.Tools.Reverse().ToArray());
@@ -338,9 +338,17 @@ public sealed class OrganizationConfigurationImporterTests
                             position.Occupant.Ai,
                             position.Occupant.WorkingHours,
                             new AuthorityConfiguration(
-                                ["triagem-de-bugs", "priorizar-incidente"],
-                                ["risco-de-prazo-critico", "compromisso-orcamental"],
-                                ["release-em-producao", "mudanca-estrutural"]),
+                                ["delivery.bug-triage", "support.incident-prioritization"],
+                                [
+                                    new AuthorityOverrideConfiguration(
+                                        "comms.external-official",
+                                        ActionDomainGate.HumanApproval,
+                                        "ceo"),
+                                    new AuthorityOverrideConfiguration(
+                                        "delivery.release-prod",
+                                        ActionDomainGate.HumanApproval,
+                                        "ceo"),
+                                ]),
                             position.Occupant.Schedule,
                             [
                                 new SubscriptionConfiguration("work-item-created", "PT1H"),

@@ -233,8 +233,7 @@ internal static class PostgreSqlOrganizationRegistryReader
             """
             SELECT position_id,
                    can_decide::text,
-                   must_escalate::text,
-                   requires_human_approval::text,
+                   overrides::text,
                    entry_fingerprint,
                    updated_at
             FROM registry.authorities
@@ -251,14 +250,13 @@ internal static class PostgreSqlOrganizationRegistryReader
             var value = new RegistryAuthority(
                 id,
                 Array.AsReadOnly(RegistryJson.Deserialize<string[]>(reader.GetString(1))),
-                Array.AsReadOnly(RegistryJson.Deserialize<string[]>(reader.GetString(2))),
-                Array.AsReadOnly(RegistryJson.Deserialize<string[]>(reader.GetString(3))));
+                Array.AsReadOnly(RegistryJson.Deserialize<RegistryAuthorityOverride[]>(reader.GetString(2))));
             result.Add(
                 id,
                 new RegistryEntry<RegistryAuthority>(
                     value,
-                    reader.GetString(4),
-                    reader.GetFieldValue<DateTimeOffset>(5)));
+                    reader.GetString(3),
+                    reader.GetFieldValue<DateTimeOffset>(4)));
         }
 
         return new ReadOnlyDictionary<PositionId, RegistryEntry<RegistryAuthority>>(result);

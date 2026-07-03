@@ -1,44 +1,93 @@
 using System.Collections.Immutable;
+using Hive.Domain.Governance;
 
 namespace Hive.Domain.Positions;
 
 /// <summary>
-/// Runtime authority rules projected for a position occupant (US-F0-06-T08a).
+/// Runtime sparse authority rules projected for a position occupant.
 /// </summary>
 public sealed record PositionAuthorityRuntimeConfiguration
 {
     public PositionAuthorityRuntimeConfiguration(
         IEnumerable<string>? canDecide = null,
-        IEnumerable<string>? mustEscalate = null,
-        IEnumerable<string>? requiresHumanApproval = null)
+        IEnumerable<PositionAuthorityOverrideRuntimeConfiguration>? overrides = null)
     {
-        CanDecide = ToValidatedArray(canDecide, nameof(canDecide));
-        MustEscalate = ToValidatedArray(mustEscalate, nameof(mustEscalate));
-        RequiresHumanApproval = ToValidatedArray(requiresHumanApproval, nameof(requiresHumanApproval));
+        CanDecide = ToAuthorityKeys(canDecide);
+        Overrides = ToOverrides(overrides, nameof(overrides));
     }
 
-    /// <summary>Action labels the occupant may decide autonomously.</summary>
-    public ImmutableArray<string> CanDecide { get; }
+    public ImmutableArray<AuthorityKey> CanDecide { get; }
 
-    /// <summary>Action labels the occupant must escalate.</summary>
-    public ImmutableArray<string> MustEscalate { get; }
+    public ImmutableArray<PositionAuthorityOverrideRuntimeConfiguration> Overrides { get; }
 
-    /// <summary>Action labels that require human approval.</summary>
-    public ImmutableArray<string> RequiresHumanApproval { get; }
-
-    private static ImmutableArray<string> ToValidatedArray(IEnumerable<string>? source, string parameterName)
+    private static ImmutableArray<AuthorityKey> ToAuthorityKeys(IEnumerable<string>? source)
     {
         if (source is null)
         {
-            return ImmutableArray<string>.Empty;
+            return [];
         }
 
-        var builder = ImmutableArray.CreateBuilder<string>();
+        var builder = ImmutableArray.CreateBuilder<AuthorityKey>();
         foreach (var item in source)
         {
-            builder.Add(CommandText.RequireContent(item, parameterName));
+            builder.Add(AuthorityKey.From(item));
         }
 
         return builder.ToImmutable();
+    }
+
+    private static ImmutableArray<PositionAuthorityOverrideRuntimeConfiguration> ToOverrides(
+        IEnumerable<PositionAuthorityOverrideRuntimeConfiguration>? source,
+        string parameterName)
+    {
+        if (source is null)
+        {
+            return [];
+        }
+
+        var builder = ImmutableArray.CreateBuilder<PositionAuthorityOverrideRuntimeConfiguration>();
+        foreach (var item in source)
+        {
+            if (item is null)
+            {
+                throw new ArgumentException("Collection cannot contain null entries.", parameterName);
+            }
+
+            builder.Add(item);
+        }
+
+        return builder.ToImmutable();
+    }
+}
+
+public sealed record PositionAuthorityOverrideRuntimeConfiguration
+{
+    public PositionAuthorityOverrideRuntimeConfiguration(
+        string key,
+        ActionDomainGate gate,
+        string? approver = null)
+    {
+        Key = AuthorityKey.From(key);
+        Gate = RequireDefined(gate, nameof(gate));
+        Approver = approver is null
+            ? null
+            : CommandText.RequireContent(approver, nameof(approver));
+    }
+
+    public AuthorityKey Key { get; }
+
+    public ActionDomainGate Gate { get; }
+
+    public string? Approver { get; }
+
+    private static TEnum RequireDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentException($"Value '{value}' is not a defined {typeof(TEnum).Name}.", parameterName);
+        }
+
+        return value;
     }
 }

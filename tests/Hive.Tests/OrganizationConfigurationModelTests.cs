@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Organization.Configuration;
 
 namespace Hive.Tests;
@@ -129,9 +130,11 @@ public sealed class OrganizationConfigurationModelTests
         Assert.Equal("18:00", workingHours.End);
 
         var authority = Assert.IsType<AuthorityConfiguration>(occupant.Authority);
-        Assert.Equal(new[] { "triagem-de-bugs" }, authority.CanDecide);
-        Assert.Equal(new[] { "risco-de-prazo-critico" }, authority.MustEscalate);
-        Assert.Equal(new[] { "release-em-producao" }, authority.RequiresHumanApproval);
+        Assert.Equal(new[] { "delivery.bug-triage" }, authority.CanDecide.Select(key => key.Value));
+        var authorityOverride = Assert.Single(authority.Overrides);
+        Assert.Equal("comms.external-official", authorityOverride.Key.Value);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("ceo", authorityOverride.Approver);
     }
 
     [Fact]
@@ -241,9 +244,7 @@ public sealed class OrganizationConfigurationModelTests
                 OccupantType.AiAgent,
                 identityPromptRef: "ceo-v1",
                 authority: new AuthorityConfiguration(
-                    canDecide: ["prioridades-trimestrais"],
-                    mustEscalate: ["compromissos-orcamentais"],
-                    requiresHumanApproval: ["mudancas-de-estrutura"])),
+                    canDecide: ["org.quarterly-priorities"])),
             reportsTo: null,
             name: "CEO");
 
@@ -268,9 +269,14 @@ public sealed class OrganizationConfigurationModelTests
                         maxCallsPerHour: 60)),
                 workingHours: new WorkingHoursConfiguration("09:00", "18:00"),
                 authority: new AuthorityConfiguration(
-                    canDecide: ["triagem-de-bugs"],
-                    mustEscalate: ["risco-de-prazo-critico"],
-                    requiresHumanApproval: ["release-em-producao"]),
+                    canDecide: ["delivery.bug-triage"],
+                    overrides:
+                    [
+                        new AuthorityOverrideConfiguration(
+                            "comms.external-official",
+                            ActionDomainGate.HumanApproval,
+                            approver: "ceo"),
+                    ]),
                 schedule: [new ScheduleEntryConfiguration(
                     "relatorio-diario",
                     "0 55 17 * * MON-FRI",

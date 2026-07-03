@@ -1,5 +1,6 @@
 using System.Text;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 
@@ -111,9 +112,21 @@ internal static class AiDirectivePrompt
     private static void AppendAuthority(StringBuilder builder, AiDirectiveExecutionContext context)
     {
         builder.AppendLine("Authority:");
-        builder.AppendLine($"CanDecide: {JoinOrEmpty(context.Authority.CanDecide)}");
-        builder.AppendLine($"MustEscalate: {JoinOrEmpty(context.Authority.MustEscalate)}");
-        builder.AppendLine($"RequiresHumanApproval: {JoinOrEmpty(context.Authority.RequiresHumanApproval)}");
+        builder.AppendLine($"CanDecide: {JoinOrEmpty(context.Authority.CanDecide.Select(key => key.Value))}");
+        if (context.Authority.Overrides.IsEmpty)
+        {
+            builder.AppendLine("AuthorityOverrides: <empty>");
+            builder.AppendLine();
+            return;
+        }
+
+        builder.AppendLine("AuthorityOverrides:");
+        foreach (var authorityOverride in context.Authority.Overrides)
+        {
+            builder.AppendLine(
+                $"- {authorityOverride.Key.Value}: {GateWireValue(authorityOverride.Gate)} (approver: {ValueOrNone(authorityOverride.Approver)})");
+        }
+
         builder.AppendLine();
     }
 
@@ -253,6 +266,15 @@ internal static class AiDirectivePrompt
         context.ProcessingMode is { } mode
             ? AiProcessingModeContract.ToWireValue(mode)
             : "<none>";
+
+    private static string GateWireValue(ActionDomainGate gate) =>
+        gate switch
+        {
+            ActionDomainGate.Decide => "decide",
+            ActionDomainGate.Escalate => "escalate",
+            ActionDomainGate.HumanApproval => "human-approval",
+            _ => throw new InvalidOperationException("Unknown action-domain gate."),
+        };
 
     private static string JoinOrEmpty(IEnumerable<string> values)
     {

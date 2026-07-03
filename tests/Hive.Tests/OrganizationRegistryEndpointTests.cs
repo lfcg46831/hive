@@ -220,10 +220,17 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
             "stub",
             json.GetProperty("occupant").GetProperty("ai").GetProperty("provider").GetString());
         Assert.Equal(
-            "triagem-de-bugs",
+            "delivery.bug-triage",
             Assert.Single(
                 json.GetProperty("authority").GetProperty("canDecide").EnumerateArray())
                 .GetString());
+        var authorityOverride = Assert.Single(
+            json.GetProperty("authority").GetProperty("overrides").EnumerateArray());
+        Assert.Equal("comms.external-official", authorityOverride.GetProperty("key").GetString());
+        Assert.Equal("human-approval", authorityOverride.GetProperty("gate").GetString());
+        Assert.Equal("ceo", authorityOverride.GetProperty("approver").GetString());
+        Assert.False(json.GetProperty("authority").TryGetProperty("mustEscalate", out _));
+        Assert.False(json.GetProperty("authority").TryGetProperty("requiresHumanApproval", out _));
         Assert.Equal(
             "relatorio-diario",
             Assert.Single(json.GetProperty("schedules").EnumerateArray())

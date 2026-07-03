@@ -748,9 +748,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
                     subscriptions: Array.Empty<SubscriptionConfiguration>(),
                     tools: Array.Empty<ToolConfiguration>()),
                 new PositionAuthorityRuntimeConfiguration(
-                    canDecide: Array.Empty<string>(),
-                    mustEscalate: Array.Empty<string>(),
-                    requiresHumanApproval: Array.Empty<string>()));
+                    canDecide: Array.Empty<string>()));
     }
 
     internal sealed class CapturingProjectionPublisher : IPositionProjectionPublisher

@@ -126,9 +126,7 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                 $"Registry snapshot for position '{entityId.Value}' has incomplete occupant collections.");
         }
 
-        if (authority.CanDecide is null
-            || authority.MustEscalate is null
-            || authority.RequiresHumanApproval is null)
+        if (authority.CanDecide is null || authority.Overrides is null)
         {
             return PositionRuntimeConfigurationLoadResult.Incomplete(
                 $"Registry snapshot for position '{entityId.Value}' has incomplete authority collections.");
@@ -177,8 +175,11 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         identityPrompt),
                     new PositionAuthorityRuntimeConfiguration(
                         authority.CanDecide,
-                        authority.MustEscalate,
-                        authority.RequiresHumanApproval),
+                        authority.Overrides.Select(item =>
+                            new PositionAuthorityOverrideRuntimeConfiguration(
+                                item.Key,
+                                item.Gate,
+                                item.Approver))),
                     schedules));
         }
         catch (ArgumentException exception)

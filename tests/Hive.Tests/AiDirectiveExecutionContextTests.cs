@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -55,14 +56,12 @@ public sealed class AiDirectiveExecutionContextTests
         Assert.Equal(UnitId.From("engineering"), context.Relation.Unit);
         Assert.Equal(PositionId.From("delivery-lead"), context.Relation.ReportsTo);
         Assert.Equal(
-            ["customer.data.request"],
-            context.Authority.MustEscalate.Select(value => value).ToArray());
-        Assert.Equal(
             ["bug.triage"],
-            context.Authority.CanDecide.Select(value => value).ToArray());
-        Assert.Equal(
-            ["spend.money"],
-            context.Authority.RequiresHumanApproval.Select(value => value).ToArray());
+            context.Authority.CanDecide.Select(key => key.Value).ToArray());
+        var authorityOverride = Assert.Single(context.Authority.Overrides);
+        Assert.Equal("comms.external-official", authorityOverride.Key.Value);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("delivery-lead", authorityOverride.Approver);
 
         Assert.Equal(["alpha", "zeta"], context.ShortMemory.Select(entry => entry.Key).ToArray());
         Assert.Equal(["first", "last"], context.ShortMemory.Select(entry => entry.Value).ToArray());
@@ -97,8 +96,7 @@ public sealed class AiDirectiveExecutionContextTests
         Assert.Empty(context.OpenTasks);
         Assert.Empty(context.RecentHistory);
         Assert.Empty(context.Authority.CanDecide);
-        Assert.Empty(context.Authority.MustEscalate);
-        Assert.Empty(context.Authority.RequiresHumanApproval);
+        Assert.Empty(context.Authority.Overrides);
         Assert.Empty(context.AuthorizedTools);
     }
 
@@ -242,8 +240,13 @@ public sealed class AiDirectiveExecutionContextTests
             includeOptionalContext
                 ? new PositionAuthorityRuntimeConfiguration(
                     canDecide: ["bug.triage"],
-                    mustEscalate: ["customer.data.request"],
-                    requiresHumanApproval: ["spend.money"])
+                    overrides:
+                    [
+                        new PositionAuthorityOverrideRuntimeConfiguration(
+                            "comms.external-official",
+                            ActionDomainGate.HumanApproval,
+                            "delivery-lead"),
+                    ])
                 : new PositionAuthorityRuntimeConfiguration());
 
         var state = includeOptionalContext

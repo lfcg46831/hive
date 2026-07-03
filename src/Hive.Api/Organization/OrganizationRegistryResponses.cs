@@ -86,9 +86,13 @@ public sealed record ToolResponse(string Connector, IReadOnlyList<string> Scope)
 
 public sealed record AuthorityResponse(
     IReadOnlyList<string> CanDecide,
-    IReadOnlyList<string> MustEscalate,
-    IReadOnlyList<string> RequiresHumanApproval,
+    IReadOnlyList<AuthorityOverrideResponse> Overrides,
     DateTimeOffset UpdatedAt);
+
+public sealed record AuthorityOverrideResponse(
+    string Key,
+    string Gate,
+    string? Approver);
 
 public sealed record ScheduleResponse(
     string Id,

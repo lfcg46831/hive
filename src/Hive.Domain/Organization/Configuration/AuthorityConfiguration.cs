@@ -1,30 +1,103 @@
+using System.Collections.Immutable;
+using Hive.Domain.Governance;
+
 namespace Hive.Domain.Organization.Configuration;
 
 /// <summary>
-/// The decision authority of a position (§6.2 <c>occupant.authority</c>): the action labels the
-/// occupant <see cref="CanDecide"/> autonomously, those it <see cref="MustEscalate"/>, and those
-/// that <see cref="RequiresHumanApproval"/>. Lists default to empty when absent; the labels are
-/// opaque to the loaded model and their controlled vocabulary is enforced elsewhere (§4.4).
+/// Sparse position authority from §4.9: action domains this position can decide plus optional
+/// gate-tightening overrides.
 /// </summary>
 public sealed record AuthorityConfiguration
 {
-    /// <summary>Creates an authority block from the three optional action-label lists.</summary>
     public AuthorityConfiguration(
         IReadOnlyList<string>? canDecide = null,
-        IReadOnlyList<string>? mustEscalate = null,
-        IReadOnlyList<string>? requiresHumanApproval = null)
+        IReadOnlyList<AuthorityOverrideConfiguration>? overrides = null)
     {
-        CanDecide = canDecide ?? Array.Empty<string>();
-        MustEscalate = mustEscalate ?? Array.Empty<string>();
-        RequiresHumanApproval = requiresHumanApproval ?? Array.Empty<string>();
+        CanDecide = SnapshotAuthorityKeys(canDecide);
+        Overrides = SnapshotOverrides(overrides, nameof(overrides));
     }
 
-    /// <summary>Action labels the occupant may decide autonomously.</summary>
-    public IReadOnlyList<string> CanDecide { get; }
+    public IReadOnlyList<AuthorityKey> CanDecide { get; }
 
-    /// <summary>Action labels the occupant must escalate to its superior.</summary>
-    public IReadOnlyList<string> MustEscalate { get; }
+    public IReadOnlyList<AuthorityOverrideConfiguration> Overrides { get; }
 
-    /// <summary>Action labels that require human approval before taking effect.</summary>
-    public IReadOnlyList<string> RequiresHumanApproval { get; }
+    private static ImmutableArray<AuthorityKey> SnapshotAuthorityKeys(IReadOnlyList<string>? values)
+    {
+        if (values is null)
+        {
+            return [];
+        }
+
+        var builder = ImmutableArray.CreateBuilder<AuthorityKey>(values.Count);
+        foreach (var value in values)
+        {
+            builder.Add(AuthorityKey.From(value));
+        }
+
+        return builder.ToImmutable();
+    }
+
+    private static ImmutableArray<AuthorityOverrideConfiguration> SnapshotOverrides(
+        IReadOnlyList<AuthorityOverrideConfiguration>? values,
+        string parameterName)
+    {
+        if (values is null)
+        {
+            return [];
+        }
+
+        var snapshot = values.ToImmutableArray();
+        if (snapshot.Any(value => value is null))
+        {
+            throw new ArgumentException("Collection cannot contain null entries.", parameterName);
+        }
+
+        return snapshot;
+    }
+}
+
+public sealed record AuthorityOverrideConfiguration
+{
+    public AuthorityOverrideConfiguration(
+        string key,
+        ActionDomainGate gate,
+        string? approver = null)
+    {
+        Key = AuthorityKey.From(key);
+        Gate = RequireDefined(gate, nameof(gate));
+        Approver = approver is null ? null : RequireText(approver, nameof(approver));
+    }
+
+    public AuthorityKey Key { get; }
+
+    public ActionDomainGate Gate { get; }
+
+    public string? Approver { get; }
+
+    private static TEnum RequireDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentException($"Value '{value}' is not a defined {typeof(TEnum).Name}.", parameterName);
+        }
+
+        return value;
+    }
+
+    private static string RequireText(string value, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(value, parameterName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Value cannot be empty or whitespace.", parameterName);
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Value cannot contain leading or trailing whitespace.", parameterName);
+        }
+
+        return value;
+    }
 }

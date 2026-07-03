@@ -504,9 +504,7 @@ public sealed class PositionActorDispatchTests
                 tools: Array.Empty<ToolConfiguration>(),
                 aiGateway: aiGateway),
             new PositionAuthorityRuntimeConfiguration(
-                canDecide: Array.Empty<string>(),
-                mustEscalate: Array.Empty<string>(),
-                requiresHumanApproval: Array.Empty<string>()));
+                canDecide: Array.Empty<string>()));
 
     private static PositionEntityId EntityId(string organization, string position) =>
         PositionEntityId.From(OrganizationId.From(organization), PositionId.From(position));

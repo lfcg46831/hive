@@ -149,9 +149,7 @@ public sealed class PositionActorIdempotencyTests
                 subscriptions: Array.Empty<SubscriptionConfiguration>(),
                 tools: Array.Empty<ToolConfiguration>()),
             new PositionAuthorityRuntimeConfiguration(
-                canDecide: Array.Empty<string>(),
-                mustEscalate: Array.Empty<string>(),
-                requiresHumanApproval: Array.Empty<string>()));
+                canDecide: Array.Empty<string>()));
 
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
 

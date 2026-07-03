@@ -1,5 +1,6 @@
 using System.Reflection;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
@@ -62,9 +63,11 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal(1.00m, limits.ProactiveMaxEurPerDay);
         Assert.Equal(6.00m, limits.TotalMaxEurPerDay);
         Assert.Equal(60, limits.MaxCallsPerHour);
-        Assert.Equal(["triagem-de-bugs"], configuration.Authority.CanDecide);
-        Assert.Equal(["risco-de-prazo-critico"], configuration.Authority.MustEscalate);
-        Assert.Equal(["release-em-producao"], configuration.Authority.RequiresHumanApproval);
+        Assert.Equal(["delivery.bug-triage"], configuration.Authority.CanDecide.Select(key => key.Value));
+        var authorityOverride = Assert.Single(configuration.Authority.Overrides);
+        Assert.Equal("comms.external-official", authorityOverride.Key.Value);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("ceo", authorityOverride.Approver);
         var schedule = Assert.Single(configuration.Schedules);
         Assert.Equal("relatorio-diario", schedule.Id);
         Assert.Equal("0 55 17 * * MON-FRI", schedule.Cron);

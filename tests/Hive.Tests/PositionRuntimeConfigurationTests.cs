@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 
@@ -239,9 +240,14 @@ public sealed class PositionRuntimeConfigurationTests
 
     private static PositionAuthorityRuntimeConfiguration Authority() =>
         new(
-            canDecide: new[] { "triage" },
-            mustEscalate: new[] { "refund" },
-            requiresHumanApproval: new[] { "contract-change" });
+            canDecide: new[] { "support.triage" },
+            overrides:
+            [
+                new PositionAuthorityOverrideRuntimeConfiguration(
+                    "finance.refund",
+                    ActionDomainGate.HumanApproval,
+                    "cto"),
+            ]);
 
     private static PositionScheduleRuntimeConfiguration Schedule() =>
         new("daily", "0 9 * * *", "Review open support threads.");

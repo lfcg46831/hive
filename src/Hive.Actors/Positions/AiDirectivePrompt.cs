@@ -28,21 +28,31 @@ internal static class AiDirectivePrompt
             policy: Policy(context));
     }
 
-    private static string BuildSystemInstruction() =>
-        string.Join(
+    private static string BuildSystemInstruction()
+    {
+        var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
+            AiDirectiveDecisionIntent.Report);
+        var escalationIntent = AiDirectiveDecisionIntentContract.ToWireValue(
+            AiDirectiveDecisionIntent.Escalation);
+        var directiveIntent = AiDirectiveDecisionIntentContract.ToWireValue(
+            AiDirectiveDecisionIntent.Directive);
+
+        return string.Join(
             Environment.NewLine,
             [
                 "You are the HIVE AI occupant for the current position.",
                 "Classify the directive using only the provided context.",
                 "Escalate work outside this position's authority instead of handling it directly.",
                 "Return JSON only with no Markdown fences or explanatory prose.",
-                "Use exactly one top-level \"intent\" value: \"Report\", \"Escalation\", or \"Directive\".",
-                "For Report, include report.kind as \"Progress\" or \"Done\" and report.body.",
-                "For Escalation, include escalation.reason and escalation.question.",
-                "For Directive, include directive.target_position_id, directive.objective, and directive.context.",
+                $"Set \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" to {AiDirectiveDecisionSchema.SchemaVersion}.",
+                $"Use exactly one top-level \"{AiDirectiveDecisionSchema.IntentProperty}\" value: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
+                $"For {reportIntent}, include {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
+                $"For {escalationIntent}, include {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
+                $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
                 "Directive only when a permitted downward target is explicit in the provided context.",
                 "Do not invent routing, approval, facts, authority, tools, or subordinate positions.",
             ]);
+    }
 
     private static string BuildContent(
         AiDirectiveExecutionContext context,

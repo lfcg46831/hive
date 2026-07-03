@@ -172,7 +172,7 @@ internal sealed record AiDirectiveProcessingLimits
         new(
             configuration?.Timeout,
             configuration?.Parameters.MaxOutputTokens,
-            maxIterations: null,
+            configuration?.MaxIterations,
             configuration?.CostLimits);
 }
 

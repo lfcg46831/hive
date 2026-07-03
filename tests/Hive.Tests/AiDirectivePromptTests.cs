@@ -102,10 +102,12 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
-    public async Task AiAgentActor_stores_initial_prompt_without_invoking_gateway()
+    public async Task AiAgentActor_invokes_gateway_after_initial_prompt_with_policy_and_limits()
     {
-        var processingRequest = Request(includeOptionalContext: true);
-        var invoker = new ThrowingInvoker();
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            maxIterations: 3);
+        var invoker = new RecordingInvoker();
         var system = ActorSystem.Create($"ai-agent-prompt-{Guid.NewGuid():N}");
 
         try
@@ -117,16 +119,82 @@ public sealed class AiDirectivePromptTests
             actor.Tell(processingRequest);
 
             var promptResult = await WaitForPromptAsync(actor, processingRequest.CorrelationId);
+            var invocation = await invoker.Invoked.Task.WaitAsync(Timeout());
             var snapshotResult = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
                 new GetAiDirectiveProcessingSnapshot(processingRequest.CorrelationId),
                 Timeout());
+            var gatewayResult = await actor.Ask<AiDirectiveGatewayInvocationQueryResult>(
+                new GetAiDirectiveGatewayInvocation(processingRequest.CorrelationId),
+                Timeout());
+            var gatewayRequest = invocation.Request;
 
             Assert.True(promptResult.Found);
             Assert.Equal(processingRequest.CorrelationId, promptResult.CorrelationId);
             Assert.Equal(processingRequest.MessageId, promptResult.Request!.MessageId);
             Assert.Contains("Return JSON only", promptResult.Request.SystemInstruction, StringComparison.Ordinal);
-            Assert.Equal(AiDirectiveProcessingStatus.ContextAssembled, snapshotResult.Snapshot!.Status);
-            Assert.Equal(0, invoker.CallCount);
+            Assert.Same(promptResult.Request, gatewayRequest);
+            Assert.Equal(1, invoker.CallCount);
+            Assert.Equal(processingRequest.CorrelationId, invocation.CorrelationId);
+            Assert.Equal(processingRequest.OrganizationId, gatewayRequest.OrganizationId);
+            Assert.Equal(processingRequest.PositionId, gatewayRequest.PositionId);
+            Assert.Equal(processingRequest.ThreadId, gatewayRequest.ThreadId);
+            Assert.Equal(processingRequest.MessageId, gatewayRequest.MessageId);
+            Assert.Equal(TimeSpan.FromSeconds(15), gatewayRequest.Timeout);
+            Assert.Equal(256, gatewayRequest.ModelParameters.MaxOutputTokens);
+            Assert.Equal("3", gatewayRequest.Metadata["max_iterations"]);
+            Assert.True(invoker.CancellationToken.CanBeCanceled);
+
+            var policy = Assert.IsType<AiGatewayPolicy>(gatewayRequest.Policy);
+            Assert.True(policy.HasAvailableBudget);
+            Assert.Equal(TimeSpan.FromSeconds(15), policy.MaxTimeout);
+            Assert.Equal(256, policy.MaxOutputTokens);
+            var authorizedModel = Assert.Single(policy.AuthorizedModels);
+            Assert.Equal("stub", authorizedModel.ProviderId);
+            Assert.Equal("triage", authorizedModel.ModelId);
+            Assert.Equal([AiProcessingMode.Batch], policy.AllowedProcessingModes.ToArray());
+            Assert.True(gatewayResult.Found);
+            Assert.True(gatewayResult.Result!.IsSuccess);
+            Assert.Equal(processingRequest.CorrelationId, gatewayResult.Result.CorrelationId);
+            Assert.Equal("ok", gatewayResult.Result.Response.Text);
+
+            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshotResult.Snapshot!.Status);
+            Assert.Equal(
+                [
+                    AiDirectiveProcessingStatus.Received,
+                    AiDirectiveProcessingStatus.ContextAssembled,
+                    AiDirectiveProcessingStatus.GatewayRequested,
+                ],
+                snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_fails_processing_when_gateway_timeout_cancels_invocation()
+    {
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            timeout: TimeSpan.FromMilliseconds(50));
+        var invoker = new WaitForCancellationInvoker();
+        var system = ActorSystem.Create($"ai-agent-gateway-timeout-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(processingRequest.Occupant, invoker)),
+                "agent");
+
+            actor.Tell(processingRequest);
+
+            await invoker.Started.Task.WaitAsync(Timeout());
+            var snapshotResult = await WaitForSnapshotAsync(actor, processingRequest.CorrelationId);
+
+            Assert.Equal(AiDirectiveProcessingStatus.Failed, snapshotResult.Snapshot!.Status);
+            Assert.Contains("timeout", snapshotResult.Snapshot.TerminalReason, StringComparison.OrdinalIgnoreCase);
+            Assert.True(invoker.CancellationToken.IsCancellationRequested);
         }
         finally
         {
@@ -195,6 +263,33 @@ public sealed class AiDirectivePromptTests
         }
     }
 
+    [Fact]
+    public async Task AiAgentActor_returns_missing_gateway_invocation_for_unknown_correlation()
+    {
+        var system = ActorSystem.Create($"ai-agent-gateway-missing-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    OccupantId.From("agent-7"),
+                    new ThrowingInvoker())),
+                "agent");
+
+            var result = await actor.Ask<AiDirectiveGatewayInvocationQueryResult>(
+                new GetAiDirectiveGatewayInvocation("directive:unknown"),
+                Timeout());
+
+            Assert.False(result.Found);
+            Assert.Equal("directive:unknown", result.CorrelationId);
+            Assert.Null(result.Result);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static async Task<AiDirectiveInitialPromptQueryResult> WaitForPromptAsync(
         IActorRef actor,
         string correlationId)
@@ -239,7 +334,9 @@ public sealed class AiDirectivePromptTests
 
     private static AiDirectiveProcessingRequest Request(
         bool includeOptionalContext,
-        bool includeIdentityPrompt = true)
+        bool includeIdentityPrompt = true,
+        TimeSpan? timeout = null,
+        int? maxIterations = null)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -282,8 +379,9 @@ public sealed class AiDirectivePromptTests
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
-                    timeout: TimeSpan.FromSeconds(15),
-                    processingMode: AiProcessingMode.Batch),
+                    timeout: timeout ?? TimeSpan.FromSeconds(15),
+                    processingMode: AiProcessingMode.Batch,
+                    maxIterations: maxIterations),
                 identityPrompt: includeIdentityPrompt
                     ? new IdentityPromptRuntimeConfiguration(
                         "triage-v1",
@@ -365,6 +463,54 @@ public sealed class AiDirectivePromptTests
         {
             CallCount++;
             throw new InvalidOperationException("Gateway must not be invoked by T05.");
+        }
+    }
+
+    private sealed class RecordingInvoker : IAiAgentGatewayInvoker
+    {
+        public int CallCount { get; private set; }
+
+        public CancellationToken CancellationToken { get; private set; }
+
+        public TaskCompletionSource<AiAgentGatewayInvocation> Invoked { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            CancellationToken = cancellationToken;
+            Invoked.TrySetResult(invocation);
+
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Succeeded(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    "ok",
+                    AiFinishReason.Stop)));
+        }
+    }
+
+    private sealed class WaitForCancellationInvoker : IAiAgentGatewayInvoker
+    {
+        public CancellationToken CancellationToken { get; private set; }
+
+        public TaskCompletionSource Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default)
+        {
+            CancellationToken = cancellationToken;
+            Started.TrySetResult();
+
+            await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan, cancellationToken);
+            throw new InvalidOperationException("The cancellation token should stop the wait.");
         }
     }
 }

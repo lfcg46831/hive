@@ -96,7 +96,7 @@ public sealed class AiDirectiveProcessingStateMachineTests
     }
 
     [Fact]
-    public async Task AiAgentActor_records_context_assembled_snapshot_and_returns_it_by_correlation()
+    public async Task AiAgentActor_records_gateway_requested_snapshot_and_returns_it_by_correlation()
     {
         var request = Request();
         var system = ActorSystem.Create($"ai-agent-state-{Guid.NewGuid():N}");
@@ -118,11 +118,12 @@ public sealed class AiDirectiveProcessingStateMachineTests
             Assert.Equal(request.ThreadId, snapshot.ThreadId);
             Assert.Equal(request.DirectiveId, snapshot.DirectiveId);
             Assert.Equal(request.MessageId, snapshot.MessageId);
-            Assert.Equal(AiDirectiveProcessingStatus.ContextAssembled, snapshot.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshot.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
+                    AiDirectiveProcessingStatus.GatewayRequested,
                 ],
                 snapshot.History.Select(transition => transition.Status).ToArray());
         }

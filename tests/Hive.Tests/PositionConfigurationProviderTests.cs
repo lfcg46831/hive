@@ -52,6 +52,7 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("deterministic", aiGateway.Primary.ModelId);
         Assert.Equal(0.2m, aiGateway.Parameters.Temperature);
         Assert.Equal(1024, aiGateway.Parameters.MaxOutputTokens);
+        Assert.Equal(4, aiGateway.MaxIterations);
         Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.Timeout);
         Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
         var fallback = Assert.Single(aiGateway.Fallback);
@@ -146,6 +147,7 @@ public sealed class PositionConfigurationProviderTests
         { new AiConfiguration("stub", "deterministic", processing: "streaming"), "processing" },
         { new AiConfiguration("stub", "deterministic", timeout: "soon"), "timeout" },
         { new AiConfiguration("stub", "deterministic", temperature: 4.5), "temperature" },
+        { new AiConfiguration("stub", "deterministic", maxIterations: 0), "iterations" },
         { new AiConfiguration("stub", "deterministic", budget: new BudgetConfiguration(maxCallsPerHour: -1)), "budget" },
     };
 

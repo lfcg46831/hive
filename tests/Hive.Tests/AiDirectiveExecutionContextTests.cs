@@ -101,7 +101,7 @@ public sealed class AiDirectiveExecutionContextTests
     }
 
     [Fact]
-    public async Task AiAgentActor_assembles_context_and_advances_snapshot_to_context_assembled()
+    public async Task AiAgentActor_assembles_context_before_advancing_snapshot_to_gateway_requested()
     {
         var request = Request(includeOptionalContext: true);
         var system = ActorSystem.Create($"ai-agent-context-{Guid.NewGuid():N}");
@@ -125,11 +125,12 @@ public sealed class AiDirectiveExecutionContextTests
             Assert.Equal(request.CorrelationId, contextResult.CorrelationId);
             Assert.Equal(request.DirectiveId, contextResult.Context!.Directive.DirectiveId);
             Assert.True(snapshotResult.Found);
-            Assert.Equal(AiDirectiveProcessingStatus.ContextAssembled, snapshotResult.Snapshot!.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.GatewayRequested, snapshotResult.Snapshot!.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
+                    AiDirectiveProcessingStatus.GatewayRequested,
                 ],
                 snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
         }

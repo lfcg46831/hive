@@ -10,7 +10,8 @@ public sealed record AiPositionRuntimeConfiguration
         TimeSpan? timeout = null,
         AiProcessingMode? processingMode = null,
         IEnumerable<AiProviderMetadata>? fallback = null,
-        AiCostLimits? costLimits = null)
+        AiCostLimits? costLimits = null,
+        int? maxIterations = null)
     {
         ArgumentNullException.ThrowIfNull(primary);
         if (timeout is { } value && value <= TimeSpan.Zero)
@@ -19,6 +20,14 @@ public sealed record AiPositionRuntimeConfiguration
                 nameof(timeout),
                 timeout,
                 "AI timeout must be greater than zero.");
+        }
+
+        if (maxIterations is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxIterations),
+                maxIterations,
+                "AI max iterations must be greater than zero.");
         }
 
         if (processingMode is { } mode)
@@ -32,6 +41,7 @@ public sealed record AiPositionRuntimeConfiguration
         ProcessingMode = processingMode;
         Fallback = AiContractGuards.Snapshot(fallback, nameof(fallback));
         CostLimits = costLimits;
+        MaxIterations = maxIterations;
     }
 
     public AiProviderMetadata Primary { get; }
@@ -45,4 +55,6 @@ public sealed record AiPositionRuntimeConfiguration
     public ImmutableArray<AiProviderMetadata> Fallback { get; }
 
     public AiCostLimits? CostLimits { get; }
+
+    public int? MaxIterations { get; }
 }

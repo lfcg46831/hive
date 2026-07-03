@@ -65,6 +65,7 @@ public sealed record AiResponse(
     string Model,
     double? Temperature,
     int? MaxTokens,
+    int? MaxIterations,
     string? Processing,
     string? BatchWindow,
     IReadOnlyList<AiFallbackResponse> Fallback,

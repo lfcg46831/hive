@@ -350,7 +350,7 @@ HIVE__AIGATEWAY__REAL__MAXOUTPUTTOKENS=256
 HIVE__AIGATEWAY__REAL__TIMEOUTSECONDS=30
 ```
 
-When a position's runtime configuration specifies provider/model, parameters or timeout, those values override these defaults; absent position values fall back to the defaults above without inventing new values.
+When a position's runtime configuration specifies provider/model, parameters, timeout, or max iterations, those values override these defaults; absent position values fall back to the defaults above without inventing new values.
 
 ### Optional real-provider integration smoke test
 

@@ -36,6 +36,7 @@ positions:
         model: deterministic
         temperature: 0.2
         max_tokens: 1024
+        max_iterations: 4
         timeout: PT30S
         processing: interactive
         fallback:
@@ -61,6 +62,7 @@ positions:
         model: deterministic
         temperature: 0.2
         max_tokens: 1024
+        max_iterations: 4
         timeout: PT30S
         processing: interactive
         fallback:

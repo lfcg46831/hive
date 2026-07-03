@@ -217,7 +217,8 @@ internal sealed class OrganizationRegistryProjection
             ai.BatchWindow,
             ReadOnly(ai.Fallback.Select(item => new AiFallbackConfiguration(item.Provider, item.Model))),
             budget,
-            ai.Timeout);
+            ai.Timeout,
+            ai.MaxIterations);
     }
 
     private static OrganizationRelationsSnapshot BuildRelations(OrganizationConfiguration configuration)

@@ -19,7 +19,8 @@ public sealed record AiConfiguration
         string? batchWindow = null,
         IReadOnlyList<AiFallbackConfiguration>? fallback = null,
         BudgetConfiguration? budget = null,
-        string? timeout = null)
+        string? timeout = null,
+        int? maxIterations = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(model);
@@ -28,6 +29,7 @@ public sealed record AiConfiguration
         Model = model;
         Temperature = temperature;
         MaxTokens = maxTokens;
+        MaxIterations = maxIterations;
         Processing = processing;
         BatchWindow = batchWindow;
         Timeout = timeout;
@@ -46,6 +48,9 @@ public sealed record AiConfiguration
 
     /// <summary>The optional maximum number of tokens per call.</summary>
     public int? MaxTokens { get; }
+
+    /// <summary>The optional maximum number of AI-agent iterations for processing one directive.</summary>
+    public int? MaxIterations { get; }
 
     /// <summary>The processing mode as declared (for example <c>interactive</c> or <c>batch</c>).</summary>
     public string? Processing { get; }

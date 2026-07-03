@@ -46,6 +46,46 @@ internal sealed record AiAgentGatewayInvocationResult
         new(correlationId, response);
 }
 
+internal sealed record GetAiDirectiveGatewayInvocation
+{
+    public GetAiDirectiveGatewayInvocation(string correlationId)
+    {
+        CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
+    }
+
+    public string CorrelationId { get; }
+}
+
+internal sealed record AiDirectiveGatewayInvocationQueryResult
+{
+    private AiDirectiveGatewayInvocationQueryResult(
+        string correlationId,
+        AiAgentGatewayInvocationResult? result)
+    {
+        CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
+        Result = result;
+    }
+
+    public string CorrelationId { get; }
+
+    public AiAgentGatewayInvocationResult? Result { get; }
+
+    public bool Found => Result is not null;
+
+    public static AiDirectiveGatewayInvocationQueryResult FoundResult(
+        AiAgentGatewayInvocationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return new AiDirectiveGatewayInvocationQueryResult(
+            result.CorrelationId,
+            result);
+    }
+
+    public static AiDirectiveGatewayInvocationQueryResult Missing(string correlationId) =>
+        new(correlationId, result: null);
+}
+
 internal sealed class AiAgentGatewayInvoker : IAiAgentGatewayInvoker
 {
     private readonly IAiGateway _gateway;

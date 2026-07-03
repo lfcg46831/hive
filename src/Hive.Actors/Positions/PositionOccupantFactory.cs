@@ -54,6 +54,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiGatewayRequest> _directiveInitialPrompts =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiAgentGatewayInvocationResult> _directiveGatewayInvocations =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -74,27 +76,7 @@ internal sealed class AiAgentActor : ReceiveActor
                 .ConfigureAwait(false);
             replyTo.Tell(result);
         });
-        Receive<AiDirectiveProcessingRequest>(request =>
-        {
-            var context = AiDirectiveExecutionContext.From(request);
-            var received = AiDirectiveProcessingSnapshot.Received(request);
-            if (context.IdentityPrompt is null)
-            {
-                _directiveExecutionContexts[request.CorrelationId] = context;
-                _directiveProcessingSnapshots[request.CorrelationId] = received.AdvanceTo(
-                    AiDirectiveProcessingStatus.Failed,
-                    reason: IdentityPromptFailureReason(context));
-                return;
-            }
-
-            var prompt = AiDirectivePrompt.CreateInitialRequest(context);
-            var snapshot = received.AdvanceTo(
-                AiDirectiveProcessingStatus.ContextAssembled,
-                reason: "execution context assembled");
-            _directiveExecutionContexts[request.CorrelationId] = context;
-            _directiveInitialPrompts[request.CorrelationId] = prompt;
-            _directiveProcessingSnapshots[request.CorrelationId] = snapshot;
-        });
+        ReceiveAsync<AiDirectiveProcessingRequest>(HandleDirectiveProcessingRequestAsync);
         Receive<GetAiDirectiveProcessingSnapshot>(query =>
         {
             Sender.Tell(_directiveProcessingSnapshots.TryGetValue(
@@ -119,6 +101,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveInitialPromptQueryResult.FoundRequest(query.CorrelationId, request)
                 : AiDirectiveInitialPromptQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiDirectiveGatewayInvocation>(query =>
+        {
+            Sender.Tell(_directiveGatewayInvocations.TryGetValue(
+                query.CorrelationId,
+                out var result)
+                ? AiDirectiveGatewayInvocationQueryResult.FoundResult(result)
+                : AiDirectiveGatewayInvocationQueryResult.Missing(query.CorrelationId));
+        });
         Receive<OrgMessage>(_ =>
         {
         });
@@ -128,8 +118,80 @@ internal sealed class AiAgentActor : ReceiveActor
 
     internal IAiAgentGatewayInvoker GatewayInvoker { get; }
 
+    private async Task HandleDirectiveProcessingRequestAsync(AiDirectiveProcessingRequest request)
+    {
+        var context = AiDirectiveExecutionContext.From(request);
+        var received = AiDirectiveProcessingSnapshot.Received(request);
+        if (context.IdentityPrompt is null)
+        {
+            _directiveExecutionContexts[request.CorrelationId] = context;
+            _directiveProcessingSnapshots[request.CorrelationId] = received.AdvanceTo(
+                AiDirectiveProcessingStatus.Failed,
+                reason: IdentityPromptFailureReason(context));
+            return;
+        }
+
+        var prompt = AiDirectivePrompt.CreateInitialRequest(context);
+        var contextAssembled = received.AdvanceTo(
+            AiDirectiveProcessingStatus.ContextAssembled,
+            reason: "execution context assembled");
+        var gatewayRequested = contextAssembled.AdvanceTo(
+            AiDirectiveProcessingStatus.GatewayRequested,
+            reason: "AI gateway request submitted");
+
+        _directiveExecutionContexts[request.CorrelationId] = context;
+        _directiveInitialPrompts[request.CorrelationId] = prompt;
+        _directiveProcessingSnapshots[request.CorrelationId] = gatewayRequested;
+
+        using var timeout = CreateGatewayTimeout(prompt.Timeout);
+        try
+        {
+            var result = await GatewayInvoker
+                .InvokeAsync(
+                    new AiAgentGatewayInvocation(request.CorrelationId, prompt),
+                    timeout?.Token ?? CancellationToken.None)
+                .ConfigureAwait(false);
+            _directiveGatewayInvocations[request.CorrelationId] = result;
+
+            if (result.IsFailure)
+            {
+                _directiveProcessingSnapshots[request.CorrelationId] =
+                    gatewayRequested.AdvanceTo(
+                        AiDirectiveProcessingStatus.Failed,
+                        reason: GatewayFailureReason(result));
+            }
+        }
+        catch (OperationCanceledException) when (timeout?.IsCancellationRequested == true)
+        {
+            _directiveProcessingSnapshots[request.CorrelationId] =
+                gatewayRequested.AdvanceTo(
+                    AiDirectiveProcessingStatus.Failed,
+                    reason: GatewayTimeoutReason(prompt.Timeout));
+        }
+        catch (OperationCanceledException)
+        {
+            _directiveProcessingSnapshots[request.CorrelationId] =
+                gatewayRequested.AdvanceTo(
+                    AiDirectiveProcessingStatus.Failed,
+                    reason: "AI gateway request was canceled before a response was returned.");
+        }
+    }
+
     private static string IdentityPromptFailureReason(AiDirectiveExecutionContext context) =>
         $"Identity prompt '{context.IdentityPromptRef ?? "<missing>"}' was not resolved; directive processing stopped before gateway request.";
+
+    private static CancellationTokenSource? CreateGatewayTimeout(TimeSpan? timeout) =>
+        timeout is { } value ? new CancellationTokenSource(value) : null;
+
+    private static string GatewayFailureReason(AiAgentGatewayInvocationResult result) =>
+        result.FailureReason is { } error
+            ? $"AI gateway request failed with '{error.Code}'."
+            : "AI gateway request failed without a structured reason.";
+
+    private static string GatewayTimeoutReason(TimeSpan? timeout) =>
+        timeout is { } value
+            ? $"AI gateway timeout after {value}."
+            : "AI gateway timeout.";
 }
 
 internal sealed class HumanProxyActor : ReceiveActor

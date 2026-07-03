@@ -24,7 +24,8 @@ internal static class AiDirectivePrompt
             metadata: Metadata(context),
             provider: context.Provider,
             processingMode: context.ProcessingMode,
-            timeout: context.Limits.Timeout);
+            timeout: context.Limits.Timeout,
+            policy: Policy(context));
     }
 
     private static string BuildSystemInstruction() =>
@@ -245,7 +246,30 @@ internal static class AiDirectivePrompt
             metadata["identity_prompt_path"] = identityPrompt.Path;
         }
 
+        if (context.Limits.MaxIterations is { } maxIterations)
+        {
+            metadata["max_iterations"] = maxIterations.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+
         return metadata;
+    }
+
+    private static AiGatewayPolicy? Policy(AiDirectiveExecutionContext context)
+    {
+        if (context.Provider is null)
+        {
+            return null;
+        }
+
+        return new AiGatewayPolicy(
+            [context.Provider],
+            hasAvailableBudget: true,
+            maxOutputTokens: context.Limits.MaxOutputTokens,
+            maxTimeout: context.Limits.Timeout,
+            allowedProcessingModes: context.ProcessingMode is { } mode
+                ? [mode]
+                : null);
     }
 
     private static string Endpoint(EndpointRef endpoint) =>

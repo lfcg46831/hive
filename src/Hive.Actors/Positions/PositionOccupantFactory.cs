@@ -3,6 +3,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Positions;
 
 namespace Hive.Actors.Positions;
 
@@ -72,6 +73,8 @@ internal sealed class AiAgentActor : ReceiveActor
     private readonly Dictionary<string, AiDirectiveResultMessage> _directiveResultMessages =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveIterationAuditTrail> _directiveIterationAudits =
+        new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiDirectivePositionEffects> _directivePositionEffects =
         new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
@@ -160,6 +163,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveIterationAuditSnapshotQueryResult.FoundSnapshot(snapshot)
                 : AiDirectiveIterationAuditSnapshotQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiDirectivePositionEffects>(query =>
+        {
+            Sender.Tell(_directivePositionEffects.TryGetValue(
+                query.CorrelationId,
+                out var effects)
+                ? AiDirectivePositionEffectsQueryResult.FoundEffects(effects)
+                : AiDirectivePositionEffectsQueryResult.Missing(query.CorrelationId));
+        });
         Receive<OrgMessage>(_ =>
         {
         });
@@ -241,6 +252,18 @@ internal sealed class AiAgentActor : ReceiveActor
                 }
 
                 _directiveResultMessages[request.CorrelationId] = resultMessage;
+                var positionEffects = AiDirectivePositionEffectFactory.Create(
+                    context,
+                    resultMessage);
+                _directivePositionEffects[request.CorrelationId] = positionEffects;
+                if (positionEffects.IsSuccess)
+                {
+                    foreach (var command in positionEffects.Commands)
+                    {
+                        Context.Parent.Tell(command);
+                    }
+                }
+
                 _directiveProcessingSnapshots[request.CorrelationId] =
                     resultMessage.IsSuccess
                         ? responseInterpreted.AdvanceTo(

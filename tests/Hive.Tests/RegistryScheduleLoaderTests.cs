@@ -32,7 +32,7 @@ public sealed class RegistryScheduleLoaderTests
 
         var definition = loaded.Definition;
         Assert.Equal("relatorio-diario", definition.Id.Value);
-        Assert.Equal("0 55 17 * * MON-FRI", definition.Cron.Value);
+        Assert.Equal("0 55 17 ? * MON-FRI", definition.Cron.Value);
         Assert.Equal("Europe/Lisbon", definition.TimeZone);
         Assert.Equal("Compilar e enviar relatorio diario ao superior", definition.Payload);
         Assert.Equal(Priority.Normal, definition.Priority);
@@ -47,7 +47,7 @@ public sealed class RegistryScheduleLoaderTests
             ExampleConfiguration(),
             new ScheduleEntryConfiguration(
                 "paused-report",
-                "0 0 9 * * MON-FRI",
+                "0 0 9 ? * MON-FRI",
                 "Keep this paused",
                 isActive: false));
         var snapshot = await ImportedSnapshotAsync(configuration);
@@ -95,6 +95,7 @@ public sealed class RegistryScheduleLoaderTests
     }
 
     [Theory]
+    [InlineData("0 0 9 * * MON-FRI")]
     [InlineData("0,,5 0 9 * * MON-FRI")]
     [InlineData("0 0 9 ?/5 * MON-FRI")]
     public async Task Loader_rejects_malformed_cron_fields(string cron)
@@ -127,7 +128,7 @@ public sealed class RegistryScheduleLoaderTests
                     ghostPosition,
                     "ghost-schedule",
                     true,
-                    "0 0 9 * * MON-FRI",
+                    "0 0 9 ? * MON-FRI",
                     "normal",
                     false,
                     "skip",

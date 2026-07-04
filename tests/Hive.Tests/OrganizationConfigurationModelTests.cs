@@ -106,7 +106,7 @@ public sealed class OrganizationConfigurationModelTests
             entry =>
             {
                 Assert.Equal("relatorio-diario", entry.Id);
-                Assert.Equal("0 55 17 * * MON-FRI", entry.Cron);
+                Assert.Equal("0 55 17 ? * MON-FRI", entry.Cron);
                 Assert.Equal("Compilar e enviar relatorio diario ao superior", entry.Instruction);
             });
 
@@ -281,7 +281,7 @@ public sealed class OrganizationConfigurationModelTests
                     ]),
                 schedule: [new ScheduleEntryConfiguration(
                     "relatorio-diario",
-                    "0 55 17 * * MON-FRI",
+                    "0 55 17 ? * MON-FRI",
                     "Compilar e enviar relatorio diario ao superior")],
                 subscriptions: [new SubscriptionConfiguration("directive-deadline-approaching", "PT4H")],
                 tools: [new ToolConfiguration("http", ["https://api.empresa.pt/*"])]),

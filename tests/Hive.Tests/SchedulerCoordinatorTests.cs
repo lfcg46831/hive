@@ -34,22 +34,22 @@ public sealed class SchedulerCoordinatorTests
             ExampleConfiguration(),
             new ScheduleEntryConfiguration(
                 "zeta-report",
-                "0 55 17 * * MON-FRI",
+                "0 55 17 ? * MON-FRI",
                 "Run zeta report"),
             new ScheduleEntryConfiguration(
                 "paused-report",
-                "0 0 12 * * MON-FRI",
+                "0 0 12 ? * MON-FRI",
                 "Do not materialize this",
                 isActive: false),
             new ScheduleEntryConfiguration(
                 "alpha-report",
-                "0 0 9 * * MON-FRI",
+                "0 0 9 ? * MON-FRI",
                 "Run alpha report")));
         var system = ActorSystem.Create("scheduler-coordinator-reconcile");
         try
         {
             var coordinator = system.ActorOf(
-                SchedulerCoordinator.Props(),
+                ProtocolOnlyCoordinatorProps(),
                 "scheduler-coordinator-reconcile");
 
             var result = await coordinator.Ask<SchedulerReconciliationResult>(
@@ -66,7 +66,7 @@ public sealed class SchedulerCoordinatorTests
                 result.Materializations.Select(materialization => materialization.Key.Value));
 
             var alpha = result.Materializations[0];
-            Assert.Equal("0 0 9 * * MON-FRI", alpha.Definition.Cron.Value);
+            Assert.Equal("0 0 9 ? * MON-FRI", alpha.Definition.Cron.Value);
             Assert.Equal("Run alpha report", alpha.Definition.Payload);
             Assert.Equal(new TimeOnly(9, 0), alpha.WorkingHours.Start);
             Assert.Equal(new TimeOnly(18, 0), alpha.WorkingHours.End);
@@ -87,13 +87,108 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_schedules_active_materializations_through_quartz_adapter()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "zeta-report",
+                "0 55 17 ? * MON-FRI",
+                "Run zeta report"),
+            new ScheduleEntryConfiguration(
+                "paused-report",
+                "0 0 12 ? * MON-FRI",
+                "Do not schedule this",
+                isActive: false),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 9 ? * MON-FRI",
+                "Run alpha report")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-quartz");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-quartz");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(
+                new[]
+                {
+                    "acme-delivery/delivery-lead/alpha-report",
+                    "acme-delivery/delivery-lead/zeta-report",
+                },
+                quartz.Jobs.Select(job => job.Key.Value));
+            Assert.Equal(
+                new[]
+                {
+                    "0 0 9 ? * MON-FRI",
+                    "0 55 17 ? * MON-FRI",
+                },
+                quartz.Jobs.Select(job => job.Cron.Value));
+            Assert.All(quartz.Jobs, job => Assert.Equal("Europe/Lisbon", job.TimeZone));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_invalid_snapshot_does_not_schedule_new_quartz_jobs()
+    {
+        var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var invalidSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "bad-report",
+                "99 99 99 * * MON-FRI",
+                "This schedule is invalid")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-quartz-invalid");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-quartz-invalid");
+
+            var accepted = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(validSnapshot),
+                AskTimeout);
+            Assert.True(accepted.IsAccepted, string.Join(Environment.NewLine, accepted.Errors));
+            Assert.Single(quartz.Jobs);
+
+            var rejected = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(invalidSnapshot),
+                AskTimeout);
+
+            Assert.False(rejected.IsAccepted);
+            Assert.Single(quartz.Jobs);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_rejects_invalid_snapshots_without_replacing_current_materialization()
     {
         var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
             ExampleConfiguration(),
             new ScheduleEntryConfiguration(
                 "daily-report",
-                "0 55 17 * * MON-FRI",
+                "0 55 17 ? * MON-FRI",
                 "Run daily report")));
         var invalidSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
             ExampleConfiguration(),
@@ -105,7 +200,7 @@ public sealed class SchedulerCoordinatorTests
         try
         {
             var coordinator = system.ActorOf(
-                SchedulerCoordinator.Props(),
+                ProtocolOnlyCoordinatorProps(),
                 "scheduler-coordinator-invalid");
 
             var accepted = await coordinator.Ask<SchedulerReconciliationResult>(
@@ -141,14 +236,14 @@ public sealed class SchedulerCoordinatorTests
             ExampleConfiguration(),
             new ScheduleEntryConfiguration(
                 "daily-report",
-                "0 55 17 * * MON-FRI",
+                "0 55 17 ? * MON-FRI",
                 "Run daily report")));
         var firedAtUtc = new DateTimeOffset(2026, 7, 4, 17, 55, 0, TimeSpan.Zero);
         var system = ActorSystem.Create("scheduler-coordinator-dispatch");
         try
         {
             var coordinator = system.ActorOf(
-                SchedulerCoordinator.Props(),
+                ProtocolOnlyCoordinatorProps(),
                 "scheduler-coordinator-dispatch");
             var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
                 new ReconcileSchedulerSchedules(snapshot),
@@ -183,6 +278,119 @@ public sealed class SchedulerCoordinatorTests
             var pending = Assert.Single(state.PendingDispatches);
             Assert.Equal(knownKey, pending.Key);
             Assert.Equal(firedAtUtc, pending.FiredAtUtc);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Quartz_fire_for_materialized_schedule_records_dispatch_with_clock_timestamp()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 4, 17, 55, 1, TimeSpan.Zero);
+        var system = ActorSystem.Create("scheduler-coordinator-quartz-fire");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    new RecordingSchedulerQuartzAdapter(),
+                    new ManualTimeProvider(firedAtUtc)),
+                "scheduler-coordinator-quartz-fire");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var accepted = await coordinator.Ask<SchedulerDispatchResult>(
+                new SchedulerQuartzScheduleFired(knownKey),
+                AskTimeout);
+
+            Assert.True(accepted.IsAccepted, accepted.Error?.ToString());
+            Assert.NotNull(accepted.Dispatch);
+            Assert.Equal(knownKey, accepted.Dispatch.Key);
+            Assert.Equal(firedAtUtc, accepted.Dispatch.FiredAtUtc);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            var pending = Assert.Single(state.PendingDispatches);
+            Assert.Equal(knownKey, pending.Key);
+            Assert.Equal(firedAtUtc, pending.FiredAtUtc);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Quartz_fire_for_unknown_schedule_is_rejected_without_pending_dispatch()
+    {
+        var firedAtUtc = new DateTimeOffset(2026, 7, 4, 17, 55, 1, TimeSpan.Zero);
+        var system = ActorSystem.Create("scheduler-coordinator-quartz-unknown-fire");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    new RecordingSchedulerQuartzAdapter(),
+                    new ManualTimeProvider(firedAtUtc)),
+                "scheduler-coordinator-quartz-unknown-fire");
+
+            var rejected = await coordinator.Ask<SchedulerDispatchResult>(
+                new SchedulerQuartzScheduleFired(SchedulerScheduleKey.From(
+                    OrganizationId.From("acme-delivery"),
+                    PositionId.From("delivery-lead"),
+                    ScheduleId.From("missing-report"))),
+                AskTimeout);
+
+            Assert.False(rejected.IsAccepted);
+            Assert.Equal("schedule-not-materialized", rejected.Error?.Code);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Empty(state.PendingDispatches);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Default_props_create_quartz_child_when_reconciliation_schedules_jobs()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0/30 * * * * ?",
+                "Run daily report")));
+        var system = ActorSystem.Create("scheduler-coordinator-default-quartz");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(),
+                "scheduler-coordinator-default-quartz");
+
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var identity = await system
+                .ActorSelection($"{coordinator.Path}/scheduler-coordinator-quartz")
+                .Ask<ActorIdentity>(new Identify("quartz"), AskTimeout);
+
+            Assert.NotNull(identity.Subject);
         }
         finally
         {
@@ -258,8 +466,21 @@ public sealed class SchedulerCoordinatorTests
         }
     }
 
+    private static Props ProtocolOnlyCoordinatorProps() =>
+        SchedulerCoordinator.Props(NoopSchedulerQuartzAdapter.Instance, TimeProvider.System);
+
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class RecordingSchedulerQuartzAdapter : ISchedulerQuartzAdapter
+    {
+        public List<SchedulerQuartzJob> Jobs { get; } = [];
+
+        public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
+        {
+            Jobs.Add(job);
+        }
     }
 }

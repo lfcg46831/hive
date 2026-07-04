@@ -1,9 +1,13 @@
 using System.Collections.Immutable;
 using Akka.Actor;
+using Akka.Quartz.Actor;
+using Akka.Quartz.Actor.Commands;
 using Hive.Domain.Identity;
 using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Scheduling;
+using Quartz;
+using DomainCronExpression = Hive.Domain.Scheduling.CronExpression;
 
 namespace Hive.Actors.Scheduling;
 
@@ -11,20 +15,35 @@ internal static class SchedulerCoordinatorIdentity
 {
     public const string LogicalName = "scheduler-coordinator";
     public const string ActorName = LogicalName;
+    public const string QuartzActorName = "scheduler-coordinator-quartz";
 }
 
 internal sealed class SchedulerCoordinator : ReceiveActor
 {
+    private readonly ISchedulerQuartzAdapter _quartzAdapter;
+    private readonly TimeProvider _clock;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
+        : this(new AkkaQuartzSchedulerAdapter(), TimeProvider.System)
     {
+    }
+
+    public SchedulerCoordinator(ISchedulerQuartzAdapter quartzAdapter, TimeProvider clock)
+    {
+        _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
+        _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+
         Receive<ReconcileSchedulerSchedules>(Handle);
         Receive<DispatchSchedulerSchedule>(Handle);
+        Receive<SchedulerQuartzScheduleFired>(Handle);
         Receive<GetSchedulerCoordinatorState>(_ => Sender.Tell(_state));
     }
 
     public static Props Props() => Akka.Actor.Props.Create(() => new SchedulerCoordinator());
+
+    public static Props Props(ISchedulerQuartzAdapter quartzAdapter, TimeProvider clock) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(quartzAdapter, clock));
 
     private void Handle(ReconcileSchedulerSchedules command)
     {
@@ -54,20 +73,41 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             command.Snapshot.Fingerprint,
             materializations);
 
+        foreach (var materialization in materializations)
+        {
+            _quartzAdapter.Schedule(
+                Context,
+                Self,
+                new SchedulerQuartzJob(
+                    materialization.Key,
+                    materialization.Definition.Cron,
+                    materialization.Definition.TimeZone));
+        }
+
         Sender.Tell(SchedulerReconciliationResult.Accepted(materializations));
     }
 
     private void Handle(DispatchSchedulerSchedule command)
     {
-        if (!_state.Materializations.Any(materialization => materialization.Key == command.Key))
+        Dispatch(command.Key, command.FiredAtUtc);
+    }
+
+    private void Handle(SchedulerQuartzScheduleFired command)
+    {
+        Dispatch(command.Key, _clock.GetUtcNow());
+    }
+
+    private void Dispatch(SchedulerScheduleKey key, DateTimeOffset firedAtUtc)
+    {
+        if (!_state.Materializations.Any(materialization => materialization.Key == key))
         {
             Sender.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
                 "schedule-not-materialized",
-                $"Schedule '{command.Key.Value}' is not materialized by the coordinator.")));
+                $"Schedule '{key.Value}' is not materialized by the coordinator.")));
             return;
         }
 
-        var dispatch = new SchedulerScheduleDispatch(command.Key, command.FiredAtUtc);
+        var dispatch = new SchedulerScheduleDispatch(key, firedAtUtc);
         _state = _state.WithPendingDispatch(dispatch);
         Sender.Tell(SchedulerDispatchResult.Accepted(dispatch));
     }
@@ -101,6 +141,16 @@ internal sealed record DispatchSchedulerSchedule
     public SchedulerScheduleKey Key { get; }
 
     public DateTimeOffset FiredAtUtc { get; }
+}
+
+internal sealed record SchedulerQuartzScheduleFired
+{
+    public SchedulerQuartzScheduleFired(SchedulerScheduleKey key)
+    {
+        Key = key ?? throw new ArgumentNullException(nameof(key));
+    }
+
+    public SchedulerScheduleKey Key { get; }
 }
 
 internal sealed record GetSchedulerCoordinatorState
@@ -287,4 +337,91 @@ internal sealed record SchedulerDispatchResult
 internal sealed record SchedulerDispatchError(string Code, string Message)
 {
     public override string ToString() => $"{Code}: {Message}";
+}
+
+internal interface ISchedulerQuartzAdapter
+{
+    void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job);
+}
+
+internal sealed record SchedulerQuartzJob
+{
+    public SchedulerQuartzJob(
+        SchedulerScheduleKey key,
+        DomainCronExpression cron,
+        string timeZone)
+    {
+        Key = key ?? throw new ArgumentNullException(nameof(key));
+        Cron = cron ?? throw new ArgumentNullException(nameof(cron));
+        TimeZone = RequireToken(timeZone, nameof(timeZone));
+    }
+
+    public SchedulerScheduleKey Key { get; }
+
+    public DomainCronExpression Cron { get; }
+
+    public string TimeZone { get; }
+
+    private static string RequireToken(string value, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(value, parameterName);
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Value cannot be empty or whitespace.", parameterName);
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Value cannot contain leading or trailing whitespace.", parameterName);
+        }
+
+        return value;
+    }
+}
+
+internal sealed class NoopSchedulerQuartzAdapter : ISchedulerQuartzAdapter
+{
+    public static NoopSchedulerQuartzAdapter Instance { get; } = new();
+
+    private NoopSchedulerQuartzAdapter()
+    {
+    }
+
+    public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
+    {
+    }
+}
+
+internal sealed class AkkaQuartzSchedulerAdapter : ISchedulerQuartzAdapter
+{
+    public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(receiver);
+        ArgumentNullException.ThrowIfNull(job);
+
+        var quartzActor = GetOrCreateQuartzActor(context);
+        var trigger = TriggerBuilder
+            .Create()
+            .WithCronSchedule(
+                job.Cron.Value,
+                schedule => schedule.InTimeZone(TimeZoneInfo.FindSystemTimeZoneById(job.TimeZone)))
+            .Build();
+
+        quartzActor.Tell(new CreateJob(
+            receiver,
+            new SchedulerQuartzScheduleFired(job.Key),
+            trigger));
+    }
+
+    private static IActorRef GetOrCreateQuartzActor(IActorContext context)
+    {
+        var child = context.Child(SchedulerCoordinatorIdentity.QuartzActorName);
+        return child.Equals(ActorRefs.Nobody)
+            ? context.ActorOf(
+                Akka.Actor.Props.Create(() => new QuartzActor()),
+                SchedulerCoordinatorIdentity.QuartzActorName)
+            : child;
+    }
 }

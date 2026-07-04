@@ -76,7 +76,7 @@ positions:
       schedule:
         - id: relatorio-diario
           active: true
-          cron: "0 55 17 * * MON-FRI"
+          cron: "0 55 17 ? * MON-FRI"
           priority: normal
           critical: false
           catch_up: skip

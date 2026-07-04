@@ -71,7 +71,7 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("ceo", authorityOverride.Approver);
         var schedule = Assert.Single(configuration.Schedules);
         Assert.Equal("relatorio-diario", schedule.Id);
-        Assert.Equal("0 55 17 * * MON-FRI", schedule.Cron);
+        Assert.Equal("0 55 17 ? * MON-FRI", schedule.Cron);
         Assert.Equal("Compilar e enviar relatorio diario ao superior", schedule.Instruction);
     }
 

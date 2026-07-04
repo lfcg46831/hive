@@ -223,7 +223,7 @@ public sealed class OrganizationConfigurationUniquenessValidatorTests
     private static PromptConfiguration Prompt(string id) => new(id, $"prompts/{id}.md");
 
     private static ScheduleEntryConfiguration Schedule(string id) =>
-        new(id, "0 55 17 * * MON-FRI", "Compilar relatorio");
+        new(id, "0 55 17 ? * MON-FRI", "Compilar relatorio");
 
     private static SubscriptionConfiguration Subscription(string @event) => new(@event, "PT4H");
 }

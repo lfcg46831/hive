@@ -73,7 +73,7 @@ public sealed class OrganizationConfigurationParserTests
                   max_calls_per_hour: 60
               schedule:
                 - id: relatorio-diario
-                  cron: "0 55 17 * * MON-FRI"
+                  cron: "0 55 17 ? * MON-FRI"
                   instruction: "Compilar e enviar relatorio diario ao superior"
               subscriptions:
                 - event: directive-deadline-approaching
@@ -185,7 +185,7 @@ public sealed class OrganizationConfigurationParserTests
             entry =>
             {
                 Assert.Equal("relatorio-diario", entry.Id);
-                Assert.Equal("0 55 17 * * MON-FRI", entry.Cron);
+                Assert.Equal("0 55 17 ? * MON-FRI", entry.Cron);
                 Assert.Equal("Compilar e enviar relatorio diario ao superior", entry.Instruction);
             });
 
@@ -243,11 +243,11 @@ public sealed class OrganizationConfigurationParserTests
                     end: "18:00"
                   schedule:
                     - id: defaulted
-                      cron: "0 0 9 * * MON-FRI"
+                      cron: "0 0 9 ? * MON-FRI"
                       instruction: "Run the default schedule"
                     - id: explicit
                       active: false
-                      cron: "0 30 9 * * MON-FRI"
+                      cron: "0 30 9 ? * MON-FRI"
                       priority: high
                       critical: true
                       catch_up: catch-up-once

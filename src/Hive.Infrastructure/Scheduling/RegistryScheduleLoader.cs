@@ -229,13 +229,27 @@ public static partial class RegistryScheduleLoader
             return false;
         }
 
-        return ValidateField(fields[0], 0, 59, null, allowQuestion: false, out reason)
-            && ValidateField(fields[1], 0, 59, null, allowQuestion: false, out reason)
-            && ValidateField(fields[2], 0, 23, null, allowQuestion: false, out reason)
-            && ValidateField(fields[3], 1, 31, null, allowQuestion: true, out reason)
-            && ValidateField(fields[4], 1, 12, MonthNames, allowQuestion: false, out reason)
-            && ValidateField(fields[5], 0, 7, DayNames, allowQuestion: true, out reason)
-            && (fields.Length == 6 || ValidateField(fields[6], 1970, 2099, null, allowQuestion: false, out reason));
+        if (!ValidateField(fields[0], 0, 59, null, allowQuestion: false, out reason)
+            || !ValidateField(fields[1], 0, 59, null, allowQuestion: false, out reason)
+            || !ValidateField(fields[2], 0, 23, null, allowQuestion: false, out reason)
+            || !ValidateField(fields[3], 1, 31, null, allowQuestion: true, out reason)
+            || !ValidateField(fields[4], 1, 12, MonthNames, allowQuestion: false, out reason)
+            || !ValidateField(fields[5], 0, 7, DayNames, allowQuestion: true, out reason)
+            || (fields.Length == 7 && !ValidateField(fields[6], 1970, 2099, null, allowQuestion: false, out reason)))
+        {
+            return false;
+        }
+
+        var dayOfMonthUsesPlaceholder = fields[3] == "?";
+        var dayOfWeekUsesPlaceholder = fields[5] == "?";
+        if (dayOfMonthUsesPlaceholder == dayOfWeekUsesPlaceholder)
+        {
+            reason = "Cron expression must use '?' in exactly one of day-of-month or day-of-week for Quartz scheduling.";
+            return false;
+        }
+
+        reason = string.Empty;
+        return true;
     }
 
     private static bool ValidateField(

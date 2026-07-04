@@ -68,7 +68,7 @@ public sealed class OrganizationConfigurationAcceptanceTests
               identity_prompt_ref: engineer-v1
               schedule:
                 - id: relatorio-diario
-                  cron: "0 55 17 * * MON-FRI"
+                  cron: "0 55 17 ? * MON-FRI"
                   instruction: "Compilar e enviar relatorio diario ao superior"
         """;
 

@@ -271,7 +271,7 @@ internal static class PostgreSqlOrganizationRegistryReader
         var result = new Dictionary<RegistryScheduleKey, RegistryEntry<RegistrySchedule>>();
         await using var command = CreateCommand(
             """
-            SELECT position_id, schedule_id, cron, instruction, entry_fingerprint, updated_at
+            SELECT position_id, schedule_id, active, cron, priority, critical, catch_up, instruction, entry_fingerprint, updated_at
             FROM registry.schedules
             WHERE organization_id = @organization_id
             ORDER BY position_id, schedule_id;
@@ -288,9 +288,17 @@ internal static class PostgreSqlOrganizationRegistryReader
             result.Add(
                 key,
                 new RegistryEntry<RegistrySchedule>(
-                    new RegistrySchedule(positionId, scheduleId, reader.GetString(2), reader.GetString(3)),
-                    reader.GetString(4),
-                    reader.GetFieldValue<DateTimeOffset>(5)));
+                    new RegistrySchedule(
+                        positionId,
+                        scheduleId,
+                        reader.GetBoolean(2),
+                        reader.GetString(3),
+                        reader.GetString(4),
+                        reader.GetBoolean(5),
+                        reader.GetString(6),
+                        reader.GetString(7)),
+                    reader.GetString(8),
+                    reader.GetFieldValue<DateTimeOffset>(9)));
         }
 
         return new ReadOnlyDictionary<RegistryScheduleKey, RegistryEntry<RegistrySchedule>>(result);

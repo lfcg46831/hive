@@ -231,11 +231,12 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
         Assert.Equal("ceo", authorityOverride.GetProperty("approver").GetString());
         Assert.False(json.GetProperty("authority").TryGetProperty("mustEscalate", out _));
         Assert.False(json.GetProperty("authority").TryGetProperty("requiresHumanApproval", out _));
-        Assert.Equal(
-            "relatorio-diario",
-            Assert.Single(json.GetProperty("schedules").EnumerateArray())
-                .GetProperty("id")
-                .GetString());
+        var schedule = Assert.Single(json.GetProperty("schedules").EnumerateArray());
+        Assert.Equal("relatorio-diario", schedule.GetProperty("id").GetString());
+        Assert.True(schedule.GetProperty("active").GetBoolean());
+        Assert.Equal("normal", schedule.GetProperty("priority").GetString());
+        Assert.False(schedule.GetProperty("critical").GetBoolean());
+        Assert.Equal("skip", schedule.GetProperty("catchUp").GetString());
     }
 
     private async Task<OrganizationRegistrySnapshot> SeedRegistryAsync()

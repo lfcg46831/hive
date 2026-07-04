@@ -97,6 +97,10 @@ public sealed record AuthorityOverrideResponse(
 
 public sealed record ScheduleResponse(
     string Id,
+    bool Active,
     string Cron,
+    string Priority,
+    bool Critical,
+    string CatchUp,
     string Instruction,
     DateTimeOffset UpdatedAt);

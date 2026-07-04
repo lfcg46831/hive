@@ -377,6 +377,11 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                 return false;
             }
 
+            if (!schedule.IsActive)
+            {
+                continue;
+            }
+
             try
             {
                 projected.Add(new PositionScheduleRuntimeConfiguration(

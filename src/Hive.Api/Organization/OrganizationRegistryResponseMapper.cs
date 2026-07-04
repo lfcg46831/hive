@@ -103,7 +103,11 @@ internal static class OrganizationRegistryResponseMapper
                 .OrderBy(pair => pair.Key.ScheduleId, StringComparer.Ordinal)
                 .Select(pair => new ScheduleResponse(
                     pair.Value.Value.ScheduleId,
+                    pair.Value.Value.IsActive,
                     pair.Value.Value.Cron,
+                    pair.Value.Value.Priority,
+                    pair.Value.Value.IsCritical,
+                    pair.Value.Value.CatchUp,
                     pair.Value.Value.Instruction,
                     pair.Value.UpdatedAt))
                 .ToArray());

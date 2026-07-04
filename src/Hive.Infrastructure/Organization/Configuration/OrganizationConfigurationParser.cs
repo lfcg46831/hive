@@ -575,13 +575,24 @@ public sealed class OrganizationConfigurationParser
             var id = RequireScalar(entry, "id", entryPath, context);
             var cron = RequireScalar(entry, "cron", entryPath, context);
             var instruction = RequireScalar(entry, "instruction", entryPath, context);
+            var (activeOk, active) = OptionalBool(entry, "active", entryPath, context);
+            var priority = OptionalScalar(entry, "priority", entryPath, context);
+            var (criticalOk, critical) = OptionalBool(entry, "critical", entryPath, context);
+            var catchUp = OptionalScalar(entry, "catch_up", entryPath, context);
 
-            if (id is null || cron is null || instruction is null)
+            if (id is null || cron is null || instruction is null || !activeOk || !criticalOk)
             {
                 continue;
             }
 
-            schedule.Add(new ScheduleEntryConfiguration(id, cron, instruction));
+            schedule.Add(new ScheduleEntryConfiguration(
+                id,
+                cron,
+                instruction,
+                active ?? true,
+                priority ?? "normal",
+                critical ?? false,
+                catchUp ?? "skip"));
         }
 
         return schedule;
@@ -824,6 +835,44 @@ public sealed class OrganizationConfigurationParser
 
         context.AddAt(Child(map, key)!, $"{path}.{key}", $"field '{key}' must be an integer; got '{raw}'.");
         return null;
+    }
+
+    private static (bool Ok, bool? Value) OptionalBool(
+        YamlMappingNode map,
+        string key,
+        string path,
+        ParseContext context)
+    {
+        var fieldPath = $"{path}.{key}";
+        var node = Child(map, key);
+        if (node is null || IsNull(node))
+        {
+            return (true, null);
+        }
+
+        if (node is not YamlScalarNode scalar)
+        {
+            context.AddAt(node, fieldPath, $"field '{key}' must be 'true' or 'false'.");
+            return (false, null);
+        }
+
+        return scalar.Value switch
+        {
+            "true" => (true, true),
+            "false" => (true, false),
+            _ => InvalidBool(node, fieldPath, key, scalar.Value, context),
+        };
+    }
+
+    private static (bool Ok, bool? Value) InvalidBool(
+        YamlNode node,
+        string fieldPath,
+        string key,
+        string? value,
+        ParseContext context)
+    {
+        context.AddAt(node, fieldPath, $"field '{key}' must be 'true' or 'false'; got '{value}'.");
+        return (false, null);
     }
 
     private static decimal? OptionalDecimal(YamlMappingNode map, string key, string path, ParseContext context)

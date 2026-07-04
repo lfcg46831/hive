@@ -62,6 +62,23 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             }
         }
 
+        var scheduleColumns = new List<string>();
+        await using (var command = dataSource.CreateCommand(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'registry'
+              AND table_name = 'schedules'
+            ORDER BY ordinal_position;
+            """))
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                scheduleColumns.Add(reader.GetString(0));
+            }
+        }
+
         Assert.Equal(
             [
                 "authorities",
@@ -75,7 +92,7 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
                 "units",
             ],
             tableNames);
-        Assert.Equal([1, 2], appliedVersions);
+        Assert.Equal([1, 2, 3], appliedVersions);
         Assert.Equal(
             [
                 "organization_id",
@@ -86,6 +103,21 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
                 "overrides",
             ],
             authorityColumns);
+        Assert.Equal(
+            [
+                "organization_id",
+                "position_id",
+                "schedule_id",
+                "cron",
+                "instruction",
+                "entry_fingerprint",
+                "updated_at",
+                "active",
+                "priority",
+                "critical",
+                "catch_up",
+            ],
+            scheduleColumns);
     }
 
     [Fact]

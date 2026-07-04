@@ -75,8 +75,15 @@ positions:
           max_calls_per_hour: 60
       schedule:
         - id: relatorio-diario
+          active: true
           cron: "0 55 17 * * MON-FRI"
+          priority: normal
+          critical: false
+          catch_up: skip
           instruction: "Compilar e enviar relatorio diario ao superior"
+      working_hours:
+        start: "09:00"
+        end: "18:00"
       authority:
         can_decide: ["delivery.bug-triage"]
         overrides:

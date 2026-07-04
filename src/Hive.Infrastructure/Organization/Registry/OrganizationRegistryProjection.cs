@@ -99,7 +99,11 @@ internal sealed class OrganizationRegistryProjection
             .SelectMany(position => position.Occupant.Schedule.Select(schedule => new RegistrySchedule(
                 position.Id,
                 schedule.Id,
+                schedule.IsActive,
                 schedule.Cron,
+                schedule.Priority,
+                schedule.IsCritical,
+                schedule.CatchUp,
                 schedule.Instruction)))
             .OrderBy(schedule => schedule.PositionId.Value, StringComparer.Ordinal)
             .ThenBy(schedule => schedule.ScheduleId, StringComparer.Ordinal)

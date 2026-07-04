@@ -37,6 +37,11 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.Equal(2, snapshot.Occupants.Count);
         Assert.Equal(2, snapshot.Authorities.Count);
         Assert.Single(snapshot.Schedules);
+        var schedule = Assert.Single(snapshot.Schedules).Value.Value;
+        Assert.True(schedule.IsActive);
+        Assert.Equal("normal", schedule.Priority);
+        Assert.False(schedule.IsCritical);
+        Assert.Equal("skip", schedule.CatchUp);
         Assert.Equal("ceo", snapshot.Relations.Value.RootUnitLeadership.Value);
 
         Assert.Equal(

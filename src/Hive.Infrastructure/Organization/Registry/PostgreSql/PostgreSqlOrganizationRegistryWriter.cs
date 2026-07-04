@@ -340,13 +340,17 @@ internal static class PostgreSqlOrganizationRegistryWriter
         await using var command = new NpgsqlCommand(
             """
             INSERT INTO registry.schedules (
-                organization_id, position_id, schedule_id, cron, instruction,
+                organization_id, position_id, schedule_id, active, cron, priority, critical, catch_up, instruction,
                 entry_fingerprint, updated_at)
             VALUES (
-                @organization_id, @position_id, @schedule_id, @cron, @instruction,
+                @organization_id, @position_id, @schedule_id, @active, @cron, @priority, @critical, @catch_up, @instruction,
                 @entry_fingerprint, @updated_at)
             ON CONFLICT (organization_id, position_id, schedule_id) DO UPDATE SET
+                active = EXCLUDED.active,
                 cron = EXCLUDED.cron,
+                priority = EXCLUDED.priority,
+                critical = EXCLUDED.critical,
+                catch_up = EXCLUDED.catch_up,
                 instruction = EXCLUDED.instruction,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
@@ -356,7 +360,11 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddText(command, "organization_id", organizationId.Value);
         AddText(command, "position_id", value.PositionId.Value);
         AddText(command, "schedule_id", value.ScheduleId);
+        AddBool(command, "active", value.IsActive);
         AddText(command, "cron", value.Cron);
+        AddText(command, "priority", value.Priority);
+        AddBool(command, "critical", value.IsCritical);
+        AddText(command, "catch_up", value.CatchUp);
         AddText(command, "instruction", value.Instruction);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
@@ -515,6 +523,11 @@ internal static class PostgreSqlOrganizationRegistryWriter
     private static void AddText(NpgsqlCommand command, string name, string? value)
     {
         command.Parameters.Add(name, NpgsqlDbType.Text).Value = value ?? (object)DBNull.Value;
+    }
+
+    private static void AddBool(NpgsqlCommand command, string name, bool value)
+    {
+        command.Parameters.Add(name, NpgsqlDbType.Boolean).Value = value;
     }
 
     private static void AddJson<T>(NpgsqlCommand command, string name, T? value)

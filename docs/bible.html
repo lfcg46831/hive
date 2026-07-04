@@ -230,6 +230,7 @@
 <tr><td>1.32</td><td>2026-07-04</td><td>Especificacao de <code>US-F0-08-T11</code>: depois de uma mensagem resultante aceite pelo gate, o <code>AiAgentActor</code> passa a produzir efeitos internos deterministas de memoria curta e tarefas, enviados como comandos ao <code>PositionActor</code> para persistencia; o agente continua sem fonte de verdade recuperavel propria e a estimativa mantem-se <code>5</code>.</td></tr>
 <tr><td>1.33</td><td>2026-07-04</td><td>Especificacao de <code>US-F0-08-T12</code>: o <code>AiAgentActor</code> passa a emitir um snapshot de auditoria estruturada por correlacao, com contexto redigido, chamada ao gateway, decisao, mensagem resultante, limites, efeitos de posicao e razao terminal, publicado no <code>EventStream</code> e consultavel em memoria; auditoria duravel continua fora desta tarefa; estimativa mantem-se <code>3</code>.</td></tr>
 <tr><td>1.34</td><td>2026-07-04</td><td>Grooming de <code>US-F1-06</code> (contratos explícitos entre unidades): fecha o gating horizontal deixado em aberto por <code>US-F0-04-T09</code> — <code>units[].allowed_peer_channels</code> no YAML (contratos direcionais declarados pela unidade que expõe o canal: tipos, <code>max_open_requests</code>, <code>on_rejection</code>), seams <code>IPeerChannelContracts</code>/<code>IPeerRequestLog</code> e <code>GetUnitLeadershipAsync</code>, linhas horizontais em <code>MessageRoutingRules</code> (mesma unidade livre, entre unidades por contrato, liderança ↔ liderança implícito para mediação — decisão registada em §4.3, <code>PeerResponse</code> por correlação), limites aplicados na admissão contra estado persistido do destinatário com nova razão <code>RejectionReason.LimitExceeded</code> (<code>limit-exceeded</code>, §9.5), escalamento automático declarativo apenas para rejeições estruturais e sem NLP sobre recusas; tarefas <code>T01</code>–<code>T13</code> estimadas, total <code>51</code></td></tr>
+<tr><td>1.35</td><td>2026-07-04</td><td>Especificacao de <code>US-F0-09-T02</code>: o loader de schedules declarados normaliza campos opcionais <code>active</code>, <code>priority</code>, <code>critical</code> e <code>catch_up</code>, valida cron/timezone/working hours e referencia a posicao existente, e devolve uma projecao canonica sem materializar Quartz nem entregar <code>Pulse</code>.</td></tr>
 </tbody>
 </table>
 
@@ -869,7 +870,11 @@ occupant:
       max_calls_per_hour: 60
   schedule:                             # proatividade declarada (§4.6)
     - id: relatorio-diario
-      cron: &quot;0 55 17 * * MON-FRI&quot;       # 17:55 local; 18:00 já fica fora do horário
+      active: true                       # optional; omitted = true
+      cron: &quot;0 55 17 * * MON-FRI&quot;       # 17:55 local; 18:00 stays outside working hours
+      priority: normal                   # optional; low | normal | high | critical; omitted = normal
+      critical: false                    # optional; only critical=true can catch up
+      catch_up: skip                     # optional; skip | catch-up-once; omitted = skip
       instruction: &quot;Compilar e enviar relatório diário de progresso ao superior&quot;
   subscriptions:
     - event: directive-deadline-approaching
@@ -891,6 +896,8 @@ occupant:
         approver: marketing-lead</code></pre>
 
 <p>Neste exemplo, o budget reativo é 5 EUR/dia e o proativo é 1 EUR/dia adicional; o teto global explícito impede que a soma ultrapasse 6 EUR/dia. O campo <code>timezone</code> pertence à posição e é herdado por <code>schedule</code> e <code>working_hours</code>; <code>working_hours.end</code> é exclusivo, portanto 18:00 já está fora do horário normal. O bloco <code>authority</code> é esparso por construção: escalamento e aprovação obrigatórios vêm dos predicados objetivos e gates mínimos do catálogo de domínios de ação (§4.9); a posição declara apenas o seu <code>can_decide</code> e <code>overrides</code> que apertam o mínimo.</p>
+
+<p>Em <code>schedule[]</code>, a ausencia de <code>active</code>, <code>priority</code>, <code>critical</code> ou <code>catch_up</code> significa, explicitamente, <code>true</code>, <code>normal</code>, <code>false</code> e <code>skip</code>, preservando compatibilidade com agendas ja declaradas. Um schedule inativo permanece no registry para reconciliacao/auditoria, mas nao e materializado como trigger ativo.</p>
 
 <h3>6.3 AI Gateway</h3>
 
@@ -2355,6 +2362,9 @@ public interface IPositionConfigurationProvider
 </ul>
 </li>
 </ul>
+<p><strong>Loader de schedules declarados (US-F0-09-T02):</strong> antes de existir coordinator Quartz, o scheduler passa a ter uma API pura e testavel que carrega os schedules materializados a partir do YAML/registry para uma projecao canonica: <code>OrganizationId</code>, <code>PositionId</code>, <code>ScheduleDefinition</code>, estado <code>active</code> e <code>working_hours</code> validado. O loader consome o registry/read model ja materializado por <code>US-F0-05</code>; schedules continuam declarados dentro de <code>positions[].occupant.schedule[]</code> no YAML, portanto a referencia a posicao e validada por coerencia entre a chave do registry, o <code>RegistrySchedule.PositionId</code> e uma posicao existente no snapshot. Campos opcionais do YAML sao normalizados conforme Sec. 6.2: <code>active=true</code>, <code>priority=normal</code>, <code>critical=false</code> e <code>catch_up=skip</code> quando omitidos.</p>
+<p><strong>Criterios de aceitacao de <code>US-F0-09-T02</code>:</strong> existe uma API testavel que recebe um snapshot do registry e devolve schedules ordenados deterministicamente por posicao e schedule; cada schedule valido cria um <code>ScheduleDefinition</code> com <code>ScheduleId</code>, cron, timezone da posicao, payload/instrucao, prioridade, flag critica e politica de catch-up; cron e validado contra o subconjunto Quartz usado pela F0 antes de chegar ao coordinator; timezone tem de resolver via runtime .NET; posicoes com schedules tem de declarar <code>working_hours</code> com tempos <code>HH:mm</code>, <code>start &lt; end</code> e fim exclusivo; <code>active</code>, <code>critical</code>, <code>priority</code> e <code>catch_up</code> aceitam apenas os valores canonicos; schedules inativos sao preservados no registry/loader mas nao aparecem como schedules ativos na configuracao runtime da posicao; erros de configuracao sao agregados com codigos e paths estaveis, sem excecoes operacionais; a tarefa nao materializa jobs/triggers Quartz, nao calcula janelas, nao aplica budget, nao entrega <code>Pulse</code> e nao implementa catch-up runtime; a estimativa mantem-se <code>5</code>.</p>
+<p><strong>Testes minimos de <code>US-F0-09-T02</code>:</strong> um schedule valido vindo do exemplo YAML e importado no registry e carregado com timezone, working hours, defaults e payload preservados; campos explicitos <code>active</code>, <code>priority</code>, <code>critical</code> e <code>catch_up</code> sao parseados e persistidos; um schedule inativo permanece consultavel no registry mas e omitido da configuracao runtime ativa da posicao; cron invalido, timezone invalido, working hours em falta/invertido, prioridade/catch-up desconhecidos e metadata incoerente de <code>PositionId</code> produzem erros estruturados e nao criam schedule carregado; e a persistencia PostgreSQL round-trip preserva os novos campos sem alterar a ordenacao nem a idempotencia do import.</p>
 <p><strong>Critério de conclusão:</strong> o scheduler materializa schedules do YAML/registry com <code>Akka.Quartz.Actor</code>, calcula janelas e ids determinísticos, entrega <code>Pulse</code> canónicos ao <code>PositionActor</code> via sharding, persiste estado de entrega, respeita timezone/working hours/budget proativo, reconcilia mudanças de configuração, trata restart/missed windows sem duplicar trabalho e tem testes unitários e integração para os caminhos críticos.</p>
 </article>
 

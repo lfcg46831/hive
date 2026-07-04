@@ -44,7 +44,11 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal(2, reloaded.Positions.Count);
         Assert.Equal(2, reloaded.Occupants.Count);
         Assert.Equal(2, reloaded.Authorities.Count);
-        Assert.Single(reloaded.Schedules);
+        var schedule = Assert.Single(reloaded.Schedules).Value.Value;
+        Assert.True(schedule.IsActive);
+        Assert.Equal("normal", schedule.Priority);
+        Assert.False(schedule.IsCritical);
+        Assert.Equal("skip", schedule.CatchUp);
         var authority = reloaded.Authorities[PositionId.From("delivery-lead")].Value;
         Assert.Equal(["delivery.bug-triage"], authority.CanDecide);
         var authorityOverride = Assert.Single(authority.Overrides);

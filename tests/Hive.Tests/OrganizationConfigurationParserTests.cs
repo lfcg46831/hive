@@ -218,6 +218,60 @@ public sealed class OrganizationConfigurationParserTests
     }
 
     [Fact]
+    public void Schedule_runtime_fields_use_defaults_and_capture_explicit_values()
+    {
+        const string yaml = """
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            units:
+              - id: raiz
+                parent: null
+                leadership: ceo
+            positions:
+              - id: ceo
+                unit: raiz
+                reports_to: null
+                timezone: Europe/Lisbon
+                occupant:
+                  type: ai-agent
+                  working_hours:
+                    start: "09:00"
+                    end: "18:00"
+                  schedule:
+                    - id: defaulted
+                      cron: "0 0 9 * * MON-FRI"
+                      instruction: "Run the default schedule"
+                    - id: explicit
+                      active: false
+                      cron: "0 30 9 * * MON-FRI"
+                      priority: high
+                      critical: true
+                      catch_up: catch-up-once
+                      instruction: "Run the explicit schedule"
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.True(result.IsSuccess, string.Join("\n", result.Errors.Select(error => error.ToString())));
+        var schedules = result.Configuration!.Positions.Single().Occupant.Schedule;
+        var defaulted = Assert.Single(schedules, schedule => schedule.Id == "defaulted");
+        Assert.True(defaulted.IsActive);
+        Assert.Equal("normal", defaulted.Priority);
+        Assert.False(defaulted.IsCritical);
+        Assert.Equal("skip", defaulted.CatchUp);
+
+        var explicitSchedule = Assert.Single(schedules, schedule => schedule.Id == "explicit");
+        Assert.False(explicitSchedule.IsActive);
+        Assert.Equal("high", explicitSchedule.Priority);
+        Assert.True(explicitSchedule.IsCritical);
+        Assert.Equal("catch-up-once", explicitSchedule.CatchUp);
+    }
+
+    [Fact]
     public void Minimal_document_parses_with_empty_optional_blocks()
     {
         const string yaml = """

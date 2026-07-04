@@ -21,21 +21,32 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private readonly ActorSystem _system;
     private readonly AiDirectiveIntegrationScenario _scenario;
     private readonly PositionEntityId _entity;
-    private readonly IActorRef _position;
+    private readonly IAiGateway _gateway;
+    private readonly PositionRuntimeConfiguration _runtimeConfiguration;
+    private IActorRef _position;
+    private int _positionGeneration;
 
     private AiDirectiveIntegrationFixture(
         ServiceProvider services,
         ActorSystem system,
         AiDirectiveIntegrationScenario scenario,
         PositionEntityId entity,
+        IAiGateway gateway,
+        PositionRuntimeConfiguration runtimeConfiguration,
         IActorRef position)
     {
         _services = services;
         _system = system;
         _scenario = scenario;
         _entity = entity;
+        _gateway = gateway;
+        _runtimeConfiguration = runtimeConfiguration;
         _position = position;
     }
+
+    public OrgDirective Directive => _scenario.Directive;
+
+    public string CorrelationId => _scenario.CorrelationId;
 
     public static async Task<AiDirectiveIntegrationFixture> StartAsync(
         AiDirectiveIntegrationScenario? scenario = null)
@@ -55,20 +66,20 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             var gateway = services.GetRequiredService<IAiGateway>();
             var runtimeConfiguration = resolvedScenario.RuntimeConfiguration(
                 new AiProviderMetadata(stubOptions.ProviderId, stubOptions.ModelId));
-            var position = system.ActorOf(
-                Props.Create(() => new PositionActor(
-                    resolvedScenario.Entity.Value,
-                    new StaticConfigurationProvider(
-                        PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration)),
-                    new PositionOccupantFactory(new AiAgentGatewayInvoker(gateway)),
-                    resolvedScenario.Clock)),
-                "position");
+            var position = CreatePositionActor(
+                system,
+                resolvedScenario,
+                gateway,
+                runtimeConfiguration,
+                generation: 0);
 
             var readyFixture = new AiDirectiveIntegrationFixture(
                 services,
                 system,
                 resolvedScenario,
                 resolvedScenario.Entity,
+                gateway,
+                runtimeConfiguration,
                 position);
             await readyFixture.WaitForReadyAsync().ConfigureAwait(false);
 
@@ -142,6 +153,27 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
         return events;
     }
+
+    public async Task RestartPositionAsync()
+    {
+        await _position.GracefulStop(Timeout()).ConfigureAwait(false);
+
+        _positionGeneration++;
+        _position = CreatePositionActor(
+            _system,
+            _scenario,
+            _gateway,
+            _runtimeConfiguration,
+            _positionGeneration);
+
+        await WaitForReadyAsync().ConfigureAwait(false);
+    }
+
+    public void RedeliverDirective() =>
+        _position.Tell(new AcceptMessage(_scenario.Directive));
+
+    public Task<PositionState> GetPositionStateAsync() =>
+        _position.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
     public async ValueTask DisposeAsync()
     {
@@ -228,6 +260,21 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
         throw new TimeoutException("PositionActor state did not reflect the processed AI directive.");
     }
+
+    private static IActorRef CreatePositionActor(
+        ActorSystem system,
+        AiDirectiveIntegrationScenario scenario,
+        IAiGateway gateway,
+        PositionRuntimeConfiguration runtimeConfiguration,
+        int generation) =>
+        system.ActorOf(
+            Props.Create(() => new PositionActor(
+                scenario.Entity.Value,
+                new StaticConfigurationProvider(
+                    PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration)),
+                new PositionOccupantFactory(new AiAgentGatewayInvoker(gateway)),
+                scenario.Clock)),
+            $"position-{generation}");
 
     private static ActorSystem CreateActorSystem(string namePrefix) =>
         ActorSystem.Create(

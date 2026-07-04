@@ -71,6 +71,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveResultMessage> _directiveResultMessages =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiDirectiveIterationAuditTrail> _directiveIterationAudits =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -150,6 +152,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveResultMessageQueryResult.FoundResult(result)
                 : AiDirectiveResultMessageQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiDirectiveIterationAuditSnapshot>(query =>
+        {
+            Sender.Tell(_directiveIterationAudits.TryGetValue(
+                query.CorrelationId,
+                out var snapshot)
+                ? AiDirectiveIterationAuditSnapshotQueryResult.FoundSnapshot(snapshot)
+                : AiDirectiveIterationAuditSnapshotQueryResult.Missing(query.CorrelationId));
+        });
         Receive<OrgMessage>(_ =>
         {
         });
@@ -186,6 +196,10 @@ internal sealed class AiAgentActor : ReceiveActor
         _directiveInitialPrompts[request.CorrelationId] = prompt;
         _directiveProcessingSnapshots[request.CorrelationId] = gatewayRequested;
 
+        var iterationStartedAt = DateTimeOffset.UtcNow;
+        var iterationState = AiDirectiveIterationState.Start(context, iterationStartedAt);
+        var iterationAudit = AiDirectiveIterationAuditTrail.Start(iterationState);
+
         using var timeout = CreateGatewayTimeout(prompt.Timeout);
         try
         {
@@ -195,6 +209,12 @@ internal sealed class AiAgentActor : ReceiveActor
                     timeout?.Token ?? CancellationToken.None)
                 .ConfigureAwait(false);
             _directiveGatewayInvocations[request.CorrelationId] = result;
+            _directiveIterationAudits[request.CorrelationId] = RecordInitialIterationAudit(
+                iterationState,
+                iterationAudit,
+                result,
+                prompt.Policy?.HasAvailableBudget ?? true,
+                DateTimeOffset.UtcNow);
             var interpretation = AiDirectiveDecisionInterpreter.Interpret(result);
             _directiveInterpretations[request.CorrelationId] = interpretation;
 
@@ -247,6 +267,13 @@ internal sealed class AiAgentActor : ReceiveActor
         }
         catch (OperationCanceledException) when (timeout?.IsCancellationRequested == true)
         {
+            _directiveIterationAudits[request.CorrelationId] = iterationAudit.RecordDecision(
+                iterationState,
+                AiDirectiveIterationDecision.Stop(new AiDirectiveIterationStopReason(
+                    AiDirectiveIterationStopKind.Timeout,
+                    "timeout",
+                    GatewayTimeoutReason(prompt.Timeout))),
+                DateTimeOffset.UtcNow);
             _directiveProcessingSnapshots[request.CorrelationId] =
                 gatewayRequested.AdvanceTo(
                     AiDirectiveProcessingStatus.Failed,
@@ -254,6 +281,14 @@ internal sealed class AiAgentActor : ReceiveActor
         }
         catch (OperationCanceledException)
         {
+            _directiveIterationAudits[request.CorrelationId] = iterationAudit.RecordExecution(
+                iterationState,
+                AiDirectiveIterationExecutionResult.Failed(
+                    request.CorrelationId,
+                    new AiDirectiveIterationExecutionFailure(
+                        "iteration-canceled",
+                        "AI directive iteration was canceled before a response was returned.")),
+                DateTimeOffset.UtcNow);
             _directiveProcessingSnapshots[request.CorrelationId] =
                 gatewayRequested.AdvanceTo(
                     AiDirectiveProcessingStatus.Failed,
@@ -263,6 +298,36 @@ internal sealed class AiAgentActor : ReceiveActor
 
     private static string IdentityPromptFailureReason(AiDirectiveExecutionContext context) =>
         $"Identity prompt '{context.IdentityPromptRef ?? "<missing>"}' was not resolved; directive processing stopped before gateway request.";
+
+    private static AiDirectiveIterationAuditTrail RecordInitialIterationAudit(
+        AiDirectiveIterationState state,
+        AiDirectiveIterationAuditTrail audit,
+        AiAgentGatewayInvocationResult result,
+        bool hasAvailableBudget,
+        DateTimeOffset observedAt)
+    {
+        if (result.IsSuccess)
+        {
+            return audit.RecordDecision(
+                state,
+                state.Evaluate(result.Response, observedAt, hasAvailableBudget),
+                observedAt);
+        }
+
+        var failure = result.FailureReason;
+        var reason = failure is null
+            ? new AiDirectiveIterationExecutionFailure(
+                "ai-gateway-failure",
+                "AI gateway iteration failed without a structured reason.")
+            : new AiDirectiveIterationExecutionFailure(
+                "ai-gateway-" + AiGatewayErrorCodeContract.ToWireValue(failure.Code),
+                $"AI gateway iteration failed with '{AiGatewayErrorCodeContract.ToWireValue(failure.Code)}'.");
+
+        return audit.RecordExecution(
+            state,
+            AiDirectiveIterationExecutionResult.Failed(state.CorrelationId, reason),
+            observedAt);
+    }
 
     private static CancellationTokenSource? CreateGatewayTimeout(TimeSpan? timeout) =>
         timeout is { } value ? new CancellationTokenSource(value) : null;

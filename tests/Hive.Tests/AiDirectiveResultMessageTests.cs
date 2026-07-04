@@ -167,6 +167,88 @@ public sealed class AiDirectiveResultMessageTests
     }
 
     [Fact]
+    public async Task Emission_gate_allows_materialized_report_after_routing_validation()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var messageId = MessageId.From(Guid.Parse("50000000-0000-0000-0000-000000000908"));
+        var materialized = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveReportDecision(ReportKind.Progress, "Bug triage is in progress."),
+            () => messageId,
+            DirectiveId.New,
+            () => At.AddMinutes(9));
+
+        var verdict = await AiDirectiveResultMessageEmissionGate.Instance.ValidateAsync(
+            context,
+            materialized.Message!);
+
+        Assert.True(verdict.IsAllowed, verdict.Failure?.AuditReason);
+        Assert.Null(verdict.Failure);
+    }
+
+    [Fact]
+    public async Task Emission_gate_rejects_result_message_to_unknown_route_before_emission()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var ceo = PositionId.From("ceo");
+        var report = new Report(
+            MessageId.From(Guid.Parse("51000000-0000-0000-0000-000000000908")),
+            Organization,
+            new PositionEndpointRef(Position),
+            new PositionEndpointRef(ceo),
+            Thread,
+            Priority.High,
+            schemaVersion: 1,
+            sentAt: At.AddMinutes(10),
+            deadline: context.Directive.Deadline,
+            IncomingDirective,
+            ReportKind.Progress,
+            "Skipping the direct superior must not be emitted.");
+
+        var verdict = await AiDirectiveResultMessageEmissionGate.Instance.ValidateAsync(
+            context,
+            report);
+
+        Assert.False(verdict.IsAllowed);
+        var failure = Assert.IsType<AiDirectiveResultMessageFailure>(verdict.Failure);
+        Assert.Equal("routing-rejected", failure.Code);
+        var rejection = Assert.IsType<RoutingRejection>(failure.RoutingRejection);
+        Assert.Equal(
+            [new ValidationError("invalid-route", "$", RejectionReason.InvalidRoute)],
+            rejection.PublicResult.Errors);
+        Assert.Null(verdict.Message);
+    }
+
+    [Fact]
+    public async Task Emission_gate_rejects_implicit_approval_request_before_admission()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var approval = new ApprovalRequest(
+            MessageId.From(Guid.Parse("52000000-0000-0000-0000-000000000908")),
+            Organization,
+            new PositionEndpointRef(Position),
+            new PositionEndpointRef(Superior),
+            Thread,
+            Priority.High,
+            schemaVersion: 1,
+            sentAt: At.AddMinutes(11),
+            deadline: context.Directive.Deadline,
+            action: "approve-result",
+            justification: "The AI agent cannot imply approval for its own result.",
+            ApprovalPolicyRef.From("requires-human-approval"));
+
+        var verdict = await AiDirectiveResultMessageEmissionGate.Instance.ValidateAsync(
+            context,
+            approval);
+
+        Assert.False(verdict.IsAllowed);
+        var failure = Assert.IsType<AiDirectiveResultMessageFailure>(verdict.Failure);
+        Assert.Equal("implicit-approval-not-authorized", failure.Code);
+        Assert.Null(failure.RoutingRejection);
+        Assert.Null(verdict.Message);
+    }
+
+    [Fact]
     public async Task AiAgentActor_stores_emitted_result_message_and_advances_to_result_emitted()
     {
         var request = Request();
@@ -204,6 +286,42 @@ public sealed class AiDirectiveResultMessageTests
                     AiDirectiveProcessingStatus.ResultEmitted,
                 ],
                 snapshot.Snapshot.History.Select(transition => transition.Status).ToArray());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_stores_gate_failure_and_advances_to_escalated()
+    {
+        var request = Request();
+        var system = ActorSystem.Create($"ai-agent-result-gate-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(ValidReportOutput()),
+                    new RejectingResultMessageGate())),
+                "agent");
+
+            actor.Tell(request);
+
+            var result = await WaitForResultMessageAsync(actor, request.CorrelationId);
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                Timeout());
+
+            Assert.True(result.Found);
+            Assert.False(result.Result!.IsSuccess);
+            Assert.Null(result.Result.Message);
+            Assert.Equal("routing-rejected", result.Result.Failure!.Code);
+            Assert.True(snapshot.Found);
+            Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
+            Assert.Equal("Routing gate rejected the candidate result message.", snapshot.Snapshot.TerminalReason);
         }
         finally
         {
@@ -312,5 +430,23 @@ public sealed class AiDirectiveResultMessageTests
                     invocation.Request.MessageId,
                     output,
                     AiFinishReason.Stop)));
+    }
+
+    private sealed class RejectingResultMessageGate : IAiDirectiveResultMessageGate
+    {
+        public ValueTask<AiDirectiveResultMessageGateResult> ValidateAsync(
+            AiDirectiveExecutionContext context,
+            OrgMessage message,
+            CancellationToken cancellationToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(context);
+            ArgumentNullException.ThrowIfNull(message);
+
+            return new ValueTask<AiDirectiveResultMessageGateResult>(
+                AiDirectiveResultMessageGateResult.Rejected(
+                    new AiDirectiveResultMessageFailure(
+                        "routing-rejected",
+                        "Routing gate rejected the candidate result message.")));
+        }
     }
 }

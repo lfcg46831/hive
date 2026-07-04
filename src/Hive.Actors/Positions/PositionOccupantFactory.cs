@@ -16,6 +16,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     public static PositionOccupantFactory Instance { get; } = new();
 
     private readonly IAiAgentGatewayInvoker _aiGatewayInvoker;
+    private readonly IAiDirectiveResultMessageGate _resultMessageGate;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -23,9 +24,18 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     }
 
     public PositionOccupantFactory(IAiAgentGatewayInvoker aiGatewayInvoker)
+        : this(aiGatewayInvoker, AiDirectiveResultMessageEmissionGate.Instance)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
+        _resultMessageGate = resultMessageGate
+            ?? throw new ArgumentNullException(nameof(resultMessageGate));
     }
 
     public Props Create(OccupantId occupant, OccupantType occupantType)
@@ -36,7 +46,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         {
             OccupantType.AiAgent => Props.Create(() => new AiAgentActor(
                 occupant,
-                _aiGatewayInvoker)),
+                _aiGatewayInvoker,
+                _resultMessageGate)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -67,10 +78,20 @@ internal sealed class AiAgentActor : ReceiveActor
     }
 
     public AiAgentActor(OccupantId occupant, IAiAgentGatewayInvoker gatewayInvoker)
+        : this(occupant, gatewayInvoker, AiDirectiveResultMessageEmissionGate.Instance)
+    {
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
             ?? throw new ArgumentNullException(nameof(gatewayInvoker));
+        ResultMessageGate = resultMessageGate
+            ?? throw new ArgumentNullException(nameof(resultMessageGate));
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -138,6 +159,8 @@ internal sealed class AiAgentActor : ReceiveActor
 
     internal IAiAgentGatewayInvoker GatewayInvoker { get; }
 
+    internal IAiDirectiveResultMessageGate ResultMessageGate { get; }
+
     private async Task HandleDirectiveProcessingRequestAsync(AiDirectiveProcessingRequest request)
     {
         var context = AiDirectiveExecutionContext.From(request);
@@ -183,6 +206,20 @@ internal sealed class AiAgentActor : ReceiveActor
                 var resultMessage = AiDirectiveResultMessageFactory.Create(
                     context,
                     interpretation.Decision!);
+                if (resultMessage.IsSuccess)
+                {
+                    var gateResult = await ResultMessageGate
+                        .ValidateAsync(context, resultMessage.Message!)
+                        .ConfigureAwait(false);
+
+                    if (gateResult.IsRejected)
+                    {
+                        resultMessage = AiDirectiveResultMessage.Rejected(
+                            request.CorrelationId,
+                            gateResult.Failure!);
+                    }
+                }
+
                 _directiveResultMessages[request.CorrelationId] = resultMessage;
                 _directiveProcessingSnapshots[request.CorrelationId] =
                     resultMessage.IsSuccess

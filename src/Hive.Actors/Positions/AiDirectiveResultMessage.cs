@@ -5,15 +5,21 @@ namespace Hive.Actors.Positions;
 
 internal sealed record AiDirectiveResultMessageFailure
 {
-    public AiDirectiveResultMessageFailure(string code, string auditReason)
+    public AiDirectiveResultMessageFailure(
+        string code,
+        string auditReason,
+        RoutingRejection? routingRejection = null)
     {
         Code = AiAgentGatewayText.Require(code, nameof(code));
         AuditReason = AiAgentGatewayText.Require(auditReason, nameof(auditReason));
+        RoutingRejection = routingRejection;
     }
 
     public string Code { get; }
 
     public string AuditReason { get; }
+
+    public RoutingRejection? RoutingRejection { get; }
 }
 
 internal sealed record AiDirectiveResultMessage

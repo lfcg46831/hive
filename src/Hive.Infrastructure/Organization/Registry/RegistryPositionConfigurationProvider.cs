@@ -163,7 +163,8 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         position.Unit,
                         position.ReportsTo,
                         position.Name,
-                        position.Timezone),
+                        position.Timezone,
+                        snapshot.Relations.Value.GetDirectSubordinates(entityId.Position)),
                     new OccupantRuntimeConfiguration(
                         occupant.Type,
                         occupant.IdentityPromptRef,

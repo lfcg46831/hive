@@ -1,0 +1,241 @@
+using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
+
+namespace Hive.Actors.Positions;
+
+internal sealed record AiDirectiveResultMessageFailure
+{
+    public AiDirectiveResultMessageFailure(string code, string auditReason)
+    {
+        Code = AiAgentGatewayText.Require(code, nameof(code));
+        AuditReason = AiAgentGatewayText.Require(auditReason, nameof(auditReason));
+    }
+
+    public string Code { get; }
+
+    public string AuditReason { get; }
+}
+
+internal sealed record AiDirectiveResultMessage
+{
+    private AiDirectiveResultMessage(
+        string correlationId,
+        OrgMessage? message,
+        AiDirectiveResultMessageFailure? failure)
+    {
+        CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
+        Message = message;
+        Failure = failure;
+    }
+
+    public string CorrelationId { get; }
+
+    public OrgMessage? Message { get; }
+
+    public AiDirectiveResultMessageFailure? Failure { get; }
+
+    public bool IsSuccess => Message is not null;
+
+    public bool IsFailure => !IsSuccess;
+
+    public static AiDirectiveResultMessage Success(
+        string correlationId,
+        OrgMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(message);
+
+        return new AiDirectiveResultMessage(correlationId, message, failure: null);
+    }
+
+    public static AiDirectiveResultMessage Rejected(
+        string correlationId,
+        AiDirectiveResultMessageFailure failure)
+    {
+        ArgumentNullException.ThrowIfNull(failure);
+
+        return new AiDirectiveResultMessage(correlationId, message: null, failure);
+    }
+}
+
+internal static class AiDirectiveResultMessageFactory
+{
+    private const int ResultMessageSchemaVersion = 1;
+
+    public static AiDirectiveResultMessage Create(
+        AiDirectiveExecutionContext context,
+        AiDirectiveDecision decision,
+        Func<MessageId>? newMessageId = null,
+        Func<DirectiveId>? newDirectiveId = null,
+        Func<DateTimeOffset>? clock = null)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(decision);
+
+        var messageIdFactory = newMessageId ?? MessageId.New;
+        var directiveIdFactory = newDirectiveId ?? DirectiveId.New;
+        var now = clock ?? (() => DateTimeOffset.UtcNow);
+
+        return decision switch
+        {
+            AiDirectiveReportDecision report => CreateReport(
+                context,
+                report,
+                messageIdFactory,
+                now),
+            AiDirectiveEscalationDecision escalation => CreateEscalation(
+                context,
+                escalation,
+                messageIdFactory,
+                now),
+            AiDirectiveChildDirectiveDecision directive => CreateChildDirective(
+                context,
+                directive,
+                messageIdFactory,
+                directiveIdFactory,
+                now),
+            _ => throw new InvalidOperationException("Unknown AI directive decision type."),
+        };
+    }
+
+    private static AiDirectiveResultMessage CreateReport(
+        AiDirectiveExecutionContext context,
+        AiDirectiveReportDecision decision,
+        Func<MessageId> newMessageId,
+        Func<DateTimeOffset> clock)
+    {
+        if (context.Relation.ReportsTo is not { } superior)
+        {
+            return Rejected(
+                context,
+                "direct-superior-missing",
+                "AI directive report could not be materialized because the current position has no direct superior.");
+        }
+
+        return AiDirectiveResultMessage.Success(
+            context.CorrelationId,
+            new Report(
+                newMessageId(),
+                context.OrganizationId,
+                FromCurrentPosition(context),
+                new PositionEndpointRef(superior),
+                context.Directive.ThreadId,
+                context.Directive.Priority,
+                ResultMessageSchemaVersion,
+                clock(),
+                context.Directive.Deadline,
+                context.Directive.DirectiveId,
+                decision.Kind,
+                decision.Body));
+    }
+
+    private static AiDirectiveResultMessage CreateEscalation(
+        AiDirectiveExecutionContext context,
+        AiDirectiveEscalationDecision decision,
+        Func<MessageId> newMessageId,
+        Func<DateTimeOffset> clock)
+    {
+        EndpointRef destination = context.Relation.ReportsTo is { } superior
+            ? new PositionEndpointRef(superior)
+            : new OrganizationOwnerEndpointRef();
+
+        return AiDirectiveResultMessage.Success(
+            context.CorrelationId,
+            new Escalation(
+                newMessageId(),
+                context.OrganizationId,
+                FromCurrentPosition(context),
+                destination,
+                context.Directive.ThreadId,
+                context.Directive.Priority,
+                ResultMessageSchemaVersion,
+                clock(),
+                context.Directive.Deadline,
+                decision.Issue,
+                decision.Context,
+                decision.OptionsConsidered));
+    }
+
+    private static AiDirectiveResultMessage CreateChildDirective(
+        AiDirectiveExecutionContext context,
+        AiDirectiveChildDirectiveDecision decision,
+        Func<MessageId> newMessageId,
+        Func<DirectiveId> newDirectiveId,
+        Func<DateTimeOffset> clock)
+    {
+        if (!context.Relation.DirectSubordinates.Contains(decision.TargetPositionId))
+        {
+            return Rejected(
+                context,
+                "child-directive-target-not-permitted",
+                $"AI directive child directive target '{decision.TargetPositionId.Value}' is not a permitted direct subordinate of '{context.PositionId.Value}'.");
+        }
+
+        return AiDirectiveResultMessage.Success(
+            context.CorrelationId,
+            new Directive(
+                newMessageId(),
+                context.OrganizationId,
+                FromCurrentPosition(context),
+                new PositionEndpointRef(decision.TargetPositionId),
+                context.Directive.ThreadId,
+                context.Directive.Priority,
+                ResultMessageSchemaVersion,
+                clock(),
+                context.Directive.Deadline,
+                newDirectiveId(),
+                context.Directive.DirectiveId,
+                decision.Objective,
+                decision.Context));
+    }
+
+    private static PositionEndpointRef FromCurrentPosition(AiDirectiveExecutionContext context) =>
+        new(context.PositionId);
+
+    private static AiDirectiveResultMessage Rejected(
+        AiDirectiveExecutionContext context,
+        string code,
+        string auditReason) =>
+        AiDirectiveResultMessage.Rejected(
+            context.CorrelationId,
+            new AiDirectiveResultMessageFailure(code, auditReason));
+}
+
+internal sealed record GetAiDirectiveResultMessage
+{
+    public GetAiDirectiveResultMessage(string correlationId)
+    {
+        CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
+    }
+
+    public string CorrelationId { get; }
+}
+
+internal sealed record AiDirectiveResultMessageQueryResult
+{
+    private AiDirectiveResultMessageQueryResult(
+        string correlationId,
+        AiDirectiveResultMessage? result)
+    {
+        CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
+        Result = result;
+    }
+
+    public string CorrelationId { get; }
+
+    public AiDirectiveResultMessage? Result { get; }
+
+    public bool Found => Result is not null;
+
+    public static AiDirectiveResultMessageQueryResult FoundResult(
+        AiDirectiveResultMessage result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+
+        return new AiDirectiveResultMessageQueryResult(
+            result.CorrelationId,
+            result);
+    }
+
+    public static AiDirectiveResultMessageQueryResult Missing(string correlationId) =>
+        new(correlationId, result: null);
+}

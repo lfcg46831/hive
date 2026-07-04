@@ -51,7 +51,7 @@ public sealed class AiDirectiveInterpretationTests
     }
 
     [Fact]
-    public async Task AiAgentActor_stores_accepted_interpretation_and_advances_to_response_interpreted()
+    public async Task AiAgentActor_stores_accepted_interpretation_and_advances_to_result_emitted()
     {
         var request = Request();
         var system = ActorSystem.Create($"ai-agent-interpretation-{Guid.NewGuid():N}");
@@ -81,13 +81,14 @@ public sealed class AiDirectiveInterpretationTests
             Assert.Equal("Bug triage is complete.", decision.Body);
             Assert.Null(interpretation.Result.Failure);
             Assert.True(snapshot.Found);
-            Assert.Equal(AiDirectiveProcessingStatus.ResponseInterpreted, snapshot.Snapshot!.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, snapshot.Snapshot!.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
                     AiDirectiveProcessingStatus.GatewayRequested,
                     AiDirectiveProcessingStatus.ResponseInterpreted,
+                    AiDirectiveProcessingStatus.ResultEmitted,
                 ],
                 snapshot.Snapshot.History.Select(transition => transition.Status).ToArray());
             Assert.False(typeof(OrgMessage).IsAssignableFrom(interpretation.Result.GetType()));

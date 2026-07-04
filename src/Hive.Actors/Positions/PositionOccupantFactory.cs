@@ -58,6 +58,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveInterpretationResult> _directiveInterpretations =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiDirectiveResultMessage> _directiveResultMessages =
+        new(StringComparer.Ordinal);
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -119,6 +121,14 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveInterpretationQueryResult.FoundResult(result)
                 : AiDirectiveInterpretationQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiDirectiveResultMessage>(query =>
+        {
+            Sender.Tell(_directiveResultMessages.TryGetValue(
+                query.CorrelationId,
+                out var result)
+                ? AiDirectiveResultMessageQueryResult.FoundResult(result)
+                : AiDirectiveResultMessageQueryResult.Missing(query.CorrelationId));
+        });
         Receive<OrgMessage>(_ =>
         {
         });
@@ -167,10 +177,21 @@ internal sealed class AiAgentActor : ReceiveActor
 
             if (interpretation.IsDecision)
             {
+                var responseInterpreted = gatewayRequested.AdvanceTo(
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
+                    reason: "AI gateway response interpreted");
+                var resultMessage = AiDirectiveResultMessageFactory.Create(
+                    context,
+                    interpretation.Decision!);
+                _directiveResultMessages[request.CorrelationId] = resultMessage;
                 _directiveProcessingSnapshots[request.CorrelationId] =
-                    gatewayRequested.AdvanceTo(
-                        AiDirectiveProcessingStatus.ResponseInterpreted,
-                        reason: "AI gateway response interpreted");
+                    resultMessage.IsSuccess
+                        ? responseInterpreted.AdvanceTo(
+                            AiDirectiveProcessingStatus.ResultEmitted,
+                            reason: "AI directive result message materialized")
+                        : responseInterpreted.AdvanceTo(
+                            AiDirectiveProcessingStatus.Escalated,
+                            reason: resultMessage.Failure!.AuditReason);
             }
             else if (interpretation.IsStructuredError)
             {

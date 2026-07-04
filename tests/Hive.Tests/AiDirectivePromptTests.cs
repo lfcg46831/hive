@@ -157,13 +157,14 @@ public sealed class AiDirectivePromptTests
             Assert.Equal(processingRequest.CorrelationId, gatewayResult.Result.CorrelationId);
             Assert.Contains("\"intent\":\"Report\"", gatewayResult.Result.Response.Text, StringComparison.Ordinal);
 
-            Assert.Equal(AiDirectiveProcessingStatus.ResponseInterpreted, snapshotResult.Snapshot!.Status);
+            Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, snapshotResult.Snapshot!.Status);
             Assert.Equal(
                 [
                     AiDirectiveProcessingStatus.Received,
                     AiDirectiveProcessingStatus.ContextAssembled,
                     AiDirectiveProcessingStatus.GatewayRequested,
                     AiDirectiveProcessingStatus.ResponseInterpreted,
+                    AiDirectiveProcessingStatus.ResultEmitted,
                 ],
                 snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
         }

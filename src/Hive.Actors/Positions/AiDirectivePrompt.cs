@@ -219,7 +219,8 @@ internal static class AiDirectivePrompt
         builder.AppendLine("OrganizationRelation:");
         builder.AppendLine($"UnitId: {context.Relation.Unit}");
         builder.AppendLine($"ReportsTo: {ValueOrNone(context.Relation.ReportsTo?.ToString())}");
-        builder.AppendLine("PermittedDownwardTargets: <none>");
+        builder.AppendLine(
+            $"PermittedDownwardTargets: {JoinOrEmpty(context.Relation.DirectSubordinates.Select(position => position.Value))}");
         builder.AppendLine();
     }
 

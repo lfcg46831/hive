@@ -1,0 +1,316 @@
+using Akka.Actor;
+using Hive.Actors.Positions;
+using Hive.Domain.Ai;
+using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
+using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Positions;
+using OrgDirective = Hive.Domain.Messaging.Directive;
+
+namespace Hive.Tests;
+
+public sealed class AiDirectiveResultMessageTests
+{
+    private static readonly DateTimeOffset At =
+        new(2026, 7, 3, 12, 0, 0, TimeSpan.Zero);
+    private static readonly OrganizationId Organization = OrganizationId.From("acme");
+    private static readonly PositionId Position = PositionId.From("triage-agent");
+    private static readonly PositionId Superior = PositionId.From("delivery-lead");
+    private static readonly PositionId Engineer = PositionId.From("engineer");
+    private static readonly ThreadId Thread =
+        ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000000908"));
+    private static readonly MessageId IncomingMessage =
+        MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000908"));
+    private static readonly DirectiveId IncomingDirective =
+        DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000908"));
+
+    [Fact]
+    public void Create_materializes_report_decision_as_canonical_report()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var messageId = MessageId.From(Guid.Parse("10000000-0000-0000-0000-000000000908"));
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveReportDecision(ReportKind.Done, "Bug triage is complete."),
+            () => messageId,
+            DirectiveId.New,
+            () => At.AddMinutes(5));
+
+        Assert.True(result.IsSuccess, result.Failure?.AuditReason);
+        var report = Assert.IsType<Report>(result.Message);
+        Assert.Equal(context.CorrelationId, result.CorrelationId);
+        Assert.Equal(messageId, report.Id);
+        Assert.Equal(Organization, report.OrganizationId);
+        Assert.Equal(new PositionEndpointRef(Position), report.From);
+        Assert.Equal(new PositionEndpointRef(Superior), report.To);
+        Assert.Equal(Thread, report.Thread);
+        Assert.Equal(Priority.High, report.Priority);
+        Assert.Equal(1, report.SchemaVersion);
+        Assert.Equal(At.AddMinutes(5), report.SentAt);
+        Assert.Equal(context.Directive.Deadline, report.Deadline);
+        Assert.Equal(IncomingDirective, report.AboutDirectiveId);
+        Assert.Equal(ReportKind.Done, report.Kind);
+        Assert.Equal("Bug triage is complete.", report.Body);
+    }
+
+    [Fact]
+    public void Create_materializes_escalation_decision_to_direct_superior()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var messageId = MessageId.From(Guid.Parse("20000000-0000-0000-0000-000000000908"));
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveEscalationDecision(
+                "Need product decision.",
+                "The directive asks for production release approval.",
+                ["Ask release owner", "Wait for approval policy"]),
+            () => messageId,
+            DirectiveId.New,
+            () => At.AddMinutes(6));
+
+        Assert.True(result.IsSuccess, result.Failure?.AuditReason);
+        var escalation = Assert.IsType<Escalation>(result.Message);
+        Assert.Equal(messageId, escalation.Id);
+        Assert.Equal(Organization, escalation.OrganizationId);
+        Assert.Equal(new PositionEndpointRef(Position), escalation.From);
+        Assert.Equal(new PositionEndpointRef(Superior), escalation.To);
+        Assert.Equal(Thread, escalation.Thread);
+        Assert.Equal(Priority.High, escalation.Priority);
+        Assert.Equal(At.AddMinutes(6), escalation.SentAt);
+        Assert.Equal(context.Directive.Deadline, escalation.Deadline);
+        Assert.Equal("Need product decision.", escalation.Issue);
+        Assert.Equal("The directive asks for production release approval.", escalation.Context);
+        Assert.Equal(["Ask release owner", "Wait for approval policy"], escalation.OptionsConsidered);
+    }
+
+    [Fact]
+    public void Create_materializes_root_escalation_to_organization_owner()
+    {
+        var context = AiDirectiveExecutionContext.From(Request(hasSuperior: false));
+        var messageId = MessageId.From(Guid.Parse("21000000-0000-0000-0000-000000000908"));
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveEscalationDecision(
+                "Need owner decision.",
+                "The root leadership cannot decide this safely.",
+                ["Escalate to owner"]),
+            () => messageId,
+            DirectiveId.New,
+            () => At.AddMinutes(6));
+
+        Assert.True(result.IsSuccess, result.Failure?.AuditReason);
+        var escalation = Assert.IsType<Escalation>(result.Message);
+        Assert.Equal(messageId, escalation.Id);
+        Assert.Equal(new PositionEndpointRef(Position), escalation.From);
+        Assert.IsType<OrganizationOwnerEndpointRef>(escalation.To);
+        Assert.Equal("Need owner decision.", escalation.Issue);
+        Assert.Equal(["Escalate to owner"], escalation.OptionsConsidered);
+    }
+
+    [Fact]
+    public void Create_materializes_child_directive_only_for_permitted_direct_subordinate()
+    {
+        var context = AiDirectiveExecutionContext.From(Request(directSubordinates: [Engineer]));
+        var messageId = MessageId.From(Guid.Parse("30000000-0000-0000-0000-000000000908"));
+        var directiveId = DirectiveId.From(Guid.Parse("40000000-0000-0000-0000-000000000908"));
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveChildDirectiveDecision(
+                Engineer,
+                "Investigate checkout regression.",
+                "Focus on payment callback failures."),
+            () => messageId,
+            () => directiveId,
+            () => At.AddMinutes(7));
+
+        Assert.True(result.IsSuccess, result.Failure?.AuditReason);
+        var directive = Assert.IsType<OrgDirective>(result.Message);
+        Assert.Equal(messageId, directive.Id);
+        Assert.Equal(Organization, directive.OrganizationId);
+        Assert.Equal(new PositionEndpointRef(Position), directive.From);
+        Assert.Equal(new PositionEndpointRef(Engineer), directive.To);
+        Assert.Equal(Thread, directive.Thread);
+        Assert.Equal(Priority.High, directive.Priority);
+        Assert.Equal(At.AddMinutes(7), directive.SentAt);
+        Assert.Equal(context.Directive.Deadline, directive.Deadline);
+        Assert.Equal(directiveId, directive.DirectiveId);
+        Assert.Equal(IncomingDirective, directive.ParentDirectiveId);
+        Assert.Equal("Investigate checkout regression.", directive.Objective);
+        Assert.Equal("Focus on payment callback failures.", directive.Context);
+    }
+
+    [Fact]
+    public void Create_rejects_child_directive_when_target_is_not_permitted_subordinate()
+    {
+        var context = AiDirectiveExecutionContext.From(Request(directSubordinates: [Engineer]));
+        var qa = PositionId.From("qa");
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveChildDirectiveDecision(
+                qa,
+                "Investigate checkout regression.",
+                "Focus on payment callback failures."),
+            MessageId.New,
+            DirectiveId.New,
+            () => At.AddMinutes(8));
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Message);
+        var failure = Assert.IsType<AiDirectiveResultMessageFailure>(result.Failure);
+        Assert.Equal("child-directive-target-not-permitted", failure.Code);
+        Assert.Contains("qa", failure.AuditReason, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task AiAgentActor_stores_emitted_result_message_and_advances_to_result_emitted()
+    {
+        var request = Request();
+        var system = ActorSystem.Create($"ai-agent-result-message-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(ValidReportOutput()))),
+                "agent");
+
+            actor.Tell(request);
+
+            var result = await WaitForResultMessageAsync(actor, request.CorrelationId);
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                Timeout());
+
+            Assert.True(result.Found);
+            Assert.Equal(request.CorrelationId, result.CorrelationId);
+            var report = Assert.IsType<Report>(result.Result!.Message);
+            Assert.Equal(request.DirectiveId, report.AboutDirectiveId);
+            Assert.Equal(new PositionEndpointRef(request.PositionId), report.From);
+            Assert.Equal(new PositionEndpointRef(Superior), report.To);
+            Assert.True(snapshot.Found);
+            Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, snapshot.Snapshot!.Status);
+            Assert.Equal(
+                [
+                    AiDirectiveProcessingStatus.Received,
+                    AiDirectiveProcessingStatus.ContextAssembled,
+                    AiDirectiveProcessingStatus.GatewayRequested,
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
+                    AiDirectiveProcessingStatus.ResultEmitted,
+                ],
+                snapshot.Snapshot.History.Select(transition => transition.Status).ToArray());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    private static async Task<AiDirectiveResultMessageQueryResult> WaitForResultMessageAsync(
+        IActorRef actor,
+        string correlationId)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var result = await actor.Ask<AiDirectiveResultMessageQueryResult>(
+                new GetAiDirectiveResultMessage(correlationId),
+                TimeSpan.FromSeconds(1));
+            if (result.Found)
+            {
+                return result;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("AI directive result message was not recorded.");
+    }
+
+    private static AiDirectiveProcessingRequest Request(
+        IEnumerable<PositionId>? directSubordinates = null,
+        bool hasSuperior = true)
+    {
+        var entity = PositionEntityId.From(Organization, Position);
+        var occupant = OccupantId.From("agent-8");
+        var reportsTo = hasSuperior ? Superior : null;
+        var directive = new OrgDirective(
+            IncomingMessage,
+            Organization,
+            new PositionEndpointRef(Superior),
+            new PositionEndpointRef(Position),
+            Thread,
+            Priority.High,
+            schemaVersion: 1,
+            sentAt: At,
+            deadline: At.AddHours(2),
+            IncomingDirective,
+            parentDirectiveId: null,
+            objective: "Triage checkout regression",
+            context: "Customer reports checkout failures.");
+        var configuration = new PositionRuntimeConfiguration(
+            new PositionConfigurationStamp(13, "sha256:t08"),
+            Organization,
+            Position,
+            new PositionRuntimeDescriptor(
+                UnitId.From("engineering"),
+                reportsTo: reportsTo,
+                name: "Bug triage",
+                timezone: "Europe/Lisbon",
+                directSubordinates: directSubordinates),
+            new OccupantRuntimeConfiguration(
+                OccupantType.AiAgent,
+                identityPromptRef: "triage-v1",
+                aiGateway: new AiPositionRuntimeConfiguration(
+                    new AiProviderMetadata("stub", "triage"),
+                    new AiModelParameters(maxOutputTokens: 256),
+                    timeout: TimeSpan.FromSeconds(15)),
+                identityPrompt: new IdentityPromptRuntimeConfiguration(
+                    "triage-v1",
+                    "prompts/triage-v1.md",
+                    "You are responsible for triaging incoming bugs.")),
+            new PositionAuthorityRuntimeConfiguration());
+
+        return AiDirectiveProcessingRequest.Create(
+            entity,
+            configuration,
+            PositionState.Restore(new PositionSnapshot(At)),
+            occupant,
+            directive);
+    }
+
+    private static string ValidReportOutput() =>
+        """
+        {
+          "schema_version": 1,
+          "intent": "Report",
+          "report": {
+            "kind": "Done",
+            "body": "Bug triage is complete."
+          }
+        }
+        """;
+
+    private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
+
+    private sealed class StaticResponseInvoker(string output) : IAiAgentGatewayInvoker
+    {
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Succeeded(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    output,
+                    AiFinishReason.Stop)));
+    }
+}

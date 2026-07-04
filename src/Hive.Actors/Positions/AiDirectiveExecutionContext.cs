@@ -101,7 +101,8 @@ internal sealed record AiDirectiveExecutionContext
             AiDirectiveExecutionDirective.FromDirective(request.Directive),
             new AiDirectiveExecutionRelation(
                 request.RuntimeContext.Position.Unit,
-                request.RuntimeContext.Position.ReportsTo),
+                request.RuntimeContext.Position.ReportsTo,
+                request.RuntimeContext.Position.DirectSubordinates),
             AiDirectiveExecutionAuthority.From(request.RuntimeContext.Authority),
             request.RuntimeContext.OccupantConfiguration.Tools
                 .Select(AiDirectiveExecutionTool.From)
@@ -215,15 +216,55 @@ internal sealed record AiDirectiveExecutionDirective
 
 internal sealed record AiDirectiveExecutionRelation
 {
-    public AiDirectiveExecutionRelation(UnitId unit, PositionId? reportsTo)
+    public AiDirectiveExecutionRelation(
+        UnitId unit,
+        PositionId? reportsTo,
+        IEnumerable<PositionId>? directSubordinates = null)
     {
         Unit = unit ?? throw new ArgumentNullException(nameof(unit));
         ReportsTo = reportsTo;
+        DirectSubordinates = ToValidatedSubordinates(
+            directSubordinates,
+            nameof(directSubordinates));
     }
 
     public UnitId Unit { get; }
 
     public PositionId? ReportsTo { get; }
+
+    public ImmutableArray<PositionId> DirectSubordinates { get; }
+
+    private static ImmutableArray<PositionId> ToValidatedSubordinates(
+        IEnumerable<PositionId>? source,
+        string parameterName)
+    {
+        if (source is null)
+        {
+            return ImmutableArray<PositionId>.Empty;
+        }
+
+        var snapshot = source.ToArray();
+        foreach (var subordinate in snapshot)
+        {
+            ArgumentNullException.ThrowIfNull(subordinate, parameterName);
+        }
+
+        var builder = ImmutableArray.CreateBuilder<PositionId>();
+        var seen = new HashSet<PositionId>();
+        foreach (var subordinate in snapshot.OrderBy(position => position.Value, StringComparer.Ordinal))
+        {
+            if (!seen.Add(subordinate))
+            {
+                throw new ArgumentException(
+                    $"Direct subordinate '{subordinate.Value}' was supplied more than once.",
+                    parameterName);
+            }
+
+            builder.Add(subordinate);
+        }
+
+        return builder.ToImmutable();
+    }
 }
 
 internal sealed record AiDirectiveExecutionAuthority

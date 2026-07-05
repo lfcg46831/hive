@@ -840,6 +840,286 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_audits_initial_changed_and_unchanged_configuration_snapshots()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report"),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 0 11 ? * MON-FRI",
+                "Run beta report"),
+            new ScheduleEntryConfiguration(
+                "remove-report",
+                "0 0 12 ? * MON-FRI",
+                "Run removable report"),
+            new ScheduleEntryConfiguration(
+                "stable-report",
+                "0 0 15 ? * MON-FRI",
+                "Run stable report")));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report",
+                isActive: false),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 30 11 ? * MON-FRI",
+                "Run changed beta report"),
+            new ScheduleEntryConfiguration(
+                "gamma-report",
+                "0 0 14 ? * MON-FRI",
+                "Run gamma report"),
+            new ScheduleEntryConfiguration(
+                "stable-report",
+                "0 0 15 ? * MON-FRI",
+                "Run stable report")));
+        var audit = new RecordingSchedulerReconciliationAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-audit");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(ImportAt),
+                    NoopSchedulerPulseDeliveryStore.Instance,
+                    NoopSchedulerPulseDispatcher.Instance,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    audit),
+                "scheduler-coordinator-reconcile-audit");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+            var repeated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            Assert.True(repeated.IsAccepted, string.Join(Environment.NewLine, repeated.Errors));
+
+            Assert.Equal(3, audit.Records.Count);
+
+            var initialized = audit.Records[0];
+            Assert.Equal(SchedulerReconciliationAuditOutcome.Accepted, initialized.Outcome);
+            Assert.Equal("scheduler-configuration-initialized", initialized.Reason.Code);
+            Assert.Null(initialized.PreviousRegistryVersion);
+            Assert.Equal(initialSnapshot.Version, initialized.NewRegistryVersion);
+            Assert.Equal(initialSnapshot.Fingerprint, initialized.NewRegistryFingerprint);
+            Assert.Equal(
+                new[]
+                {
+                    "Create:acme-delivery/delivery-lead/alpha-report",
+                    "Create:acme-delivery/delivery-lead/beta-report",
+                    "Create:acme-delivery/delivery-lead/remove-report",
+                    "Create:acme-delivery/delivery-lead/stable-report",
+                },
+                initialized.Operations.Select(DescribeOperation));
+            Assert.Empty(initialized.Errors);
+
+            var changed = audit.Records[1];
+            Assert.Equal(SchedulerReconciliationAuditOutcome.Accepted, changed.Outcome);
+            Assert.Equal("scheduler-configuration-changed", changed.Reason.Code);
+            Assert.Equal(initialSnapshot.Version, changed.PreviousRegistryVersion);
+            Assert.Equal(initialSnapshot.Fingerprint, changed.PreviousRegistryFingerprint);
+            Assert.Equal(updatedSnapshot.Version, changed.NewRegistryVersion);
+            Assert.Equal(updatedSnapshot.Fingerprint, changed.NewRegistryFingerprint);
+            Assert.Equal(
+                new[]
+                {
+                    "Pause:acme-delivery/delivery-lead/alpha-report",
+                    "Update:acme-delivery/delivery-lead/beta-report",
+                    "Create:acme-delivery/delivery-lead/gamma-report",
+                    "Remove:acme-delivery/delivery-lead/remove-report",
+                    "Unchanged:acme-delivery/delivery-lead/stable-report",
+                },
+                changed.Operations.Select(DescribeOperation));
+            Assert.Empty(changed.Errors);
+
+            var unchanged = audit.Records[2];
+            Assert.Equal(SchedulerReconciliationAuditOutcome.Accepted, unchanged.Outcome);
+            Assert.Equal("scheduler-configuration-unchanged", unchanged.Reason.Code);
+            Assert.Equal(updatedSnapshot.Version, unchanged.PreviousRegistryVersion);
+            Assert.Equal(updatedSnapshot.Fingerprint, unchanged.PreviousRegistryFingerprint);
+            Assert.Equal(updatedSnapshot.Version, unchanged.NewRegistryVersion);
+            Assert.Equal(updatedSnapshot.Fingerprint, unchanged.NewRegistryFingerprint);
+            Assert.Empty(unchanged.Operations);
+            Assert.Empty(unchanged.Errors);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_audits_rejected_configuration_without_applying_quartz_or_delivery_mutations()
+    {
+        var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var invalidSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "broken-report",
+                "not-a-cron",
+                "Invalid schedule")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var audit = new RecordingSchedulerReconciliationAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-rejected-audit");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    quartz,
+                    new ManualTimeProvider(ImportAt),
+                    deliveryStore,
+                    NoopSchedulerPulseDispatcher.Instance,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    audit),
+                "scheduler-coordinator-reconcile-rejected-audit");
+
+            var accepted = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(validSnapshot),
+                AskTimeout);
+            var scheduleCallsAfterValidSnapshot = quartz.ScheduleCalls.Count;
+            var unscheduleCallsAfterValidSnapshot = quartz.UnscheduleCalls.Count;
+            var firedAfterValidSnapshot = deliveryStore.Fired.Count;
+            var skippedAfterValidSnapshot = deliveryStore.Skipped.Count;
+
+            var rejected = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(invalidSnapshot),
+                AskTimeout);
+
+            Assert.True(accepted.IsAccepted, string.Join(Environment.NewLine, accepted.Errors));
+            Assert.False(rejected.IsAccepted);
+            Assert.Equal(scheduleCallsAfterValidSnapshot, quartz.ScheduleCalls.Count);
+            Assert.Equal(unscheduleCallsAfterValidSnapshot, quartz.UnscheduleCalls.Count);
+            Assert.Equal(firedAfterValidSnapshot, deliveryStore.Fired.Count);
+            Assert.Equal(skippedAfterValidSnapshot, deliveryStore.Skipped.Count);
+
+            var rejectedAudit = Assert.Single(
+                audit.Records,
+                record => record.Outcome == SchedulerReconciliationAuditOutcome.Rejected);
+            Assert.Equal("scheduler-configuration-rejected", rejectedAudit.Reason.Code);
+            Assert.Equal(validSnapshot.Version, rejectedAudit.PreviousRegistryVersion);
+            Assert.Equal(validSnapshot.Fingerprint, rejectedAudit.PreviousRegistryFingerprint);
+            Assert.Equal(invalidSnapshot.Version, rejectedAudit.NewRegistryVersion);
+            Assert.Equal(invalidSnapshot.Fingerprint, rejectedAudit.NewRegistryFingerprint);
+            Assert.Empty(rejectedAudit.Operations);
+            Assert.Contains(rejectedAudit.Errors, error => error.Code == "schedule-cron-invalid");
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_pause_and_remove_preserve_existing_delivery_records()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "pause-report",
+                "0 55 17 ? * MON-FRI",
+                "Run paused report"),
+            new ScheduleEntryConfiguration(
+                "remove-report",
+                "0 55 17 ? * MON-FRI",
+                "Run removed report")));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "pause-report",
+                "0 55 17 ? * MON-FRI",
+                "Run paused report",
+                isActive: false)));
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var audit = new RecordingSchedulerReconciliationAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-preserve-deliveries");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(ImportAt),
+                    deliveryStore,
+                    pulseDispatcher,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    audit),
+                "scheduler-coordinator-reconcile-preserve-deliveries");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+            var pauseDispatch = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    reconciliation.Materializations.Single(materialization =>
+                        materialization.Key.Schedule == ScheduleId.From("pause-report")).Key,
+                    firedAtUtc),
+                AskTimeout);
+            var removeDispatch = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    reconciliation.Materializations.Single(materialization =>
+                        materialization.Key.Schedule == ScheduleId.From("remove-report")).Key,
+                    firedAtUtc),
+                AskTimeout);
+            Assert.True(pauseDispatch.IsAccepted, pauseDispatch.Error?.ToString());
+            Assert.True(removeDispatch.IsAccepted, removeDispatch.Error?.ToString());
+
+            var firedBeforeReconfiguration = deliveryStore.Fired.Count;
+            var deliveredBeforeReconfiguration = deliveryStore.Delivered.Count;
+            var skippedBeforeReconfiguration = deliveryStore.Skipped.Count;
+            var failedBeforeReconfiguration = deliveryStore.Failed.Count;
+
+            var reconfigured = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(reconfigured.IsAccepted, string.Join(Environment.NewLine, reconfigured.Errors));
+            Assert.Equal(firedBeforeReconfiguration, deliveryStore.Fired.Count);
+            Assert.Equal(deliveredBeforeReconfiguration, deliveryStore.Delivered.Count);
+            Assert.Equal(skippedBeforeReconfiguration, deliveryStore.Skipped.Count);
+            Assert.Equal(failedBeforeReconfiguration, deliveryStore.Failed.Count);
+
+            var paused = await deliveryStore.FindAsync(pauseDispatch.Dispatch!.IdempotencyKey);
+            var removed = await deliveryStore.FindAsync(removeDispatch.Dispatch!.IdempotencyKey);
+            Assert.Equal(SchedulerPulseDeliveryStatus.Delivered, paused?.Status);
+            Assert.Equal(SchedulerPulseDeliveryStatus.Delivered, removed?.Status);
+
+            var changedAudit = audit.Records.Last();
+            Assert.Equal("scheduler-configuration-changed", changedAudit.Reason.Code);
+            Assert.Contains(changedAudit.Operations, operation =>
+                operation.Kind == SchedulerScheduleReconciliationOperationKind.Pause
+                && operation.Key.Schedule == ScheduleId.From("pause-report"));
+            Assert.Contains(changedAudit.Operations, operation =>
+                operation.Kind == SchedulerScheduleReconciliationOperationKind.Remove
+                && operation.Key.Schedule == ScheduleId.From("remove-report"));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_invalid_snapshot_does_not_schedule_new_quartz_jobs()
     {
         var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1829,6 +2109,18 @@ public sealed class SchedulerCoordinatorTests
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class RecordingSchedulerReconciliationAuditSink : ISchedulerReconciliationAuditSink
+    {
+        private readonly List<SchedulerReconciliationAuditRecord> _records = [];
+
+        public IReadOnlyList<SchedulerReconciliationAuditRecord> Records => _records;
+
+        public void Publish(SchedulerReconciliationAuditRecord record)
+        {
+            _records.Add(record);
+        }
     }
 
     private sealed class RecordingSchedulerQuartzAdapter : ISchedulerQuartzAdapter

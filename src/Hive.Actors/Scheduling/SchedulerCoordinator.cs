@@ -43,6 +43,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
     private readonly ISchedulerPulseDeliveryStore _deliveryStore;
     private readonly ISchedulerPulseDispatcher _pulseDispatcher;
     private readonly ISchedulerProactiveBudgetPolicy _proactiveBudgetPolicy;
+    private readonly ISchedulerReconciliationAuditSink _reconciliationAudit;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
@@ -93,12 +94,30 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         ISchedulerPulseDeliveryStore deliveryStore,
         ISchedulerPulseDispatcher pulseDispatcher,
         ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy)
+        : this(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            proactiveBudgetPolicy,
+            NoopSchedulerReconciliationAuditSink.Instance)
+    {
+    }
+
+    public SchedulerCoordinator(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy,
+        ISchedulerReconciliationAuditSink reconciliationAudit)
     {
         _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _deliveryStore = deliveryStore ?? throw new ArgumentNullException(nameof(deliveryStore));
         _pulseDispatcher = pulseDispatcher ?? throw new ArgumentNullException(nameof(pulseDispatcher));
         _proactiveBudgetPolicy = proactiveBudgetPolicy ?? throw new ArgumentNullException(nameof(proactiveBudgetPolicy));
+        _reconciliationAudit = reconciliationAudit ?? throw new ArgumentNullException(nameof(reconciliationAudit));
 
         ReceiveAsync<ReconcileSchedulerSchedules>(HandleAsync);
         ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
@@ -147,12 +166,33 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             pulseDispatcher,
             proactiveBudgetPolicy));
 
+    public static Props Props(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy,
+        ISchedulerReconciliationAuditSink reconciliationAudit) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            proactiveBudgetPolicy,
+            reconciliationAudit));
+
     private async Task HandleAsync(ReconcileSchedulerSchedules command)
     {
         var replyTo = Sender;
+        var occurredAtUtc = _clock.GetUtcNow();
         var loaded = RegistryScheduleLoader.Load(command.Snapshot);
         if (!loaded.IsValid)
         {
+            _reconciliationAudit.Publish(SchedulerReconciliationAuditRecord.Rejected(
+                occurredAtUtc,
+                _state,
+                command.Snapshot,
+                loaded.Errors));
             replyTo.Tell(SchedulerReconciliationResult.Rejected(
                 loaded.Errors,
                 _state.LastReconciliationDiff));
@@ -162,6 +202,9 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         var diff = SchedulerScheduleReconciliationDiff.Calculate(_state, command.Snapshot, loaded);
         if (!diff.IsRegistryChanged)
         {
+            _reconciliationAudit.Publish(SchedulerReconciliationAuditRecord.Accepted(
+                occurredAtUtc,
+                diff));
             replyTo.Tell(SchedulerReconciliationResult.Accepted(
                 _state.Materializations,
                 diff));
@@ -181,12 +224,15 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             ApplyQuartzOperation(operation);
         }
 
-        var nowUtc = _clock.GetUtcNow();
+        var nowUtc = occurredAtUtc;
         foreach (var materialization in materializations)
         {
             await EvaluateMissedWindowAsync(materialization, nowUtc).ConfigureAwait(false);
         }
 
+        _reconciliationAudit.Publish(SchedulerReconciliationAuditRecord.Accepted(
+            nowUtc,
+            diff));
         replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations, diff));
     }
 

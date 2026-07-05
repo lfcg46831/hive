@@ -6,6 +6,7 @@ using Akka.Quartz.Actor;
 using Akka.Quartz.Actor.Commands;
 using Akka.Quartz.Actor.Events;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Scheduling;
@@ -139,11 +140,17 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             return;
         }
 
+        var calculatedWindow = dispatchWindow!;
+        var pulse = SchedulerPulseFactory.Build(
+            materialization,
+            firedAtUtc,
+            calculatedWindow.IdempotencyKey);
         var dispatch = new SchedulerScheduleDispatch(
             key,
             firedAtUtc,
-            dispatchWindow!.Window,
-            dispatchWindow.IdempotencyKey);
+            calculatedWindow.Window,
+            calculatedWindow.IdempotencyKey,
+            pulse);
         _state = _state.WithPendingDispatch(dispatch);
         Sender.Tell(SchedulerDispatchResult.Accepted(dispatch));
     }
@@ -335,7 +342,8 @@ internal sealed record SchedulerScheduleDispatch
         SchedulerScheduleKey key,
         DateTimeOffset firedAtUtc,
         TemporalWindow window,
-        PulseIdempotencyKey idempotencyKey)
+        PulseIdempotencyKey idempotencyKey,
+        Pulse pulse)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         if (firedAtUtc.Offset != TimeSpan.Zero)
@@ -348,6 +356,7 @@ internal sealed record SchedulerScheduleDispatch
         FiredAtUtc = firedAtUtc;
         Window = window ?? throw new ArgumentNullException(nameof(window));
         IdempotencyKey = idempotencyKey ?? throw new ArgumentNullException(nameof(idempotencyKey));
+        Pulse = pulse ?? throw new ArgumentNullException(nameof(pulse));
     }
 
     public SchedulerScheduleKey Key { get; }
@@ -357,6 +366,8 @@ internal sealed record SchedulerScheduleDispatch
     public TemporalWindow Window { get; }
 
     public PulseIdempotencyKey IdempotencyKey { get; }
+
+    public Pulse Pulse { get; }
 }
 
 internal sealed record SchedulerCoordinatorState

@@ -157,6 +157,56 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public void Scheduler_pulse_factory_builds_canonical_pulse_from_dispatch_metadata()
+    {
+        var materialization = Materialization(
+            "daily-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon");
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var dispatchWindow = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            firedAtUtc);
+
+        var pulse = BuildSchedulerPulse(
+            materialization,
+            firedAtUtc,
+            dispatchWindow.IdempotencyKey);
+
+        Assert.Equal(materialization.Key.Organization, pulse.OrganizationId);
+        var from = Assert.IsType<SystemEndpointRef>(pulse.From);
+        Assert.Equal(SystemEndpointKind.Scheduler, from.Kind);
+        var to = Assert.IsType<PositionEndpointRef>(pulse.To);
+        Assert.Equal(materialization.Key.Position, to.PositionId);
+        Assert.Equal("daily-report", pulse.ScheduleId);
+        Assert.Equal("Run scheduled work", pulse.Payload);
+        Assert.Equal(Priority.Normal, pulse.Priority);
+        Assert.Equal(1, pulse.SchemaVersion);
+        Assert.Equal(firedAtUtc, pulse.SentAt);
+        Assert.Null(pulse.Deadline);
+        Assert.NotEqual(Guid.Empty, pulse.Id.Value);
+        Assert.NotEqual(Guid.Empty, pulse.Thread.Value);
+        Assert.NotEqual(pulse.Id.Value, pulse.Thread.Value);
+
+        var repeatedPulse = BuildSchedulerPulse(
+            materialization,
+            new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero),
+            dispatchWindow.IdempotencyKey);
+        Assert.Equal(pulse.Id, repeatedPulse.Id);
+        Assert.Equal(pulse.Thread, repeatedPulse.Thread);
+
+        var nextDispatchWindow = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            new DateTimeOffset(2026, 7, 6, 17, 0, 0, TimeSpan.Zero));
+        var nextPulse = BuildSchedulerPulse(
+            materialization,
+            new DateTimeOffset(2026, 7, 6, 17, 0, 0, TimeSpan.Zero),
+            nextDispatchWindow.IdempotencyKey);
+        Assert.NotEqual(pulse.Id, nextPulse.Id);
+        Assert.NotEqual(pulse.Thread, nextPulse.Thread);
+    }
+
+    [Fact]
     public async Task Reconcile_materializes_only_active_schedules_in_deterministic_order()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -489,6 +539,11 @@ public sealed class SchedulerCoordinatorTests
             Assert.Equal(
                 "acme-delivery/delivery-lead/daily-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
                 accepted.Dispatch.IdempotencyKey.Value);
+            var pulse = DispatchPulse(accepted.Dispatch);
+            Assert.Equal(knownKey.Organization, pulse.OrganizationId);
+            Assert.Equal(knownKey.Schedule.Value, pulse.ScheduleId);
+            Assert.Equal("Run daily report", pulse.Payload);
+            Assert.Equal(firedAtUtc, pulse.SentAt);
 
             var state = await coordinator.Ask<SchedulerCoordinatorState>(
                 GetSchedulerCoordinatorState.Instance,
@@ -498,6 +553,7 @@ public sealed class SchedulerCoordinatorTests
             Assert.Equal(firedAtUtc, pending.FiredAtUtc);
             Assert.Equal(accepted.Dispatch.Window, pending.Window);
             Assert.Equal(accepted.Dispatch.IdempotencyKey, pending.IdempotencyKey);
+            Assert.Equal(pulse, DispatchPulse(pending));
         }
         finally
         {
@@ -539,6 +595,10 @@ public sealed class SchedulerCoordinatorTests
             Assert.Equal(firedAtUtc, accepted.Dispatch.FiredAtUtc);
             Assert.Equal(new DateTimeOffset(2026, 7, 3, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.Start);
             Assert.Equal(new DateTimeOffset(2026, 7, 6, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.End);
+            var pulse = DispatchPulse(accepted.Dispatch);
+            Assert.Equal(knownKey.Organization, pulse.OrganizationId);
+            Assert.Equal(knownKey.Schedule.Value, pulse.ScheduleId);
+            Assert.Equal(firedAtUtc, pulse.SentAt);
 
             var state = await coordinator.Ask<SchedulerCoordinatorState>(
                 GetSchedulerCoordinatorState.Instance,
@@ -547,6 +607,7 @@ public sealed class SchedulerCoordinatorTests
             Assert.Equal(knownKey, pending.Key);
             Assert.Equal(firedAtUtc, pending.FiredAtUtc);
             Assert.Equal(accepted.Dispatch.IdempotencyKey, pending.IdempotencyKey);
+            Assert.Equal(pulse, DispatchPulse(pending));
         }
         finally
         {
@@ -804,6 +865,14 @@ public sealed class SchedulerCoordinatorTests
             definition,
             new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
     }
+
+    private static Pulse BuildSchedulerPulse(
+        SchedulerScheduleMaterialization materialization,
+        DateTimeOffset firedAtUtc,
+        PulseIdempotencyKey idempotencyKey) =>
+        SchedulerPulseFactory.Build(materialization, firedAtUtc, idempotencyKey);
+
+    private static Pulse DispatchPulse(SchedulerScheduleDispatch dispatch) => dispatch.Pulse;
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

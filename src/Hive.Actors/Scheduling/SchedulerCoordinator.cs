@@ -120,7 +120,8 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
     private void Dispatch(SchedulerScheduleKey key, DateTimeOffset firedAtUtc)
     {
-        if (!_state.Materializations.Any(materialization => materialization.Key == key))
+        var materialization = _state.Materializations.FirstOrDefault(materialization => materialization.Key == key);
+        if (materialization is null)
         {
             Sender.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
                 "schedule-not-materialized",
@@ -128,7 +129,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             return;
         }
 
-        var dispatch = new SchedulerScheduleDispatch(key, firedAtUtc);
+        if (!SchedulerScheduleWindowCalculator.TryCalculate(
+                materialization,
+                firedAtUtc,
+                out var dispatchWindow,
+                out var error))
+        {
+            Sender.Tell(SchedulerDispatchResult.Rejected(error!));
+            return;
+        }
+
+        var dispatch = new SchedulerScheduleDispatch(
+            key,
+            firedAtUtc,
+            dispatchWindow!.Window,
+            dispatchWindow.IdempotencyKey);
         _state = _state.WithPendingDispatch(dispatch);
         Sender.Tell(SchedulerDispatchResult.Accepted(dispatch));
     }
@@ -316,7 +331,11 @@ internal sealed record SchedulerScheduleMaterialization
 
 internal sealed record SchedulerScheduleDispatch
 {
-    public SchedulerScheduleDispatch(SchedulerScheduleKey key, DateTimeOffset firedAtUtc)
+    public SchedulerScheduleDispatch(
+        SchedulerScheduleKey key,
+        DateTimeOffset firedAtUtc,
+        TemporalWindow window,
+        PulseIdempotencyKey idempotencyKey)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         if (firedAtUtc.Offset != TimeSpan.Zero)
@@ -327,11 +346,17 @@ internal sealed record SchedulerScheduleDispatch
         }
 
         FiredAtUtc = firedAtUtc;
+        Window = window ?? throw new ArgumentNullException(nameof(window));
+        IdempotencyKey = idempotencyKey ?? throw new ArgumentNullException(nameof(idempotencyKey));
     }
 
     public SchedulerScheduleKey Key { get; }
 
     public DateTimeOffset FiredAtUtc { get; }
+
+    public TemporalWindow Window { get; }
+
+    public PulseIdempotencyKey IdempotencyKey { get; }
 }
 
 internal sealed record SchedulerCoordinatorState

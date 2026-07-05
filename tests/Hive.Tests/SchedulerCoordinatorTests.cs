@@ -4,9 +4,12 @@ using Akka.Quartz.Actor.Commands;
 using Akka.Quartz.Actor.Events;
 using Hive.Actors.Scheduling;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Scheduling;
 using Quartz;
 using Quartz.Impl;
 using Quartz.Impl.Matchers;
@@ -66,6 +69,91 @@ public sealed class SchedulerCoordinatorTests
         Assert.Equal(
             "trigger--Acme_u0020_Org--delivery_u005f_lead--daily_u003a_report",
             identity.TriggerName);
+    }
+
+    [Fact]
+    public void Schedule_window_calculator_maps_observed_fire_to_canonical_cron_window()
+    {
+        var materialization = Materialization(
+            "daily-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon");
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+
+        var dispatchWindow = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            firedAtUtc);
+
+        Assert.Equal(new DateTimeOffset(2026, 7, 3, 16, 55, 0, TimeSpan.Zero), dispatchWindow.Window.Start);
+        Assert.Equal(new DateTimeOffset(2026, 7, 6, 16, 55, 0, TimeSpan.Zero), dispatchWindow.Window.End);
+        Assert.Equal(
+            "acme-delivery/delivery-lead/daily-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
+            dispatchWindow.IdempotencyKey.Value);
+    }
+
+    [Fact]
+    public void Schedule_window_calculator_is_stable_within_window_and_changes_for_next_window()
+    {
+        var materialization = Materialization(
+            "daily-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon");
+
+        var first = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero));
+        var repeated = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero));
+        var next = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            new DateTimeOffset(2026, 7, 6, 17, 0, 0, TimeSpan.Zero));
+
+        Assert.Equal(first.IdempotencyKey, repeated.IdempotencyKey);
+        Assert.Equal(first.Window, repeated.Window);
+        Assert.NotEqual(first.IdempotencyKey, next.IdempotencyKey);
+    }
+
+    [Fact]
+    public void Schedule_window_calculator_respects_schedule_timezone()
+    {
+        var lisbon = Materialization(
+            "morning-report",
+            "0 0 9 ? * MON-FRI",
+            "Europe/Lisbon");
+        var newYork = Materialization(
+            "morning-report",
+            "0 0 9 ? * MON-FRI",
+            "America/New_York");
+
+        var lisbonWindow = SchedulerScheduleWindowCalculator.Calculate(
+            lisbon,
+            new DateTimeOffset(2026, 7, 3, 8, 1, 0, TimeSpan.Zero));
+        var newYorkWindow = SchedulerScheduleWindowCalculator.Calculate(
+            newYork,
+            new DateTimeOffset(2026, 7, 3, 13, 1, 0, TimeSpan.Zero));
+
+        Assert.Equal(new DateTimeOffset(2026, 7, 3, 8, 0, 0, TimeSpan.Zero), lisbonWindow.Window.Start);
+        Assert.Equal(new DateTimeOffset(2026, 7, 3, 13, 0, 0, TimeSpan.Zero), newYorkWindow.Window.Start);
+    }
+
+    [Fact]
+    public void Schedule_window_calculator_rejects_when_no_canonical_window_can_be_resolved()
+    {
+        var materialization = Materialization(
+            "future-report",
+            "0 0 9 ? * MON-FRI 2099",
+            "Europe/Lisbon");
+
+        var calculated = SchedulerScheduleWindowCalculator.TryCalculate(
+            materialization,
+            new DateTimeOffset(2026, 7, 3, 8, 1, 0, TimeSpan.Zero),
+            out var dispatchWindow,
+            out var error);
+
+        Assert.False(calculated);
+        Assert.Null(dispatchWindow);
+        Assert.Equal("schedule-window-unresolved", error?.Code);
     }
 
     [Fact]
@@ -363,7 +451,7 @@ public sealed class SchedulerCoordinatorTests
                 "daily-report",
                 "0 55 17 ? * MON-FRI",
                 "Run daily report")));
-        var firedAtUtc = new DateTimeOffset(2026, 7, 4, 17, 55, 0, TimeSpan.Zero);
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
         var system = ActorSystem.Create("scheduler-coordinator-dispatch");
         try
         {
@@ -396,6 +484,11 @@ public sealed class SchedulerCoordinatorTests
             Assert.NotNull(accepted.Dispatch);
             Assert.Equal(knownKey, accepted.Dispatch.Key);
             Assert.Equal(firedAtUtc, accepted.Dispatch.FiredAtUtc);
+            Assert.Equal(new DateTimeOffset(2026, 7, 3, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.Start);
+            Assert.Equal(new DateTimeOffset(2026, 7, 6, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.End);
+            Assert.Equal(
+                "acme-delivery/delivery-lead/daily-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
+                accepted.Dispatch.IdempotencyKey.Value);
 
             var state = await coordinator.Ask<SchedulerCoordinatorState>(
                 GetSchedulerCoordinatorState.Instance,
@@ -403,6 +496,8 @@ public sealed class SchedulerCoordinatorTests
             var pending = Assert.Single(state.PendingDispatches);
             Assert.Equal(knownKey, pending.Key);
             Assert.Equal(firedAtUtc, pending.FiredAtUtc);
+            Assert.Equal(accepted.Dispatch.Window, pending.Window);
+            Assert.Equal(accepted.Dispatch.IdempotencyKey, pending.IdempotencyKey);
         }
         finally
         {
@@ -419,7 +514,7 @@ public sealed class SchedulerCoordinatorTests
                 "daily-report",
                 "0 55 17 ? * MON-FRI",
                 "Run daily report")));
-        var firedAtUtc = new DateTimeOffset(2026, 7, 4, 17, 55, 1, TimeSpan.Zero);
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
         var system = ActorSystem.Create("scheduler-coordinator-quartz-fire");
         try
         {
@@ -442,6 +537,8 @@ public sealed class SchedulerCoordinatorTests
             Assert.NotNull(accepted.Dispatch);
             Assert.Equal(knownKey, accepted.Dispatch.Key);
             Assert.Equal(firedAtUtc, accepted.Dispatch.FiredAtUtc);
+            Assert.Equal(new DateTimeOffset(2026, 7, 3, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.Start);
+            Assert.Equal(new DateTimeOffset(2026, 7, 6, 16, 55, 0, TimeSpan.Zero), accepted.Dispatch.Window.End);
 
             var state = await coordinator.Ask<SchedulerCoordinatorState>(
                 GetSchedulerCoordinatorState.Instance,
@@ -449,6 +546,7 @@ public sealed class SchedulerCoordinatorTests
             var pending = Assert.Single(state.PendingDispatches);
             Assert.Equal(knownKey, pending.Key);
             Assert.Equal(firedAtUtc, pending.FiredAtUtc);
+            Assert.Equal(accepted.Dispatch.IdempotencyKey, pending.IdempotencyKey);
         }
         finally
         {
@@ -682,6 +780,30 @@ public sealed class SchedulerCoordinatorTests
 
     private static Props ProtocolOnlyCoordinatorProps() =>
         SchedulerCoordinator.Props(NoopSchedulerQuartzAdapter.Instance, TimeProvider.System);
+
+    private static SchedulerScheduleMaterialization Materialization(
+        string scheduleId,
+        string cron,
+        string timeZone)
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"),
+            ScheduleId.From(scheduleId));
+        var definition = ScheduleDefinition.Create(
+            key.Schedule,
+            DomainCronExpression.From(cron),
+            timeZone,
+            "Run scheduled work",
+            Priority.Normal,
+            isCritical: false,
+            CatchUpPolicy.Skip);
+
+        return new SchedulerScheduleMaterialization(
+            key,
+            definition,
+            new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
+    }
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

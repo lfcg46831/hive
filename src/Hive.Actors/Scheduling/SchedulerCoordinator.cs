@@ -153,29 +153,28 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         var loaded = RegistryScheduleLoader.Load(command.Snapshot);
         if (!loaded.IsValid)
         {
-            replyTo.Tell(SchedulerReconciliationResult.Rejected(loaded.Errors));
+            replyTo.Tell(SchedulerReconciliationResult.Rejected(
+                loaded.Errors,
+                _state.LastReconciliationDiff));
             return;
         }
 
-        var materializations = loaded.Schedules
-            .Where(schedule => schedule.IsActive)
-            .OrderBy(schedule => schedule.OrganizationId.Value, StringComparer.Ordinal)
-            .ThenBy(schedule => schedule.PositionId.Value, StringComparer.Ordinal)
-            .ThenBy(schedule => schedule.Definition.Id.Value, StringComparer.Ordinal)
-            .Select(schedule => new SchedulerScheduleMaterialization(
-                SchedulerScheduleKey.From(
-                    schedule.OrganizationId,
-                    schedule.PositionId,
-                    schedule.Definition.Id),
-                schedule.Definition,
-                schedule.WorkingHours,
-                schedule.UpdatedAtUtc))
-            .ToImmutableArray();
+        var diff = SchedulerScheduleReconciliationDiff.Calculate(_state, command.Snapshot, loaded);
+        if (!diff.IsRegistryChanged)
+        {
+            replyTo.Tell(SchedulerReconciliationResult.Accepted(
+                _state.Materializations,
+                diff));
+            return;
+        }
+
+        var materializations = diff.ActiveMaterializations;
 
         _state = _state.WithMaterializations(
             command.Snapshot.Version,
             command.Snapshot.Fingerprint,
-            materializations);
+            materializations,
+            diff);
 
         foreach (var materialization in materializations)
         {
@@ -194,7 +193,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             await EvaluateMissedWindowAsync(materialization, nowUtc).ConfigureAwait(false);
         }
 
-        replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations));
+        replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations, diff));
     }
 
     private Task HandleAsync(DispatchSchedulerSchedule command)
@@ -587,11 +586,13 @@ internal sealed record SchedulerCoordinatorState
         long? registryVersion,
         string? registryFingerprint,
         ImmutableArray<SchedulerScheduleMaterialization> materializations,
+        SchedulerScheduleReconciliationDiff lastReconciliationDiff,
         ImmutableArray<SchedulerScheduleDispatch> pendingDispatches)
     {
         RegistryVersion = registryVersion;
         RegistryFingerprint = registryFingerprint;
         Materializations = materializations;
+        LastReconciliationDiff = lastReconciliationDiff;
         PendingDispatches = pendingDispatches;
     }
 
@@ -599,6 +600,7 @@ internal sealed record SchedulerCoordinatorState
         registryVersion: null,
         registryFingerprint: null,
         ImmutableArray<SchedulerScheduleMaterialization>.Empty,
+        SchedulerScheduleReconciliationDiff.Empty,
         ImmutableArray<SchedulerScheduleDispatch>.Empty);
 
     public long? RegistryVersion { get; }
@@ -607,16 +609,20 @@ internal sealed record SchedulerCoordinatorState
 
     public ImmutableArray<SchedulerScheduleMaterialization> Materializations { get; }
 
+    public SchedulerScheduleReconciliationDiff LastReconciliationDiff { get; }
+
     public ImmutableArray<SchedulerScheduleDispatch> PendingDispatches { get; }
 
     public SchedulerCoordinatorState WithMaterializations(
         long registryVersion,
         string registryFingerprint,
-        ImmutableArray<SchedulerScheduleMaterialization> materializations) =>
+        ImmutableArray<SchedulerScheduleMaterialization> materializations,
+        SchedulerScheduleReconciliationDiff diff) =>
         new(
             registryVersion,
             registryFingerprint ?? throw new ArgumentNullException(nameof(registryFingerprint)),
             materializations,
+            diff ?? throw new ArgumentNullException(nameof(diff)),
             ImmutableArray<SchedulerScheduleDispatch>.Empty);
 
     public SchedulerCoordinatorState WithPendingDispatch(SchedulerScheduleDispatch dispatch)
@@ -626,6 +632,7 @@ internal sealed record SchedulerCoordinatorState
             RegistryVersion,
             RegistryFingerprint,
             Materializations,
+            LastReconciliationDiff,
             PendingDispatches.Add(dispatch));
     }
 }
@@ -634,10 +641,12 @@ internal sealed record SchedulerReconciliationResult
 {
     private SchedulerReconciliationResult(
         ImmutableArray<SchedulerScheduleMaterialization> materializations,
-        ImmutableArray<RegistryScheduleLoadError> errors)
+        ImmutableArray<RegistryScheduleLoadError> errors,
+        SchedulerScheduleReconciliationDiff diff)
     {
         Materializations = materializations;
         Errors = errors;
+        Diff = diff;
     }
 
     public bool IsAccepted => Errors.IsEmpty;
@@ -646,13 +655,23 @@ internal sealed record SchedulerReconciliationResult
 
     public ImmutableArray<RegistryScheduleLoadError> Errors { get; }
 
+    public SchedulerScheduleReconciliationDiff Diff { get; }
+
     public static SchedulerReconciliationResult Accepted(
-        ImmutableArray<SchedulerScheduleMaterialization> materializations) =>
-        new(materializations, ImmutableArray<RegistryScheduleLoadError>.Empty);
+        ImmutableArray<SchedulerScheduleMaterialization> materializations,
+        SchedulerScheduleReconciliationDiff diff) =>
+        new(
+            materializations,
+            ImmutableArray<RegistryScheduleLoadError>.Empty,
+            diff ?? throw new ArgumentNullException(nameof(diff)));
 
     public static SchedulerReconciliationResult Rejected(
-        ImmutableArray<RegistryScheduleLoadError> errors) =>
-        new(ImmutableArray<SchedulerScheduleMaterialization>.Empty, errors);
+        ImmutableArray<RegistryScheduleLoadError> errors,
+        SchedulerScheduleReconciliationDiff diff) =>
+        new(
+            ImmutableArray<SchedulerScheduleMaterialization>.Empty,
+            errors,
+            diff ?? throw new ArgumentNullException(nameof(diff)));
 }
 
 internal sealed record SchedulerDispatchResult

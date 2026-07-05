@@ -569,6 +569,175 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_same_snapshot_reports_empty_diff_without_rescheduling()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-same-diff");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-reconcile-same-diff");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(first.Diff.IsRegistryChanged);
+            Assert.Equal(
+                new[] { SchedulerScheduleReconciliationOperationKind.Create },
+                first.Diff.Operations.Select(operation => operation.Kind));
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            Assert.False(second.Diff.IsRegistryChanged);
+            Assert.Empty(second.Diff.Operations);
+            Assert.Single(quartz.Jobs);
+            Assert.Single(quartz.ScheduleCalls);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_calculates_deterministic_diff_for_created_updated_paused_and_removed_schedules()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report"),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 0 11 ? * MON-FRI",
+                "Run beta report"),
+            new ScheduleEntryConfiguration(
+                "remove-report",
+                "0 0 12 ? * MON-FRI",
+                "Run removable report"),
+            new ScheduleEntryConfiguration(
+                "inactive-from-start",
+                "0 0 13 ? * MON-FRI",
+                "Keep inactive",
+                isActive: false)));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report",
+                isActive: false),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 30 11 ? * MON-FRI",
+                "Run changed beta report"),
+            new ScheduleEntryConfiguration(
+                "gamma-report",
+                "0 0 14 ? * MON-FRI",
+                "Run gamma report"),
+            new ScheduleEntryConfiguration(
+                "inactive-new",
+                "0 0 15 ? * MON-FRI",
+                "Still inactive",
+                isActive: false)));
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-diff");
+        try
+        {
+            var coordinator = system.ActorOf(
+                ProtocolOnlyCoordinatorProps(),
+                "scheduler-coordinator-reconcile-diff");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.Equal(
+                new[]
+                {
+                    "Create:acme-delivery/delivery-lead/alpha-report",
+                    "Create:acme-delivery/delivery-lead/beta-report",
+                    "Create:acme-delivery/delivery-lead/remove-report",
+                },
+                first.Diff.Operations.Select(DescribeOperation));
+
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            Assert.True(second.Diff.IsRegistryChanged);
+            Assert.Equal(initialSnapshot.Version, second.Diff.PreviousRegistryVersion);
+            Assert.Equal(initialSnapshot.Fingerprint, second.Diff.PreviousRegistryFingerprint);
+            Assert.Equal(updatedSnapshot.Version, second.Diff.NewRegistryVersion);
+            Assert.Equal(updatedSnapshot.Fingerprint, second.Diff.NewRegistryFingerprint);
+            Assert.Equal(
+                new[]
+                {
+                    "Pause:acme-delivery/delivery-lead/alpha-report",
+                    "Update:acme-delivery/delivery-lead/beta-report",
+                    "Create:acme-delivery/delivery-lead/gamma-report",
+                    "Remove:acme-delivery/delivery-lead/remove-report",
+                },
+                second.Diff.Operations.Select(DescribeOperation));
+
+            var betaUpdate = Assert.Single(second.Diff.Operations, operation =>
+                operation.Kind == SchedulerScheduleReconciliationOperationKind.Update);
+            Assert.Equal("0 0 11 ? * MON-FRI", betaUpdate.Current?.Definition.Cron.Value);
+            Assert.Equal("0 30 11 ? * MON-FRI", betaUpdate.Declared?.Definition.Cron.Value);
+            Assert.Equal("Run changed beta report", betaUpdate.Declared?.Definition.Payload);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Equal(
+                new[]
+                {
+                    "acme-delivery/delivery-lead/beta-report",
+                    "acme-delivery/delivery-lead/gamma-report",
+                },
+                state.Materializations.Select(materialization => materialization.Key.Value));
+            Assert.Equal(second.Diff, state.LastReconciliationDiff);
+
+            var paused = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    SchedulerScheduleKey.From(
+                        OrganizationId.From("acme-delivery"),
+                        PositionId.From("delivery-lead"),
+                        ScheduleId.From("alpha-report")),
+                    new DateTimeOffset(2026, 7, 3, 10, 0, 0, TimeSpan.Zero)),
+                AskTimeout);
+            var removed = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    SchedulerScheduleKey.From(
+                        OrganizationId.From("acme-delivery"),
+                        PositionId.From("delivery-lead"),
+                        ScheduleId.From("remove-report")),
+                    new DateTimeOffset(2026, 7, 3, 12, 0, 0, TimeSpan.Zero)),
+                AskTimeout);
+
+            Assert.False(paused.IsAccepted);
+            Assert.Equal("schedule-not-materialized", paused.Error?.Code);
+            Assert.False(removed.IsAccepted);
+            Assert.Equal("schedule-not-materialized", removed.Error?.Code);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_invalid_snapshot_does_not_schedule_new_quartz_jobs()
     {
         var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1502,6 +1671,9 @@ public sealed class SchedulerCoordinatorTests
 
     private static Pulse DispatchPulse(SchedulerScheduleDispatch dispatch) => dispatch.Pulse;
 
+    private static string DescribeOperation(SchedulerScheduleReconciliationOperation operation) =>
+        $"{operation.Kind}:{operation.Key.Value}";
+
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
@@ -1510,11 +1682,15 @@ public sealed class SchedulerCoordinatorTests
     private sealed class RecordingSchedulerQuartzAdapter : ISchedulerQuartzAdapter
     {
         private readonly Dictionary<SchedulerQuartzIdentity, SchedulerQuartzJob> _jobs = [];
+        private readonly List<SchedulerQuartzJob> _scheduleCalls = [];
 
         public IReadOnlyCollection<SchedulerQuartzJob> Jobs => _jobs.Values;
 
+        public IReadOnlyList<SchedulerQuartzJob> ScheduleCalls => _scheduleCalls;
+
         public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
         {
+            _scheduleCalls.Add(job);
             _jobs[job.Identity] = job;
         }
     }

@@ -962,6 +962,84 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_emits_lifecycle_materialized_events_for_created_and_updated_schedules()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 0 10 ? * MON-FRI",
+                "Run updated report")));
+        var lifecycleAudit = new RecordingSchedulerLifecycleAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-lifecycle-materialized");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(ImportAt),
+                    NoopSchedulerPulseDeliveryStore.Instance,
+                    NoopSchedulerPulseDispatcher.Instance,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    lifecycleAudit),
+                "scheduler-coordinator-lifecycle-materialized");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var repeated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var updated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(repeated.IsAccepted, string.Join(Environment.NewLine, repeated.Errors));
+            Assert.True(updated.IsAccepted, string.Join(Environment.NewLine, updated.Errors));
+
+            Assert.Equal(
+                new[]
+                {
+                    SchedulerLifecycleAuditStage.Materialized,
+                    SchedulerLifecycleAuditStage.Materialized,
+                },
+                lifecycleAudit.Records.Select(record => record.Stage));
+
+            var created = lifecycleAudit.Records[0];
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Accepted, created.Outcome);
+            Assert.Equal("acme-delivery", created.OrganizationId?.Value);
+            Assert.Equal("delivery-lead", created.PositionId?.Value);
+            Assert.Equal("daily-report", created.ScheduleId?.Value);
+            Assert.Equal(initialSnapshot.Version, created.RegistryVersion);
+            Assert.Equal(initialSnapshot.Fingerprint, created.RegistryFingerprint);
+            Assert.Equal(
+                "job--acme-delivery--delivery-lead--daily-report",
+                created.QuartzIdentity?.JobName);
+            Assert.Null(created.Window);
+            Assert.Null(created.IdempotencyKey);
+            Assert.Null(created.MessageId);
+            Assert.Null(created.ThreadId);
+            Assert.Null(created.Source);
+
+            var changed = lifecycleAudit.Records[1];
+            Assert.Equal(updatedSnapshot.Fingerprint, changed.RegistryFingerprint);
+            Assert.Equal(created.QuartzIdentity, changed.QuartzIdentity);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_audits_rejected_configuration_without_applying_quartz_or_delivery_mutations()
     {
         var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1834,6 +1912,359 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Dispatch_emits_lifecycle_fired_and_delivered_events_with_window_and_message_ids()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var lifecycleAudit = new RecordingSchedulerLifecycleAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-lifecycle-delivered");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    lifecycleAudit),
+                "scheduler-coordinator-lifecycle-delivered");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var countAfterReconcile = lifecycleAudit.Records.Count;
+            var unknown = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    SchedulerScheduleKey.From(
+                        OrganizationId.From("acme-delivery"),
+                        PositionId.From("delivery-lead"),
+                        ScheduleId.From("missing-report")),
+                    firedAtUtc),
+                AskTimeout);
+            Assert.False(unknown.IsAccepted);
+            Assert.Equal(countAfterReconcile, lifecycleAudit.Records.Count);
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var accepted = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.True(accepted.IsAccepted, accepted.Error?.ToString());
+            Assert.Equal(
+                new[]
+                {
+                    SchedulerLifecycleAuditStage.Materialized,
+                    SchedulerLifecycleAuditStage.Fired,
+                    SchedulerLifecycleAuditStage.Delivered,
+                },
+                lifecycleAudit.Records.Select(record => record.Stage));
+
+            var fired = lifecycleAudit.Records[1];
+            var delivered = lifecycleAudit.Records[2];
+            Assert.Equal(SchedulerLifecycleAuditSource.Direct, fired.Source);
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Accepted, fired.Outcome);
+            Assert.Equal(accepted.Dispatch!.Window, fired.Window);
+            Assert.Equal(accepted.Dispatch.IdempotencyKey, fired.IdempotencyKey);
+            Assert.Equal(accepted.Dispatch.Pulse.Id, fired.MessageId);
+            Assert.Equal(accepted.Dispatch.Pulse.Thread, fired.ThreadId);
+            Assert.Null(fired.Reason);
+
+            Assert.Equal(SchedulerLifecycleAuditSource.Direct, delivered.Source);
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Accepted, delivered.Outcome);
+            Assert.Equal(fired.IdempotencyKey, delivered.IdempotencyKey);
+            Assert.Equal(fired.MessageId, delivered.MessageId);
+            Assert.Equal(fired.ThreadId, delivered.ThreadId);
+            Assert.Null(delivered.Reason);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_emits_lifecycle_redelivered_when_the_delivery_store_reports_existing_key()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firstFire = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var repeatedFire = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var lifecycleAudit = new RecordingSchedulerLifecycleAuditSink();
+        var system = ActorSystem.Create("scheduler-coordinator-lifecycle-redelivery");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    lifecycleAudit),
+                "scheduler-coordinator-lifecycle-redelivery");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var first = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firstFire),
+                AskTimeout);
+            var repeated = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, repeatedFire),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, first.Error?.ToString());
+            Assert.True(repeated.IsAccepted, repeated.Error?.ToString());
+            Assert.Equal(first.Dispatch!.IdempotencyKey, repeated.Dispatch!.IdempotencyKey);
+            Assert.Equal(first.Dispatch.Pulse.Id, repeated.Dispatch.Pulse.Id);
+            Assert.Equal(first.Dispatch.Pulse.Thread, repeated.Dispatch.Pulse.Thread);
+            Assert.Equal(
+                new[]
+                {
+                    SchedulerLifecycleAuditStage.Materialized,
+                    SchedulerLifecycleAuditStage.Fired,
+                    SchedulerLifecycleAuditStage.Delivered,
+                    SchedulerLifecycleAuditStage.Redelivered,
+                    SchedulerLifecycleAuditStage.Delivered,
+                },
+                lifecycleAudit.Records.Select(record => record.Stage));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_emits_lifecycle_skipped_and_failed_events_with_structured_reasons()
+    {
+        var outsideHoursSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "end-of-day-report",
+                "0 0 18 ? * MON-FRI",
+                "Run end of day report")));
+        var failingSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var skippedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 0, 0, TimeSpan.Zero);
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+
+        var skippedStore = new RecordingSchedulerPulseDeliveryStore();
+        var skippedAudit = new RecordingSchedulerLifecycleAuditSink();
+        var skippedSystem = ActorSystem.Create("scheduler-coordinator-lifecycle-skipped");
+        try
+        {
+            var coordinator = skippedSystem.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    skippedStore,
+                    NoopSchedulerPulseDispatcher.Instance,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    skippedAudit),
+                "scheduler-coordinator-lifecycle-skipped");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(outsideHoursSnapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var skipped = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(Assert.Single(reconciliation.Materializations).Key, skippedAtUtc),
+                AskTimeout);
+
+            Assert.False(skipped.IsAccepted);
+            Assert.Equal(SchedulerLifecycleAuditStage.Skipped, skippedAudit.Records.Last().Stage);
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Skipped, skippedAudit.Records.Last().Outcome);
+            Assert.Equal("scheduler-outside-working-hours", skippedAudit.Records.Last().Reason?.Code);
+        }
+        finally
+        {
+            await skippedSystem.Terminate();
+        }
+
+        var budgetStore = new RecordingSchedulerPulseDeliveryStore();
+        var budgetAudit = new RecordingSchedulerLifecycleAuditSink();
+        var budgetSystem = ActorSystem.Create("scheduler-coordinator-lifecycle-budget-skipped");
+        try
+        {
+            var coordinator = budgetSystem.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    budgetStore,
+                    NoopSchedulerPulseDispatcher.Instance,
+                    new RecordingSchedulerProactiveBudgetPolicy(hasAvailableBudget: false),
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    budgetAudit),
+                "scheduler-coordinator-lifecycle-budget-skipped");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(failingSnapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var skipped = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(Assert.Single(reconciliation.Materializations).Key, firedAtUtc),
+                AskTimeout);
+
+            Assert.False(skipped.IsAccepted);
+            Assert.Equal(SchedulerLifecycleAuditStage.Skipped, budgetAudit.Records.Last().Stage);
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Skipped, budgetAudit.Records.Last().Outcome);
+            Assert.Equal("scheduler-proactive-budget-unavailable", budgetAudit.Records.Last().Reason?.Code);
+        }
+        finally
+        {
+            await budgetSystem.Terminate();
+        }
+
+        var failedStore = new RecordingSchedulerPulseDeliveryStore();
+        var failedAudit = new RecordingSchedulerLifecycleAuditSink();
+        var failedSystem = ActorSystem.Create("scheduler-coordinator-lifecycle-failed");
+        try
+        {
+            var coordinator = failedSystem.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    failedStore,
+                    new RecordingSchedulerPulseDispatcher(new InvalidOperationException("Shard failure.")),
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    failedAudit),
+                "scheduler-coordinator-lifecycle-failed");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(failingSnapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var failed = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(Assert.Single(reconciliation.Materializations).Key, firedAtUtc),
+                AskTimeout);
+
+            Assert.False(failed.IsAccepted);
+            Assert.Equal(SchedulerLifecycleAuditStage.Failed, failedAudit.Records.Last().Stage);
+            Assert.Equal(SchedulerLifecycleAuditOutcome.Failed, failedAudit.Records.Last().Outcome);
+            Assert.Equal("scheduler-pulse-delivery-failed", failedAudit.Records.Last().Reason?.Code);
+        }
+        finally
+        {
+            await failedSystem.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_emits_lifecycle_skipped_for_missed_window_and_catchup_before_normal_dispatch_events()
+    {
+        var nonCriticalSnapshot = await ImportedSnapshotAsync(
+            WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "daily-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run daily report")),
+            new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var criticalSnapshot = await ImportedSnapshotAsync(
+            WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "critical-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run critical report",
+                    isCritical: true,
+                    catchUp: "catch-up-once")),
+            new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var nowUtc = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+
+        var skippedAudit = new RecordingSchedulerLifecycleAuditSink();
+        var skippedSystem = ActorSystem.Create("scheduler-coordinator-lifecycle-missed-skip");
+        try
+        {
+            var coordinator = skippedSystem.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(nowUtc),
+                    new RecordingSchedulerPulseDeliveryStore(),
+                    NoopSchedulerPulseDispatcher.Instance,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    skippedAudit),
+                "scheduler-coordinator-lifecycle-missed-skip");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(nonCriticalSnapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(SchedulerLifecycleAuditStage.Skipped, skippedAudit.Records.Last().Stage);
+            Assert.Equal("scheduler-missed-window-skipped", skippedAudit.Records.Last().Reason?.Code);
+        }
+        finally
+        {
+            await skippedSystem.Terminate();
+        }
+
+        var catchUpAudit = new RecordingSchedulerLifecycleAuditSink();
+        var catchUpSystem = ActorSystem.Create("scheduler-coordinator-lifecycle-catchup");
+        try
+        {
+            var coordinator = catchUpSystem.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(nowUtc),
+                    new RecordingSchedulerPulseDeliveryStore(),
+                    new RecordingSchedulerPulseDispatcher(),
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    catchUpAudit),
+                "scheduler-coordinator-lifecycle-catchup");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(criticalSnapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            Assert.Equal(
+                new[]
+                {
+                    SchedulerLifecycleAuditStage.Materialized,
+                    SchedulerLifecycleAuditStage.CatchUp,
+                    SchedulerLifecycleAuditStage.Fired,
+                    SchedulerLifecycleAuditStage.Delivered,
+                },
+                catchUpAudit.Records.Select(record => record.Stage));
+            Assert.Equal(SchedulerLifecycleAuditSource.CatchUp, catchUpAudit.Records[1].Source);
+            Assert.Equal(catchUpAudit.Records[1].IdempotencyKey, catchUpAudit.Records[2].IdempotencyKey);
+        }
+        finally
+        {
+            await catchUpSystem.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Idempotent_quartz_actor_removes_existing_job_and_treats_missing_job_as_success()
     {
         var key = SchedulerScheduleKey.From(
@@ -2123,6 +2554,18 @@ public sealed class SchedulerCoordinatorTests
         }
     }
 
+    private sealed class RecordingSchedulerLifecycleAuditSink : ISchedulerLifecycleAuditSink
+    {
+        private readonly List<SchedulerLifecycleAuditRecord> _records = [];
+
+        public IReadOnlyList<SchedulerLifecycleAuditRecord> Records => _records;
+
+        public void Publish(SchedulerLifecycleAuditRecord record)
+        {
+            _records.Add(record);
+        }
+    }
+
     private sealed class RecordingSchedulerQuartzAdapter : ISchedulerQuartzAdapter
     {
         private readonly Dictionary<SchedulerQuartzIdentity, SchedulerQuartzJob> _jobs = [];
@@ -2169,12 +2612,17 @@ public sealed class SchedulerCoordinatorTests
             CancellationToken cancellationToken = default)
         {
             _fired.Add(delivery);
+            var existing = _states.GetValueOrDefault(delivery.IdempotencyKey);
+            var status = existing is null
+                ? SchedulerPulseDeliveryStatus.Fired
+                : SchedulerPulseDeliveryStatus.Redelivered;
+            var attemptCount = existing?.AttemptCount + 1 ?? 1;
             var state = new SchedulerPulseDeliveryState(
                 delivery.IdempotencyKey,
                 delivery.MessageId,
                 delivery.ThreadId,
-                SchedulerPulseDeliveryStatus.Fired,
-                attemptCount: 1,
+                status,
+                attemptCount,
                 delivery.OccurredAtUtc,
                 reason: null);
             _states[delivery.IdempotencyKey] = state;
@@ -2205,14 +2653,15 @@ public sealed class SchedulerCoordinatorTests
             SchedulerPulseDeliveryReason? reason = null,
             CancellationToken cancellationToken = default)
         {
-            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var fired = _fired.Last(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var attemptCount = _states.GetValueOrDefault(idempotencyKey)?.AttemptCount ?? 1;
             _delivered.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
             var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Delivered,
-                attemptCount: 1,
+                attemptCount,
                 occurredAtUtc,
                 reason);
             _states[idempotencyKey] = state;
@@ -2225,14 +2674,15 @@ public sealed class SchedulerCoordinatorTests
             SchedulerPulseDeliveryReason reason,
             CancellationToken cancellationToken = default)
         {
-            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var fired = _fired.Last(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var attemptCount = _states.GetValueOrDefault(idempotencyKey)?.AttemptCount ?? 1;
             _skipped.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
             var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Skipped,
-                attemptCount: 1,
+                attemptCount,
                 occurredAtUtc,
                 reason);
             _states[idempotencyKey] = state;
@@ -2245,14 +2695,15 @@ public sealed class SchedulerCoordinatorTests
             SchedulerPulseDeliveryReason reason,
             CancellationToken cancellationToken = default)
         {
-            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var fired = _fired.Last(delivery => delivery.IdempotencyKey == idempotencyKey);
+            var attemptCount = _states.GetValueOrDefault(idempotencyKey)?.AttemptCount ?? 1;
             _failed.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
             var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Failed,
-                attemptCount: 1,
+                attemptCount,
                 occurredAtUtc,
                 reason);
             _states[idempotencyKey] = state;

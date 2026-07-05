@@ -44,6 +44,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
     private readonly ISchedulerPulseDispatcher _pulseDispatcher;
     private readonly ISchedulerProactiveBudgetPolicy _proactiveBudgetPolicy;
     private readonly ISchedulerReconciliationAuditSink _reconciliationAudit;
+    private readonly ISchedulerLifecycleAuditSink _lifecycleAudit;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
@@ -111,6 +112,25 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         ISchedulerPulseDispatcher pulseDispatcher,
         ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy,
         ISchedulerReconciliationAuditSink reconciliationAudit)
+        : this(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            proactiveBudgetPolicy,
+            reconciliationAudit,
+            NoopSchedulerLifecycleAuditSink.Instance)
+    {
+    }
+
+    public SchedulerCoordinator(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy,
+        ISchedulerReconciliationAuditSink reconciliationAudit,
+        ISchedulerLifecycleAuditSink lifecycleAudit)
     {
         _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
@@ -118,6 +138,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         _pulseDispatcher = pulseDispatcher ?? throw new ArgumentNullException(nameof(pulseDispatcher));
         _proactiveBudgetPolicy = proactiveBudgetPolicy ?? throw new ArgumentNullException(nameof(proactiveBudgetPolicy));
         _reconciliationAudit = reconciliationAudit ?? throw new ArgumentNullException(nameof(reconciliationAudit));
+        _lifecycleAudit = lifecycleAudit ?? throw new ArgumentNullException(nameof(lifecycleAudit));
 
         ReceiveAsync<ReconcileSchedulerSchedules>(HandleAsync);
         ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
@@ -181,6 +202,23 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             proactiveBudgetPolicy,
             reconciliationAudit));
 
+    public static Props Props(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy,
+        ISchedulerReconciliationAuditSink reconciliationAudit,
+        ISchedulerLifecycleAuditSink lifecycleAudit) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            proactiveBudgetPolicy,
+            reconciliationAudit,
+            lifecycleAudit));
+
     private async Task HandleAsync(ReconcileSchedulerSchedules command)
     {
         var replyTo = Sender;
@@ -219,12 +257,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             materializations,
             diff);
 
+        var nowUtc = occurredAtUtc;
         foreach (var operation in diff.Operations)
         {
-            ApplyQuartzOperation(operation);
+            var scheduledJob = ApplyQuartzOperation(operation);
+            if (scheduledJob is not null && operation.Declared is not null)
+            {
+                _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Materialized(
+                    nowUtc,
+                    operation.Declared,
+                    scheduledJob.Identity,
+                    diff.NewRegistryVersion,
+                    diff.NewRegistryFingerprint));
+            }
         }
 
-        var nowUtc = occurredAtUtc;
         foreach (var materialization in materializations)
         {
             await EvaluateMissedWindowAsync(materialization, nowUtc).ConfigureAwait(false);
@@ -236,7 +283,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations, diff));
     }
 
-    private void ApplyQuartzOperation(SchedulerScheduleReconciliationOperation operation)
+    private SchedulerQuartzJob? ApplyQuartzOperation(SchedulerScheduleReconciliationOperation operation)
     {
         switch (operation.Kind)
         {
@@ -245,20 +292,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                 var materialization = operation.Declared
                     ?? throw new InvalidOperationException(
                         $"Scheduler reconciliation operation '{operation.Kind}' must include a declared materialization.");
+                var job = new SchedulerQuartzJob(
+                    materialization.Key,
+                    materialization.Definition.Cron,
+                    materialization.Definition.TimeZone);
                 _quartzAdapter.Schedule(
                     Context,
                     Self,
-                    new SchedulerQuartzJob(
-                        materialization.Key,
-                        materialization.Definition.Cron,
-                        materialization.Definition.TimeZone));
-                break;
+                    job);
+                return job;
             case SchedulerScheduleReconciliationOperationKind.Pause:
             case SchedulerScheduleReconciliationOperationKind.Remove:
                 _quartzAdapter.Unschedule(Context, operation.Key);
-                break;
+                return null;
             case SchedulerScheduleReconciliationOperationKind.Unchanged:
-                break;
+                return null;
             default:
                 throw new InvalidOperationException(
                     $"Unsupported scheduler reconciliation operation '{operation.Kind}'.");
@@ -267,18 +315,27 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
     private Task HandleAsync(DispatchSchedulerSchedule command)
     {
-        return DispatchAsync(command.Key, command.FiredAtUtc, Sender);
+        return DispatchAsync(
+            command.Key,
+            command.FiredAtUtc,
+            Sender,
+            SchedulerLifecycleAuditSource.Direct);
     }
 
     private Task HandleAsync(SchedulerQuartzScheduleFired command)
     {
-        return DispatchAsync(command.Key, _clock.GetUtcNow(), Sender);
+        return DispatchAsync(
+            command.Key,
+            _clock.GetUtcNow(),
+            Sender,
+            SchedulerLifecycleAuditSource.Quartz);
     }
 
     private async Task DispatchAsync(
         SchedulerScheduleKey key,
         DateTimeOffset firedAtUtc,
-        IActorRef replyTo)
+        IActorRef replyTo,
+        SchedulerLifecycleAuditSource source)
     {
         var materialization = _state.Materializations.FirstOrDefault(materialization => materialization.Key == key);
         if (materialization is null)
@@ -310,13 +367,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             calculatedWindow.Window,
             calculatedWindow.IdempotencyKey,
             pulse);
-        await _deliveryStore.RecordFiredAsync(
+        var firedState = await _deliveryStore.RecordFiredAsync(
                 new SchedulerPulseDeliveryRecord(
                     dispatch.IdempotencyKey,
                     dispatch.Pulse.Id,
                     dispatch.Pulse.Thread,
                     dispatch.FiredAtUtc))
             .ConfigureAwait(false);
+        _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Dispatch(
+            dispatch.FiredAtUtc,
+            firedState.Status == SchedulerPulseDeliveryStatus.Redelivered
+                ? SchedulerLifecycleAuditStage.Redelivered
+                : SchedulerLifecycleAuditStage.Fired,
+            SchedulerLifecycleAuditOutcome.Accepted,
+            dispatch,
+            source));
 
         var workingHoursDecision = SchedulerDispatchPolicy.Evaluate(
             materialization,
@@ -324,7 +389,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             hasAvailableProactiveBudget: true);
         if (!workingHoursDecision.IsAllowed)
         {
-            await SkipDispatchAsync(dispatch, workingHoursDecision.Reason!, replyTo).ConfigureAwait(false);
+            await SkipDispatchAsync(dispatch, workingHoursDecision.Reason!, replyTo, source).ConfigureAwait(false);
             return;
         }
 
@@ -337,7 +402,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             hasAvailableProactiveBudget);
         if (!budgetDecision.IsAllowed)
         {
-            await SkipDispatchAsync(dispatch, budgetDecision.Reason!, replyTo).ConfigureAwait(false);
+            await SkipDispatchAsync(dispatch, budgetDecision.Reason!, replyTo, source).ConfigureAwait(false);
             return;
         }
 
@@ -355,6 +420,13 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                     dispatch.FiredAtUtc,
                     reason)
                 .ConfigureAwait(false);
+            _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Dispatch(
+                dispatch.FiredAtUtc,
+                SchedulerLifecycleAuditStage.Failed,
+                SchedulerLifecycleAuditOutcome.Failed,
+                dispatch,
+                source,
+                reason));
             replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
                 reason.Code,
                 reason.Message)));
@@ -365,6 +437,12 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                 dispatch.IdempotencyKey,
                 dispatch.FiredAtUtc)
             .ConfigureAwait(false);
+        _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Dispatch(
+            dispatch.FiredAtUtc,
+            SchedulerLifecycleAuditStage.Delivered,
+            SchedulerLifecycleAuditOutcome.Accepted,
+            dispatch,
+            source));
         _state = _state.WithPendingDispatch(dispatch);
         replyTo.Tell(SchedulerDispatchResult.Accepted(dispatch));
     }
@@ -372,13 +450,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
     private async Task SkipDispatchAsync(
         SchedulerScheduleDispatch dispatch,
         SchedulerPulseDeliveryReason reason,
-        IActorRef replyTo)
+        IActorRef replyTo,
+        SchedulerLifecycleAuditSource source)
     {
         await _deliveryStore.MarkSkippedAsync(
                 dispatch.IdempotencyKey,
                 dispatch.FiredAtUtc,
                 reason)
             .ConfigureAwait(false);
+        _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Dispatch(
+            dispatch.FiredAtUtc,
+            SchedulerLifecycleAuditStage.Skipped,
+            SchedulerLifecycleAuditOutcome.Skipped,
+            dispatch,
+            source,
+            reason));
         replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
             reason.Code,
             reason.Message)));
@@ -412,7 +498,23 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
         if (decision.Action == SchedulerMissedWindowAction.CatchUp)
         {
-            await DispatchAsync(materialization.Key, nowUtc, ActorRefs.Nobody).ConfigureAwait(false);
+            var catchUpDelivery = SchedulerPulseFactory.BuildDeliveryRecord(
+                materialization,
+                nowUtc,
+                decision.DispatchWindow.IdempotencyKey);
+            _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Delivery(
+                nowUtc,
+                SchedulerLifecycleAuditStage.CatchUp,
+                SchedulerLifecycleAuditOutcome.Accepted,
+                materialization.Key,
+                catchUpDelivery,
+                SchedulerLifecycleAuditSource.CatchUp));
+            await DispatchAsync(
+                    materialization.Key,
+                    nowUtc,
+                    ActorRefs.Nobody,
+                    SchedulerLifecycleAuditSource.CatchUp)
+                .ConfigureAwait(false);
             return;
         }
 
@@ -422,6 +524,14 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             decision.DispatchWindow.IdempotencyKey);
 
         await _deliveryStore.RecordSkippedAsync(delivery, decision.Reason!).ConfigureAwait(false);
+        _lifecycleAudit.Publish(SchedulerLifecycleAuditRecord.Delivery(
+            nowUtc,
+            SchedulerLifecycleAuditStage.Skipped,
+            SchedulerLifecycleAuditOutcome.Skipped,
+            materialization.Key,
+            delivery,
+            SchedulerLifecycleAuditSource.CatchUp,
+            decision.Reason));
     }
 }
 

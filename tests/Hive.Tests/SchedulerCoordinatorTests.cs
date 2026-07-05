@@ -1,9 +1,16 @@
+using System.Collections.Specialized;
 using Akka.Actor;
+using Akka.Quartz.Actor.Commands;
+using Akka.Quartz.Actor.Events;
 using Hive.Actors.Scheduling;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
+using Quartz;
+using Quartz.Impl;
+using Quartz.Impl.Matchers;
+using DomainCronExpression = Hive.Domain.Scheduling.CronExpression;
 
 namespace Hive.Tests;
 
@@ -25,6 +32,40 @@ public sealed class SchedulerCoordinatorTests
             ScheduleId.From("daily-report"));
 
         Assert.Equal("acme-delivery/delivery-lead/daily-report", key.Value);
+    }
+
+    [Fact]
+    public void Quartz_identity_is_derived_deterministically_from_schedule_key()
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"),
+            ScheduleId.From("daily-report"));
+
+        var identity = SchedulerQuartzIdentity.From(key);
+
+        Assert.Equal("hive-scheduler-jobs", identity.JobGroup);
+        Assert.Equal("job--acme-delivery--delivery-lead--daily-report", identity.JobName);
+        Assert.Equal("hive-scheduler-triggers", identity.TriggerGroup);
+        Assert.Equal("trigger--acme-delivery--delivery-lead--daily-report", identity.TriggerName);
+    }
+
+    [Fact]
+    public void Quartz_identity_sanitizes_non_token_characters_deterministically()
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("Acme Org"),
+            PositionId.From("delivery_lead"),
+            ScheduleId.From("daily:report"));
+
+        var identity = SchedulerQuartzIdentity.From(key);
+
+        Assert.Equal(
+            "job--Acme_u0020_Org--delivery_u005f_lead--daily_u003a_report",
+            identity.JobName);
+        Assert.Equal(
+            "trigger--Acme_u0020_Org--delivery_u005f_lead--daily_u003a_report",
+            identity.TriggerName);
     }
 
     [Fact]
@@ -132,6 +173,90 @@ public sealed class SchedulerCoordinatorTests
                 },
                 quartz.Jobs.Select(job => job.Cron.Value));
             Assert.All(quartz.Jobs, job => Assert.Equal("Europe/Lisbon", job.TimeZone));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_same_snapshot_keeps_single_logical_quartz_job_per_identity()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-quartz-idempotent");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-quartz-idempotent");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            var job = Assert.Single(quartz.Jobs);
+            Assert.Equal(
+                "job--acme-delivery--delivery-lead--daily-report",
+                job.Identity.JobName);
+            Assert.Equal(
+                "trigger--acme-delivery--delivery-lead--daily-report",
+                job.Identity.TriggerName);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_changed_schedule_preserves_quartz_identity_and_updates_definition()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 0 18 ? * MON-FRI",
+                "Run daily report")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-quartz-update");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-quartz-update");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            var job = Assert.Single(quartz.Jobs);
+            Assert.Equal(
+                "job--acme-delivery--delivery-lead--daily-report",
+                job.Identity.JobName);
+            Assert.Equal("0 0 18 ? * MON-FRI", job.Cron.Value);
         }
         finally
         {
@@ -398,6 +523,83 @@ public sealed class SchedulerCoordinatorTests
         }
     }
 
+    [Fact]
+    public void Quartz_adapter_builds_trigger_with_deterministic_keys()
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"),
+            ScheduleId.From("daily-report"));
+        var job = new SchedulerQuartzJob(
+            key,
+            DomainCronExpression.From("0 55 17 ? * MON-FRI"),
+            "Europe/Lisbon");
+
+        var trigger = AkkaQuartzSchedulerAdapter.BuildTrigger(job);
+
+        Assert.Equal(
+            new TriggerKey("trigger--acme-delivery--delivery-lead--daily-report", "hive-scheduler-triggers"),
+            trigger.Key);
+        Assert.Equal(
+            new JobKey("job--acme-delivery--delivery-lead--daily-report", "hive-scheduler-jobs"),
+            trigger.JobKey);
+        var cronTrigger = Assert.IsAssignableFrom<ICronTrigger>(trigger);
+        Assert.Equal("0 55 17 ? * MON-FRI", cronTrigger.CronExpressionString);
+        Assert.Equal(TimeZoneInfo.FindSystemTimeZoneById("Europe/Lisbon"), cronTrigger.TimeZone);
+    }
+
+    [Fact]
+    public async Task Idempotent_quartz_actor_replaces_existing_job_with_same_keys()
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"),
+            ScheduleId.From("daily-report"));
+        var initialJob = new SchedulerQuartzJob(
+            key,
+            DomainCronExpression.From("0 55 17 ? * MON-FRI"),
+            "Europe/Lisbon");
+        var updatedJob = new SchedulerQuartzJob(
+            key,
+            DomainCronExpression.From("0 0 18 ? * MON-FRI"),
+            "Europe/Lisbon");
+        var scheduler = await NewInMemoryQuartzSchedulerAsync();
+        var system = ActorSystem.Create("scheduler-coordinator-idempotent-quartz-actor");
+        try
+        {
+            var quartzActor = system.ActorOf(
+                Props.Create(() => new HiveQuartzActor(scheduler)),
+                "idempotent-quartz");
+
+            var first = await quartzActor.Ask<JobCreated>(
+                new CreateJob(
+                    ActorRefs.Nobody,
+                    new SchedulerQuartzScheduleFired(initialJob.Key),
+                    AkkaQuartzSchedulerAdapter.BuildTrigger(initialJob)),
+                AskTimeout);
+            var second = await quartzActor.Ask<JobCreated>(
+                new CreateJob(
+                    ActorRefs.Nobody,
+                    new SchedulerQuartzScheduleFired(updatedJob.Key),
+                    AkkaQuartzSchedulerAdapter.BuildTrigger(updatedJob)),
+                AskTimeout);
+
+            Assert.Equal(initialJob.Identity.JobName, first.JobKey.Name);
+            Assert.Equal(updatedJob.Identity.JobName, second.JobKey.Name);
+            var jobKeys = await scheduler.GetJobKeys(
+                GroupMatcher<JobKey>.GroupEquals(SchedulerQuartzIdentity.JobGroupName));
+            var jobKey = Assert.Single(jobKeys);
+            var triggers = await scheduler.GetTriggersOfJob(jobKey);
+            var trigger = Assert.IsAssignableFrom<ICronTrigger>(Assert.Single(triggers));
+            Assert.Equal("0 0 18 ? * MON-FRI", trigger.CronExpressionString);
+        }
+        finally
+        {
+            await scheduler.Shutdown(waitForJobsToComplete: false);
+            await system.Terminate();
+        }
+    }
+
     private static OrganizationConfiguration WithDeliveryLeadSchedules(
         OrganizationConfiguration configuration,
         params ScheduleEntryConfiguration[] schedules) =>
@@ -466,6 +668,18 @@ public sealed class SchedulerCoordinatorTests
         }
     }
 
+    private static async Task<Quartz.IScheduler> NewInMemoryQuartzSchedulerAsync()
+    {
+        var properties = new NameValueCollection
+        {
+            ["quartz.scheduler.instanceName"] = Guid.NewGuid().ToString("N"),
+            ["quartz.threadPool.threadCount"] = "1",
+        };
+        var scheduler = await new StdSchedulerFactory(properties).GetScheduler();
+        await scheduler.Start();
+        return scheduler;
+    }
+
     private static Props ProtocolOnlyCoordinatorProps() =>
         SchedulerCoordinator.Props(NoopSchedulerQuartzAdapter.Instance, TimeProvider.System);
 
@@ -476,11 +690,13 @@ public sealed class SchedulerCoordinatorTests
 
     private sealed class RecordingSchedulerQuartzAdapter : ISchedulerQuartzAdapter
     {
-        public List<SchedulerQuartzJob> Jobs { get; } = [];
+        private readonly Dictionary<SchedulerQuartzIdentity, SchedulerQuartzJob> _jobs = [];
+
+        public IReadOnlyCollection<SchedulerQuartzJob> Jobs => _jobs.Values;
 
         public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
         {
-            Jobs.Add(job);
+            _jobs[job.Identity] = job;
         }
     }
 }

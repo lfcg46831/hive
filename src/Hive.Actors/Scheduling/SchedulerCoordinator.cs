@@ -1,7 +1,10 @@
 using System.Collections.Immutable;
+using System.Text;
 using Akka.Actor;
+using Akka.Dispatch;
 using Akka.Quartz.Actor;
 using Akka.Quartz.Actor.Commands;
+using Akka.Quartz.Actor.Events;
 using Hive.Domain.Identity;
 using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Organization.Registry;
@@ -223,6 +226,75 @@ internal sealed record SchedulerScheduleKey
     public override string ToString() => Value;
 }
 
+internal sealed record SchedulerQuartzIdentity
+{
+    public const string JobGroupName = "hive-scheduler-jobs";
+    public const string TriggerGroupName = "hive-scheduler-triggers";
+
+    private SchedulerQuartzIdentity(
+        string jobGroup,
+        string jobName,
+        string triggerGroup,
+        string triggerName)
+    {
+        JobGroup = jobGroup;
+        JobName = jobName;
+        TriggerGroup = triggerGroup;
+        TriggerName = triggerName;
+    }
+
+    public string JobGroup { get; }
+
+    public string JobName { get; }
+
+    public string TriggerGroup { get; }
+
+    public string TriggerName { get; }
+
+    public static SchedulerQuartzIdentity From(SchedulerScheduleKey key)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        var organization = SanitizeSegment(key.Organization.Value);
+        var position = SanitizeSegment(key.Position.Value);
+        var schedule = SanitizeSegment(key.Schedule.Value);
+        var suffix = $"{organization}--{position}--{schedule}";
+
+        return new SchedulerQuartzIdentity(
+            JobGroupName,
+            $"job--{suffix}",
+            TriggerGroupName,
+            $"trigger--{suffix}");
+    }
+
+    private static string SanitizeSegment(string value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+
+        var builder = new StringBuilder(value.Length);
+        foreach (var character in value)
+        {
+            if (IsQuartzTokenCharacter(character))
+            {
+                builder.Append(character);
+                continue;
+            }
+
+            builder.Append("_u");
+            builder.Append(((int)character).ToString("x4"));
+            builder.Append('_');
+        }
+
+        return builder.ToString();
+    }
+
+    private static bool IsQuartzTokenCharacter(char character) =>
+        character is >= 'a' and <= 'z'
+        || character is >= 'A' and <= 'Z'
+        || character is >= '0' and <= '9'
+        || character is '-' or '.';
+}
+
 internal sealed record SchedulerScheduleMaterialization
 {
     public SchedulerScheduleMaterialization(
@@ -377,11 +449,14 @@ internal sealed record SchedulerQuartzJob
         string timeZone)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
+        Identity = SchedulerQuartzIdentity.From(key);
         Cron = cron ?? throw new ArgumentNullException(nameof(cron));
         TimeZone = RequireToken(timeZone, nameof(timeZone));
     }
 
     public SchedulerScheduleKey Key { get; }
+
+    public SchedulerQuartzIdentity Identity { get; }
 
     public DomainCronExpression Cron { get; }
 
@@ -427,12 +502,7 @@ internal sealed class AkkaQuartzSchedulerAdapter : ISchedulerQuartzAdapter
         ArgumentNullException.ThrowIfNull(job);
 
         var quartzActor = GetOrCreateQuartzActor(context);
-        var trigger = TriggerBuilder
-            .Create()
-            .WithCronSchedule(
-                job.Cron.Value,
-                schedule => schedule.InTimeZone(TimeZoneInfo.FindSystemTimeZoneById(job.TimeZone)))
-            .Build();
+        var trigger = BuildTrigger(job);
 
         quartzActor.Tell(new CreateJob(
             receiver,
@@ -440,13 +510,78 @@ internal sealed class AkkaQuartzSchedulerAdapter : ISchedulerQuartzAdapter
             trigger));
     }
 
+    internal static ITrigger BuildTrigger(SchedulerQuartzJob job)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+
+        return TriggerBuilder
+            .Create()
+            .WithIdentity(job.Identity.TriggerName, job.Identity.TriggerGroup)
+            .ForJob(job.Identity.JobName, job.Identity.JobGroup)
+            .WithCronSchedule(
+                job.Cron.Value,
+                schedule => schedule.InTimeZone(TimeZoneInfo.FindSystemTimeZoneById(job.TimeZone)))
+            .Build();
+    }
+
     private static IActorRef GetOrCreateQuartzActor(IActorContext context)
     {
         var child = context.Child(SchedulerCoordinatorIdentity.QuartzActorName);
         return child.Equals(ActorRefs.Nobody)
             ? context.ActorOf(
-                Akka.Actor.Props.Create(() => new QuartzActor()),
+                Akka.Actor.Props.Create(() => new HiveQuartzActor()),
                 SchedulerCoordinatorIdentity.QuartzActorName)
             : child;
+    }
+}
+
+internal sealed class HiveQuartzActor : QuartzActor
+{
+    public HiveQuartzActor()
+    {
+    }
+
+    public HiveQuartzActor(Quartz.IScheduler scheduler)
+        : base(scheduler)
+    {
+    }
+
+    protected override void CreateJobCommand(CreateJob createJob)
+    {
+        var sender = Context.Sender;
+        ActorTaskScheduler.RunTask(async () =>
+        {
+            if (createJob.To is null)
+            {
+                sender.Tell(new CreateJobFail(null!, null!, new ArgumentNullException(nameof(createJob.To))));
+                return;
+            }
+
+            if (createJob.Trigger is null)
+            {
+                sender.Tell(new CreateJobFail(null!, null!, new ArgumentNullException(nameof(createJob.Trigger))));
+                return;
+            }
+
+            try
+            {
+                var jobDetail = QuartzJob
+                    .CreateBuilderWithData(createJob.To, createJob.Message)
+                    .WithIdentity(createJob.Trigger.JobKey)
+                    .Build();
+
+                await Scheduler.ScheduleJob(
+                    jobDetail,
+                    new[] { createJob.Trigger },
+                    replace: true,
+                    CancellationToken.None);
+
+                sender.Tell(new JobCreated(createJob.Trigger.JobKey, createJob.Trigger.Key));
+            }
+            catch (Exception reason)
+            {
+                sender.Tell(new CreateJobFail(createJob.Trigger.JobKey, createJob.Trigger.Key, reason));
+            }
+        });
     }
 }

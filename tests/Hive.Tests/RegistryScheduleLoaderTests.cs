@@ -95,7 +95,30 @@ public sealed class RegistryScheduleLoaderTests
     }
 
     [Theory]
+    [InlineData("0 0 9 ? JAN MON")]
+    [InlineData("0 0/15 9-17 ? * MON-FRI")]
+    [InlineData("0 0 9 1 * ?")]
+    [InlineData("0 30 8 ? * MON-FRI 2026")]
+    public async Task Loader_accepts_valid_quartz_cron_variants(string cron)
+    {
+        var configuration = WithDeliveryLeadSchedule(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "valid-cron",
+                cron,
+                "Run a valid schedule"));
+        var snapshot = await ImportedSnapshotAsync(configuration);
+
+        var result = RegistryScheduleLoader.Load(snapshot);
+
+        Assert.True(result.IsValid, string.Join(Environment.NewLine, result.Errors.Select(error => error.ToString())));
+        var loaded = Assert.Single(result.Schedules);
+        Assert.Equal(cron, loaded.Definition.Cron.Value);
+    }
+
+    [Theory]
     [InlineData("0 0 9 * * MON-FRI")]
+    [InlineData("0 0 9 ? * ?")]
     [InlineData("0,,5 0 9 * * MON-FRI")]
     [InlineData("0 0 9 ?/5 * MON-FRI")]
     public async Task Loader_rejects_malformed_cron_fields(string cron)

@@ -343,6 +343,7 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
     {
         private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
         private readonly List<PulseIdempotencyKey> _delivered = [];
+        private readonly Dictionary<PulseIdempotencyKey, SchedulerPulseDeliveryState> _states = [];
 
         public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
 
@@ -353,14 +354,33 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
             CancellationToken cancellationToken = default)
         {
             _fired.Add(delivery);
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 delivery.IdempotencyKey,
                 delivery.MessageId,
                 delivery.ThreadId,
                 SchedulerPulseDeliveryStatus.Fired,
                 attemptCount: 1,
                 delivery.OccurredAtUtc,
-                reason: null));
+                reason: null);
+            _states[delivery.IdempotencyKey] = state;
+            return Task.FromResult(state);
+        }
+
+        public Task<SchedulerPulseDeliveryState> RecordSkippedAsync(
+            SchedulerPulseDeliveryRecord delivery,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default)
+        {
+            var state = new SchedulerPulseDeliveryState(
+                delivery.IdempotencyKey,
+                delivery.MessageId,
+                delivery.ThreadId,
+                SchedulerPulseDeliveryStatus.Skipped,
+                attemptCount: 1,
+                delivery.OccurredAtUtc,
+                reason);
+            _states[delivery.IdempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
@@ -371,14 +391,16 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         {
             var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
             _delivered.Add(idempotencyKey);
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Delivered,
                 attemptCount: 1,
                 occurredAtUtc,
-                reason));
+                reason);
+            _states[idempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
@@ -398,7 +420,7 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         public Task<SchedulerPulseDeliveryState?> FindAsync(
             PulseIdempotencyKey idempotencyKey,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(_states.GetValueOrDefault(idempotencyKey));
 
         public Task<IReadOnlyList<SchedulerPulseDeliveryHistoryEntry>> ReadHistoryAsync(
             PulseIdempotencyKey idempotencyKey,

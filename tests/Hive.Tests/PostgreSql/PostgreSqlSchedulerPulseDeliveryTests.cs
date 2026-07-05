@@ -92,6 +92,40 @@ public sealed class PostgreSqlSchedulerPulseDeliveryTests(PostgreSqlFixture fixt
     }
 
     [Fact]
+    public async Task Store_records_skipped_dispatch_without_fired_transition()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await ResetSchedulerAsync(dataSource);
+        await new PostgreSqlSchedulerPulseDeliveryMigrator(dataSource).MigrateAsync();
+        var store = new PostgreSqlSchedulerPulseDeliveryStore(dataSource);
+        var delivery = DeliveryRecord();
+        var reason = new SchedulerPulseDeliveryReason(
+            "scheduler-missed-window-skipped",
+            "The scheduler skipped a missed window.");
+
+        var skipped = await store.RecordSkippedAsync(delivery, reason);
+        var repeated = await store.RecordSkippedAsync(delivery, reason);
+
+        Assert.Equal(SchedulerPulseDeliveryStatus.Skipped, skipped.Status);
+        Assert.Equal(1, skipped.AttemptCount);
+        Assert.Equal("scheduler-missed-window-skipped", skipped.Reason?.Code);
+        Assert.Equal(skipped, repeated);
+
+        var reloaded = await store.FindAsync(delivery.IdempotencyKey);
+        Assert.NotNull(reloaded);
+        Assert.Equal(SchedulerPulseDeliveryStatus.Skipped, reloaded.Status);
+
+        var history = await store.ReadHistoryAsync(delivery.IdempotencyKey);
+        Assert.Equal(
+            [
+                SchedulerPulseDeliveryStatus.Registered,
+                SchedulerPulseDeliveryStatus.Skipped,
+            ],
+            history.Select(entry => entry.Status));
+        Assert.Equal([1, 2], history.Select(entry => entry.Sequence));
+    }
+
+    [Fact]
     public async Task Store_marks_terminal_states_with_structured_reasons()
     {
         await using var dataSource = fixture.CreateDataSource();

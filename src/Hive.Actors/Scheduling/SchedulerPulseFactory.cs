@@ -3,6 +3,7 @@ using System.Text;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Scheduling;
+using Hive.Infrastructure.Scheduling;
 
 namespace Hive.Actors.Scheduling;
 
@@ -17,14 +18,35 @@ internal static class SchedulerPulseFactory
         DateTimeOffset firedAtUtc,
         PulseIdempotencyKey idempotencyKey)
     {
+        var delivery = BuildDeliveryRecord(materialization, firedAtUtc, idempotencyKey);
+
+        return new Pulse(
+            delivery.MessageId,
+            materialization.Key.Organization,
+            new SystemEndpointRef(SystemEndpointKind.Scheduler),
+            new PositionEndpointRef(materialization.Key.Position),
+            delivery.ThreadId,
+            materialization.Definition.Priority,
+            PulseSchemaVersion,
+            firedAtUtc,
+            deadline: null,
+            materialization.Definition.Id.Value,
+            materialization.Definition.Payload);
+    }
+
+    public static SchedulerPulseDeliveryRecord BuildDeliveryRecord(
+        SchedulerScheduleMaterialization materialization,
+        DateTimeOffset occurredAtUtc,
+        PulseIdempotencyKey idempotencyKey)
+    {
         ArgumentNullException.ThrowIfNull(materialization);
         ArgumentNullException.ThrowIfNull(idempotencyKey);
 
-        if (firedAtUtc.Offset != TimeSpan.Zero)
+        if (occurredAtUtc.Offset != TimeSpan.Zero)
         {
             throw new ArgumentException(
                 "Scheduler pulse timestamps must be expressed as UTC offsets.",
-                nameof(firedAtUtc));
+                nameof(occurredAtUtc));
         }
 
         if (materialization.Key.Organization != idempotencyKey.Organization
@@ -36,18 +58,11 @@ internal static class SchedulerPulseFactory
                 nameof(idempotencyKey));
         }
 
-        return new Pulse(
+        return new SchedulerPulseDeliveryRecord(
+            idempotencyKey,
             MessageId.From(DeterministicGuid(MessageNamespace, idempotencyKey.Value)),
-            materialization.Key.Organization,
-            new SystemEndpointRef(SystemEndpointKind.Scheduler),
-            new PositionEndpointRef(materialization.Key.Position),
             ThreadId.From(DeterministicGuid(ThreadNamespace, idempotencyKey.Value)),
-            materialization.Definition.Priority,
-            PulseSchemaVersion,
-            firedAtUtc,
-            deadline: null,
-            materialization.Definition.Id.Value,
-            materialization.Definition.Payload);
+            occurredAtUtc);
     }
 
     private static Guid DeterministicGuid(string namespaceName, string value)

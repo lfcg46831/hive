@@ -132,6 +132,80 @@ public sealed class PostgreSqlSchedulerPulseDeliveryStore : ISchedulerPulseDeliv
         return updated!;
     }
 
+    public async Task<SchedulerPulseDeliveryState> RecordSkippedAsync(
+        SchedulerPulseDeliveryRecord delivery,
+        SchedulerPulseDeliveryReason reason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        ArgumentNullException.ThrowIfNull(reason);
+
+        await using var connection = await _dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+
+        var current = await FindAsync(
+            connection,
+            transaction,
+            delivery.IdempotencyKey,
+            cancellationToken)
+            .ConfigureAwait(false);
+
+        if (current is not null)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return current;
+        }
+
+        await InsertCurrentAsync(
+            connection,
+            transaction,
+            delivery,
+            SchedulerPulseDeliveryStatus.Registered,
+            attemptCount: 1,
+            reason: null,
+            cancellationToken)
+            .ConfigureAwait(false);
+        await AppendHistoryAsync(
+            connection,
+            transaction,
+            delivery.IdempotencyKey,
+            sequence: 1,
+            SchedulerPulseDeliveryStatus.Registered,
+            delivery.OccurredAtUtc,
+            reason: null,
+            cancellationToken)
+            .ConfigureAwait(false);
+        await UpdateCurrentAsync(
+            connection,
+            transaction,
+            delivery.IdempotencyKey,
+            SchedulerPulseDeliveryStatus.Skipped,
+            attemptCount: 1,
+            delivery.OccurredAtUtc,
+            reason,
+            cancellationToken)
+            .ConfigureAwait(false);
+        await AppendHistoryAsync(
+            connection,
+            transaction,
+            delivery.IdempotencyKey,
+            sequence: 2,
+            SchedulerPulseDeliveryStatus.Skipped,
+            delivery.OccurredAtUtc,
+            reason,
+            cancellationToken)
+            .ConfigureAwait(false);
+
+        var updated = await FindAsync(
+            connection,
+            transaction,
+            delivery.IdempotencyKey,
+            cancellationToken)
+            .ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return updated!;
+    }
+
     public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
         PulseIdempotencyKey idempotencyKey,
         DateTimeOffset occurredAtUtc,

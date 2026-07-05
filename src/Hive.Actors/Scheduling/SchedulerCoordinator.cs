@@ -100,7 +100,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         _pulseDispatcher = pulseDispatcher ?? throw new ArgumentNullException(nameof(pulseDispatcher));
         _proactiveBudgetPolicy = proactiveBudgetPolicy ?? throw new ArgumentNullException(nameof(proactiveBudgetPolicy));
 
-        Receive<ReconcileSchedulerSchedules>(Handle);
+        ReceiveAsync<ReconcileSchedulerSchedules>(HandleAsync);
         ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
         ReceiveAsync<SchedulerQuartzScheduleFired>(HandleAsync);
         Receive<GetSchedulerCoordinatorState>(_ => Sender.Tell(_state));
@@ -147,12 +147,13 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             pulseDispatcher,
             proactiveBudgetPolicy));
 
-    private void Handle(ReconcileSchedulerSchedules command)
+    private async Task HandleAsync(ReconcileSchedulerSchedules command)
     {
+        var replyTo = Sender;
         var loaded = RegistryScheduleLoader.Load(command.Snapshot);
         if (!loaded.IsValid)
         {
-            Sender.Tell(SchedulerReconciliationResult.Rejected(loaded.Errors));
+            replyTo.Tell(SchedulerReconciliationResult.Rejected(loaded.Errors));
             return;
         }
 
@@ -167,7 +168,8 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                     schedule.PositionId,
                     schedule.Definition.Id),
                 schedule.Definition,
-                schedule.WorkingHours))
+                schedule.WorkingHours,
+                schedule.UpdatedAtUtc))
             .ToImmutableArray();
 
         _state = _state.WithMaterializations(
@@ -186,7 +188,13 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                     materialization.Definition.TimeZone));
         }
 
-        Sender.Tell(SchedulerReconciliationResult.Accepted(materializations));
+        var nowUtc = _clock.GetUtcNow();
+        foreach (var materialization in materializations)
+        {
+            await EvaluateMissedWindowAsync(materialization, nowUtc).ConfigureAwait(false);
+        }
+
+        replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations));
     }
 
     private Task HandleAsync(DispatchSchedulerSchedule command)
@@ -306,6 +314,46 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
             reason.Code,
             reason.Message)));
+    }
+
+    private async Task EvaluateMissedWindowAsync(
+        SchedulerScheduleMaterialization materialization,
+        DateTimeOffset nowUtc)
+    {
+        if (!SchedulerMissedWindowEvaluator.TryResolveCandidate(
+                materialization,
+                nowUtc,
+                out var candidate,
+                out _))
+        {
+            return;
+        }
+
+        var missedWindow = candidate!;
+        var existing = await _deliveryStore.FindAsync(missedWindow.DispatchWindow.IdempotencyKey)
+            .ConfigureAwait(false);
+        var decision = SchedulerMissedWindowEvaluator.Decide(
+            materialization,
+            missedWindow,
+            existing);
+
+        if (decision.Action == SchedulerMissedWindowAction.None)
+        {
+            return;
+        }
+
+        if (decision.Action == SchedulerMissedWindowAction.CatchUp)
+        {
+            await DispatchAsync(materialization.Key, nowUtc, ActorRefs.Nobody).ConfigureAwait(false);
+            return;
+        }
+
+        var delivery = SchedulerPulseFactory.BuildDeliveryRecord(
+            materialization,
+            nowUtc,
+            decision.DispatchWindow.IdempotencyKey);
+
+        await _deliveryStore.RecordSkippedAsync(delivery, decision.Reason!).ConfigureAwait(false);
     }
 }
 
@@ -475,11 +523,19 @@ internal sealed record SchedulerScheduleMaterialization
     public SchedulerScheduleMaterialization(
         SchedulerScheduleKey key,
         ScheduleDefinition definition,
-        LoadedScheduleWorkingHours workingHours)
+        LoadedScheduleWorkingHours workingHours,
+        DateTimeOffset? declaredAtUtc = null)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         Definition = definition ?? throw new ArgumentNullException(nameof(definition));
         WorkingHours = workingHours ?? throw new ArgumentNullException(nameof(workingHours));
+        DeclaredAtUtc = declaredAtUtc ?? DateTimeOffset.MinValue;
+        if (DeclaredAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "Scheduler materialization declaration timestamps must be expressed as UTC offsets.",
+                nameof(declaredAtUtc));
+        }
     }
 
     public SchedulerScheduleKey Key { get; }
@@ -487,6 +543,8 @@ internal sealed record SchedulerScheduleMaterialization
     public ScheduleDefinition Definition { get; }
 
     public LoadedScheduleWorkingHours WorkingHours { get; }
+
+    public DateTimeOffset DeclaredAtUtc { get; }
 }
 
 internal sealed record SchedulerScheduleDispatch

@@ -159,7 +159,8 @@ public static partial class RegistryScheduleLoader
                     schedule.IsCritical,
                     catchUp),
                 schedule.IsActive,
-                workingHours!));
+                workingHours!,
+                entry.UpdatedAt.ToUniversalTime()));
         }
         catch (Exception exception)
             when (exception is ArgumentException or ArgumentOutOfRangeException)
@@ -402,7 +403,8 @@ public sealed record LoadedRegistrySchedule(
     PositionId PositionId,
     ScheduleDefinition Definition,
     bool IsActive,
-    LoadedScheduleWorkingHours WorkingHours);
+    LoadedScheduleWorkingHours WorkingHours,
+    DateTimeOffset UpdatedAtUtc);
 
 public sealed record LoadedScheduleWorkingHours(TimeOnly Start, TimeOnly End);
 

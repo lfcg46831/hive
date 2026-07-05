@@ -40,6 +40,34 @@ public sealed class NoopSchedulerPulseDeliveryStore : ISchedulerPulseDeliverySto
         }
     }
 
+    public Task<SchedulerPulseDeliveryState> RecordSkippedAsync(
+        SchedulerPulseDeliveryRecord delivery,
+        SchedulerPulseDeliveryReason reason,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(delivery);
+        ArgumentNullException.ThrowIfNull(reason);
+
+        lock (_gate)
+        {
+            if (_states.TryGetValue(delivery.IdempotencyKey, out var existing))
+            {
+                return Task.FromResult(existing);
+            }
+
+            var state = new SchedulerPulseDeliveryState(
+                delivery.IdempotencyKey,
+                delivery.MessageId,
+                delivery.ThreadId,
+                SchedulerPulseDeliveryStatus.Skipped,
+                attemptCount: 1,
+                delivery.OccurredAtUtc,
+                reason);
+            _states[delivery.IdempotencyKey] = state;
+            return Task.FromResult(state);
+        }
+    }
+
     public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
         PulseIdempotencyKey idempotencyKey,
         DateTimeOffset occurredAtUtc,

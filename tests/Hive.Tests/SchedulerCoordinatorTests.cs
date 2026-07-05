@@ -159,6 +159,110 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public void Missed_window_evaluator_decides_from_latest_declared_window_and_existing_delivery_state()
+    {
+        var nowUtc = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+        var nonCritical = Materialization(
+            "daily-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon",
+            declaredAtUtc: new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+
+        var resolved = SchedulerMissedWindowEvaluator.TryResolveCandidate(
+            nonCritical,
+            nowUtc,
+            out var candidate,
+            out var error);
+
+        Assert.True(resolved, error?.ToString());
+        Assert.NotNull(candidate);
+        Assert.Equal(
+            "acme-delivery/delivery-lead/daily-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
+            candidate.DispatchWindow.IdempotencyKey.Value);
+
+        var skip = SchedulerMissedWindowEvaluator.Decide(
+            nonCritical,
+            candidate,
+            existingDelivery: null);
+
+        Assert.Equal(SchedulerMissedWindowAction.Skip, skip.Action);
+        Assert.Equal("scheduler-missed-window-skipped", skip.Reason?.Code);
+
+        var existing = new SchedulerPulseDeliveryState(
+            candidate.DispatchWindow.IdempotencyKey,
+            MessageId.From(Guid.Parse("11111111-1111-4111-8111-111111111111")),
+            ThreadId.From(Guid.Parse("22222222-2222-4222-8222-222222222222")),
+            SchedulerPulseDeliveryStatus.Delivered,
+            attemptCount: 1,
+            nowUtc,
+            reason: null);
+
+        var noAction = SchedulerMissedWindowEvaluator.Decide(
+            nonCritical,
+            candidate,
+            existing);
+
+        Assert.Equal(SchedulerMissedWindowAction.None, noAction.Action);
+
+        var criticalCatchUp = Materialization(
+            "critical-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon",
+            isCritical: true,
+            catchUp: CatchUpPolicy.CatchUpOnce,
+            declaredAtUtc: new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var criticalResolved = SchedulerMissedWindowEvaluator.TryResolveCandidate(
+            criticalCatchUp,
+            nowUtc,
+            out var criticalCandidate,
+            out var criticalError);
+        Assert.True(criticalResolved, criticalError?.ToString());
+
+        var catchUp = SchedulerMissedWindowEvaluator.Decide(
+            criticalCatchUp,
+            criticalCandidate!,
+            existingDelivery: null);
+
+        Assert.Equal(SchedulerMissedWindowAction.CatchUp, catchUp.Action);
+        Assert.Null(catchUp.Reason);
+
+        var criticalSkip = Materialization(
+            "critical-skip-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon",
+            isCritical: true,
+            declaredAtUtc: new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var criticalSkipResolved = SchedulerMissedWindowEvaluator.TryResolveCandidate(
+            criticalSkip,
+            nowUtc,
+            out var criticalSkipCandidate,
+            out var criticalSkipError);
+        Assert.True(criticalSkipResolved, criticalSkipError?.ToString());
+
+        var criticalSkipDecision = SchedulerMissedWindowEvaluator.Decide(
+            criticalSkip,
+            criticalSkipCandidate!,
+            existingDelivery: null);
+
+        Assert.Equal(SchedulerMissedWindowAction.Skip, criticalSkipDecision.Action);
+
+        var declaredAfterLatestWindow = Materialization(
+            "new-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon",
+            declaredAtUtc: new DateTimeOffset(2026, 7, 4, 9, 0, 0, TimeSpan.Zero));
+        var lateResolved = SchedulerMissedWindowEvaluator.TryResolveCandidate(
+            declaredAfterLatestWindow,
+            nowUtc,
+            out var lateCandidate,
+            out var lateError);
+
+        Assert.False(lateResolved);
+        Assert.Null(lateCandidate);
+        Assert.Null(lateError);
+    }
+
+    [Fact]
     public void Scheduler_pulse_factory_builds_canonical_pulse_from_dispatch_metadata()
     {
         var materialization = Materialization(
@@ -555,6 +659,183 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_skips_latest_missed_window_for_non_critical_schedule_without_delivery()
+    {
+        var snapshot = await ImportedSnapshotAsync(
+            WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "daily-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run daily report")),
+            new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var nowUtc = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var system = ActorSystem.Create("scheduler-coordinator-missed-skip");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(nowUtc),
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-missed-skip");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            Assert.Empty(deliveryStore.Fired);
+            var skipped = Assert.Single(deliveryStore.Skipped);
+            Assert.Equal("scheduler-missed-window-skipped", skipped.Reason?.Code);
+            Assert.Equal(
+                "acme-delivery/delivery-lead/daily-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
+                skipped.IdempotencyKey.Value);
+            Assert.Equal(nowUtc, skipped.OccurredAtUtc);
+            Assert.Empty(pulseDispatcher.Pulses);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Empty(state.PendingDispatches);
+
+            var repeated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(repeated.IsAccepted, string.Join(Environment.NewLine, repeated.Errors));
+            Assert.Empty(deliveryStore.Fired);
+            Assert.Single(deliveryStore.Skipped);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_catches_up_latest_missed_critical_window_once_when_budget_is_available()
+    {
+        var snapshot = await ImportedSnapshotAsync(
+            WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "critical-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run critical report",
+                    isCritical: true,
+                    catchUp: "catch-up-once")),
+            new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var nowUtc = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var system = ActorSystem.Create("scheduler-coordinator-missed-catch-up");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(nowUtc),
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-missed-catch-up");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            var fired = Assert.Single(deliveryStore.Fired);
+            Assert.Equal(
+                "acme-delivery/delivery-lead/critical-report/2026-07-03T16:55:00.0000000Z/2026-07-06T16:55:00.0000000Z",
+                fired.IdempotencyKey.Value);
+            Assert.Equal(nowUtc, fired.OccurredAtUtc);
+            Assert.Empty(deliveryStore.Skipped);
+            var delivered = Assert.Single(deliveryStore.Delivered);
+            Assert.Equal(fired.IdempotencyKey, delivered.IdempotencyKey);
+
+            var pulse = Assert.Single(pulseDispatcher.Pulses);
+            Assert.Equal("critical-report", pulse.ScheduleId);
+            Assert.Equal("Run critical report", pulse.Payload);
+            Assert.Equal(nowUtc, pulse.SentAt);
+            Assert.Equal(fired.MessageId, pulse.Id);
+            Assert.Equal(fired.ThreadId, pulse.Thread);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            var pending = Assert.Single(state.PendingDispatches);
+            Assert.Equal(fired.IdempotencyKey, pending.IdempotencyKey);
+
+            var repeated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(repeated.IsAccepted, string.Join(Environment.NewLine, repeated.Errors));
+            Assert.Single(deliveryStore.Fired);
+            Assert.Single(deliveryStore.Delivered);
+            Assert.Single(pulseDispatcher.Pulses);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reconcile_skips_critical_catch_up_when_proactive_budget_is_unavailable()
+    {
+        var snapshot = await ImportedSnapshotAsync(
+            WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "critical-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run critical report",
+                    isCritical: true,
+                    catchUp: "catch-up-once")),
+            new DateTimeOffset(2026, 7, 1, 9, 0, 0, TimeSpan.Zero));
+        var nowUtc = new DateTimeOffset(2026, 7, 5, 12, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var budgetPolicy = new RecordingSchedulerProactiveBudgetPolicy(hasAvailableBudget: false);
+        var system = ActorSystem.Create("scheduler-coordinator-missed-catch-up-budget");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    new ManualTimeProvider(nowUtc),
+                    deliveryStore,
+                    pulseDispatcher,
+                    budgetPolicy),
+                "scheduler-coordinator-missed-catch-up-budget");
+
+            var result = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+
+            Assert.True(result.IsAccepted, string.Join(Environment.NewLine, result.Errors));
+            Assert.Single(deliveryStore.Fired);
+            var skipped = Assert.Single(deliveryStore.Skipped);
+            Assert.Equal("scheduler-proactive-budget-unavailable", skipped.Reason?.Code);
+            Assert.Single(budgetPolicy.Requests);
+            Assert.Empty(deliveryStore.Delivered);
+            Assert.Empty(pulseDispatcher.Pulses);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Empty(state.PendingDispatches);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Dispatch_rejects_unknown_schedules_and_records_known_dispatches()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -849,12 +1130,13 @@ public sealed class SchedulerCoordinatorTests
             configuration.Prompts);
 
     private static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync(
-        OrganizationConfiguration configuration)
+        OrganizationConfiguration configuration,
+        DateTimeOffset? importAtUtc = null)
     {
         var registry = new InMemoryOrganizationRegistry();
         var imported = await new OrganizationConfigurationImporter(
             registry,
-            new ManualTimeProvider(ImportAt))
+            new ManualTimeProvider(importAtUtc ?? ImportAt))
             .ImportAsync(configuration);
 
         Assert.Equal(OrganizationImportStatus.Applied, imported.Status);
@@ -909,7 +1191,9 @@ public sealed class SchedulerCoordinatorTests
         string cron,
         string timeZone,
         bool isCritical = false,
-        LoadedScheduleWorkingHours? workingHours = null)
+        LoadedScheduleWorkingHours? workingHours = null,
+        CatchUpPolicy catchUp = CatchUpPolicy.Skip,
+        DateTimeOffset? declaredAtUtc = null)
     {
         var key = SchedulerScheduleKey.From(
             OrganizationId.From("acme-delivery"),
@@ -922,12 +1206,13 @@ public sealed class SchedulerCoordinatorTests
             "Run scheduled work",
             Priority.Normal,
             isCritical,
-            CatchUpPolicy.Skip);
+            catchUp);
 
         return new SchedulerScheduleMaterialization(
             key,
             definition,
-            workingHours ?? new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
+            workingHours ?? new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)),
+            declaredAtUtc);
     }
 
     [Fact]
@@ -1240,6 +1525,7 @@ public sealed class SchedulerCoordinatorTests
         private readonly List<DeliveryTransition> _delivered = [];
         private readonly List<DeliveryTransition> _skipped = [];
         private readonly List<DeliveryTransition> _failed = [];
+        private readonly Dictionary<PulseIdempotencyKey, SchedulerPulseDeliveryState> _states = [];
 
         public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
 
@@ -1254,14 +1540,34 @@ public sealed class SchedulerCoordinatorTests
             CancellationToken cancellationToken = default)
         {
             _fired.Add(delivery);
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 delivery.IdempotencyKey,
                 delivery.MessageId,
                 delivery.ThreadId,
                 SchedulerPulseDeliveryStatus.Fired,
                 attemptCount: 1,
                 delivery.OccurredAtUtc,
-                reason: null));
+                reason: null);
+            _states[delivery.IdempotencyKey] = state;
+            return Task.FromResult(state);
+        }
+
+        public Task<SchedulerPulseDeliveryState> RecordSkippedAsync(
+            SchedulerPulseDeliveryRecord delivery,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default)
+        {
+            var state = new SchedulerPulseDeliveryState(
+                delivery.IdempotencyKey,
+                delivery.MessageId,
+                delivery.ThreadId,
+                SchedulerPulseDeliveryStatus.Skipped,
+                attemptCount: 1,
+                delivery.OccurredAtUtc,
+                reason);
+            _skipped.Add(new DeliveryTransition(delivery.IdempotencyKey, delivery.OccurredAtUtc, reason));
+            _states[delivery.IdempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
@@ -1272,14 +1578,16 @@ public sealed class SchedulerCoordinatorTests
         {
             var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
             _delivered.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Delivered,
                 attemptCount: 1,
                 occurredAtUtc,
-                reason));
+                reason);
+            _states[idempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
@@ -1290,14 +1598,16 @@ public sealed class SchedulerCoordinatorTests
         {
             var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
             _skipped.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Skipped,
                 attemptCount: 1,
                 occurredAtUtc,
-                reason));
+                reason);
+            _states[idempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState> MarkFailedAsync(
@@ -1308,20 +1618,22 @@ public sealed class SchedulerCoordinatorTests
         {
             var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
             _failed.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
-            return Task.FromResult(new SchedulerPulseDeliveryState(
+            var state = new SchedulerPulseDeliveryState(
                 idempotencyKey,
                 fired.MessageId,
                 fired.ThreadId,
                 SchedulerPulseDeliveryStatus.Failed,
                 attemptCount: 1,
                 occurredAtUtc,
-                reason));
+                reason);
+            _states[idempotencyKey] = state;
+            return Task.FromResult(state);
         }
 
         public Task<SchedulerPulseDeliveryState?> FindAsync(
             PulseIdempotencyKey idempotencyKey,
             CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            Task.FromResult(_states.GetValueOrDefault(idempotencyKey));
 
         public Task<IReadOnlyList<SchedulerPulseDeliveryHistoryEntry>> ReadHistoryAsync(
             PulseIdempotencyKey idempotencyKey,

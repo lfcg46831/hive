@@ -8,6 +8,11 @@ public interface ISchedulerPulseDeliveryStore
         SchedulerPulseDeliveryRecord delivery,
         CancellationToken cancellationToken = default);
 
+    Task<SchedulerPulseDeliveryState> RecordSkippedAsync(
+        SchedulerPulseDeliveryRecord delivery,
+        SchedulerPulseDeliveryReason reason,
+        CancellationToken cancellationToken = default);
+
     Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
         PulseIdempotencyKey idempotencyKey,
         DateTimeOffset occurredAtUtc,

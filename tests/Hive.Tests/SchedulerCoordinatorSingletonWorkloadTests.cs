@@ -112,6 +112,7 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
             Assert.Equal(dispatch.Dispatch!.IdempotencyKey, persisted.IdempotencyKey);
             Assert.Equal(dispatch.Dispatch.Pulse.Id, persisted.MessageId);
             Assert.Equal(dispatch.Dispatch.Pulse.Thread, persisted.ThreadId);
+            Assert.Equal(dispatch.Dispatch.IdempotencyKey, Assert.Single(deliveryStore.Delivered));
         }
         finally
         {
@@ -341,8 +342,11 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
     private sealed class RecordingSchedulerPulseDeliveryStore : ISchedulerPulseDeliveryStore
     {
         private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
+        private readonly List<PulseIdempotencyKey> _delivered = [];
 
         public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
+
+        public IReadOnlyList<PulseIdempotencyKey> Delivered => _delivered;
 
         public Task<SchedulerPulseDeliveryState> RecordFiredAsync(
             SchedulerPulseDeliveryRecord delivery,
@@ -363,8 +367,19 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
             PulseIdempotencyKey idempotencyKey,
             DateTimeOffset occurredAtUtc,
             SchedulerPulseDeliveryReason? reason = null,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            _delivered.Add(idempotencyKey);
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                idempotencyKey,
+                fired.MessageId,
+                fired.ThreadId,
+                SchedulerPulseDeliveryStatus.Delivered,
+                attemptCount: 1,
+                occurredAtUtc,
+                reason));
+        }
 
         public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
             PulseIdempotencyKey idempotencyKey,

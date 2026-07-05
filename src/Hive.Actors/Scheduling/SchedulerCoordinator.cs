@@ -36,18 +36,29 @@ internal static class SchedulerCoordinatorIdentity
 
 internal sealed class SchedulerCoordinator : ReceiveActor
 {
+    private const string PulseDeliveryFailedCode = "scheduler-pulse-delivery-failed";
+
     private readonly ISchedulerQuartzAdapter _quartzAdapter;
     private readonly TimeProvider _clock;
     private readonly ISchedulerPulseDeliveryStore _deliveryStore;
+    private readonly ISchedulerPulseDispatcher _pulseDispatcher;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
-        : this(new AkkaQuartzSchedulerAdapter(), TimeProvider.System, NoopSchedulerPulseDeliveryStore.Instance)
+        : this(
+            new AkkaQuartzSchedulerAdapter(),
+            TimeProvider.System,
+            NoopSchedulerPulseDeliveryStore.Instance,
+            NoopSchedulerPulseDispatcher.Instance)
     {
     }
 
     public SchedulerCoordinator(ISchedulerQuartzAdapter quartzAdapter, TimeProvider clock)
-        : this(quartzAdapter, clock, NoopSchedulerPulseDeliveryStore.Instance)
+        : this(
+            quartzAdapter,
+            clock,
+            NoopSchedulerPulseDeliveryStore.Instance,
+            NoopSchedulerPulseDispatcher.Instance)
     {
     }
 
@@ -55,10 +66,20 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         ISchedulerQuartzAdapter quartzAdapter,
         TimeProvider clock,
         ISchedulerPulseDeliveryStore deliveryStore)
+        : this(quartzAdapter, clock, deliveryStore, NoopSchedulerPulseDispatcher.Instance)
+    {
+    }
+
+    public SchedulerCoordinator(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher)
     {
         _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _deliveryStore = deliveryStore ?? throw new ArgumentNullException(nameof(deliveryStore));
+        _pulseDispatcher = pulseDispatcher ?? throw new ArgumentNullException(nameof(pulseDispatcher));
 
         Receive<ReconcileSchedulerSchedules>(Handle);
         ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
@@ -82,6 +103,17 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         TimeProvider clock,
         ISchedulerPulseDeliveryStore deliveryStore) =>
         Akka.Actor.Props.Create(() => new SchedulerCoordinator(quartzAdapter, clock, deliveryStore));
+
+    public static Props Props(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher));
 
     private void Handle(ReconcileSchedulerSchedules command)
     {
@@ -176,6 +208,31 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                     dispatch.Pulse.Id,
                     dispatch.Pulse.Thread,
                     dispatch.FiredAtUtc))
+            .ConfigureAwait(false);
+
+        try
+        {
+            await _pulseDispatcher.DeliverAsync(Context, dispatch.Pulse).ConfigureAwait(false);
+        }
+        catch (Exception)
+        {
+            var reason = new SchedulerPulseDeliveryReason(
+                PulseDeliveryFailedCode,
+                "Scheduler pulse delivery to the position shard region failed.");
+            await _deliveryStore.MarkFailedAsync(
+                    dispatch.IdempotencyKey,
+                    dispatch.FiredAtUtc,
+                    reason)
+                .ConfigureAwait(false);
+            replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
+                reason.Code,
+                reason.Message)));
+            return;
+        }
+
+        await _deliveryStore.MarkDeliveredAsync(
+                dispatch.IdempotencyKey,
+                dispatch.FiredAtUtc)
             .ConfigureAwait(false);
         _state = _state.WithPendingDispatch(dispatch);
         replyTo.Tell(SchedulerDispatchResult.Accepted(dispatch));

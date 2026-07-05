@@ -3,9 +3,11 @@ using Akka.Actor;
 using Akka.Quartz.Actor.Commands;
 using Akka.Quartz.Actor.Events;
 using Hive.Actors.Scheduling;
+using Hive.Actors.Sharding;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Positions;
 using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
@@ -204,6 +206,31 @@ public sealed class SchedulerCoordinatorTests
             nextDispatchWindow.IdempotencyKey);
         Assert.NotEqual(pulse.Id, nextPulse.Id);
         Assert.NotEqual(pulse.Thread, nextPulse.Thread);
+    }
+
+    [Fact]
+    public void Scheduler_pulse_dispatcher_wraps_pulse_for_position_sharding()
+    {
+        var materialization = Materialization(
+            "daily-report",
+            "0 55 17 ? * MON-FRI",
+            "Europe/Lisbon");
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var dispatchWindow = SchedulerScheduleWindowCalculator.Calculate(
+            materialization,
+            firedAtUtc);
+        var pulse = BuildSchedulerPulse(
+            materialization,
+            firedAtUtc,
+            dispatchWindow.IdempotencyKey);
+
+        var envelope = AkkaClusterShardingSchedulerPulseDispatcher.ToEnvelope(pulse);
+
+        Assert.Equal(
+            PositionEntityId.From(materialization.Key.Organization, materialization.Key.Position),
+            envelope.Position);
+        var command = Assert.IsType<AcceptMessage>(envelope.Command);
+        Assert.Same(pulse, command.Message);
     }
 
     [Fact]
@@ -867,7 +894,7 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
-    public async Task Dispatch_persists_accepted_delivery_state_and_skips_rejections()
+    public async Task Dispatch_persists_delivers_and_marks_accepted_delivery_state()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
             ExampleConfiguration(),
@@ -877,15 +904,17 @@ public sealed class SchedulerCoordinatorTests
                 "Run daily report")));
         var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
         var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
-        var system = ActorSystem.Create("scheduler-coordinator-delivery-store");
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var system = ActorSystem.Create("scheduler-coordinator-delivery");
         try
         {
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
                     TimeProvider.System,
-                    deliveryStore),
-                "scheduler-coordinator-delivery-store");
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-delivery");
             var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
                 new ReconcileSchedulerSchedules(snapshot),
                 AskTimeout);
@@ -902,6 +931,7 @@ public sealed class SchedulerCoordinatorTests
 
             Assert.False(unknown.IsAccepted);
             Assert.Empty(deliveryStore.Fired);
+            Assert.Empty(pulseDispatcher.Pulses);
 
             var knownKey = Assert.Single(reconciliation.Materializations).Key;
             var accepted = await coordinator.Ask<SchedulerDispatchResult>(
@@ -914,6 +944,66 @@ public sealed class SchedulerCoordinatorTests
             Assert.Equal(accepted.Dispatch.Pulse.Id, persisted.MessageId);
             Assert.Equal(accepted.Dispatch.Pulse.Thread, persisted.ThreadId);
             Assert.Equal(firedAtUtc, persisted.OccurredAtUtc);
+            Assert.Equal(accepted.Dispatch.Pulse, Assert.Single(pulseDispatcher.Pulses));
+            var delivered = Assert.Single(deliveryStore.Delivered);
+            Assert.Equal(accepted.Dispatch.IdempotencyKey, delivered.IdempotencyKey);
+            Assert.Equal(firedAtUtc, delivered.OccurredAtUtc);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Single(state.PendingDispatches);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_marks_failed_when_sharding_delivery_fails_without_pending_dispatch()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher(
+            new InvalidOperationException("Shard region is unavailable."));
+        var system = ActorSystem.Create("scheduler-coordinator-delivery-failure");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-delivery-failure");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var rejected = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.False(rejected.IsAccepted);
+            Assert.Equal("scheduler-pulse-delivery-failed", rejected.Error?.Code);
+            Assert.Single(deliveryStore.Fired);
+            var failed = Assert.Single(deliveryStore.Failed);
+            Assert.Equal("scheduler-pulse-delivery-failed", failed.Reason!.Code);
+            Assert.Empty(pulseDispatcher.Pulses);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Empty(state.PendingDispatches);
         }
         finally
         {
@@ -949,8 +1039,14 @@ public sealed class SchedulerCoordinatorTests
     private sealed class RecordingSchedulerPulseDeliveryStore : ISchedulerPulseDeliveryStore
     {
         private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
+        private readonly List<DeliveryTransition> _delivered = [];
+        private readonly List<DeliveryTransition> _failed = [];
 
         public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
+
+        public IReadOnlyList<DeliveryTransition> Delivered => _delivered;
+
+        public IReadOnlyList<DeliveryTransition> Failed => _failed;
 
         public Task<SchedulerPulseDeliveryState> RecordFiredAsync(
             SchedulerPulseDeliveryRecord delivery,
@@ -971,8 +1067,19 @@ public sealed class SchedulerCoordinatorTests
             PulseIdempotencyKey idempotencyKey,
             DateTimeOffset occurredAtUtc,
             SchedulerPulseDeliveryReason? reason = null,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            _delivered.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                idempotencyKey,
+                fired.MessageId,
+                fired.ThreadId,
+                SchedulerPulseDeliveryStatus.Delivered,
+                attemptCount: 1,
+                occurredAtUtc,
+                reason));
+        }
 
         public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
             PulseIdempotencyKey idempotencyKey,
@@ -985,8 +1092,19 @@ public sealed class SchedulerCoordinatorTests
             PulseIdempotencyKey idempotencyKey,
             DateTimeOffset occurredAtUtc,
             SchedulerPulseDeliveryReason reason,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            _failed.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                idempotencyKey,
+                fired.MessageId,
+                fired.ThreadId,
+                SchedulerPulseDeliveryStatus.Failed,
+                attemptCount: 1,
+                occurredAtUtc,
+                reason));
+        }
 
         public Task<SchedulerPulseDeliveryState?> FindAsync(
             PulseIdempotencyKey idempotencyKey,
@@ -998,4 +1116,30 @@ public sealed class SchedulerCoordinatorTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
+
+    private sealed class RecordingSchedulerPulseDispatcher(Exception? failure = null) : ISchedulerPulseDispatcher
+    {
+        private readonly List<Pulse> _pulses = [];
+
+        public IReadOnlyList<Pulse> Pulses => _pulses;
+
+        public Task DeliverAsync(
+            IActorContext context,
+            Pulse pulse,
+            CancellationToken cancellationToken = default)
+        {
+            if (failure is not null)
+            {
+                throw failure;
+            }
+
+            _pulses.Add(pulse);
+            return Task.CompletedTask;
+        }
+    }
+
+    private sealed record DeliveryTransition(
+        PulseIdempotencyKey IdempotencyKey,
+        DateTimeOffset OccurredAtUtc,
+        SchedulerPulseDeliveryReason? Reason);
 }

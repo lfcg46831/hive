@@ -104,6 +104,8 @@ public static class HiveActorSystemBootstrapExtensions
         // (US-F0-06-T06b); TryAdd keeps the wiring replaceable for later entity behaviour.
         builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
+        builder.Services.TryAddSingleton<ISchedulerPulseDispatcher>(
+            AkkaClusterShardingSchedulerPulseDispatcher.Instance);
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<PositionShardingWorkload>());

@@ -738,6 +738,108 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Reconcile_applies_only_material_diff_operations_to_quartz_adapter()
+    {
+        var initialSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report"),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 0 11 ? * MON-FRI",
+                "Run beta report"),
+            new ScheduleEntryConfiguration(
+                "remove-report",
+                "0 0 12 ? * MON-FRI",
+                "Run removable report"),
+            new ScheduleEntryConfiguration(
+                "stable-report",
+                "0 0 15 ? * MON-FRI",
+                "Run stable report")));
+        var updatedSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "alpha-report",
+                "0 0 10 ? * MON-FRI",
+                "Run alpha report",
+                isActive: false),
+            new ScheduleEntryConfiguration(
+                "beta-report",
+                "0 30 11 ? * MON-FRI",
+                "Run changed beta report"),
+            new ScheduleEntryConfiguration(
+                "gamma-report",
+                "0 0 14 ? * MON-FRI",
+                "Run gamma report"),
+            new ScheduleEntryConfiguration(
+                "stable-report",
+                "0 0 15 ? * MON-FRI",
+                "Run stable report")));
+        var quartz = new RecordingSchedulerQuartzAdapter();
+        var system = ActorSystem.Create("scheduler-coordinator-reconcile-quartz-diff");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(quartz, TimeProvider.System),
+                "scheduler-coordinator-reconcile-quartz-diff");
+
+            var first = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(initialSnapshot),
+                AskTimeout);
+            var initialScheduleCallCount = quartz.ScheduleCalls.Count;
+
+            var second = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+            var repeated = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(updatedSnapshot),
+                AskTimeout);
+
+            Assert.True(first.IsAccepted, string.Join(Environment.NewLine, first.Errors));
+            Assert.True(second.IsAccepted, string.Join(Environment.NewLine, second.Errors));
+            Assert.False(repeated.Diff.IsRegistryChanged);
+            Assert.Equal(
+                new[]
+                {
+                    "Update:acme-delivery/delivery-lead/beta-report",
+                    "Create:acme-delivery/delivery-lead/gamma-report",
+                },
+                quartz.ScheduleCalls
+                    .Skip(initialScheduleCallCount)
+                    .Select(job => DescribeOperation(
+                        job.Cron.Value == "0 30 11 ? * MON-FRI"
+                            ? SchedulerScheduleReconciliationOperationKind.Update
+                            : SchedulerScheduleReconciliationOperationKind.Create,
+                        job.Key)));
+            Assert.Equal(
+                new[]
+                {
+                    "acme-delivery/delivery-lead/alpha-report",
+                    "acme-delivery/delivery-lead/remove-report",
+                },
+                quartz.UnscheduleCalls.Select(key => key.Value));
+            Assert.Equal(6, quartz.ScheduleCalls.Count);
+            Assert.Equal(2, quartz.UnscheduleCalls.Count);
+            Assert.Equal(
+                new[]
+                {
+                    "acme-delivery/delivery-lead/beta-report",
+                    "acme-delivery/delivery-lead/gamma-report",
+                    "acme-delivery/delivery-lead/stable-report",
+                },
+                quartz.Jobs
+                    .OrderBy(job => job.Key.Value, StringComparer.Ordinal)
+                    .Select(job => job.Key.Value));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Reconcile_invalid_snapshot_does_not_schedule_new_quartz_jobs()
     {
         var validSnapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1452,6 +1554,51 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Idempotent_quartz_actor_removes_existing_job_and_treats_missing_job_as_success()
+    {
+        var key = SchedulerScheduleKey.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("delivery-lead"),
+            ScheduleId.From("daily-report"));
+        var job = new SchedulerQuartzJob(
+            key,
+            DomainCronExpression.From("0 55 17 ? * MON-FRI"),
+            "Europe/Lisbon");
+        var scheduler = await NewInMemoryQuartzSchedulerAsync();
+        var system = ActorSystem.Create("scheduler-coordinator-idempotent-quartz-remove");
+        try
+        {
+            var quartzActor = system.ActorOf(
+                Props.Create(() => new HiveQuartzActor(scheduler)),
+                "idempotent-quartz-remove");
+            var remove = new RemoveJob(
+                new JobKey(job.Identity.JobName, job.Identity.JobGroup),
+                new TriggerKey(job.Identity.TriggerName, job.Identity.TriggerGroup));
+
+            await quartzActor.Ask<JobCreated>(
+                new CreateJob(
+                    ActorRefs.Nobody,
+                    new SchedulerQuartzScheduleFired(job.Key),
+                    AkkaQuartzSchedulerAdapter.BuildTrigger(job)),
+                AskTimeout);
+            var firstRemoval = await quartzActor.Ask<object>(remove, AskTimeout);
+            var secondRemoval = await quartzActor.Ask<object>(remove, AskTimeout);
+
+            Assert.IsType<JobRemoved>(firstRemoval);
+            Assert.IsType<JobRemoved>(secondRemoval);
+            Assert.Empty(await scheduler.GetJobKeys(
+                GroupMatcher<JobKey>.GroupEquals(SchedulerQuartzIdentity.JobGroupName)));
+            Assert.Empty(await scheduler.GetTriggerKeys(
+                GroupMatcher<TriggerKey>.GroupEquals(SchedulerQuartzIdentity.TriggerGroupName)));
+        }
+        finally
+        {
+            await scheduler.Shutdown(waitForJobsToComplete: false);
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Dispatch_skips_non_critical_schedule_outside_working_hours_without_delivery()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1674,6 +1821,11 @@ public sealed class SchedulerCoordinatorTests
     private static string DescribeOperation(SchedulerScheduleReconciliationOperation operation) =>
         $"{operation.Kind}:{operation.Key.Value}";
 
+    private static string DescribeOperation(
+        SchedulerScheduleReconciliationOperationKind kind,
+        SchedulerScheduleKey key) =>
+        $"{kind}:{key.Value}";
+
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => utcNow;
@@ -1683,15 +1835,24 @@ public sealed class SchedulerCoordinatorTests
     {
         private readonly Dictionary<SchedulerQuartzIdentity, SchedulerQuartzJob> _jobs = [];
         private readonly List<SchedulerQuartzJob> _scheduleCalls = [];
+        private readonly List<SchedulerScheduleKey> _unscheduleCalls = [];
 
         public IReadOnlyCollection<SchedulerQuartzJob> Jobs => _jobs.Values;
 
         public IReadOnlyList<SchedulerQuartzJob> ScheduleCalls => _scheduleCalls;
 
+        public IReadOnlyList<SchedulerScheduleKey> UnscheduleCalls => _unscheduleCalls;
+
         public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
         {
             _scheduleCalls.Add(job);
             _jobs[job.Identity] = job;
+        }
+
+        public void Unschedule(IActorContext context, SchedulerScheduleKey key)
+        {
+            _unscheduleCalls.Add(key);
+            _jobs.Remove(SchedulerQuartzIdentity.From(key));
         }
     }
 

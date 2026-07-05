@@ -176,15 +176,9 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             materializations,
             diff);
 
-        foreach (var materialization in materializations)
+        foreach (var operation in diff.Operations)
         {
-            _quartzAdapter.Schedule(
-                Context,
-                Self,
-                new SchedulerQuartzJob(
-                    materialization.Key,
-                    materialization.Definition.Cron,
-                    materialization.Definition.TimeZone));
+            ApplyQuartzOperation(operation);
         }
 
         var nowUtc = _clock.GetUtcNow();
@@ -194,6 +188,35 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         }
 
         replyTo.Tell(SchedulerReconciliationResult.Accepted(materializations, diff));
+    }
+
+    private void ApplyQuartzOperation(SchedulerScheduleReconciliationOperation operation)
+    {
+        switch (operation.Kind)
+        {
+            case SchedulerScheduleReconciliationOperationKind.Create:
+            case SchedulerScheduleReconciliationOperationKind.Update:
+                var materialization = operation.Declared
+                    ?? throw new InvalidOperationException(
+                        $"Scheduler reconciliation operation '{operation.Kind}' must include a declared materialization.");
+                _quartzAdapter.Schedule(
+                    Context,
+                    Self,
+                    new SchedulerQuartzJob(
+                        materialization.Key,
+                        materialization.Definition.Cron,
+                        materialization.Definition.TimeZone));
+                break;
+            case SchedulerScheduleReconciliationOperationKind.Pause:
+            case SchedulerScheduleReconciliationOperationKind.Remove:
+                _quartzAdapter.Unschedule(Context, operation.Key);
+                break;
+            case SchedulerScheduleReconciliationOperationKind.Unchanged:
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported scheduler reconciliation operation '{operation.Kind}'.");
+        }
     }
 
     private Task HandleAsync(DispatchSchedulerSchedule command)
@@ -705,6 +728,8 @@ internal sealed record SchedulerDispatchError(string Code, string Message)
 internal interface ISchedulerQuartzAdapter
 {
     void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job);
+
+    void Unschedule(IActorContext context, SchedulerScheduleKey key);
 }
 
 internal sealed record SchedulerQuartzJob
@@ -757,6 +782,10 @@ internal sealed class NoopSchedulerQuartzAdapter : ISchedulerQuartzAdapter
     public void Schedule(IActorContext context, IActorRef receiver, SchedulerQuartzJob job)
     {
     }
+
+    public void Unschedule(IActorContext context, SchedulerScheduleKey key)
+    {
+    }
 }
 
 internal sealed class AkkaQuartzSchedulerAdapter : ISchedulerQuartzAdapter
@@ -774,6 +803,19 @@ internal sealed class AkkaQuartzSchedulerAdapter : ISchedulerQuartzAdapter
             receiver,
             new SchedulerQuartzScheduleFired(job.Key),
             trigger));
+    }
+
+    public void Unschedule(IActorContext context, SchedulerScheduleKey key)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(key);
+
+        var quartzActor = GetOrCreateQuartzActor(context);
+        var identity = SchedulerQuartzIdentity.From(key);
+
+        quartzActor.Tell(new RemoveJob(
+            new JobKey(identity.JobName, identity.JobGroup),
+            new TriggerKey(identity.TriggerName, identity.TriggerGroup)));
     }
 
     internal static ITrigger BuildTrigger(SchedulerQuartzJob job)
@@ -847,6 +889,43 @@ internal sealed class HiveQuartzActor : QuartzActor
             catch (Exception reason)
             {
                 sender.Tell(new CreateJobFail(createJob.Trigger.JobKey, createJob.Trigger.Key, reason));
+            }
+        });
+    }
+
+    protected override void RemoveJobCommand(RemoveJob removeJob)
+    {
+        var sender = Context.Sender;
+        ActorTaskScheduler.RunTask(async () =>
+        {
+            if (removeJob.JobKey is null)
+            {
+                sender.Tell(new RemoveJobFail(
+                    null!,
+                    removeJob.TriggerKey,
+                    new ArgumentNullException(nameof(removeJob.JobKey))));
+                return;
+            }
+
+            if (removeJob.TriggerKey is null)
+            {
+                sender.Tell(new RemoveJobFail(
+                    removeJob.JobKey,
+                    null!,
+                    new ArgumentNullException(nameof(removeJob.TriggerKey))));
+                return;
+            }
+
+            try
+            {
+                await Scheduler.UnscheduleJob(removeJob.TriggerKey, CancellationToken.None);
+                await Scheduler.DeleteJob(removeJob.JobKey, CancellationToken.None);
+
+                sender.Tell(new JobRemoved(removeJob.JobKey, removeJob.TriggerKey));
+            }
+            catch (Exception reason)
+            {
+                sender.Tell(new RemoveJobFail(removeJob.JobKey, removeJob.TriggerKey, reason));
             }
         });
     }

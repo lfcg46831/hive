@@ -16,6 +16,18 @@ internal static class SchedulerCoordinatorIdentity
     public const string LogicalName = "scheduler-coordinator";
     public const string ActorName = LogicalName;
     public const string QuartzActorName = "scheduler-coordinator-quartz";
+
+    // Cluster Singleton wiring (US-F0-09-T03c). The coordinator is materialized exactly once in the
+    // cluster as an Akka Cluster Singleton on the agents role: the ClusterSingletonManager actor is
+    // hosted under a stable top-level name on every agents node, the active singleton child lives
+    // under SingletonName inside it, and a ClusterSingletonProxy under a stable name lets any node
+    // reach the single active instance without knowing which node hosts it.
+    public const string SingletonManagerName = "scheduler-coordinator";
+    public const string SingletonName = "coordinator";
+    public const string ProxyName = "scheduler-coordinator-proxy";
+
+    /// <summary>Absolute actor path of the singleton manager the proxy connects to.</summary>
+    public const string SingletonManagerPath = "/user/" + SingletonManagerName;
 }
 
 internal sealed class SchedulerCoordinator : ReceiveActor
@@ -38,6 +50,12 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         Receive<DispatchSchedulerSchedule>(Handle);
         Receive<SchedulerQuartzScheduleFired>(Handle);
         Receive<GetSchedulerCoordinatorState>(_ => Sender.Tell(_state));
+
+        // Diagnostic identity probe (US-F0-09-T03c): reveals the active singleton instance by
+        // replying with its own IActorRef. Sent through the ClusterSingletonProxy it lets callers
+        // (and tests) locate which node currently hosts the single active coordinator, proving that
+        // startup and post-handover restart both keep exactly one active instance.
+        Receive<WhereIsSchedulerCoordinator>(_ => Sender.Tell(Self));
     }
 
     public static Props Props() => Akka.Actor.Props.Create(() => new SchedulerCoordinator());
@@ -160,6 +178,13 @@ internal sealed record GetSchedulerCoordinatorState
     private GetSchedulerCoordinatorState()
     {
     }
+}
+
+internal sealed record WhereIsSchedulerCoordinator
+{
+    // Parameterless (public) so it round-trips through Akka's default serializer when a proxy on
+    // one node forwards the probe to the active singleton hosted on another node.
+    public static WhereIsSchedulerCoordinator Instance { get; } = new();
 }
 
 internal sealed record SchedulerScheduleKey

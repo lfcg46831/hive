@@ -4,6 +4,7 @@ using Akka.Persistence.Sql.Hosting;
 using Akka.Persistence.Hosting;
 using Akka.Remote.Hosting;
 using Hive.Actors.Positions;
+using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Domain.Messaging;
@@ -106,6 +107,13 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<PositionShardingWorkload>());
+
+        // The SchedulerCoordinator is a cluster-wide logical singleton (US-F0-09-T03c, ADR-004):
+        // it is materialized exactly once across the agents role through the same IRoleWorkload seam
+        // so two nodes never materialize the same schedules in parallel.
+        builder.Services.AddSingleton<SchedulerCoordinatorSingletonWorkload>();
+        builder.Services.AddSingleton<IRoleWorkload>(
+            sp => sp.GetRequiredService<SchedulerCoordinatorSingletonWorkload>());
 
         return builder;
     }

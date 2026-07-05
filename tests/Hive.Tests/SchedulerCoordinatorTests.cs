@@ -234,6 +234,41 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public void Scheduler_dispatch_policy_uses_position_timezone_and_exclusive_working_hours()
+    {
+        var atStartMaterialization = Materialization(
+            "start-report",
+            "0 0 9 ? * MON-FRI",
+            "Europe/Lisbon");
+        var atStartDispatch = BuildDispatch(
+            atStartMaterialization,
+            new DateTimeOffset(2026, 7, 3, 8, 0, 0, TimeSpan.Zero));
+
+        var atStartDecision = SchedulerDispatchPolicy.Evaluate(
+            atStartMaterialization,
+            atStartDispatch,
+            hasAvailableProactiveBudget: true);
+
+        Assert.True(atStartDecision.IsAllowed, atStartDecision.Reason?.Code);
+
+        var atEndMaterialization = Materialization(
+            "end-report",
+            "0 0 18 ? * MON-FRI",
+            "Europe/Lisbon");
+        var atEndDispatch = BuildDispatch(
+            atEndMaterialization,
+            new DateTimeOffset(2026, 7, 3, 17, 0, 0, TimeSpan.Zero));
+
+        var atEndDecision = SchedulerDispatchPolicy.Evaluate(
+            atEndMaterialization,
+            atEndDispatch,
+            hasAvailableProactiveBudget: true);
+
+        Assert.False(atEndDecision.IsAllowed);
+        Assert.Equal("scheduler-outside-working-hours", atEndDecision.Reason?.Code);
+    }
+
+    [Fact]
     public async Task Reconcile_materializes_only_active_schedules_in_deterministic_order()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -872,7 +907,9 @@ public sealed class SchedulerCoordinatorTests
     private static SchedulerScheduleMaterialization Materialization(
         string scheduleId,
         string cron,
-        string timeZone)
+        string timeZone,
+        bool isCritical = false,
+        LoadedScheduleWorkingHours? workingHours = null)
     {
         var key = SchedulerScheduleKey.From(
             OrganizationId.From("acme-delivery"),
@@ -884,13 +921,13 @@ public sealed class SchedulerCoordinatorTests
             timeZone,
             "Run scheduled work",
             Priority.Normal,
-            isCritical: false,
+            isCritical,
             CatchUpPolicy.Skip);
 
         return new SchedulerScheduleMaterialization(
             key,
             definition,
-            new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
+            workingHours ?? new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
     }
 
     [Fact]
@@ -961,6 +998,149 @@ public sealed class SchedulerCoordinatorTests
     }
 
     [Fact]
+    public async Task Dispatch_skips_non_critical_schedule_outside_working_hours_without_delivery()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "end-of-day-report",
+                "0 0 18 ? * MON-FRI",
+                "Run end of day report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var system = ActorSystem.Create("scheduler-coordinator-policy-working-hours");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-policy-working-hours");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var skipped = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.False(skipped.IsAccepted);
+            Assert.Equal("scheduler-outside-working-hours", skipped.Error?.Code);
+            Assert.Single(deliveryStore.Fired);
+            var skippedTransition = Assert.Single(deliveryStore.Skipped);
+            Assert.Equal("scheduler-outside-working-hours", skippedTransition.Reason!.Code);
+            Assert.Empty(pulseDispatcher.Pulses);
+
+            var state = await coordinator.Ask<SchedulerCoordinatorState>(
+                GetSchedulerCoordinatorState.Instance,
+                AskTimeout);
+            Assert.Empty(state.PendingDispatches);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_delivers_critical_schedule_outside_working_hours_when_budget_is_available()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "critical-report",
+                "0 0 18 ? * MON-FRI",
+                "Run critical report",
+                isCritical: true)));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 0, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var system = ActorSystem.Create("scheduler-coordinator-policy-critical");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher),
+                "scheduler-coordinator-policy-critical");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var accepted = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.True(accepted.IsAccepted, accepted.Error?.ToString());
+            Assert.Single(deliveryStore.Fired);
+            Assert.Empty(deliveryStore.Skipped);
+            Assert.Equal(accepted.Dispatch!.Pulse, Assert.Single(pulseDispatcher.Pulses));
+            Assert.Single(deliveryStore.Delivered);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Dispatch_skips_when_proactive_budget_is_unavailable_without_delivery()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 16, 55, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var pulseDispatcher = new RecordingSchedulerPulseDispatcher();
+        var budgetPolicy = new RecordingSchedulerProactiveBudgetPolicy(hasAvailableBudget: false);
+        var system = ActorSystem.Create("scheduler-coordinator-policy-budget");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore,
+                    pulseDispatcher,
+                    budgetPolicy),
+                "scheduler-coordinator-policy-budget");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var skipped = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.False(skipped.IsAccepted);
+            Assert.Equal("scheduler-proactive-budget-unavailable", skipped.Error?.Code);
+            Assert.Single(budgetPolicy.Requests);
+            Assert.Single(deliveryStore.Fired);
+            var skippedTransition = Assert.Single(deliveryStore.Skipped);
+            Assert.Equal("scheduler-proactive-budget-unavailable", skippedTransition.Reason!.Code);
+            Assert.Empty(pulseDispatcher.Pulses);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task Dispatch_marks_failed_when_sharding_delivery_fails_without_pending_dispatch()
     {
         var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
@@ -1017,6 +1197,24 @@ public sealed class SchedulerCoordinatorTests
         PulseIdempotencyKey idempotencyKey) =>
         SchedulerPulseFactory.Build(materialization, firedAtUtc, idempotencyKey);
 
+    private static SchedulerScheduleDispatch BuildDispatch(
+        SchedulerScheduleMaterialization materialization,
+        DateTimeOffset firedAtUtc)
+    {
+        var dispatchWindow = SchedulerScheduleWindowCalculator.Calculate(materialization, firedAtUtc);
+        var pulse = BuildSchedulerPulse(
+            materialization,
+            firedAtUtc,
+            dispatchWindow.IdempotencyKey);
+
+        return new SchedulerScheduleDispatch(
+            materialization.Key,
+            firedAtUtc,
+            dispatchWindow.Window,
+            dispatchWindow.IdempotencyKey,
+            pulse);
+    }
+
     private static Pulse DispatchPulse(SchedulerScheduleDispatch dispatch) => dispatch.Pulse;
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
@@ -1040,11 +1238,14 @@ public sealed class SchedulerCoordinatorTests
     {
         private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
         private readonly List<DeliveryTransition> _delivered = [];
+        private readonly List<DeliveryTransition> _skipped = [];
         private readonly List<DeliveryTransition> _failed = [];
 
         public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
 
         public IReadOnlyList<DeliveryTransition> Delivered => _delivered;
+
+        public IReadOnlyList<DeliveryTransition> Skipped => _skipped;
 
         public IReadOnlyList<DeliveryTransition> Failed => _failed;
 
@@ -1085,8 +1286,19 @@ public sealed class SchedulerCoordinatorTests
             PulseIdempotencyKey idempotencyKey,
             DateTimeOffset occurredAtUtc,
             SchedulerPulseDeliveryReason reason,
-            CancellationToken cancellationToken = default) =>
-            throw new NotSupportedException();
+            CancellationToken cancellationToken = default)
+        {
+            var fired = _fired.Single(delivery => delivery.IdempotencyKey == idempotencyKey);
+            _skipped.Add(new DeliveryTransition(idempotencyKey, occurredAtUtc, reason));
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                idempotencyKey,
+                fired.MessageId,
+                fired.ThreadId,
+                SchedulerPulseDeliveryStatus.Skipped,
+                attemptCount: 1,
+                occurredAtUtc,
+                reason));
+        }
 
         public Task<SchedulerPulseDeliveryState> MarkFailedAsync(
             PulseIdempotencyKey idempotencyKey,
@@ -1135,6 +1347,22 @@ public sealed class SchedulerCoordinatorTests
 
             _pulses.Add(pulse);
             return Task.CompletedTask;
+        }
+    }
+
+    private sealed class RecordingSchedulerProactiveBudgetPolicy(bool hasAvailableBudget)
+        : ISchedulerProactiveBudgetPolicy
+    {
+        private readonly List<SchedulerProactiveBudgetRequest> _requests = [];
+
+        public IReadOnlyList<SchedulerProactiveBudgetRequest> Requests => _requests;
+
+        public Task<bool> HasAvailableBudgetAsync(
+            SchedulerProactiveBudgetRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            _requests.Add(request);
+            return Task.FromResult(hasAvailableBudget);
         }
     }
 

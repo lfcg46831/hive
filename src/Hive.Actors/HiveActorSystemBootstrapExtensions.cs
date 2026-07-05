@@ -106,6 +106,8 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.TryAddSingleton<ISchedulerPulseDispatcher>(
             AkkaClusterShardingSchedulerPulseDispatcher.Instance);
+        builder.Services.TryAddSingleton<ISchedulerProactiveBudgetPolicy>(
+            AllowingSchedulerProactiveBudgetPolicy.Instance);
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<PositionShardingWorkload>());

@@ -42,6 +42,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
     private readonly TimeProvider _clock;
     private readonly ISchedulerPulseDeliveryStore _deliveryStore;
     private readonly ISchedulerPulseDispatcher _pulseDispatcher;
+    private readonly ISchedulerProactiveBudgetPolicy _proactiveBudgetPolicy;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
@@ -49,7 +50,8 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             new AkkaQuartzSchedulerAdapter(),
             TimeProvider.System,
             NoopSchedulerPulseDeliveryStore.Instance,
-            NoopSchedulerPulseDispatcher.Instance)
+            NoopSchedulerPulseDispatcher.Instance,
+            AllowingSchedulerProactiveBudgetPolicy.Instance)
     {
     }
 
@@ -58,7 +60,8 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             quartzAdapter,
             clock,
             NoopSchedulerPulseDeliveryStore.Instance,
-            NoopSchedulerPulseDispatcher.Instance)
+            NoopSchedulerPulseDispatcher.Instance,
+            AllowingSchedulerProactiveBudgetPolicy.Instance)
     {
     }
 
@@ -75,11 +78,27 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         TimeProvider clock,
         ISchedulerPulseDeliveryStore deliveryStore,
         ISchedulerPulseDispatcher pulseDispatcher)
+        : this(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            AllowingSchedulerProactiveBudgetPolicy.Instance)
+    {
+    }
+
+    public SchedulerCoordinator(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy)
     {
         _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
         _deliveryStore = deliveryStore ?? throw new ArgumentNullException(nameof(deliveryStore));
         _pulseDispatcher = pulseDispatcher ?? throw new ArgumentNullException(nameof(pulseDispatcher));
+        _proactiveBudgetPolicy = proactiveBudgetPolicy ?? throw new ArgumentNullException(nameof(proactiveBudgetPolicy));
 
         Receive<ReconcileSchedulerSchedules>(Handle);
         ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
@@ -114,6 +133,19 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             clock,
             deliveryStore,
             pulseDispatcher));
+
+    public static Props Props(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(
+            quartzAdapter,
+            clock,
+            deliveryStore,
+            pulseDispatcher,
+            proactiveBudgetPolicy));
 
     private void Handle(ReconcileSchedulerSchedules command)
     {
@@ -210,6 +242,29 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                     dispatch.FiredAtUtc))
             .ConfigureAwait(false);
 
+        var workingHoursDecision = SchedulerDispatchPolicy.Evaluate(
+            materialization,
+            dispatch,
+            hasAvailableProactiveBudget: true);
+        if (!workingHoursDecision.IsAllowed)
+        {
+            await SkipDispatchAsync(dispatch, workingHoursDecision.Reason!, replyTo).ConfigureAwait(false);
+            return;
+        }
+
+        var hasAvailableProactiveBudget = await _proactiveBudgetPolicy
+            .HasAvailableBudgetAsync(SchedulerProactiveBudgetRequest.From(materialization, dispatch))
+            .ConfigureAwait(false);
+        var budgetDecision = SchedulerDispatchPolicy.Evaluate(
+            materialization,
+            dispatch,
+            hasAvailableProactiveBudget);
+        if (!budgetDecision.IsAllowed)
+        {
+            await SkipDispatchAsync(dispatch, budgetDecision.Reason!, replyTo).ConfigureAwait(false);
+            return;
+        }
+
         try
         {
             await _pulseDispatcher.DeliverAsync(Context, dispatch.Pulse).ConfigureAwait(false);
@@ -236,6 +291,21 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             .ConfigureAwait(false);
         _state = _state.WithPendingDispatch(dispatch);
         replyTo.Tell(SchedulerDispatchResult.Accepted(dispatch));
+    }
+
+    private async Task SkipDispatchAsync(
+        SchedulerScheduleDispatch dispatch,
+        SchedulerPulseDeliveryReason reason,
+        IActorRef replyTo)
+    {
+        await _deliveryStore.MarkSkippedAsync(
+                dispatch.IdempotencyKey,
+                dispatch.FiredAtUtc,
+                reason)
+            .ConfigureAwait(false);
+        replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
+            reason.Code,
+            reason.Message)));
     }
 }
 

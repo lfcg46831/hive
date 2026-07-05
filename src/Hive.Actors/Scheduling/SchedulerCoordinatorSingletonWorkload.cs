@@ -83,11 +83,29 @@ public sealed class SchedulerCoordinatorSingletonWorkload : IRoleWorkload
         ISchedulerPulseDispatcher pulseDispatcher)
         : this(
             system,
+            options,
+            logger,
+            deliveryStore,
+            pulseDispatcher,
+            AllowingSchedulerProactiveBudgetPolicy.Instance)
+    {
+    }
+
+    public SchedulerCoordinatorSingletonWorkload(
+        ActorSystem system,
+        IOptions<HiveOptions> options,
+        ILogger<SchedulerCoordinatorSingletonWorkload> logger,
+        ISchedulerPulseDeliveryStore deliveryStore,
+        ISchedulerPulseDispatcher pulseDispatcher,
+        ISchedulerProactiveBudgetPolicy proactiveBudgetPolicy)
+        : this(
+            system,
             SchedulerCoordinator.Props(
                 new AkkaQuartzSchedulerAdapter(),
                 TimeProvider.System,
                 deliveryStore,
-                pulseDispatcher),
+                pulseDispatcher,
+                proactiveBudgetPolicy),
             options,
             logger)
     {

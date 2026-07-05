@@ -3,7 +3,13 @@ using Akka.Cluster;
 using Hive.Actors;
 using Hive.Actors.Scheduling;
 using Hive.Actors.Sharding;
+using Hive.Domain.Identity;
+using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Scheduling;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Organization.Configuration;
+using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Scheduling;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -62,6 +68,50 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
 
             Assert.Same(managerAfterFirstStart, workload.Manager);
             Assert.Same(proxyAfterFirstStart, workload.Proxy);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Agents_node_uses_configured_delivery_store_for_dispatches()
+    {
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        using var host = BuildHost(
+            GetFreeTcpPort(),
+            roles: [NodeRoleNames.Agents],
+            deliveryStore: deliveryStore);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<SchedulerCoordinatorSingletonWorkload>();
+            await WaitForAsync(() => workload.Proxy is not null, TimeSpan.FromSeconds(20));
+
+            var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+                ExampleConfiguration(),
+                new ScheduleEntryConfiguration(
+                    "daily-report",
+                    "0 55 17 ? * MON-FRI",
+                    "Run daily report")));
+            var reconciliation = await workload.Proxy!.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+            var key = Assert.Single(reconciliation.Materializations).Key;
+            var dispatch = await workload.Proxy.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(key, firedAtUtc),
+                AskTimeout);
+
+            Assert.True(dispatch.IsAccepted, dispatch.Error?.ToString());
+            var persisted = Assert.Single(deliveryStore.Fired);
+            Assert.Equal(dispatch.Dispatch!.IdempotencyKey, persisted.IdempotencyKey);
+            Assert.Equal(dispatch.Dispatch.Pulse.Id, persisted.MessageId);
+            Assert.Equal(dispatch.Dispatch.Pulse.Thread, persisted.ThreadId);
         }
         finally
         {
@@ -145,7 +195,8 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         int port,
         string[] roles,
         TimeSpan? clusterUpTimeout = null,
-        string? seedNode = null)
+        string? seedNode = null,
+        ISchedulerPulseDeliveryStore? deliveryStore = null)
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -174,9 +225,82 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         }
 
         builder.Configuration.AddInMemoryCollection(settings);
+        if (deliveryStore is not null)
+        {
+            builder.Services.AddSingleton(deliveryStore);
+        }
+
         builder.AddHiveBootstrap();
         builder.AddHiveActorSystem();
         return builder.Build();
+    }
+
+    private static OrganizationConfiguration WithDeliveryLeadSchedules(
+        OrganizationConfiguration configuration,
+        params ScheduleEntryConfiguration[] schedules) =>
+        new(
+            configuration.Organization,
+            configuration.Units,
+            configuration.Positions
+                .Select(position => position.Id.Value == "delivery-lead"
+                    ? new PositionConfiguration(
+                        position.Id,
+                        position.Unit,
+                        new OccupantConfiguration(
+                            position.Occupant.Type,
+                            position.Occupant.IdentityPromptRef,
+                            position.Occupant.Ai,
+                            new WorkingHoursConfiguration("09:00", "18:00"),
+                            position.Occupant.Authority,
+                            schedules,
+                            position.Occupant.Subscriptions,
+                            position.Occupant.Tools),
+                        position.ReportsTo,
+                        position.Name,
+                        "Europe/Lisbon")
+                    : position)
+                .ToArray(),
+            configuration.Prompts);
+
+    private static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync(
+        OrganizationConfiguration configuration)
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        var imported = await new OrganizationConfigurationImporter(
+            registry,
+            new ManualTimeProvider(new DateTimeOffset(2026, 7, 4, 9, 0, 0, TimeSpan.Zero)))
+            .ImportAsync(configuration);
+
+        Assert.Equal(OrganizationImportStatus.Applied, imported.Status);
+        return imported.Snapshot!;
+    }
+
+    private static OrganizationConfiguration ExampleConfiguration()
+    {
+        var result = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(RepositoryRoot, "config", "organizations", "acme-delivery", "organization.yaml"));
+
+        Assert.True(result.IsSuccess, string.Join(Environment.NewLine, result.Errors));
+        return result.Configuration!;
+    }
+
+    private static string RepositoryRoot
+    {
+        get
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current is not null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "Hive.sln")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new InvalidOperationException("Could not locate the Hive repository root.");
+        }
     }
 
     private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
@@ -207,5 +331,63 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         {
             listener.Stop();
         }
+    }
+
+    private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
+    }
+
+    private sealed class RecordingSchedulerPulseDeliveryStore : ISchedulerPulseDeliveryStore
+    {
+        private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
+
+        public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
+
+        public Task<SchedulerPulseDeliveryState> RecordFiredAsync(
+            SchedulerPulseDeliveryRecord delivery,
+            CancellationToken cancellationToken = default)
+        {
+            _fired.Add(delivery);
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                delivery.IdempotencyKey,
+                delivery.MessageId,
+                delivery.ThreadId,
+                SchedulerPulseDeliveryStatus.Fired,
+                attemptCount: 1,
+                delivery.OccurredAtUtc,
+                reason: null));
+        }
+
+        public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason? reason = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState> MarkFailedAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState?> FindAsync(
+            PulseIdempotencyKey idempotencyKey,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SchedulerPulseDeliveryHistoryEntry>> ReadHistoryAsync(
+            PulseIdempotencyKey idempotencyKey,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

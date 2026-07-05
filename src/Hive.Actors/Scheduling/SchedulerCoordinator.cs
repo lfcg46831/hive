@@ -38,21 +38,31 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 {
     private readonly ISchedulerQuartzAdapter _quartzAdapter;
     private readonly TimeProvider _clock;
+    private readonly ISchedulerPulseDeliveryStore _deliveryStore;
     private SchedulerCoordinatorState _state = SchedulerCoordinatorState.Empty;
 
     public SchedulerCoordinator()
-        : this(new AkkaQuartzSchedulerAdapter(), TimeProvider.System)
+        : this(new AkkaQuartzSchedulerAdapter(), TimeProvider.System, NoopSchedulerPulseDeliveryStore.Instance)
     {
     }
 
     public SchedulerCoordinator(ISchedulerQuartzAdapter quartzAdapter, TimeProvider clock)
+        : this(quartzAdapter, clock, NoopSchedulerPulseDeliveryStore.Instance)
+    {
+    }
+
+    public SchedulerCoordinator(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore)
     {
         _quartzAdapter = quartzAdapter ?? throw new ArgumentNullException(nameof(quartzAdapter));
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _deliveryStore = deliveryStore ?? throw new ArgumentNullException(nameof(deliveryStore));
 
         Receive<ReconcileSchedulerSchedules>(Handle);
-        Receive<DispatchSchedulerSchedule>(Handle);
-        Receive<SchedulerQuartzScheduleFired>(Handle);
+        ReceiveAsync<DispatchSchedulerSchedule>(HandleAsync);
+        ReceiveAsync<SchedulerQuartzScheduleFired>(HandleAsync);
         Receive<GetSchedulerCoordinatorState>(_ => Sender.Tell(_state));
 
         // Diagnostic identity probe (US-F0-09-T03c): reveals the active singleton instance by
@@ -66,6 +76,12 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
     public static Props Props(ISchedulerQuartzAdapter quartzAdapter, TimeProvider clock) =>
         Akka.Actor.Props.Create(() => new SchedulerCoordinator(quartzAdapter, clock));
+
+    public static Props Props(
+        ISchedulerQuartzAdapter quartzAdapter,
+        TimeProvider clock,
+        ISchedulerPulseDeliveryStore deliveryStore) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinator(quartzAdapter, clock, deliveryStore));
 
     private void Handle(ReconcileSchedulerSchedules command)
     {
@@ -109,22 +125,25 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         Sender.Tell(SchedulerReconciliationResult.Accepted(materializations));
     }
 
-    private void Handle(DispatchSchedulerSchedule command)
+    private Task HandleAsync(DispatchSchedulerSchedule command)
     {
-        Dispatch(command.Key, command.FiredAtUtc);
+        return DispatchAsync(command.Key, command.FiredAtUtc, Sender);
     }
 
-    private void Handle(SchedulerQuartzScheduleFired command)
+    private Task HandleAsync(SchedulerQuartzScheduleFired command)
     {
-        Dispatch(command.Key, _clock.GetUtcNow());
+        return DispatchAsync(command.Key, _clock.GetUtcNow(), Sender);
     }
 
-    private void Dispatch(SchedulerScheduleKey key, DateTimeOffset firedAtUtc)
+    private async Task DispatchAsync(
+        SchedulerScheduleKey key,
+        DateTimeOffset firedAtUtc,
+        IActorRef replyTo)
     {
         var materialization = _state.Materializations.FirstOrDefault(materialization => materialization.Key == key);
         if (materialization is null)
         {
-            Sender.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
+            replyTo.Tell(SchedulerDispatchResult.Rejected(new SchedulerDispatchError(
                 "schedule-not-materialized",
                 $"Schedule '{key.Value}' is not materialized by the coordinator.")));
             return;
@@ -136,7 +155,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                 out var dispatchWindow,
                 out var error))
         {
-            Sender.Tell(SchedulerDispatchResult.Rejected(error!));
+            replyTo.Tell(SchedulerDispatchResult.Rejected(error!));
             return;
         }
 
@@ -151,8 +170,15 @@ internal sealed class SchedulerCoordinator : ReceiveActor
             calculatedWindow.Window,
             calculatedWindow.IdempotencyKey,
             pulse);
+        await _deliveryStore.RecordFiredAsync(
+                new SchedulerPulseDeliveryRecord(
+                    dispatch.IdempotencyKey,
+                    dispatch.Pulse.Id,
+                    dispatch.Pulse.Thread,
+                    dispatch.FiredAtUtc))
+            .ConfigureAwait(false);
         _state = _state.WithPendingDispatch(dispatch);
-        Sender.Tell(SchedulerDispatchResult.Accepted(dispatch));
+        replyTo.Tell(SchedulerDispatchResult.Accepted(dispatch));
     }
 }
 

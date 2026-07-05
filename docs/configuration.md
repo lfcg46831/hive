@@ -399,6 +399,12 @@ The `PositionActor` journal and snapshot store use `Akka.Persistence.Sql` (Linq2
 
 When the connection string is absent the persistence plugins are not wired into the actor system, the migration is skipped, and the node stays not-ready under the existing readiness contract; when it is present, a failed connection or migration aborts host startup, exactly like the registry. The schema name is a durable contract and must not change while journals exist. Binding the versionable serializers for commands, events, and snapshots (no default .NET serialization) is US-F0-06-T05b.
 
+### Scheduler pulse delivery read model
+
+The scheduler pulse delivery read model owns the `scheduler` schema and uses the same `ConnectionStrings:PostgreSql` value (US-F0-09-T07). The common bootstrap applies its embedded, versioned migration before role workloads start. Migration `001_pulse_delivery.sql` creates `scheduler.pulse_deliveries` for the current state keyed by the deterministic pulse idempotency key, `scheduler.pulse_delivery_history` for ordered transition history, and `scheduler.schema_migrations` for the migration ledger. The configured database user must be allowed to create and modify the owned `scheduler` schema; no additional credential is required.
+
+When the connection string is absent the scheduler migration is skipped and the in-process scheduler delivery store is a no-op. When the connection string is present, migration failure aborts host startup like the registry and persistence migrations. The schema name and status values (`Registered`, `Fired`, `Delivered`, `Skipped`, `Failed`, `Redelivered`) are durable contracts for scheduler idempotency and future audit/read-model consumers.
+
 ## Node roles
 
 The canonical values are `agents`, `gateway`, `connectors`, and `api`.

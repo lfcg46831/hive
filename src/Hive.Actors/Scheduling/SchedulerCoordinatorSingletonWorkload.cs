@@ -4,6 +4,7 @@ using Akka.Cluster.Tools.Singleton;
 using Hive.Actors.Sharding;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Scheduling;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -57,6 +58,22 @@ public sealed class SchedulerCoordinatorSingletonWorkload : IRoleWorkload
         IOptions<HiveOptions> options,
         ILogger<SchedulerCoordinatorSingletonWorkload> logger)
         : this(system, SchedulerCoordinator.Props(), options, logger)
+    {
+    }
+
+    public SchedulerCoordinatorSingletonWorkload(
+        ActorSystem system,
+        IOptions<HiveOptions> options,
+        ILogger<SchedulerCoordinatorSingletonWorkload> logger,
+        ISchedulerPulseDeliveryStore deliveryStore)
+        : this(
+            system,
+            SchedulerCoordinator.Props(
+                new AkkaQuartzSchedulerAdapter(),
+                TimeProvider.System,
+                deliveryStore),
+            options,
+            logger)
     {
     }
 

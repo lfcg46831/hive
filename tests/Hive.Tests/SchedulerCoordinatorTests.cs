@@ -866,6 +866,61 @@ public sealed class SchedulerCoordinatorTests
             new LoadedScheduleWorkingHours(new TimeOnly(9, 0), new TimeOnly(18, 0)));
     }
 
+    [Fact]
+    public async Task Dispatch_persists_accepted_delivery_state_and_skips_rejections()
+    {
+        var snapshot = await ImportedSnapshotAsync(WithDeliveryLeadSchedules(
+            ExampleConfiguration(),
+            new ScheduleEntryConfiguration(
+                "daily-report",
+                "0 55 17 ? * MON-FRI",
+                "Run daily report")));
+        var firedAtUtc = new DateTimeOffset(2026, 7, 3, 17, 10, 0, TimeSpan.Zero);
+        var deliveryStore = new RecordingSchedulerPulseDeliveryStore();
+        var system = ActorSystem.Create("scheduler-coordinator-delivery-store");
+        try
+        {
+            var coordinator = system.ActorOf(
+                SchedulerCoordinator.Props(
+                    NoopSchedulerQuartzAdapter.Instance,
+                    TimeProvider.System,
+                    deliveryStore),
+                "scheduler-coordinator-delivery-store");
+            var reconciliation = await coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+            Assert.True(reconciliation.IsAccepted, string.Join(Environment.NewLine, reconciliation.Errors));
+
+            var unknown = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(
+                    SchedulerScheduleKey.From(
+                        OrganizationId.From("acme-delivery"),
+                        PositionId.From("delivery-lead"),
+                        ScheduleId.From("missing-report")),
+                    firedAtUtc),
+                AskTimeout);
+
+            Assert.False(unknown.IsAccepted);
+            Assert.Empty(deliveryStore.Fired);
+
+            var knownKey = Assert.Single(reconciliation.Materializations).Key;
+            var accepted = await coordinator.Ask<SchedulerDispatchResult>(
+                new DispatchSchedulerSchedule(knownKey, firedAtUtc),
+                AskTimeout);
+
+            Assert.True(accepted.IsAccepted, accepted.Error?.ToString());
+            var persisted = Assert.Single(deliveryStore.Fired);
+            Assert.Equal(accepted.Dispatch!.IdempotencyKey, persisted.IdempotencyKey);
+            Assert.Equal(accepted.Dispatch.Pulse.Id, persisted.MessageId);
+            Assert.Equal(accepted.Dispatch.Pulse.Thread, persisted.ThreadId);
+            Assert.Equal(firedAtUtc, persisted.OccurredAtUtc);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static Pulse BuildSchedulerPulse(
         SchedulerScheduleMaterialization materialization,
         DateTimeOffset firedAtUtc,
@@ -889,5 +944,58 @@ public sealed class SchedulerCoordinatorTests
         {
             _jobs[job.Identity] = job;
         }
+    }
+
+    private sealed class RecordingSchedulerPulseDeliveryStore : ISchedulerPulseDeliveryStore
+    {
+        private readonly List<SchedulerPulseDeliveryRecord> _fired = [];
+
+        public IReadOnlyList<SchedulerPulseDeliveryRecord> Fired => _fired;
+
+        public Task<SchedulerPulseDeliveryState> RecordFiredAsync(
+            SchedulerPulseDeliveryRecord delivery,
+            CancellationToken cancellationToken = default)
+        {
+            _fired.Add(delivery);
+            return Task.FromResult(new SchedulerPulseDeliveryState(
+                delivery.IdempotencyKey,
+                delivery.MessageId,
+                delivery.ThreadId,
+                SchedulerPulseDeliveryStatus.Fired,
+                attemptCount: 1,
+                delivery.OccurredAtUtc,
+                reason: null));
+        }
+
+        public Task<SchedulerPulseDeliveryState> MarkDeliveredAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason? reason = null,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState> MarkSkippedAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState> MarkFailedAsync(
+            PulseIdempotencyKey idempotencyKey,
+            DateTimeOffset occurredAtUtc,
+            SchedulerPulseDeliveryReason reason,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<SchedulerPulseDeliveryState?> FindAsync(
+            PulseIdempotencyKey idempotencyKey,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<SchedulerPulseDeliveryHistoryEntry>> ReadHistoryAsync(
+            PulseIdempotencyKey idempotencyKey,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

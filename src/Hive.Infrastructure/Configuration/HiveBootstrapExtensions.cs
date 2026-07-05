@@ -6,6 +6,8 @@ using Hive.Infrastructure.Logging;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Hive.Infrastructure.Persistence.PostgreSql;
+using Hive.Infrastructure.Scheduling;
+using Hive.Infrastructure.Scheduling.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -45,9 +47,20 @@ public static class HiveBootstrapExtensions
                 ? new UnavailablePositionConfigurationProvider(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlPositionConfigurationProvider(connectionString, organizationsRoot);
         });
+        builder.Services.TryAddSingleton<ISchedulerPulseDeliveryStore>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? NoopSchedulerPulseDeliveryStore.Instance
+                : new PostgreSqlSchedulerPulseDeliveryStore(connectionString);
+        });
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryImportHostedService>();
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();
+        builder.Services.AddHostedService<PostgreSqlSchedulerPulseDeliveryMigrationHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

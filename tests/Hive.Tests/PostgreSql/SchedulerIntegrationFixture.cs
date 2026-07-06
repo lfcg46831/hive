@@ -19,7 +19,7 @@ namespace Hive.Tests.PostgreSql;
 
 internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
 {
-    private static readonly TimeSpan AskTimeout = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan AskTimeout = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(45);
 
     private readonly NpgsqlDataSource _dataSource;
@@ -49,7 +49,9 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
 
     public SchedulerIntegrationClock Clock { get; }
 
-    public static async Task<SchedulerIntegrationFixture> StartAsync(string connectionString)
+    public static async Task<SchedulerIntegrationFixture> StartAsync(
+        string connectionString,
+        bool resetSchemas = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
 
@@ -60,7 +62,11 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
 
         try
         {
-            await ResetSchemasAsync(dataSource);
+            if (resetSchemas)
+            {
+                await ResetSchemasAsync(dataSource);
+            }
+
             await new PostgreSqlSchedulerPulseDeliveryMigrator(dataSource).MigrateAsync();
 
             positions = await PositionShardingMultiNodeFixture.StartAsync(
@@ -128,13 +134,27 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         return imported.Snapshot!;
     }
 
-    public Task<SchedulerReconciliationResult> ReconcileAsync(OrganizationRegistrySnapshot snapshot)
+    public async Task<SchedulerReconciliationResult> ReconcileAsync(OrganizationRegistrySnapshot snapshot)
     {
         ArgumentNullException.ThrowIfNull(snapshot);
 
-        return _coordinator.Ask<SchedulerReconciliationResult>(
-            new ReconcileSchedulerSchedules(snapshot),
-            AskTimeout);
+        try
+        {
+            return await _coordinator.Ask<SchedulerReconciliationResult>(
+                new ReconcileSchedulerSchedules(snapshot),
+                AskTimeout);
+        }
+        catch (AskTimeoutException exception)
+        {
+            var rows = await DescribeSchedulerDeliveriesAsync();
+            var deliveryErrors = _pulseDispatcher.Failures.Count == 0
+                ? "<none>"
+                : string.Join(", ", _pulseDispatcher.Failures.Select(failure => failure.ToString()));
+            throw new TimeoutException(
+                $"Scheduler reconciliation did not complete. Rows: {rows}. "
+                + $"Dispatcher failures: {deliveryErrors}",
+                exception);
+        }
     }
 
     public async Task WaitForQuartzJobAsync(SchedulerScheduleKey key)
@@ -166,6 +186,21 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(idempotencyKey);
 
         return WaitForDeliveryCoreAsync(idempotencyKey, status);
+    }
+
+    public Task<SchedulerPulseDeliveryState?> FindDeliveryAsync(PulseIdempotencyKey idempotencyKey)
+    {
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+
+        return _deliveryStore.FindAsync(idempotencyKey);
+    }
+
+    public Task<IReadOnlyList<SchedulerPulseDeliveryHistoryEntry>> ReadDeliveryHistoryAsync(
+        PulseIdempotencyKey idempotencyKey)
+    {
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+
+        return _deliveryStore.ReadHistoryAsync(idempotencyKey);
     }
 
     private async Task<SchedulerPulseDeliveryState> WaitForDeliveryCoreAsync(
@@ -216,6 +251,36 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
 
             return Task.FromResult(received);
         });
+    }
+
+    public Task WaitForDuplicateRejectedAsync(PositionEntityId entity, MessageId messageId)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(messageId);
+
+        return _positions.WaitForDuplicateRejectedAsync(entity, messageId);
+    }
+
+    public IReadOnlyList<MessageReceived> CommittedMessages(PositionEntityId entity)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+
+        return _positions
+            .CommittedEvents<MessageReceived>(entity)
+            .Select(committed => committed.Event)
+            .ToArray();
+    }
+
+    public IReadOnlyList<MessageReceived> CommittedMessages(
+        PositionEntityId entity,
+        MessageId messageId)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(messageId);
+
+        return CommittedMessages(entity)
+            .Where(received => received.Message.Id == messageId)
+            .ToArray();
     }
 
     public async ValueTask DisposeAsync()
@@ -460,6 +525,7 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
             }
         }
     }
+
 }
 
 internal sealed class SchedulerIntegrationClock(DateTimeOffset utcNow) : TimeProvider

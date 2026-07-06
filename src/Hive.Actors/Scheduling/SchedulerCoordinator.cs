@@ -222,6 +222,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
     private async Task HandleAsync(ReconcileSchedulerSchedules command)
     {
         var replyTo = Sender;
+        var actorContext = Context;
         var occurredAtUtc = _clock.GetUtcNow();
         var loaded = RegistryScheduleLoader.Load(command.Snapshot);
         if (!loaded.IsValid)
@@ -274,7 +275,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
         foreach (var materialization in materializations)
         {
-            await EvaluateMissedWindowAsync(materialization, nowUtc).ConfigureAwait(false);
+            await EvaluateMissedWindowAsync(materialization, nowUtc, actorContext).ConfigureAwait(false);
         }
 
         _reconciliationAudit.Publish(SchedulerReconciliationAuditRecord.Accepted(
@@ -358,12 +359,30 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         }
 
         var calculatedWindow = dispatchWindow!;
+        await DispatchResolvedAsync(
+                actorContext,
+                materialization,
+                firedAtUtc,
+                calculatedWindow,
+                replyTo,
+                source)
+            .ConfigureAwait(false);
+    }
+
+    private async Task DispatchResolvedAsync(
+        IActorContext actorContext,
+        SchedulerScheduleMaterialization materialization,
+        DateTimeOffset firedAtUtc,
+        SchedulerScheduleDispatchWindow calculatedWindow,
+        IActorRef replyTo,
+        SchedulerLifecycleAuditSource source)
+    {
         var pulse = SchedulerPulseFactory.Build(
             materialization,
             firedAtUtc,
             calculatedWindow.IdempotencyKey);
         var dispatch = new SchedulerScheduleDispatch(
-            key,
+            materialization.Key,
             firedAtUtc,
             calculatedWindow.Window,
             calculatedWindow.IdempotencyKey,
@@ -473,7 +492,8 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
     private async Task EvaluateMissedWindowAsync(
         SchedulerScheduleMaterialization materialization,
-        DateTimeOffset nowUtc)
+        DateTimeOffset nowUtc,
+        IActorContext actorContext)
     {
         if (!SchedulerMissedWindowEvaluator.TryResolveCandidate(
                 materialization,
@@ -510,9 +530,11 @@ internal sealed class SchedulerCoordinator : ReceiveActor
                 materialization.Key,
                 catchUpDelivery,
                 SchedulerLifecycleAuditSource.CatchUp));
-            await DispatchAsync(
-                    materialization.Key,
+            await DispatchResolvedAsync(
+                    actorContext,
+                    materialization,
                     nowUtc,
+                    decision.DispatchWindow,
                     ActorRefs.Nobody,
                     SchedulerLifecycleAuditSource.CatchUp)
                 .ConfigureAwait(false);

@@ -337,6 +337,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
         IActorRef replyTo,
         SchedulerLifecycleAuditSource source)
     {
+        var actorContext = Context;
         var materialization = _state.Materializations.FirstOrDefault(materialization => materialization.Key == key);
         if (materialization is null)
         {
@@ -408,7 +409,7 @@ internal sealed class SchedulerCoordinator : ReceiveActor
 
         try
         {
-            await _pulseDispatcher.DeliverAsync(Context, dispatch.Pulse).ConfigureAwait(false);
+            await _pulseDispatcher.DeliverAsync(actorContext, dispatch.Pulse).ConfigureAwait(false);
         }
         catch (Exception)
         {

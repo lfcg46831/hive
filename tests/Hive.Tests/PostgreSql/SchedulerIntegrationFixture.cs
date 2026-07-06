@@ -14,6 +14,7 @@ using Hive.Infrastructure.Scheduling.PostgreSql;
 using Npgsql;
 using Quartz;
 using Quartz.Impl;
+using Quartz.Impl.Matchers;
 
 namespace Hive.Tests.PostgreSql;
 
@@ -27,6 +28,7 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
     private readonly PositionShardingMultiNodeFixture _positions;
     private readonly Quartz.IScheduler _quartzScheduler;
     private readonly CapturingSchedulerPulseDispatcher _pulseDispatcher;
+    private readonly RecordingSchedulerLifecycleAuditSink _lifecycleAudit;
     private readonly IActorRef _coordinator;
 
     private SchedulerIntegrationFixture(
@@ -35,6 +37,7 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         PositionShardingMultiNodeFixture positions,
         Quartz.IScheduler quartzScheduler,
         CapturingSchedulerPulseDispatcher pulseDispatcher,
+        RecordingSchedulerLifecycleAuditSink lifecycleAudit,
         IActorRef coordinator,
         SchedulerIntegrationClock clock)
     {
@@ -43,11 +46,14 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         _positions = positions;
         _quartzScheduler = quartzScheduler;
         _pulseDispatcher = pulseDispatcher;
+        _lifecycleAudit = lifecycleAudit;
         _coordinator = coordinator;
         Clock = clock;
     }
 
     public SchedulerIntegrationClock Clock { get; }
+
+    public IReadOnlyList<SchedulerLifecycleAuditRecord> LifecycleAuditRecords => _lifecycleAudit.Records;
 
     public static async Task<SchedulerIntegrationFixture> StartAsync(
         string connectionString,
@@ -78,12 +84,16 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
                 new DateTimeOffset(2026, 7, 3, 16, 50, 0, TimeSpan.Zero));
             var pulseDispatcher = new CapturingSchedulerPulseDispatcher(
                 AkkaClusterShardingSchedulerPulseDispatcher.Instance);
+            var lifecycleAudit = new RecordingSchedulerLifecycleAuditSink();
             var coordinator = positions.AgentNodes[0].System.ActorOf(
                 SchedulerCoordinator.Props(
                     new InjectedQuartzSchedulerAdapter(quartzScheduler),
                     clock,
                     deliveryStore,
-                    pulseDispatcher),
+                    pulseDispatcher,
+                    AllowingSchedulerProactiveBudgetPolicy.Instance,
+                    NoopSchedulerReconciliationAuditSink.Instance,
+                    lifecycleAudit),
                 $"scheduler-integration-{Guid.NewGuid():N}");
 
             return new SchedulerIntegrationFixture(
@@ -92,6 +102,7 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
                 positions,
                 quartzScheduler,
                 pulseDispatcher,
+                lifecycleAudit,
                 coordinator,
                 clock);
         }
@@ -119,16 +130,27 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
 
     public static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync(
         ScheduleEntryConfiguration schedule,
+        DateTimeOffset importAtUtc) =>
+        await ImportedSnapshotAsync([schedule], importAtUtc);
+
+    public static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync(
+        ScheduleEntryConfiguration firstSchedule,
+        ScheduleEntryConfiguration secondSchedule,
+        DateTimeOffset importAtUtc) =>
+        await ImportedSnapshotAsync([firstSchedule, secondSchedule], importAtUtc);
+
+    public static async Task<OrganizationRegistrySnapshot> ImportedSnapshotAsync(
+        IReadOnlyCollection<ScheduleEntryConfiguration> schedules,
         DateTimeOffset importAtUtc)
     {
-        ArgumentNullException.ThrowIfNull(schedule);
+        ArgumentNullException.ThrowIfNull(schedules);
         RequireUtc(importAtUtc, nameof(importAtUtc));
 
         var registry = new InMemoryOrganizationRegistry();
         var imported = await new OrganizationConfigurationImporter(
                 registry,
                 new SchedulerIntegrationClock(importAtUtc))
-            .ImportAsync(WithDeliveryLeadSchedules(ExampleConfiguration(), schedule));
+            .ImportAsync(WithDeliveryLeadSchedules(ExampleConfiguration(), schedules.ToArray()));
 
         Assert.Equal(OrganizationImportStatus.Applied, imported.Status);
         return imported.Snapshot!;
@@ -170,6 +192,26 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
             && await _quartzScheduler.CheckExists(triggerKey));
     }
 
+    public async Task<IReadOnlyList<JobKey>> ReadQuartzJobKeysAsync()
+    {
+        var keys = await _quartzScheduler.GetJobKeys(
+            GroupMatcher<JobKey>.GroupEquals(SchedulerQuartzIdentity.JobGroupName));
+        return keys
+            .OrderBy(key => key.Group, StringComparer.Ordinal)
+            .ThenBy(key => key.Name, StringComparer.Ordinal)
+            .ToArray();
+    }
+
+    public async Task<IReadOnlyList<TriggerKey>> ReadQuartzTriggerKeysAsync()
+    {
+        var keys = await _quartzScheduler.GetTriggerKeys(
+            GroupMatcher<TriggerKey>.GroupEquals(SchedulerQuartzIdentity.TriggerGroupName));
+        return keys
+            .OrderBy(key => key.Group, StringComparer.Ordinal)
+            .ThenBy(key => key.Name, StringComparer.Ordinal)
+            .ToArray();
+    }
+
     public async Task TriggerQuartzAsync(SchedulerScheduleKey key)
     {
         ArgumentNullException.ThrowIfNull(key);
@@ -186,6 +228,23 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(idempotencyKey);
 
         return WaitForDeliveryCoreAsync(idempotencyKey, status);
+    }
+
+    public Task<SchedulerPulseDeliveryState> WaitForDeliveryAttemptAsync(
+        PulseIdempotencyKey idempotencyKey,
+        SchedulerPulseDeliveryStatus status,
+        int attemptCount)
+    {
+        ArgumentNullException.ThrowIfNull(idempotencyKey);
+        if (attemptCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(attemptCount),
+                attemptCount,
+                "Attempt count must be positive.");
+        }
+
+        return WaitForDeliveryAttemptCoreAsync(idempotencyKey, status, attemptCount);
     }
 
     public Task<SchedulerPulseDeliveryState?> FindDeliveryAsync(PulseIdempotencyKey idempotencyKey)
@@ -235,6 +294,40 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
             + $"Dispatcher failures: {deliveryErrors}");
     }
 
+    private async Task<SchedulerPulseDeliveryState> WaitForDeliveryAttemptCoreAsync(
+        PulseIdempotencyKey idempotencyKey,
+        SchedulerPulseDeliveryStatus status,
+        int attemptCount)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await _deliveryStore.FindAsync(idempotencyKey);
+            if (state?.Status == status && state.AttemptCount == attemptCount)
+            {
+                return state;
+            }
+
+            await Task.Delay(100);
+        }
+
+        var coordinatorState = await _coordinator.Ask<SchedulerCoordinatorState>(
+            GetSchedulerCoordinatorState.Instance,
+            AskTimeout);
+        var rows = await DescribeSchedulerDeliveriesAsync();
+        var history = await DescribeSchedulerDeliveryHistoryAsync(idempotencyKey);
+        var deliveryErrors = _pulseDispatcher.Failures.Count == 0
+            ? "<none>"
+            : string.Join(", ", _pulseDispatcher.Failures.Select(failure => failure.ToString()));
+        throw new TimeoutException(
+            $"Delivery '{idempotencyKey.Value}' did not reach status '{status}' "
+            + $"with attempt count '{attemptCount}'. "
+            + $"Pending dispatches: {coordinatorState.PendingDispatches.Length}. "
+            + $"Rows: {rows}. "
+            + $"History: {history}. "
+            + $"Dispatcher failures: {deliveryErrors}");
+    }
+
     public Task<MessageReceived> WaitForMessageReceivedAsync(
         PositionEntityId entity,
         MessageId messageId)
@@ -259,6 +352,31 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(messageId);
 
         return _positions.WaitForDuplicateRejectedAsync(entity, messageId);
+    }
+
+    public Task WaitForDuplicateRejectedCountAsync(
+        PositionEntityId entity,
+        MessageId messageId,
+        int expectedCount)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(messageId);
+        if (expectedCount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(expectedCount),
+                expectedCount,
+                "Expected count must be positive.");
+        }
+
+        return WaitForAsync(() =>
+        {
+            var count = _positions
+                .ProjectionEvents<PositionMessageDuplicateRejected>(entity)
+                .Count(rejected => rejected.Message == messageId);
+
+            return Task.FromResult(count >= expectedCount);
+        });
     }
 
     public IReadOnlyList<MessageReceived> CommittedMessages(PositionEntityId entity)
@@ -522,6 +640,33 @@ internal sealed class SchedulerIntegrationFixture : IAsyncDisposable
                 }
 
                 throw;
+            }
+        }
+    }
+
+    private sealed class RecordingSchedulerLifecycleAuditSink : ISchedulerLifecycleAuditSink
+    {
+        private readonly object _gate = new();
+        private readonly List<SchedulerLifecycleAuditRecord> _records = [];
+
+        public IReadOnlyList<SchedulerLifecycleAuditRecord> Records
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _records.ToArray();
+                }
+            }
+        }
+
+        public void Publish(SchedulerLifecycleAuditRecord record)
+        {
+            ArgumentNullException.ThrowIfNull(record);
+
+            lock (_gate)
+            {
+                _records.Add(record);
             }
         }
     }

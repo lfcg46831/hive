@@ -17,6 +17,7 @@ internal sealed record AiDirectiveExecutionContext
         string? identityPromptRef,
         IdentityPromptRuntimeConfiguration? identityPrompt,
         AiDirectiveExecutionDirective directive,
+        AiDirectiveTaskState taskState,
         AiDirectiveExecutionRelation relation,
         AiDirectiveExecutionAuthority authority,
         ImmutableArray<AiDirectiveExecutionTool> authorizedTools,
@@ -38,6 +39,7 @@ internal sealed record AiDirectiveExecutionContext
             : AiAgentGatewayText.Require(identityPromptRef, nameof(identityPromptRef));
         IdentityPrompt = identityPrompt;
         Directive = directive ?? throw new ArgumentNullException(nameof(directive));
+        TaskState = taskState ?? throw new ArgumentNullException(nameof(taskState));
         Relation = relation ?? throw new ArgumentNullException(nameof(relation));
         Authority = authority ?? throw new ArgumentNullException(nameof(authority));
         AuthorizedTools = RequireItems(authorizedTools, nameof(authorizedTools));
@@ -64,6 +66,8 @@ internal sealed record AiDirectiveExecutionContext
     public IdentityPromptRuntimeConfiguration? IdentityPrompt { get; }
 
     public AiDirectiveExecutionDirective Directive { get; }
+
+    public AiDirectiveTaskState TaskState { get; }
 
     public AiDirectiveExecutionRelation Relation { get; }
 
@@ -99,6 +103,7 @@ internal sealed record AiDirectiveExecutionContext
             request.RuntimeContext.OccupantConfiguration.IdentityPromptRef,
             request.RuntimeContext.OccupantConfiguration.IdentityPrompt,
             AiDirectiveExecutionDirective.FromDirective(request.Directive),
+            request.TaskState,
             new AiDirectiveExecutionRelation(
                 request.RuntimeContext.Position.Unit,
                 request.RuntimeContext.Position.ReportsTo,

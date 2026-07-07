@@ -97,7 +97,7 @@ public sealed class PositionActorDispatchTests
             "Investigate regression",
             Priority.High,
             At,
-            causedBy: previousMessage);
+            causedBy: directive.Id);
         var aiGateway = new AiPositionRuntimeConfiguration(
             new AiProviderMetadata("stub", "triage"),
             new AiModelParameters(maxOutputTokens: 700),
@@ -159,6 +159,9 @@ public sealed class PositionActorDispatchTests
             Assert.Equal("contoso", request.PersistedContext.ShortMemory["recent-customer"]);
             Assert.Equal(new[] { task }, request.PersistedContext.OpenTasks);
             Assert.Equal(new[] { previousMessage, directive.Id }, request.PersistedContext.RecentHistory);
+            Assert.Equal(AiDirectiveTaskStateStatus.Open, request.TaskState.Status);
+            Assert.Same(task, request.TaskState.Task);
+            Assert.Equal(new[] { task }, request.TaskState.Matches);
             Assert.Empty(state.Inbox);
             Assert.Equal(new[] { previousMessage, directive.Id }, state.RecentHistory);
             Assert.Contains(directive.Id, state.ProcessedMessages);

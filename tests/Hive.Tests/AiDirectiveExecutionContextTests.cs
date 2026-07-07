@@ -101,6 +101,19 @@ public sealed class AiDirectiveExecutionContextTests
     }
 
     [Fact]
+    public void From_preserves_task_state_from_processing_request()
+    {
+        var request = Request(includeOptionalContext: true, taskCausedByDirective: true);
+
+        var context = AiDirectiveExecutionContext.From(request);
+
+        Assert.Equal(request.TaskState, context.TaskState);
+        Assert.Equal(AiDirectiveTaskStateStatus.Open, context.TaskState.Status);
+        Assert.NotNull(context.TaskState.Task);
+        Assert.Equal(request.Directive.Id, context.TaskState.Task!.CausedBy);
+    }
+
+    [Fact]
     public async Task AiAgentActor_assembles_context_before_advancing_snapshot_to_result_emitted()
     {
         var request = Request(includeOptionalContext: true);
@@ -190,7 +203,9 @@ public sealed class AiDirectiveExecutionContextTests
         throw new TimeoutException("AI directive execution context was not assembled.");
     }
 
-    private static AiDirectiveProcessingRequest Request(bool includeOptionalContext)
+    private static AiDirectiveProcessingRequest Request(
+        bool includeOptionalContext,
+        bool taskCausedByDirective = false)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -264,7 +279,8 @@ public sealed class AiDirectiveExecutionContextTests
                         directive.Thread,
                         "Second task",
                         Priority.Normal,
-                        At),
+                        At,
+                        causedBy: taskCausedByDirective ? directive.Id : null),
                     new PersistedTask(
                         PositionTaskId.From(Guid.Parse("00000000-0000-0000-0000-000000000001")),
                         directive.Thread,

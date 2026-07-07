@@ -14,12 +14,14 @@ internal sealed record AiDirectiveProcessingRequest
         Directive directive,
         AiDirectiveProcessingLimits limits,
         AiDirectivePersistedContext persistedContext,
+        AiDirectiveTaskState taskState,
         string correlationId)
     {
         RuntimeContext = runtimeContext ?? throw new ArgumentNullException(nameof(runtimeContext));
         Directive = directive ?? throw new ArgumentNullException(nameof(directive));
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
         PersistedContext = persistedContext ?? throw new ArgumentNullException(nameof(persistedContext));
+        TaskState = taskState ?? throw new ArgumentNullException(nameof(taskState));
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
     }
 
@@ -30,6 +32,8 @@ internal sealed record AiDirectiveProcessingRequest
     public AiDirectiveProcessingLimits Limits { get; }
 
     public AiDirectivePersistedContext PersistedContext { get; }
+
+    public AiDirectiveTaskState TaskState { get; }
 
     public string CorrelationId { get; }
 
@@ -75,6 +79,7 @@ internal sealed record AiDirectiveProcessingRequest
             directive,
             AiDirectiveProcessingLimits.From(runtimeConfiguration.Occupant.AiGateway),
             AiDirectivePersistedContext.From(persistedState),
+            AiDirectiveTaskState.From(directive, persistedState),
             CreateCorrelationId(directive));
     }
 
@@ -269,6 +274,100 @@ internal sealed record AiDirectivePersistedContext
         {
             throw new ArgumentException(
                 "Value cannot contain leading or trailing whitespace.",
+                parameterName);
+        }
+
+        return value;
+    }
+}
+
+internal enum AiDirectiveTaskStateStatus
+{
+    None = 0,
+    Open = 1,
+    Ambiguous = 2,
+}
+
+internal sealed record AiDirectiveTaskState
+{
+    private AiDirectiveTaskState(
+        AiDirectiveTaskStateStatus status,
+        ImmutableArray<PersistedTask> matches)
+    {
+        Status = RequireDefined(status, nameof(status));
+        Matches = RequireMatches(status, matches);
+    }
+
+    public AiDirectiveTaskStateStatus Status { get; }
+
+    public ImmutableArray<PersistedTask> Matches { get; }
+
+    public PersistedTask? Task =>
+        Status == AiDirectiveTaskStateStatus.Open ? Matches[0] : null;
+
+    public static AiDirectiveTaskState From(
+        Directive directive,
+        PositionState state)
+    {
+        ArgumentNullException.ThrowIfNull(directive);
+        ArgumentNullException.ThrowIfNull(state);
+
+        var matches = state.OpenTasks.Values
+            .Where(task => task.CausedBy == directive.Id)
+            .OrderBy(task => task.TaskId.Value)
+            .ToImmutableArray();
+
+        return matches.Length switch
+        {
+            0 => new AiDirectiveTaskState(
+                AiDirectiveTaskStateStatus.None,
+                ImmutableArray<PersistedTask>.Empty),
+            1 => new AiDirectiveTaskState(
+                AiDirectiveTaskStateStatus.Open,
+                matches),
+            _ => new AiDirectiveTaskState(
+                AiDirectiveTaskStateStatus.Ambiguous,
+                matches),
+        };
+    }
+
+    private static ImmutableArray<PersistedTask> RequireMatches(
+        AiDirectiveTaskStateStatus status,
+        ImmutableArray<PersistedTask> matches)
+    {
+        if (matches.IsDefault)
+        {
+            throw new ArgumentException("Task-state matches cannot be default.", nameof(matches));
+        }
+
+        foreach (var match in matches)
+        {
+            if (match is null)
+            {
+                throw new ArgumentException(
+                    "Task-state matches cannot contain null entries.",
+                    nameof(matches));
+            }
+        }
+
+        return status switch
+        {
+            AiDirectiveTaskStateStatus.None when matches.IsEmpty => matches,
+            AiDirectiveTaskStateStatus.Open when matches.Length == 1 => matches,
+            AiDirectiveTaskStateStatus.Ambiguous when matches.Length > 1 => matches,
+            _ => throw new ArgumentException(
+                "Task-state status must match the number of matching open tasks.",
+                nameof(matches)),
+        };
+    }
+
+    private static TEnum RequireDefined<TEnum>(TEnum value, string parameterName)
+        where TEnum : struct, Enum
+    {
+        if (!Enum.IsDefined(value))
+        {
+            throw new ArgumentException(
+                $"Value '{value}' is not a defined {typeof(TEnum).Name}.",
                 parameterName);
         }
 

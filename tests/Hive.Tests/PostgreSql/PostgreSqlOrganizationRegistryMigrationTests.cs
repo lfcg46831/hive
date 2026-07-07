@@ -157,7 +157,7 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
         Assert.Equal("acme-delivery", reader.GetString(0));
         Assert.Equal(1, reader.GetInt64(1));
         Assert.Equal(2, reader.GetInt64(2));
-        Assert.Equal(2, reader.GetInt64(3));
+        Assert.Equal(3, reader.GetInt64(3));
         Assert.Equal(1, reader.GetInt64(4));
         Assert.False(await reader.ReadAsync());
 

@@ -76,6 +76,46 @@ public sealed class PositionConfigurationProviderTests
     }
 
     [Fact]
+    public async Task Provider_loads_vertical_slice_triage_position_runtime_configuration()
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        var imported = await new OrganizationConfigurationImporter(
+            registry,
+            new ManualTimeProvider(ImportAt))
+            .ImportAsync(ExampleConfiguration());
+        var entityId = PositionEntityId.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("bug-triage"));
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(registry);
+
+        var result = await provider.LoadAsync(entityId, CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Loaded, result.Status);
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        Assert.Equal(imported.Snapshot!.Version, configuration.Stamp.Version);
+        Assert.Equal(entityId.Organization, configuration.OrganizationId);
+        Assert.Equal(entityId.Position, configuration.PositionId);
+        Assert.Equal(UnitId.From("engenharia"), configuration.Position.Unit);
+        Assert.Equal(PositionId.From("delivery-lead"), configuration.Position.ReportsTo);
+        Assert.Equal("Bug Triage", configuration.Position.Name);
+        Assert.Equal("Europe/Lisbon", configuration.Position.Timezone);
+        Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
+        Assert.Equal("triage-v1", configuration.Occupant.IdentityPromptRef);
+        Assert.NotNull(configuration.Occupant.IdentityPrompt);
+        Assert.Equal("triage-v1", configuration.Occupant.IdentityPrompt.Id);
+        Assert.Equal("prompts/triage-v1.md", configuration.Occupant.IdentityPrompt.Path);
+        Assert.Contains("Example bug triage facts", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
+        var aiGateway = configuration.Occupant.AiGateway;
+        Assert.NotNull(aiGateway);
+        Assert.Equal("stub", aiGateway.Primary.ProviderId);
+        Assert.Equal("deterministic", aiGateway.Primary.ModelId);
+        Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
+        Assert.Equal(["delivery.bug-triage"], configuration.Authority.CanDecide.Select(key => key.Value));
+        Assert.Empty(configuration.Authority.Overrides);
+        Assert.Empty(configuration.Schedules);
+    }
+
+    [Fact]
     public async Task Provider_returns_missing_for_confirmed_absence_in_registry()
     {
         var registry = new InMemoryOrganizationRegistry();

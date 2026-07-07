@@ -4,8 +4,8 @@ public static class AcmeDeliveryDemoDirectiveClient
 {
     private const string OrganizationId = "acme-delivery";
     private const string SubmissionBasePath = "/api/v1/organizations";
-    private const string SourcePositionId = "ceo";
-    private const string DestinationPositionId = "delivery-lead";
+    private const string SourcePositionId = "delivery-lead";
+    private const string DestinationPositionId = "bug-triage";
 
     private const string Objective =
         "Triage the submitted production issue and report severity, missing information, and next action.";

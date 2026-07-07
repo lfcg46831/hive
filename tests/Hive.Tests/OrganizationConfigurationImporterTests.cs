@@ -33,9 +33,9 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.StartsWith("sha256:", snapshot.Fingerprint, StringComparison.Ordinal);
         Assert.Equal(FirstImportAt, snapshot.ImportedAt);
         Assert.Equal(2, snapshot.Units.Count);
-        Assert.Equal(2, snapshot.Positions.Count);
-        Assert.Equal(2, snapshot.Occupants.Count);
-        Assert.Equal(2, snapshot.Authorities.Count);
+        Assert.Equal(3, snapshot.Positions.Count);
+        Assert.Equal(3, snapshot.Occupants.Count);
+        Assert.Equal(3, snapshot.Authorities.Count);
         Assert.Single(snapshot.Schedules);
         var schedule = Assert.Single(snapshot.Schedules).Value.Value;
         Assert.True(schedule.IsActive);
@@ -49,10 +49,13 @@ public sealed class OrganizationConfigurationImporterTests
                 (RegistryEntityKind.Organization, "acme-delivery"),
                 (RegistryEntityKind.Unit, "engenharia"),
                 (RegistryEntityKind.Unit, "raiz"),
+                (RegistryEntityKind.Position, "bug-triage"),
                 (RegistryEntityKind.Position, "ceo"),
                 (RegistryEntityKind.Position, "delivery-lead"),
+                (RegistryEntityKind.Occupant, "bug-triage"),
                 (RegistryEntityKind.Occupant, "ceo"),
                 (RegistryEntityKind.Occupant, "delivery-lead"),
+                (RegistryEntityKind.Authority, "bug-triage"),
                 (RegistryEntityKind.Authority, "ceo"),
                 (RegistryEntityKind.Authority, "delivery-lead"),
                 (RegistryEntityKind.Schedule, "delivery-lead/relatorio-diario"),
@@ -243,11 +246,15 @@ public sealed class OrganizationConfigurationImporterTests
         await new OrganizationConfigurationImporter(registry).ImportAsync(configuration);
         IOrganizationRelations relations = registry;
         var organizationId = configuration.Organization.Id;
+        var bugTriage = PositionId.From("bug-triage");
         var deliveryLead = PositionId.From("delivery-lead");
 
         Assert.Equal(
             PositionId.From("ceo"),
             await relations.GetDirectSuperiorAsync(organizationId, deliveryLead));
+        Assert.Equal(
+            deliveryLead,
+            await relations.GetDirectSuperiorAsync(organizationId, bugTriage));
         Assert.Equal(
             UnitId.From("engenharia"),
             await relations.GetUnitOfPositionAsync(organizationId, deliveryLead));
@@ -256,6 +263,9 @@ public sealed class OrganizationConfigurationImporterTests
             Assert.Single(await relations.GetDirectSubordinatesAsync(
                 organizationId,
                 PositionId.From("ceo"))));
+        Assert.Equal(
+            bugTriage,
+            Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, deliveryLead)));
         Assert.Equal(
             PositionId.From("ceo"),
             await relations.GetRootUnitLeadershipAsync(organizationId));

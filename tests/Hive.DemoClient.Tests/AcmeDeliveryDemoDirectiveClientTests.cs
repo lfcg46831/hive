@@ -34,9 +34,9 @@ public sealed class AcmeDeliveryDemoDirectiveClientTests
         var request = submission.Request;
         Assert.Equal("aaaaaaaa-0000-0000-0000-000000000310", request.MessageId);
         Assert.Equal("position", request.From.Kind);
-        Assert.Equal("ceo", request.From.PositionId);
+        Assert.Equal("delivery-lead", request.From.PositionId);
         Assert.Equal("position", request.To.Kind);
-        Assert.Equal("delivery-lead", request.To.PositionId);
+        Assert.Equal("bug-triage", request.To.PositionId);
         Assert.Equal("aaaaaaaa-0000-0000-0000-000000000311", request.ThreadId);
         Assert.Equal("aaaaaaaa-0000-0000-0000-000000000312", request.DirectiveId);
         Assert.Null(request.ParentDirectiveId);
@@ -62,8 +62,8 @@ public sealed class AcmeDeliveryDemoDirectiveClientTests
 
         var directive = Assert.IsType<Directive>(sink.Submitted);
         Assert.Equal("acme-delivery", directive.OrganizationId.Value);
-        Assert.Equal("ceo", Assert.IsType<PositionEndpointRef>(directive.From).PositionId.Value);
-        Assert.Equal("delivery-lead", Assert.IsType<PositionEndpointRef>(directive.To).PositionId.Value);
+        Assert.Equal("delivery-lead", Assert.IsType<PositionEndpointRef>(directive.From).PositionId.Value);
+        Assert.Equal("bug-triage", Assert.IsType<PositionEndpointRef>(directive.To).PositionId.Value);
         Assert.Equal(Priority.High, directive.Priority);
         Assert.Equal(ids.ThreadId, directive.Thread.Value);
         Assert.Equal(ids.DirectiveId, directive.DirectiveId.Value);

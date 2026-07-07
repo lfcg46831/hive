@@ -60,7 +60,7 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         Assert.Equal(OrganizationImportStatus.Applied, result.Status);
         Assert.Equal("acme-delivery", result.Snapshot!.OrganizationId.Value);
         Assert.Equal(2, result.Snapshot.Units.Count);
-        Assert.Equal(2, result.Snapshot.Positions.Count);
+        Assert.Equal(3, result.Snapshot.Positions.Count);
         Assert.Single(result.Snapshot.Schedules);
     }
 

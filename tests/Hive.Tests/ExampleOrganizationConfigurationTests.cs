@@ -1,4 +1,5 @@
 using Hive.Domain.Organization.Configuration.Validation;
+using Hive.Domain.Organization.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
 
 namespace Hive.Tests;
@@ -18,8 +19,8 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.Equal(OrganizationId, configuration.Organization.Id.Value);
         Assert.Equal("raiz", configuration.Organization.RootUnit.Value);
         Assert.Equal(2, configuration.Units.Count);
-        Assert.Equal(2, configuration.Positions.Count);
-        Assert.Equal(2, configuration.Prompts.Count);
+        Assert.Equal(3, configuration.Positions.Count);
+        Assert.Equal(3, configuration.Prompts.Count);
 
         Assert.True(OrganizationConfigurationUniquenessValidator.Validate(configuration).IsValid);
         Assert.True(OrganizationConfigurationCrossReferenceValidator.Validate(configuration).IsValid);
@@ -30,6 +31,21 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.NotNull(deliveryLead.Occupant.Ai);
         Assert.NotNull(deliveryLead.Occupant.Authority);
         Assert.Single(deliveryLead.Occupant.Schedule);
+
+        var bugTriage = configuration.Positions.Single(position => position.Id.Value == "bug-triage");
+        Assert.Equal("delivery-lead", bugTriage.ReportsTo!.Value);
+        Assert.Equal("engenharia", bugTriage.Unit.Value);
+        Assert.Equal("Bug Triage", bugTriage.Name);
+        Assert.Equal(OccupantType.AiAgent, bugTriage.Occupant.Type);
+        Assert.Equal("triage-v1", bugTriage.Occupant.IdentityPromptRef);
+        Assert.NotNull(bugTriage.Occupant.Ai);
+        Assert.Equal("stub", bugTriage.Occupant.Ai.Provider);
+        Assert.Equal("deterministic", bugTriage.Occupant.Ai.Model);
+        Assert.NotNull(bugTriage.Occupant.Authority);
+        Assert.Equal(
+            ["delivery.bug-triage"],
+            bugTriage.Occupant.Authority.CanDecide.Select(key => key.Value));
+        Assert.Empty(bugTriage.Occupant.Schedule);
     }
 
     [Fact]
@@ -48,12 +64,12 @@ public sealed class ExampleOrganizationConfigurationTests
     }
 
     [Fact]
-    public void Example_delivery_prompt_accepts_freeform_bug_context_and_lists_triage_facts()
+    public void Example_triage_prompt_accepts_freeform_bug_context_and_lists_triage_facts()
     {
         var prompt = File.ReadAllText(Path.Combine(
             OrganizationDirectory,
             "prompts",
-            "engineer-v1.md"));
+            "triage-v1.md"));
 
         Assert.Contains("Example bug triage facts", prompt, StringComparison.Ordinal);
         Assert.Contains("Directive.Context", prompt, StringComparison.Ordinal);

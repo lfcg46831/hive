@@ -41,9 +41,9 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal(imported.Snapshot!.Fingerprint, reloaded.Fingerprint);
         Assert.Equal(FirstImportAt, reloaded.ImportedAt);
         Assert.Equal(2, reloaded.Units.Count);
-        Assert.Equal(2, reloaded.Positions.Count);
-        Assert.Equal(2, reloaded.Occupants.Count);
-        Assert.Equal(2, reloaded.Authorities.Count);
+        Assert.Equal(3, reloaded.Positions.Count);
+        Assert.Equal(3, reloaded.Occupants.Count);
+        Assert.Equal(3, reloaded.Authorities.Count);
         var schedule = Assert.Single(reloaded.Schedules).Value.Value;
         Assert.True(schedule.IsActive);
         Assert.Equal("normal", schedule.Priority);
@@ -55,6 +55,9 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal("comms.external-official", authorityOverride.Key);
         Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
         Assert.Equal("ceo", authorityOverride.Approver);
+        var triageAuthority = reloaded.Authorities[PositionId.From("bug-triage")].Value;
+        Assert.Equal(["delivery.bug-triage"], triageAuthority.CanDecide);
+        Assert.Empty(triageAuthority.Overrides);
 
         await using var command = secondDataSource.CreateCommand(
             """
@@ -169,10 +172,12 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         await new OrganizationConfigurationImporter(registry).ImportAsync(configuration);
         Hive.Domain.Organization.IOrganizationRelations relations = registry;
         var organizationId = configuration.Organization.Id;
+        var bugTriage = PositionId.From("bug-triage");
         var ceo = PositionId.From("ceo");
         var deliveryLead = PositionId.From("delivery-lead");
 
         Assert.Equal(ceo, await relations.GetDirectSuperiorAsync(organizationId, deliveryLead));
+        Assert.Equal(deliveryLead, await relations.GetDirectSuperiorAsync(organizationId, bugTriage));
         Assert.Equal(
             UnitId.From("engenharia"),
             await relations.GetUnitOfPositionAsync(organizationId, deliveryLead));
@@ -183,6 +188,9 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal(
             deliveryLead,
             Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, ceo)));
+        Assert.Equal(
+            bugTriage,
+            Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, deliveryLead)));
         Assert.Equal(ceo, await relations.GetRootUnitLeadershipAsync(organizationId));
         Assert.IsType<Hive.Domain.Messaging.OrganizationOwnerEndpointRef>(
             await relations.GetOrganizationOwnerAsync(organizationId));

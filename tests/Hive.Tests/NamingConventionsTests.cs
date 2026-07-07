@@ -24,7 +24,9 @@ public sealed class NamingConventionsTests
         ("src/Hive.Infrastructure", "Hive.Infrastructure"),
         ("src/Hive.Api", "Hive.Api"),
         ("src/Hive.Worker", "Hive.Worker"),
+        ("src/Hive.DemoClient", "Hive.DemoClient"),
         ("tests/Hive.Tests", "Hive.Tests"),
+        ("tests/Hive.DemoClient.Tests", "Hive.DemoClient.Tests"),
     ];
 
     /// <summary>
@@ -38,7 +40,9 @@ public sealed class NamingConventionsTests
         ["Hive.Actors"] = ["Hive.Domain", "Hive.Infrastructure"],
         ["Hive.Api"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure"],
         ["Hive.Worker"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure"],
+        ["Hive.DemoClient"] = [],
         ["Hive.Tests"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure", "Hive.Api", "Hive.Worker"],
+        ["Hive.DemoClient.Tests"] = ["Hive.Domain", "Hive.Api", "Hive.DemoClient"],
     };
 
     public static TheoryData<string> ProjectRootNamespaces

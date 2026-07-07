@@ -1,3 +1,6 @@
+using Hive.Domain.Messaging;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+
 namespace Hive.Api.Directives;
 
 public static class DirectiveSubmissionApiServiceCollectionExtensions
@@ -7,7 +10,9 @@ public static class DirectiveSubmissionApiServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.AddSingleton<IDirectiveSubmissionSink, AcceptedDirectiveSubmissionSink>();
+        services.TryAddSingleton<DirectiveRoutingValidator>();
+        services.TryAddSingleton<IPositionCommandDispatcher, AkkaClusterShardingPositionCommandDispatcher>();
+        services.TryAddSingleton<IDirectiveSubmissionSink, ShardedDirectiveSubmissionSink>();
         return services;
     }
 }

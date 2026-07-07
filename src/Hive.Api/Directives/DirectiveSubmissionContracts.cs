@@ -29,6 +29,11 @@ public sealed record SubmitDirectiveResponse(
     string ThreadId,
     string DirectiveId);
 
+public sealed record DirectiveSubmissionErrorResponse(
+    string Code,
+    string Path,
+    string Reason);
+
 public interface IDirectiveSubmissionSink
 {
     ValueTask<DirectiveSubmissionResult> SubmitAsync(
@@ -36,11 +41,25 @@ public interface IDirectiveSubmissionSink
         CancellationToken cancellationToken);
 }
 
-public sealed record DirectiveSubmissionResult(Directive Directive)
+public sealed record DirectiveSubmissionResult(
+    Directive Directive,
+    RoutingRejection? Rejection = null)
 {
+    public bool IsAccepted => Rejection is null;
+
     public static DirectiveSubmissionResult Accepted(Directive directive)
     {
         ArgumentNullException.ThrowIfNull(directive);
         return new DirectiveSubmissionResult(directive);
+    }
+
+    public static DirectiveSubmissionResult Rejected(
+        Directive directive,
+        RoutingRejection rejection)
+    {
+        ArgumentNullException.ThrowIfNull(directive);
+        ArgumentNullException.ThrowIfNull(rejection);
+
+        return new DirectiveSubmissionResult(directive, rejection);
     }
 }

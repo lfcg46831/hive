@@ -34,6 +34,11 @@ public static class DirectiveSubmissionEndpointExtensions
         }
 
         var result = await sink.SubmitAsync(directive!, cancellationToken);
+        if (!result.IsAccepted)
+        {
+            return Rejected(result.Rejection!);
+        }
+
         return TypedResults.Json(
             ToResponse(result.Directive),
             statusCode: StatusCodes.Status202Accepted);
@@ -171,6 +176,24 @@ public static class DirectiveSubmissionEndpointExtensions
                 Extensions =
                 {
                     ["path"] = path,
+                },
+            });
+
+    private static IResult Rejected(RoutingRejection rejection) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Directive submission rejected",
+                Detail = "Directive routing was rejected.",
+                Extensions =
+                {
+                    ["errors"] = rejection.PublicResult.Errors
+                        .Select(error => new DirectiveSubmissionErrorResponse(
+                            error.Code,
+                            error.Path,
+                            RejectionReasonContract.ToWireValue(error.Reason)))
+                        .ToArray(),
                 },
             });
 }

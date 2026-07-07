@@ -1,4 +1,5 @@
 using Hive.Domain.Positions;
+using Hive.Domain.Organization;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
@@ -46,6 +47,16 @@ public static class HiveBootstrapExtensions
             return string.IsNullOrWhiteSpace(connectionString)
                 ? new UnavailablePositionConfigurationProvider(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlPositionConfigurationProvider(connectionString, organizationsRoot);
+        });
+        builder.Services.TryAddSingleton<IOrganizationRelations>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? new UnavailableOrganizationRelations(ConnectionStringNames.PostgreSql)
+                : new PostgreSqlOrganizationRelations(connectionString);
         });
         builder.Services.TryAddSingleton<ISchedulerPulseDeliveryStore>(serviceProvider =>
         {

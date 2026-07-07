@@ -165,6 +165,33 @@ public sealed class AiDirectiveInterpretationTests
     }
 
     [Fact]
+    public async Task AiAgentActor_waits_for_interpretation_when_actor_is_busy_longer_than_single_poll()
+    {
+        var request = Request();
+        var system = ActorSystem.Create($"ai-agent-interpretation-slow-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new SlowResponseInvoker("{", TimeSpan.FromMilliseconds(1500)))),
+                "agent");
+
+            actor.Tell(request);
+
+            var interpretation = await WaitForInterpretationAsync(actor, request.CorrelationId);
+
+            Assert.True(interpretation.Found);
+            Assert.Equal(AiDirectiveInterpretationOutcomeKind.EscalationRequired, interpretation.Result!.Outcome);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public async Task AiAgentActor_stores_gateway_error_and_advances_to_failed()
     {
         var request = Request();
@@ -307,12 +334,18 @@ public sealed class AiDirectiveInterpretationTests
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var result = await actor.Ask<AiDirectiveInterpretationQueryResult>(
-                new GetAiDirectiveInterpretationResult(correlationId),
-                TimeSpan.FromSeconds(1));
-            if (result.Found)
+            try
             {
-                return result;
+                var result = await actor.Ask<AiDirectiveInterpretationQueryResult>(
+                    new GetAiDirectiveInterpretationResult(correlationId),
+                    TimeSpan.FromSeconds(1));
+                if (result.Found)
+                {
+                    return result;
+                }
+            }
+            catch (AskTimeoutException)
+            {
             }
 
             await Task.Delay(25);
@@ -335,6 +368,25 @@ public sealed class AiDirectiveInterpretationTests
                     invocation.Request.MessageId,
                     output,
                     AiFinishReason.Stop)));
+    }
+
+    private sealed class SlowResponseInvoker(string output, TimeSpan delay) : IAiAgentGatewayInvoker
+    {
+        public async Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(delay, cancellationToken);
+            return AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Succeeded(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    output,
+                    AiFinishReason.Stop));
+        }
     }
 
     private sealed class FailureResponseInvoker(AiGatewayError error) : IAiAgentGatewayInvoker

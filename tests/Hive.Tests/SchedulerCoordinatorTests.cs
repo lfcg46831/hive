@@ -1862,7 +1862,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher),
                 "scheduler-coordinator-delivery");
@@ -1930,7 +1930,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher,
                     AllowingSchedulerProactiveBudgetPolicy.Instance,
@@ -2012,7 +2012,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher,
                     AllowingSchedulerProactiveBudgetPolicy.Instance,
@@ -2080,7 +2080,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = skippedSystem.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     skippedStore,
                     NoopSchedulerPulseDispatcher.Instance,
                     AllowingSchedulerProactiveBudgetPolicy.Instance,
@@ -2114,7 +2114,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = budgetSystem.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     budgetStore,
                     NoopSchedulerPulseDispatcher.Instance,
                     new RecordingSchedulerProactiveBudgetPolicy(hasAvailableBudget: false),
@@ -2148,7 +2148,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = failedSystem.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     failedStore,
                     new RecordingSchedulerPulseDispatcher(new InvalidOperationException("Shard failure.")),
                     AllowingSchedulerProactiveBudgetPolicy.Instance,
@@ -2327,7 +2327,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher),
                 "scheduler-coordinator-policy-working-hours");
@@ -2378,7 +2378,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher),
                 "scheduler-coordinator-policy-critical");
@@ -2423,7 +2423,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher,
                     budgetPolicy),
@@ -2471,7 +2471,7 @@ public sealed class SchedulerCoordinatorTests
             var coordinator = system.ActorOf(
                 SchedulerCoordinator.Props(
                     NoopSchedulerQuartzAdapter.Instance,
-                    TimeProvider.System,
+                    new ManualTimeProvider(ImportAt),
                     deliveryStore,
                     pulseDispatcher),
                 "scheduler-coordinator-delivery-failure");

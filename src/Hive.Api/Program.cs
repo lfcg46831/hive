@@ -1,5 +1,6 @@
 using Hive.Actors;
 using Hive.Api.Diagnostics;
+using Hive.Api.Directives;
 using Hive.Api.Organization;
 using Hive.Infrastructure.Configuration;
 
@@ -14,10 +15,12 @@ public static class Program
         var builder = WebApplication.CreateBuilder(args);
         builder.AddHiveBootstrap();
         builder.AddHiveActorSystem();
+        builder.Services.AddHiveDirectiveSubmissionApi();
         builder.Services.AddHiveOrganizationRegistryApi();
 
         var app = builder.Build();
         app.MapHiveDiagnostics();
+        app.MapHiveDirectiveSubmissionApi();
         app.MapHiveOrganizationRegistryApi();
         return app;
     }

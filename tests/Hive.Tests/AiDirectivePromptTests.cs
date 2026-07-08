@@ -39,7 +39,12 @@ public sealed class AiDirectivePromptTests
         Assert.Equal(256, request.ModelParameters.MaxOutputTokens);
         Assert.Equal(TimeSpan.FromSeconds(15), request.Timeout);
         Assert.Equal(AiProcessingMode.Batch, request.ProcessingMode);
-        Assert.Empty(request.Tools);
+        var requestTool = Assert.Single(request.Tools);
+        Assert.Equal("jira", requestTool.Name);
+        Assert.Equal(
+            "Authorized HIVE connector 'jira' with scopes: issues/read, issues/comment.",
+            requestTool.Description);
+        Assert.Empty(requestTool.ParametersSchema);
 
         Assert.NotNull(request.SystemInstruction);
         Assert.Contains("current position", request.SystemInstruction, StringComparison.Ordinal);
@@ -152,6 +157,13 @@ public sealed class AiDirectivePromptTests
             Assert.Equal("stub", authorizedModel.ProviderId);
             Assert.Equal("triage", authorizedModel.ModelId);
             Assert.Equal([AiProcessingMode.Batch], policy.AllowedProcessingModes.ToArray());
+            Assert.Equal(["jira"], policy.AuthorizedTools.ToArray());
+            var gatewayTool = Assert.Single(gatewayRequest.Tools);
+            Assert.Equal("jira", gatewayTool.Name);
+            Assert.Equal(
+                "Authorized HIVE connector 'jira' with scopes: issues/read, issues/comment.",
+                gatewayTool.Description);
+            Assert.Empty(gatewayTool.ParametersSchema);
             Assert.True(gatewayResult.Found);
             Assert.True(gatewayResult.Result!.IsSuccess);
             Assert.Equal(processingRequest.CorrelationId, gatewayResult.Result.CorrelationId);

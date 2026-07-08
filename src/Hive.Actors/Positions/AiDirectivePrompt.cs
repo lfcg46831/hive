@@ -20,6 +20,7 @@ internal static class AiDirectivePrompt
             context.Directive.MessageId,
             BuildContent(context, identityPrompt),
             BuildSystemInstruction(),
+            tools: GatewayTools(context),
             modelParameters: EffectiveModelParameters(context),
             metadata: Metadata(context),
             provider: context.Provider,
@@ -280,8 +281,15 @@ internal static class AiDirectivePrompt
             maxTimeout: context.Limits.Timeout,
             allowedProcessingModes: context.ProcessingMode is { } mode
                 ? [mode]
-                : null);
+                : null,
+            authorizedTools: context.AuthorizedTools.Select(tool => tool.Connector));
     }
+
+    private static IEnumerable<AiToolDefinition> GatewayTools(
+        AiDirectiveExecutionContext context) =>
+        context.AuthorizedTools.Select(tool => new AiToolDefinition(
+            tool.Connector,
+            $"Authorized HIVE connector '{tool.Connector}' with scopes: {JoinOrEmpty(tool.Scope)}."));
 
     private static string Endpoint(EndpointRef endpoint) =>
         endpoint switch

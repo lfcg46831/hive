@@ -56,6 +56,43 @@ public sealed class AiDirectivePositionEffectsTests
     }
 
     [Fact]
+    public void Create_generates_memory_and_updates_matching_task_for_progress_report()
+    {
+        var taskId = PositionTaskId.From(Guid.Parse("dddddddd-0000-0000-0000-000000001112"));
+        var context = AiDirectiveExecutionContext.From(Request(openTasks:
+        [
+            new PersistedTask(
+                taskId,
+                Thread,
+                "Triage checkout regression",
+                Priority.High,
+                At,
+                causedBy: IncomingMessage),
+        ]));
+        var result = AcceptedResult(
+            context,
+            new AiDirectiveReportDecision(
+                ReportKind.Progress,
+                "Waiting for production log correlation."));
+
+        var effects = AiDirectivePositionEffectFactory.Create(context, result);
+
+        Assert.True(effects.IsSuccess, effects.Failure?.AuditReason);
+        Assert.Equal(context.CorrelationId, effects.CorrelationId);
+        Assert.Equal(2, effects.Commands.Count);
+        var memory = Assert.IsType<UpdateShortMemory>(effects.Commands[0]);
+        Assert.Equal($"directive:{IncomingDirective.Value:N}:result", memory.Key);
+        Assert.Equal(
+            "Report Progress: Waiting for production log correlation.",
+            memory.Value);
+        var update = Assert.IsType<UpdateTask>(effects.Commands[1]);
+        Assert.Equal(taskId, update.TaskId);
+        Assert.Equal("Waiting for production log correlation.", update.Note);
+        Assert.Null(update.Priority);
+        Assert.Null(update.Deadline);
+    }
+
+    [Fact]
     public void Create_generates_memory_and_opens_followup_task_for_child_directive()
     {
         var context = AiDirectiveExecutionContext.From(Request(directSubordinates: [Engineer]));

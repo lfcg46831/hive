@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 
@@ -82,6 +83,56 @@ public sealed class AiDirectiveIntegrationFixtureTests
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.report.body");
+    }
+
+    [Fact]
+    public async Task External_decision_blocked_stub_scenario_materializes_escalation_without_blocked_report()
+    {
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = "t08-external-decision-blocked";
+            options.Scenario = "bug-triage-external-decision-blocked";
+        });
+        var initialTask = Assert.Single(scenario.OpenTasks);
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(scenario);
+
+        var result = await fixture.ProcessDirectiveAsync();
+        var resultMessage = await result.Agent.Ask<AiDirectiveResultMessageQueryResult>(
+            new GetAiDirectiveResultMessage(fixture.CorrelationId),
+            Timeout());
+        var parsed = AiDirectiveDecisionParser.Parse(result.GatewayInvocation.Response.Text);
+        var events = await WaitForPersistedEventsAsync(
+            fixture,
+            persisted => persisted.OfType<TaskUpdated>()
+                .Any(updated => updated.TaskId == initialTask.TaskId));
+        var state = await WaitForPositionStateAsync(
+            result.Position,
+            snapshot => snapshot.OpenTasks.TryGetValue(initialTask.TaskId, out var task) &&
+                task.Priority == Priority.Critical);
+
+        Assert.True(parsed.IsSuccess);
+        Assert.IsType<AiDirectiveEscalationDecision>(parsed.Decision);
+        Assert.DoesNotContain("\"kind\"", result.GatewayInvocation.Response.Text, StringComparison.Ordinal);
+        Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, result.Audit.Status);
+        Assert.Equal("result-emitted", result.Audit.TerminalCode);
+        Assert.Equal(AiDirectiveInterpretationOutcomeKind.DecisionAccepted, result.Audit.Decision!.Outcome);
+        Assert.Equal("Escalation", result.Audit.Decision.DecisionKind);
+        Assert.Equal("Escalation", result.Audit.ResultMessage!.MessageType);
+
+        Assert.True(resultMessage.Found);
+        var escalation = Assert.IsType<Escalation>(resultMessage.Result!.Message);
+        Assert.Equal(new PositionEndpointRef(PositionId.From("triage-agent")), escalation.From);
+        Assert.Equal(new PositionEndpointRef(PositionId.From("delivery-lead")), escalation.To);
+        Assert.Equal(result.Directive.Thread, escalation.Thread);
+        Assert.Equal(result.Directive.Priority, escalation.Priority);
+        Assert.Equal("External decision required", escalation.Issue);
+
+        Assert.Equal(Priority.Critical, state.OpenTasks[initialTask.TaskId].Priority);
+        Assert.Contains(events.OfType<TaskUpdated>(), updated =>
+            updated.TaskId == initialTask.TaskId &&
+            updated.Priority == Priority.Critical &&
+            updated.Note.StartsWith("Escalation: External decision required.", StringComparison.Ordinal));
+        Assert.Empty(events.OfType<TaskCompleted>());
     }
 
     [Fact]

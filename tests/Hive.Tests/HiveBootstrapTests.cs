@@ -80,6 +80,8 @@ public sealed class HiveBootstrapTests
         using var host = builder.Build();
 
         Assert.NotNull(host.Services.GetRequiredService<IJourneyAuditLog>());
+        Assert.IsType<NoopJourneyAuditReadModel>(
+            host.Services.GetRequiredService<IJourneyAuditReadModel>());
         Assert.IsType<JourneyAuditAiGatewayPublisher>(
             host.Services.GetRequiredService<IAiGatewayAuditPublisher>());
         Assert.IsType<JourneyAuditAiGatewayPublisher>(

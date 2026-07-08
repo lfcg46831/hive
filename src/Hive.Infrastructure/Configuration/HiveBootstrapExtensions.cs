@@ -47,6 +47,16 @@ public static class HiveBootstrapExtensions
                 ? NoopJourneyAuditLog.Instance
                 : new PostgreSqlJourneyAuditLog(connectionString);
         });
+        builder.Services.TryAddSingleton<IJourneyAuditReadModel>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? NoopJourneyAuditReadModel.Instance
+                : new PostgreSqlJourneyAuditReadModel(connectionString);
+        });
         builder.Services.Replace(ServiceDescriptor.Singleton<
             JourneyAuditAiGatewayPublisher,
             JourneyAuditAiGatewayPublisher>());

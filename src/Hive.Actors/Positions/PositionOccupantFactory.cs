@@ -206,6 +206,7 @@ internal sealed class AiAgentActor : ReceiveActor
             _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveProcessingSnapshots[request.CorrelationId] = failed;
             RecordAudit(publishAudit, context, failed);
+            ReturnCompletion(parent, failed);
             return;
         }
 
@@ -288,6 +289,12 @@ internal sealed class AiAgentActor : ReceiveActor
                             AiDirectiveProcessingStatus.Escalated,
                             reason: resultMessage.Failure!.AuditReason);
                 _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
+                ReturnCompletion(
+                    parent,
+                    finalSnapshot,
+                    interpretation,
+                    resultMessage,
+                    iterationAuditSnapshot);
                 RecordAudit(
                     publishAudit,
                     context,
@@ -305,6 +312,7 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.Failed,
                     reason: interpretation.Failure!.AuditReason);
                 _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
+                ReturnCompletion(parent, finalSnapshot, interpretation);
                 RecordAudit(
                     publishAudit,
                     context,
@@ -322,6 +330,7 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.Escalated,
                     reason: interpretation.Failure!.AuditReason);
                 _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
+                ReturnCompletion(parent, finalSnapshot, interpretation);
                 RecordAudit(
                     publishAudit,
                     context,
@@ -348,6 +357,7 @@ internal sealed class AiAgentActor : ReceiveActor
                 AiDirectiveProcessingStatus.Failed,
                 reason: GatewayTimeoutReason(prompt.Timeout));
             _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
+            ReturnCompletion(parent, finalSnapshot, iterationAudit: timeoutAudit);
             RecordAudit(
                 publishAudit,
                 context,
@@ -374,6 +384,7 @@ internal sealed class AiAgentActor : ReceiveActor
                 AiDirectiveProcessingStatus.Failed,
                 reason: "AI gateway request was canceled before a response was returned.");
             _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
+            ReturnCompletion(parent, finalSnapshot, iterationAudit: canceledAudit);
             RecordAudit(
                 publishAudit,
                 context,
@@ -385,6 +396,42 @@ internal sealed class AiAgentActor : ReceiveActor
                 iterationAudit: canceledAudit,
                 positionEffects: null);
         }
+    }
+
+    private static void ReturnCompletion(
+        IActorRef parent,
+        AiDirectiveProcessingSnapshot processing,
+        AiDirectiveInterpretationResult? interpretation = null,
+        AiDirectiveResultMessage? resultMessage = null,
+        AiDirectiveIterationAuditTrail? iterationAudit = null)
+    {
+        if (!processing.IsTerminal)
+        {
+            throw new ArgumentException(
+                "Occupant processing completion requires a terminal processing snapshot.",
+                nameof(processing));
+        }
+
+        var status = processing.Status switch
+        {
+            AiDirectiveProcessingStatus.ResultEmitted => PositionOccupantProcessingStatus.Completed,
+            AiDirectiveProcessingStatus.Escalated => PositionOccupantProcessingStatus.Escalated,
+            _ => PositionOccupantProcessingStatus.Failed,
+        };
+
+        parent.Tell(new PositionOccupantProcessingCompleted(
+            processing.CorrelationId,
+            processing.MessageId,
+            processing.ThreadId,
+            processing.DirectiveId,
+            status,
+            status == PositionOccupantProcessingStatus.Completed
+                ? null
+                : AiDirectiveAuditSnapshotFactory.TerminalCode(
+                    processing,
+                    interpretation,
+                    resultMessage,
+                    iterationAudit)));
     }
 
     private void RecordAudit(

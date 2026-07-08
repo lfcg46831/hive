@@ -106,6 +106,9 @@ internal sealed class PositionActor :
         Command<PositionConfigurationLoadFailed>(failure => throw new PositionConfigurationGateException(
             PersistenceId,
             failure.Cause));
+        // Neutral end-of-processing signal from an occupant child (bible v1.76). The position
+        // keeps no AI completion cache; state changes arrive as canonical position commands.
+        Command<PositionOccupantProcessingCompleted>(_ => { });
         Command<AcceptMessage>(command =>
         {
             WhenReady(() =>

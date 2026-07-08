@@ -559,7 +559,11 @@ internal static class AiDirectiveAuditSnapshotFactory
             _ => decision.GetType().Name,
         };
 
-    private static string TerminalCode(
+    /// <summary>
+    /// Stable machine-readable terminal code for one processing run. Shared by the audit
+    /// snapshot and the neutral completion envelope sent to the parent (bible v1.76).
+    /// </summary>
+    public static string TerminalCode(
         AiDirectiveProcessingSnapshot processing,
         AiDirectiveInterpretationResult? interpretation,
         AiDirectiveResultMessage? resultMessage,

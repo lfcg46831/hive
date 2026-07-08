@@ -19,10 +19,24 @@ public sealed class AiDirectiveIntegrationFixtureTests
             }));
 
         var result = await fixture.ProcessDirectiveAsync();
+        var snapshot = await result.Agent.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+            new GetAiDirectiveProcessingSnapshot(fixture.CorrelationId),
+            Timeout());
+        var resultMessage = await result.Agent.Ask<AiDirectiveResultMessageQueryResult>(
+            new GetAiDirectiveResultMessage(fixture.CorrelationId),
+            Timeout());
 
         Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, result.Audit.Status);
         Assert.Equal("result-emitted", result.Audit.TerminalCode);
         Assert.Equal("fixture-scenario", result.GatewayInvocation.Response.Provider!.ModelId);
+        Assert.True(snapshot.Found);
+        Assert.Equal(fixture.CorrelationId, snapshot.Snapshot!.CorrelationId);
+        Assert.Equal(result.Directive.Thread, snapshot.Snapshot.ThreadId);
+        Assert.Equal(result.Directive.DirectiveId, snapshot.Snapshot.DirectiveId);
+        Assert.Equal(result.Directive.Id, snapshot.Snapshot.MessageId);
+        Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, snapshot.Snapshot.Status);
+        Assert.True(resultMessage.Found);
+        Assert.True(resultMessage.Result!.IsSuccess);
         Assert.Contains(result.Directive.Id, result.PositionState.ProcessedMessages);
         Assert.Equal(
             "Report Done: Integration report complete.",

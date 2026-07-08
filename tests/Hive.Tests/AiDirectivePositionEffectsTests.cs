@@ -126,7 +126,7 @@ public sealed class AiDirectivePositionEffectsTests
         try
         {
             var parent = system.ActorOf(
-                Props.Create(() => new CapturingParentActor(request, commands)),
+                Props.Create(() => new CapturingCommandParentActor(request, commands)),
                 "parent");
 
             parent.Tell(StartProcessing.Instance);
@@ -144,6 +144,37 @@ public sealed class AiDirectivePositionEffectsTests
             Assert.True(effects.Found);
             Assert.Equal(request.CorrelationId, effects.CorrelationId);
             Assert.Equal(2, effects.Effects!.Commands.Count);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_returns_correlated_processing_result_to_parent()
+    {
+        var request = Request();
+        var system = ActorSystem.Create($"ai-agent-position-result-{Guid.NewGuid():N}");
+        var completed = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            var parent = system.ActorOf(
+                Props.Create(() => new CapturingParentActor(request, completed)),
+                "parent");
+
+            parent.Tell(StartProcessing.Instance);
+
+            var result = await completed.Task.WaitAsync(Timeout());
+
+            Assert.Equal(request.CorrelationId, result.CorrelationId);
+            Assert.Equal(request.ThreadId, result.ThreadId);
+            Assert.Equal(request.DirectiveId, result.DirectiveId);
+            Assert.Equal(request.MessageId, result.MessageId);
+            Assert.Equal(PositionOccupantProcessingStatus.Completed, result.Status);
+            Assert.Null(result.FailureCode);
         }
         finally
         {
@@ -249,13 +280,13 @@ public sealed class AiDirectivePositionEffectsTests
                     AiFinishReason.Stop)));
     }
 
-    private sealed class CapturingParentActor : ReceiveActor
+    private sealed class CapturingCommandParentActor : ReceiveActor
     {
         private readonly IActorRef _child;
         private readonly List<PositionCommand> _commands = [];
         private readonly TaskCompletionSource<IReadOnlyList<PositionCommand>> _capture;
 
-        public CapturingParentActor(
+        public CapturingCommandParentActor(
             AiDirectiveProcessingRequest request,
             TaskCompletionSource<IReadOnlyList<PositionCommand>> capture)
         {
@@ -277,6 +308,28 @@ public sealed class AiDirectivePositionEffectsTests
             });
             Receive<ForwardPositionEffectsQuery>(query => _child.Forward(
                 new GetAiDirectivePositionEffects(query.CorrelationId)));
+        }
+    }
+
+    private sealed class CapturingParentActor : ReceiveActor
+    {
+        private readonly IActorRef _child;
+
+        public CapturingParentActor(
+            AiDirectiveProcessingRequest request,
+            TaskCompletionSource<PositionOccupantProcessingCompleted> capture)
+        {
+            _child = Context.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(ValidReportOutput()))),
+                "agent");
+
+            Receive<StartProcessing>(_ => _child.Tell(request));
+            Receive<PositionOccupantProcessingCompleted>(capture.TrySetResult);
+            Receive<PositionCommand>(_ =>
+            {
+            });
         }
     }
 

@@ -90,6 +90,7 @@
 <hr>
 
 <h2>Histórico de Versões</h2>
+<p><em>Disciplina (a partir da v1.75):</em> esta tabela regista decisões e alterações de especificação; o registo passo-a-passo de implementação de tarefas vive nas mensagens de commit (AGENTS.md). As linhas históricas de registo de implementação mantêm-se como estão.</p>
 
 <table>
 <thead>
@@ -270,6 +271,8 @@
 <tr><td>1.72</td><td>2026-07-06</td><td>Grooming de <code>US-F3-08</code> (preparação para produto/framework): catálogo de superfícies públicas com tiers de suporte (<code>stable</code>/<code>preview</code>/<code>internal</code>; o não catalogado é interno) como contrato versionado, política unificada de compatibilidade e depreciação (semver por superfície, N-1, breaking só em major) harmonizando as políticas parciais existentes e aplicada por testes de contrato/golden fixtures em CI, API consolidada sob <code>/api/v1</code> com OpenAPI validada, fronteiras de extensibilidade como contrato documentado (aberto: conectores/templates/prompts/configuração; fechado com razão: §9, matriz de routing, §4.9), documentação de adoção derivada e curada com o bible a permanecer interno, checklist de segurança/compliance para adopters estendendo o DPA de <code>US-F1-08</code> e validado contra deployment de referência, release engineering reproduzível, e verificação da fronteira <code>OrganizationId</code> em todas as superfícies públicas sem antecipar <code>US-F3-09</code>/<code>US-F3-10</code>; tarefas <code>T01</code>–<code>T09</code> estimadas, total <code>37</code></td></tr>
 <tr><td>1.73</td><td>2026-07-06</td><td>Grooming de <code>US-F3-09</code> (billing e licenciamento de produto): subsistema próprio em schema <code>billing</code> que o core nunca referencia (billing observa e limita pela admissão, nunca participa no protocolo), usage metering derivado exclusivamente de factos existentes (audit log, ledger <code>US-F2-03</code>, registry) sem dados pessoais e reconstruível, seam <code>IEntitlements</code> read-only com resolução local sem dependência remota em runtime e modo <code>disabled</code> de zero efeitos para deployments internos, enforcement nos três pontos de decisão existentes (import/propostas, gate pré-call acima dos budgets §6.2 com semântica distinta, ativação de conectores) com soft/hard/graça, licença como documento assinado verificável offline sem phone-home com cascata alerta → graça → hard, upgrade imediato e downgrade determinístico não-destrutivo, API/admin UI na superfície administrativa e seam de exportação para pagamentos como superfície <code>preview</code>; tarefas <code>T01</code>–<code>T10</code> estimadas, total <code>39</code></td></tr>
 <tr><td>1.74</td><td>2026-07-06</td><td>Grooming de <code>US-F3-10</code> (isolamento multi-tenant forte): <code>TenantId</code> como conceito aditivo (fronteira comercial/infraestrutural com 1..n organizações e ligação a <code>US-F3-09</code>) preservando <code>OrganizationId</code> como fronteira de domínio, contexto de tenant obrigatório ponta-a-ponta com deny-by-default, enforcement subsistema a subsistema com testes de fuga dedicados, keystores separados por tenant com rotação/revogação independentes e crypto-shredding na saída, fairness por tenant no gateway (fecha o adiamento de rate limiting por organização de <code>US-F1-05</code>) com proteção noisy-neighbor, perfis <code>shared</code>/<code>dedicated</code> declarativos com o mesmo binário e migração entre perfis operada/verificada/auditada (nunca automática), administração de plataforma com âmbito explícito separada da administração de tenant, e suite cross-tenant de integração; tarefas <code>T01</code>–<code>T10</code> estimadas, total <code>44</code>, fechando a F3.0 com Total F3 <code>369</code> — todas as fases do roadmap ficam especificadas e estimadas</td></tr>
+<tr><td>1.75</td><td>2026-07-06</td><td>Revisão de consistência (análise cruzada): princípio §3(1) reformulado («atores onde há estado vivo e concorrência» — alinhado com Q3, <code>IAiGateway</code> DI e read models); §5.2 substituído por dois mapas (topologia lógica no registry vs. runtime por role com sharding, singletons, serviços DI e subsistemas); «fronteira de tenant» de §1.3 corrigida para fronteira organizacional com <code>TenantId</code> como aditivo F3, e §13.4 alinhado (multi-organização suportado desde F0, um tenant por deployment até F3); §1.3(6) alinhado com <code>US-F3-08</code> (documentação pública derivada/curada, bíblia interna); §4.7(3) corrigido (a consola chega em F1); §8 com fases alvo honestas (webhooks e escrita de ficheiros por planear, calendário sem US); §7.2 marca sumarização periódica como aspiracional sem dono; linha Total F1 (<code>430</code>) adicionada; nota de evolução no detetor de <code>US-F1-07-T08</code> (consumir o ledger de <code>US-F2-03</code> quando existir); §10 ganha índice normativo de segurança com apontadores para os contratos donos; Q15 anotada com bloqueio de <code>US-F2-07</code> (quatro-olhos exige principais autenticados distintos) e direção provável; aberta Q16 (coordenação cluster-wide dos limites por provider do gateway, a resolver até <code>US-F2-01</code>); <code>US-F3-08-T03</code> ganha o contrato do pipeline HTTP; nota de disciplina no histórico de versões; removida nota stale «Próxima iteração v1.02»</td></tr>
+<tr><td>1.76</td><td>2026-07-08</td><td>Decisao da fronteira de conclusao <code>PositionActor</code> ↔ ocupante AI: o <code>PositionActor</code> nao conhece tipos semanticos AI de conclusao; o ocupante sinaliza fim de processamento ao pai com o envelope neutro <code>PositionOccupantProcessingCompleted</code> (<code>CorrelationId</code>, <code>MessageId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>Status</code> terminal, <code>FailureCode</code> opcional), enviado depois dos comandos de posicao para preservar a ordem; <code>AiDirectiveProcessingCompleted</code>, <code>GetAiDirectiveProcessingCompletion</code> e o cache de conclusoes AI no <code>PositionActor</code> sao removidos, e interpretacao/mensagem resultante/efeitos continuam consultaveis apenas no ocupante e no snapshot de auditoria; esforco <code>2</code></td></tr>
 </tbody>
 </table>
 
@@ -311,12 +314,12 @@
 <p>A solução nasce como <strong>deployment interno para um caso de uso concreto</strong>, com a intenção explícita de <strong>evoluir para produto/framework</strong> utilizável por terceiros. Esta decisão tem consequências de desenho imediatas — coisas que não construímos na v1, mas que não podemos tornar impossíveis:</p>
 
 <ol>
-<li><strong>Fronteira de tenant desde o dia zero.</strong> Toda a entidade do domínio (posição, mensagem, evento, custo) carrega um <code>OrganizationId</code>, mesmo que na v1 exista apenas uma organização por deployment. Migrar para multi-tenancy torna-se uma mudança de hosting, não de modelo de dados.</li>
+<li><strong>Fronteira organizacional desde o dia zero.</strong> Toda a entidade do domínio (posição, mensagem, evento, custo) carrega um <code>OrganizationId</code>, e o deployment suporta várias organizações desde F0. A fronteira comercial/infraestrutural de <em>tenant</em> (<code>TenantId</code>, cliente com 1..n organizações) chega em F3 como conceito aditivo (<code>US-F3-10</code>) — uma mudança de hosting, não de modelo de dados.</li>
 <li><strong>Nada hard-coded ao caso interno.</strong> O caso de uso interno é o <em>primeiro cliente</em> da plataforma, não a plataforma: estruturas, prompts, conectores e políticas vivem em configuração/plugins, nunca em código do núcleo.</li>
 <li><strong>Codename técnico estável.</strong> HIVE deixa de ser apenas placeholder textual: é o nome de código usado em repositório, solution, namespaces e pacotes internos durante F0/F1. A marca comercial ou nome público pode mudar depois via configuração/display name; renomear <code>Hive.*</code> só acontece por ADR explícito, porque implica refactor transversal.</li>
 <li><strong>Conectores como plugins com contrato público estável</strong> (<code>IConnector</code>) — o ecossistema de extensão é o principal ativo de produto futuro.</li>
 <li><strong>API pública desde a F1.</strong> A Web UI consome a mesma API REST/SignalR que um terceiro consumiria; não existem &quot;atalhos internos&quot;.</li>
-<li><strong>Documentação como produto.</strong> Esta bíblia evolui para a documentação de arquitetura pública; decisões registam-se em ADRs desde já.</li>
+<li><strong>Documentação como produto.</strong> A documentação pública é derivada e curada a partir desta bíblia (<code>US-F3-08-T05</code>); a bíblia permanece a fonte de verdade interna. Decisões registam-se em ADRs desde já.</li>
 </ol>
 
 <p>O que fica explicitamente adiado: billing/licenciamento, isolamento forte entre tenants (infra dedicada vs. partilhada), marketplace. Ficam para <strong>F3</strong> no roadmap e têm prioridade relativa baixa, mas o modelo de dados já não os bloqueia.</p>
@@ -368,7 +371,7 @@
 <h2>3. Princípios Arquiteturais</h2>
 
 <ol>
-<li><strong>Tudo é um ator.</strong> Posições, unidades, conectores, o registo de providers — tudo vive como atores com supervisão.</li>
+<li><strong>Atores onde há estado vivo e concorrência.</strong> Posições e ocupantes vivem como atores persistentes (entidades sharded) com supervisão; a árvore organizacional é lógica, não hierarquia de supervisão (Q3, §5.7). Fronteiras sem estado concorrente próprio — <code>IAiGateway</code>, validadores, read models — são serviços DI e projeções; coordenações de infraestrutura são cluster singletons. Os dois mapas vivem em §5.2.</li>
 <li><strong>Posição ≠ Ocupante.</strong> A estrutura organizacional é independente de quem (ou o quê) ocupa cada lugar. Trocar um agente por uma pessoa é trocar o ocupante, não a posição.</li>
 <li><strong>Comunicação exclusivamente por mensagens.</strong> Nenhum ator acede ao estado de outro. Isto vale também para humanos: uma pessoa &quot;fala&quot; com o sistema através do seu ator-proxy.</li>
 <li><strong>Protocolo de mensagens organizacional.</strong> As mensagens não são texto livre entre atores — seguem a taxonomia canónica do §9 e carregam metadados comuns (remetente, destinatário, prioridade, prazo, correlação, thread e versão de schema).</li>
@@ -488,7 +491,7 @@
 <ol>
 <li><strong>YAML/GitOps como source of truth.</strong> Organizações, unidades, posições, ocupantes, prompts, schedules, subscriptions, autoridade e contratos inter-unidades vivem em ficheiros versionados.</li>
 <li><strong>Importação para <code>registry</code> e read models.</strong> No arranque/deploy, a configuração é validada e materializada em PostgreSQL para consulta rápida pela API, atores e UI.</li>
-<li><strong>UI inicialmente read-only.</strong> A consola mostra organograma, estado, inbox e aprovações, mas não edita a estrutura na F0.</li>
+<li><strong>UI inicialmente read-only.</strong> A F0 não tem UI; a consola chega em F1 (<code>US-F1-01</code>/<code>US-F1-02</code>) e mostra organograma, estado, inbox e aprovações sem editar a estrutura.</li>
 <li><strong>Edição visual posterior.</strong> Em F2/F3, a UI pode editar a organização, mantendo export/import para YAML para não perder auditabilidade e revisão por Git.</li>
 </ol>
 
@@ -668,33 +671,39 @@ domains:
 </tbody>
 </table>
 
-<h3>5.2 Topologia de atores (visão simplificada)</h3>
+<h3>5.2 Topologia: mapa lógico e mapa runtime</h3>
 
-<pre><code>/user
-├── organization                      (ator raiz da organização)
-│   ├── pos-ceo                       (PositionActor, líder da unidade raiz)
-│   │   └── occupant                  (AiAgentActor | HumanProxyActor)
-│   ├── unit-marketing
-│   │   ├── pos-diretor-mkt
-│   │   ├── unit-conteudos
-│   │   │   ├── pos-lider
-│   │   │   ├── pos-redator-a
-│   │   │   └── pos-redator-b
-│   │   └── ...
-│   └── ...
-├── ai-gateway                        (router para providers)
-│   ├── provider-anthropic            (pool de workers, rate limiting)
-│   ├── provider-openai
-│   └── provider-ollama
-├── connector-hub
-│   ├── connector-email
-│   ├── connector-teams
-│   └── connector-http
-└── system-services
-    ├── audit-log                     (event sourcing de toda a comunicação)
-    ├── cost-tracker
-    ├── scheduler                     (timeouts, lembretes, tarefas cron)
-    └── registry                      (diretório organizacional pesquisável)</code></pre>
+<p>A topologia descreve-se em dois mapas deliberadamente distintos (Q3, §5.7): a <strong>árvore organizacional é lógica</strong> — vive no registry e nas relações de comando, não na hierarquia de supervisão Akka — e o <strong>runtime</strong> organiza-se por roles de nó (§5.10), com atores apenas onde há estado vivo e concorrência.</p>
+
+<p><strong>Mapa lógico (organização — dados no registry, não atores):</strong></p>
+
+<pre><code>organization (registry/read model; §4.8)
+├── unit raiz
+│   ├── posição de liderança (reports_to: null → escala para o owner)
+│   └── sub-unidades → posições (reports_to encadeado)
+└── OrganizationOwner (fora da cadeia operacional; §4.2)</code></pre>
+
+<p><strong>Mapa runtime (por role de nó; §5.10):</strong></p>
+
+<pre><code>role agents
+├── Cluster Sharding: PositionActor por (OrganizationId, PositionId)
+│   └── occupant (filho: AiAgentActor | HumanProxyActor)
+role gateway
+├── IAiGateway (serviço DI; §6.3, rev 0.93) + adapters de provider
+├── singleton: coordinator batch (US-F2-04) · ingest semântico (US-F2-05)
+role connectors
+├── singletons: fonte IMAP (US-F1-03) · polling GitHub (US-F1-04)
+│   · sync ficheiros (US-F2-06) · DomainEventsCoordinator (US-F1-07)
+├── adapters outbound (email, chat) e conectores out-of-process (US-F3-03)
+role api
+├── ASP.NET Core REST/SignalR, health §11.1, backend da consola
+serviços transversais (não-atores)
+├── scheduler (Akka.Quartz.Actor + read model; §5.6)
+├── registry, audit log, read models, ledger de custos — subsistemas
+│   PostgreSQL, cada um dono do seu schema (US-F0-06-T05a)
+└── validadores e políticas — serviços DI puros (US-F0-04, §4.9)</code></pre>
+
+<p>Regra de arrumação: <em>domínio lógico</em> (organização, autoridade, mensagens) ≠ <em>runtime de atores</em> (entidades sharded, filhos ocupantes, singletons) ≠ <em>serviços DI e projeções</em> (gateway, validadores, read models). Um conceito novo declara a que camada pertence antes de ganhar implementação.</p>
 
 <h3>5.3 O PositionActor</h3>
 
@@ -1009,7 +1018,7 @@ occupant:
 </thead>
 <tbody>
 <tr><td>Curto prazo</td><td>Conversa/tarefa atual, inbox e contexto operacional recente</td><td>Estado persistido do <code>PositionActor</code> via Akka.Persistence + snapshots; reconstituível após restart, passivation ou rebalance de cluster</td></tr>
-<tr><td>Médio prazo</td><td>Histórico recente da posição, decisões</td><td>Akka.Persistence (event sourcing) + sumarização periódica</td></tr>
+<tr><td>Médio prazo</td><td>Histórico recente da posição, decisões</td><td>Akka.Persistence (event sourcing); a sumarização periódica é aspiracional — sem US atribuída, exige especificação própria antes de implementar</td></tr>
 <tr><td>Longo prazo</td><td>Conhecimento institucional, documentos</td><td>Vector store (P1) + pesquisa no audit-log</td></tr>
 </tbody>
 </table>
@@ -1032,9 +1041,9 @@ occupant:
 <tr><td>Email (SMTP/IMAP ou MS Graph)</td><td>In/Out</td><td>Canal principal para pessoas reais; receção de pedidos externos</td><td><code>P0</code></td><td><code>F1</code></td></tr>
 <tr><td>Teams / Slack</td><td>In/Out</td><td>Canal interativo para pessoas</td><td><code>P1</code></td><td><code>F2</code></td></tr>
 <tr><td>HTTP/REST genérico</td><td>Out</td><td>Agentes atuam sobre APIs externas</td><td><code>P0</code></td><td><code>F1</code></td></tr>
-<tr><td>Webhooks</td><td>In</td><td>Sistemas externos despoletam trabalho</td><td><code>P1</code></td><td><code>F1</code></td></tr>
-<tr><td>Ficheiros / SharePoint / Drive</td><td>In/Out</td><td>Documentos</td><td><code>P1</code></td><td><code>F2</code></td></tr>
-<tr><td>Calendário</td><td>In/Out</td><td>Agendamento, prazos</td><td><code>P2</code></td><td><code>F3</code></td></tr>
+<tr><td>Webhooks</td><td>In</td><td>Sistemas externos despoletam trabalho</td><td><code>P1</code></td><td>Por planear (<code>US-F1-04</code> adiou; aceleração do polling sem alterar o seam)</td></tr>
+<tr><td>Ficheiros / SharePoint / Drive</td><td>In (read-only); Out por planear</td><td>Documentos</td><td><code>P1</code></td><td><code>F2</code> (<code>US-F2-06</code>; escrita adiada sem US)</td></tr>
+<tr><td>Calendário</td><td>In/Out</td><td>Agendamento, prazos</td><td><code>P2</code></td><td>Por planear (sem US no backlog F3)</td></tr>
 <tr><td>Web UI própria</td><td>In/Out</td><td>Consola: organograma vivo, inbox humana, aprovações</td><td><code>P0</code></td><td><code>F1</code></td></tr>
 </tbody>
 </table>
@@ -1657,6 +1666,7 @@ record AuthorizationDenial(
 </ul>
 
 <p><strong>Auditoria imutável vs. direito ao apagamento:</strong> o event log append-only não deve ser usado como repositório primário de dados pessoais apagáveis. Eventos imutáveis guardam metadados mínimos, identificadores estáveis, hashes e referências para payloads externos; conteúdo pessoal deve viver em stores redatáveis ou cifrado com chaves descartáveis. Um pedido de apagamento gera eventos compensatórios (<code>RedactionRequested</code>, <code>PersonalDataRedacted</code>) e remove/redige o payload referenciado ou destrói a chave de cifragem, tornando o conteúdo irrecuperável para leitura e replay. O tombstone preserva a prova auditável de que o apagamento ocorreu; não apaga fisicamente eventos antigos do journal, por isso a regra de desenho é não escrever PII direta no log imutável salvo quando houver obrigação legal explícita de retenção.</p>
+<p><strong>Índice normativo de segurança.</strong> Este capítulo é o mapa, não o dono: cada fronteira de segurança tem o seu contrato e altera-se lá. Autoridade e gates — §4.9 (<code>US-F0-11</code>/<code>US-F0-12</code>); validação de routing e erros canónicos — §9.5/§9.8 (<code>US-F0-04</code>); redaction de auditoria e telemetria — <code>US-F0-08-T12</code>/<code>US-F2-02-T01</code>; classificação, minimização e apagamento — <code>US-F1-08</code>; segurança de conectores, escopos e prompt injection — <code>US-F1-04</code>/<code>US-F2-06</code>; isolamento e permissões de conectores de terceiros — <code>US-F3-03</code>/<code>US-F3-04</code>; isolamento multi-tenant — <code>US-F3-10</code>; checklist para adopters — <code>US-F3-08-T06</code>; identidade de utilizadores — Q15 (aberta). Este índice mantém apontadores, nunca duplica regras.</p>
 
 <hr>
 
@@ -2308,6 +2318,7 @@ public interface IPositionConfigurationProvider
 <p><strong>Contrato de gestao do ocupante AI (US-F0-08-T02):</strong> o <code>PositionActor</code> e o unico dono do ciclo de vida do filho que representa o ocupante runtime. Para ocupantes AI cria um <code>AiAgentActor</code> como filho direto, com nome deterministico por identidade/tipo de ocupante, reutiliza esse filho enquanto a identidade e o tipo nao mudarem, envia-lhe apenas payloads derivados de eventos <code>MessageDispatched</code> ja persistidos, e para filhos obsoletos quando um <code>OccupantChanged</code> substitui o ocupante ativo. O <code>AiAgentActor</code> nao possui inbox, tarefas, memoria curta nem snapshot como fonte de verdade; mantem apenas dependencias runtime necessarias para processar pedidos e qualquer atualizacao recuperavel regressa ao <code>PositionActor</code> em tarefas posteriores.</p>
 <p><strong>Criterios de aceitacao de <code>US-F0-08-T02</code>:</strong> o <code>PositionActor</code> instancia o filho AI via factory de ocupantes, sem exigir <code>AiGatewayActor</code>; duas entregas ao mesmo ocupante reutilizam o mesmo filho; uma troca de ocupante para outra identidade ou tipo para o filho anterior e cria um novo filho apenas quando existir nova entrega; o dispatch para ocupante AI continua a acontecer apenas depois da persistencia de <code>MessageDispatched</code>; o estado recuperavel de inbox, historico recente, memoria curta e tarefas abertas permanece exclusivamente no <code>PositionState</code>; ocupantes humanos continuam a usar o proxy humano existente; e a estimativa mantem-se <code>5</code>.</p>
 <p><strong>Testes minimos de <code>US-F0-08-T02</code>:</strong> a factory cria <code>AiAgentActor</code> para <code>OccupantType.AiAgent</code>, <code>HumanProxyActor</code> para <code>OccupantType.Human</code> e rejeita tipos desconhecidos; o <code>PositionActor</code> reutiliza o filho para entregas repetidas ao mesmo ocupante; uma mudanca de ocupante para a entrega seguinte para o filho anterior e entrega ao novo filho; e apos dispatch o <code>PositionState</code> continua a conter apenas o estado recuperavel esperado, sem depender do filho para inbox ou tarefas.</p>
+<p><strong>Fronteira de conclusao ocupante → posicao (decisao v1.76):</strong> a fronteira <code>PositionActor</code> ↔ ocupante AI e de routing/dispatch, nao de semantica AI. O <code>PositionActor</code> conhece <code>AiDirectiveProcessingRequest</code> para despachar e recebe de volta apenas comandos canonicos de posicao (<code>UpdateShortMemory</code>, <code>OpenTask</code>, <code>UpdateTask</code>, <code>CompleteTask</code>) e um envelope neutro de fim de processamento, <code>PositionOccupantProcessingCompleted</code>, com <code>CorrelationId</code>, <code>MessageId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>Status</code> terminal e <code>FailureCode</code> opcional — sem interpretacao, mensagem resultante, efeitos ou qualquer tipo semantico AI. O <code>FailureCode</code> e um codigo terminal canonico machine-readable, o mesmo <code>TerminalCode</code> derivado pelo snapshot de auditoria de <code>US-F0-08-T12</code> (ex.: <code>identity-prompt-unresolved</code>, <code>timeout</code>, codigos de falha do parser/gate), nunca texto livre de audit reason. O ocupante envia o envelope depois dos comandos de posicao, preservando a ordem de entrega. Detalhes de execucao AI (interpretacao, mensagem resultante, efeitos, iteracoes) permanecem consultaveis apenas no ocupante e no snapshot de auditoria de <code>US-F0-08-T12</code>; o <code>PositionActor</code> nao mantem cache de conclusoes AI nem responde a queries sobre elas.</p>
 <p><strong>Maquina de estados minima (US-F0-08-T03):</strong> o processamento de cada <code>AiDirectiveProcessingRequest</code> pelo <code>AiAgentActor</code> e descrito por estados canonicos e monotonicamente avancaveis: <code>Received</code>, <code>ContextAssembled</code>, <code>GatewayRequested</code>, <code>ResponseInterpreted</code>, <code>ResultEmitted</code>, <code>Failed</code> ou <code>Escalated</code>. <code>ResultEmitted</code>, <code>Failed</code> e <code>Escalated</code> sao terminais. A T03 define o contrato interno da maquina e a observabilidade minima do processamento corrente/recente dentro do actor, mas nao monta contexto real, nao chama ainda o <code>IAiGateway</code> para diretivas, nao interpreta respostas de provider, nao valida routing de mensagens resultantes e nao altera memoria ou tarefas persistidas.</p>
 <p><strong>Criterios de aceitacao de <code>US-F0-08-T03</code>:</strong> existe um tipo testavel para o estado do processamento que preserva <code>CorrelationId</code>, <code>ThreadId</code>, <code>DirectiveId</code>, <code>MessageId</code>, estado atual, historico de transicoes e razao terminal quando existir; transicoes fora da ordem definida ou tentativas de avancar depois de estado terminal sao rejeitadas de forma deterministica; o <code>AiAgentActor</code> ao receber uma diretiva AI passa para <code>Received</code> e expoe esse snapshot por mensagem interna de consulta, sem criar fonte de verdade recuperavel; a ausencia de processamento ativo ou de correlation id conhecido responde com snapshot ausente em vez de excecao; a API nao contem tipos de SDK, MCP, provider concreto nem payload bruto; e a estimativa mantem-se <code>3</code>.</p>
 <p><strong>Testes minimos de <code>US-F0-08-T03</code>:</strong> a maquina cria snapshot inicial em <code>Received</code> com identidades e historico correto; avancos validos seguem a ordem <code>Received</code> -> <code>ContextAssembled</code> -> <code>GatewayRequested</code> -> <code>ResponseInterpreted</code> -> terminal; avancos invalidos e avancos apos terminal falham; o <code>AiAgentActor</code> guarda apenas o snapshot in-memory do pedido recebido e responde a consultas por correlation id; e consultas sem pedido correspondente retornam vazio.</p>
@@ -2587,6 +2598,7 @@ public interface IPositionConfigurationProvider
 <tr><td><code>US-F1-06</code></td><td><code>T01</code>=5, <code>T02</code>=3, <code>T03</code>=2, <code>T04</code>=3, <code>T05</code>=5, <code>T06</code>=5, <code>T07</code>=5, <code>T08</code>=3, <code>T09</code>=5, <code>T10</code>=3, <code>T11</code>=2, <code>T12</code>=5, <code>T13</code>=5</td><td><strong>51</strong></td></tr>
 <tr><td><code>US-F1-07</code></td><td><code>T01</code>=3, <code>T02</code>=5, <code>T03</code>=3, <code>T04</code>=3, <code>T05</code>=3, <code>T06</code>=3, <code>T07</code>=3, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=5, <code>T11</code>=3, <code>T12</code>=3, <code>T13</code>=3, <code>T14</code>=2, <code>T15</code>=5, <code>T16</code>=5</td><td><strong>55</strong></td></tr>
 <tr><td><code>US-F1-08</code></td><td><code>T01</code>=3, <code>T02</code>=3, <code>T03</code>=3, <code>T04a</code>=3, <code>T04b</code>=3, <code>T04c</code>=2, <code>T05</code>=3, <code>T06</code>=5, <code>T07</code>=3, <code>T08</code>=3, <code>T09</code>=3, <code>T10</code>=2, <code>T11</code>=2, <code>T12</code>=5, <code>T13</code>=5</td><td><strong>48</strong></td></tr>
+<tr><td><strong>Total F1</strong></td><td>Estimativa relativa agregada para todas as tarefas da fase</td><td><strong>430</strong></td></tr>
 </tbody>
 </table>
 
@@ -2849,7 +2861,7 @@ public interface IPositionConfigurationProvider
 <li><strong>US-F1-07-T05</strong> — Definir o contrato interno de deteção: fontes de factos persistidos por tipo, avaliação incremental periódica com relógio injetável e checkpoint durável por detetor, produção de ocorrências canónicas com janela e chave idempotente; sem consulta a estado em memória de atores.</li>
 <li><strong>US-F1-07-T06</strong> — Implementar o detetor de <code>directive-deadline-approaching</code>: mensagens persistidas com <code>Deadline</code> endereçadas à posição subscritora e ainda sem resposta/conclusão correlacionada (regras de estado de <code>US-F1-02-T03b</code>) geram exatamente uma ocorrência quando o instante atual entra na janela <code>[Deadline - within, Deadline)</code>.</li>
 <li><strong>US-F1-07-T07</strong> — Implementar o detetor de <code>position-blocked-prolonged</code> sobre a projeção de estados operacionais de <code>US-F1-01-T05</code>/<code>T06</code>: um período contínuo em <code>Blocked</code> com duração ≥ <code>after</code> gera exatamente uma ocorrência por período e por subscrição, correlacionada com a causa (escalamento pendente ou <code>ConfigurationBlocked</code>).</li>
-<li><strong>US-F1-07-T08</strong> — Implementar o detetor de <code>budget-threshold-reached</code>: agrega os eventos de custo de <code>US-F0-07-T10</code> por posição e dia civil no timezone da posição e gera uma ocorrência quando o consumo atinge <code>threshold_percent</code> de um budget diário declarado (§6.2), identificando o budget atravessado; sem debitar consumo nem aplicar enforcement (F2, <code>US-F2-03</code>).</li>
+<li><strong>US-F1-07-T08</strong> — Implementar o detetor de <code>budget-threshold-reached</code>: agrega os eventos de custo de <code>US-F0-07-T10</code> por posição e dia civil no timezone da posição e gera uma ocorrência quando o consumo atinge <code>threshold_percent</code> de um budget diário declarado (§6.2), identificando o budget atravessado; sem debitar consumo nem aplicar enforcement (F2, <code>US-F2-03</code>). Nota de evolução: quando o ledger de <code>US-F2-03</code> existir, o detetor passa a consumi-lo em vez de manter uma agregação paralela dos mesmos eventos.</li>
 <li><strong>US-F1-07-T09</strong> — Construir o <code>EventTrigger</code> canónico (padrão de <code>US-F0-09-T06</code>): <code>From = SystemEndpointRef(DomainEvents)</code>, destino subscritor, <code>EventType</code> canónico, <code>Payload</code> JSON versionado, prioridade da subscrição, <code>MessageId</code>/<code>ThreadId</code> derivados deterministicamente da chave idempotente por namespaces SHA-256 próprios (<code>hive:domain-events:trigger:message</code>/<code>thread</code>).</li>
 <li><strong>US-F1-07-T10</strong> — Persistir o estado de entrega em read model PostgreSQL próprio no schema <code>domain_events</code> (padrão de <code>US-F0-09-T07</code>): estados <code>Registered</code>/<code>Fired</code>/<code>Delivered</code>/<code>Skipped</code>/<code>Failed</code>/<code>Redelivered</code> por chave idempotente, histórico append-only com razões estruturadas e migrations idempotentes no padrão de advisory lock/ledger existente.</li>
 <li><strong>US-F1-07-T11</strong> — Aplicar o gate de políticas pré-entrega reutilizando o seam de <code>US-F0-09-T09</code>: <code>working_hours</code> avaliado sobre o instante da ocorrência no timezone da posição com fim exclusivo, <code>critical</code> atravessa o horário normal, budget proativo indisponível bloqueia sempre; skips gravam <code>Skipped</code> com razões <code>domain-events-outside-working-hours</code>/<code>domain-events-proactive-budget-unavailable</code> sem entregar.</li>
@@ -3385,7 +3397,7 @@ public interface IPositionConfigurationProvider
 <ul>
 <li><strong>US-F3-08-T01</strong> — Criar o catálogo de superfícies públicas com tiers de suporte, classificando cada superfície existente (REST/SignalR, YAML §4.8, wire de conectores, templates, telemetria, Helm) e fixando a regra de que o não catalogado é interno; o catálogo entra no bible como contrato versionado.</li>
 <li><strong>US-F3-08-T02</strong> — Definir a política unificada de compatibilidade e depreciação: semver por superfície, N-1, processo de depreciação com prazos, e a regra de enforcement em CI; harmonizar as políticas parciais existentes (wire <code>US-F3-04-T05</code>, envelope §9.3) sob a mesma moldura sem as alterar.</li>
-<li><strong>US-F3-08-T03</strong> — Consolidar a API pública sob <code>/api/v1</code>: revisão de rotas e DTOs (sem tipos internos, erros Problem Details coerentes), OpenAPI gerado do código e validado em CI, e fixtures de contrato para as rotas <code>stable</code>.</li>
+<li><strong>US-F3-08-T03</strong> — Consolidar a API pública sob <code>/api/v1</code>: revisão de rotas e DTOs (sem tipos internos, erros Problem Details coerentes), OpenAPI gerado do código e validado em CI, e fixtures de contrato para as rotas <code>stable</code>; inclui o contrato do pipeline HTTP — autenticação por grupo de endpoints, exception handling → Problem Details, CORS, forwarded headers, rate limiting de superfície e autenticação/grupos SignalR.</li>
 <li><strong>US-F3-08-T04</strong> — Documentar as fronteiras de extensibilidade como contrato: o que terceiros podem estender e por onde, o que é fechado e porquê, com referências aos seams respetivos; publicado na documentação de adoção.</li>
 <li><strong>US-F3-08-T05</strong> — Produzir a documentação pública de adoção: guia de arquitetura curado, guia de operação (deploy Compose/K8s a partir de <code>docs/configuration.md</code>), guia de integração (API, conectores, templates) e referência OpenAPI navegável — derivada do bible mas editorialmente separada dele.</li>
 <li><strong>US-F3-08-T06</strong> — Preparar o checklist de segurança/compliance para adopters: hardening de deployment, gestão de segredos, rede, matriz RGPD controller/processor (estende <code>US-F1-08-T13</code>), kill switch, backup/restore e resposta a incidentes, validado contra um deployment de referência.</li>
@@ -3466,7 +3478,7 @@ public interface IPositionConfigurationProvider
 <li><strong>Agentes autónomos sem supervisão</strong> — toda a ação relevante é auditada e sujeita a alçadas; não é objetivo criar uma organização que opere sem qualquer controlo humano.</li>
 <li><strong>Treino/fine-tuning de modelos</strong> — usamos modelos via API; não treinamos modelos.</li>
 <li><strong>Substituir ferramentas de RH/ERP</strong> — a estrutura organizacional do sistema não pretende ser o sistema de RH da empresa.</li>
-<li><strong>Multi-tenancy SaaS na v1</strong> — assumimos uma organização por deployment; o modelo inclui <code>OrganizationId</code> desde o início, mas billing, marketplace e isolamento SaaS forte ficam para F3.</li>
+<li><strong>Multi-tenancy SaaS na v1</strong> — o deployment suporta várias organizações desde F0, mas assume um único cliente (tenant); billing (<code>US-F3-09</code>), marketplace (<code>US-F3-03</code>) e isolamento multi-tenant forte (<code>US-F3-10</code>) ficam para F3.</li>
 <li><strong>Comunicação por voz/telefonia na v1.</strong></li>
 </ol>
 
@@ -3493,7 +3505,8 @@ public interface IPositionConfigurationProvider
 <tr><td>Q12</td><td>Como expõem os nós backend (<code>Hive.Worker</code>: roles <code>agents</code>/<code>gateway</code>/<code>connectors</code>) as verificações <code>live</code>/<code>ready</code> para orquestração, dado que não têm servidor HTTP? (listener HTTP mínimo no Worker, comando CLI de healthcheck, ou probe TCP)</td><td>§11.1, health checks Docker</td><td><strong>Resolvida (v1.58)</strong>: os nós backend servem as verificações <code>live</code>/<code>ready</code> de §11.1 pelo endpoint HTTP do Akka.Management, já exigido pelo Cluster.Bootstrap — mesma taxonomia, segundo transporte, sem servidor HTTP adicional. Ver <code>US-F2-01-T03</code>.</td></tr>
 <tr><td>Q13</td><td>Taxonomia das chaves de autoridade e binding ação-concreta→chave (princípio fixado em §4.4, que a referia por engano como Q12)</td><td>§4.4, §4.9, §6.2, implementação em <code>US-F0-11</code></td><td><strong>Resolvida (v1.13)</strong>: catálogo de domínios de ação com <code>gate</code> mínimo e binding híbrido de precedência assimétrica — predicados objetivos para escalar/aprovar, intenção declarada (<code>acting_under</code> de vocabulário fechado) para <code>can_decide</code>, default fail-closed <code>escalate</code>. Ver §4.9</td></tr>
 <tr><td>Q14</td><td>Forma da diretiva de autorização que resolve uma <code>Escalation</code> de gate: vinculação à instância da ação retida, uso único, expiração e verificação por linhagem (§9.6)</td><td>Taxonomia do §9, implementação em <code>US-F0-12</code></td><td><strong>Resolvida (v1.14)</strong>: tipos de governança <code>AuthorizationGrant</code>/<code>AuthorizationDenial</code> com vinculação à instância (<code>RetainedActionId</code> + <code>ActionFingerprint</code>), uso único por construção, expiração obrigatória, emissão gateada por <code>governance.authorize-retained-action</code> e assimetria com <code>human-approval</code>. Ver §9.11</td></tr>
-<tr><td>Q15</td><td>Contrato utilizador ↔ ocupante: como se autentica um utilizador real (contas, identidade) e se vincula à declaração <code>occupant.type: human</code> do YAML/registry (§4.8/§6.2)?</td><td>Modo de admissão autenticado da submissão direta (<code>US-F0-10-T02</code>), inbox web (<code>US-F1-02</code>, que deixou identidade real fora de âmbito) e canal de ocupante (<code>US-F1-03</code>)</td><td><strong>Aberta</strong></td></tr>
+<tr><td>Q15</td><td>Contrato utilizador ↔ ocupante: como se autentica um utilizador real (contas, identidade) e se vincula à declaração <code>occupant.type: human</code> do YAML/registry (§4.8/§6.2)?</td><td>Modo de admissão autenticado da submissão direta (<code>US-F0-10-T02</code>), inbox web (<code>US-F1-02</code>, que deixou identidade real fora de âmbito) e canal de ocupante (<code>US-F1-03</code>)</td><td><strong>Aberta</strong> — resolução exigida antes da implementação de <code>US-F2-07</code>: o quatro-olhos pressupõe principais autenticados distintos, e com as credenciais estáticas de <code>US-F1-02-T04</code> a garantia é fraca. Direção provável: modelo mínimo <code>User/Principal</code> ↔ ocupante com autenticação real (ex.: OIDC), a especificar como US própria</td></tr>
+<tr><td>Q16</td><td>Coordenação cluster-wide das filas/limites por provider do <code>AiGateway</code> (<code>US-F1-05</code>): com o role <code>gateway</code> escalado horizontalmente (<code>US-F2-01</code>), limites por processo multiplicam por réplica — singleton/shard por provider vs. divisão estática de limites por réplica? (§6.3 previu um <code>AiGatewayActor</code> exatamente para esta necessidade)</td><td>§6.3, <code>US-F1-05</code>, <code>US-F2-01</code>, fairness por tenant (<code>US-F3-10-T05</code>)</td><td><strong>Aberta</strong> — a resolver o mais tardar no arranque de <code>US-F2-01</code></td></tr>
 </tbody>
 </table>
 
@@ -3813,9 +3826,6 @@ public interface IPositionConfigurationProvider
 <li>Revisitar se: o volume/latência das mensagens de cluster ou o tamanho dos eventos persistidos excederem o conforto operacional — migrar tipos específicos para Protobuf, preservando os contratos.</li>
 </ul>
 
-<hr>
-
-<p><em>Proxima iteracao (v1.02): implementar <code>US-F0-07-T10</code> para duracao, provider/modelo, tokens, custo estimado/real e resultado da chamada, emitindo evento de custo/auditoria correlacionado.</em></p>
 <script>
 (function () {
   function isDocumentHeading(node) {

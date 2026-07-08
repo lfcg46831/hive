@@ -15,7 +15,7 @@ public sealed class AiDirectiveIntegrationFixtureTests
             AiDirectiveIntegrationScenario.Create(configureStub: options =>
             {
                 options.ModelId = "fixture-scenario";
-                options.Text = ValidReportOutput();
+                options.Scenario = "bug-triage-report";
             }));
 
         var result = await fixture.ProcessDirectiveAsync();
@@ -39,7 +39,7 @@ public sealed class AiDirectiveIntegrationFixtureTests
         Assert.True(resultMessage.Result!.IsSuccess);
         Assert.Contains(result.Directive.Id, result.PositionState.ProcessedMessages);
         Assert.Equal(
-            "Report Done: Integration report complete.",
+            "Report Done: Bug triage complete: checkout confirmation failures are reproducible with high user impact.",
             result.PositionState.ShortMemory[
                 $"directive:{result.Directive.DirectiveId.Value:N}:result"]);
     }

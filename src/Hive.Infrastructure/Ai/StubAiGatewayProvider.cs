@@ -9,6 +9,57 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
     private const string OutcomeError = "error";
     private const string OutcomeTimeout = "timeout";
     private const string OutcomeToolCall = "tool-call";
+    private const string ScenarioBugTriageReport = "bug-triage-report";
+    private const string ScenarioBugTriageMissingInformation =
+        "bug-triage-missing-information";
+    private const string ScenarioBugTriageExternalDecisionBlocked =
+        "bug-triage-external-decision-blocked";
+    private const string ScenarioProviderControlledFailure =
+        "provider-controlled-failure";
+
+    private const string BugTriageReportText =
+        """
+        {
+          "schema_version": 1,
+          "intent": "Report",
+          "report": {
+            "kind": "Done",
+            "body": "Bug triage complete: checkout confirmation failures are reproducible with high user impact."
+          }
+        }
+        """;
+
+    private const string BugTriageMissingInformationText =
+        """
+        {
+          "schema_version": 1,
+          "intent": "Escalation",
+          "escalation": {
+            "issue": "Missing bug triage information",
+            "context": "The report lacks enough reproduction or environment evidence to complete triage deterministically.",
+            "options_considered": [
+              "Proceed with the partial report",
+              "Request reproduction steps and affected environment"
+            ]
+          }
+        }
+        """;
+
+    private const string BugTriageExternalDecisionBlockedText =
+        """
+        {
+          "schema_version": 1,
+          "intent": "Escalation",
+          "escalation": {
+            "issue": "External decision required",
+            "context": "The next action depends on an external production or customer-impact decision outside the triage position authority.",
+            "options_considered": [
+              "Classify only the technical symptoms",
+              "Escalate for an accountable external decision"
+            ]
+          }
+        }
+        """;
 
     private readonly IOptions<StubAiGatewayProviderOptions> _options;
 
@@ -26,6 +77,16 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
 
         var options = _options.Value ?? new StubAiGatewayProviderOptions();
         var provider = request.Provider ?? CreateProvider(options);
+        var scenario = OptionalScenario(options.Scenario);
+        if (scenario is not null)
+        {
+            return Task.FromResult(CreateScenarioResponse(
+                request,
+                options,
+                provider,
+                scenario));
+        }
+
         var outcome = RequireOutcome(options.Outcome);
 
         var response = outcome switch
@@ -41,6 +102,36 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
 
         return Task.FromResult(response);
     }
+
+    private static AiGatewayResponse CreateScenarioResponse(
+        AiGatewayRequest request,
+        StubAiGatewayProviderOptions options,
+        AiProviderMetadata provider,
+        string scenario) =>
+        scenario switch
+        {
+            ScenarioBugTriageReport => CreateScenarioSuccess(
+                request,
+                options,
+                provider,
+                BugTriageReportText),
+            ScenarioBugTriageMissingInformation => CreateScenarioSuccess(
+                request,
+                options,
+                provider,
+                BugTriageMissingInformationText),
+            ScenarioBugTriageExternalDecisionBlocked => CreateScenarioSuccess(
+                request,
+                options,
+                provider,
+                BugTriageExternalDecisionBlockedText),
+            ScenarioProviderControlledFailure => CreateProviderControlledFailure(
+                request,
+                provider),
+            _ => throw new ArgumentException(
+                $"AI gateway stub scenario '{options.Scenario}' is not supported.",
+                nameof(options.Scenario)),
+        };
 
     private static AiProviderMetadata CreateProvider(
         StubAiGatewayProviderOptions options) =>
@@ -60,6 +151,35 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
             provider,
             usage: CreateUsage(options.Usage),
             cost: CreateCost(options.Cost));
+
+    private static AiGatewayResponse CreateScenarioSuccess(
+        AiGatewayRequest request,
+        StubAiGatewayProviderOptions options,
+        AiProviderMetadata provider,
+        string text) =>
+        AiGatewayResponse.Succeeded(
+            request.OrganizationId,
+            request.PositionId,
+            request.ThreadId,
+            request.MessageId,
+            text,
+            AiFinishReason.Stop,
+            provider,
+            usage: CreateUsage(options.Usage),
+            cost: CreateCost(options.Cost));
+
+    private static AiGatewayResponse CreateProviderControlledFailure(
+        AiGatewayRequest request,
+        AiProviderMetadata provider) =>
+        AiGatewayResponse.Failed(new AiGatewayError(
+            request.OrganizationId,
+            request.PositionId,
+            request.ThreadId,
+            request.MessageId,
+            AiGatewayErrorCode.ProviderUnavailable,
+            "AI gateway stub returned a controlled provider failure.",
+            isRetryable: true,
+            provider));
 
     private static AiGatewayResponse CreateError(
         AiGatewayRequest request,
@@ -164,6 +284,30 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
 
     private static string? OptionalConfiguredText(string? value) =>
         value == string.Empty ? null : value;
+
+    private static string? OptionalScenario(string? value)
+    {
+        if (value is null || value.Length == 0)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException(
+                "AI gateway stub scenario cannot be whitespace.",
+                nameof(value));
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "AI gateway stub scenario cannot contain leading or trailing whitespace.",
+                nameof(value));
+        }
+
+        return value;
+    }
 
     private static string RequireOutcome(string value)
     {

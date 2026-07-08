@@ -296,6 +296,7 @@ Stub responses are configured under `Hive:AiGateway:Stub`:
 | --- | --- | --- |
 | `Hive:AiGateway:Stub:ProviderId` | `stub` | Provider id reported in `AiProviderMetadata`. |
 | `Hive:AiGateway:Stub:ModelId` | `deterministic` | Model id reported in `AiProviderMetadata`. |
+| `Hive:AiGateway:Stub:Scenario` | unset | Optional deterministic vertical-slice scenario. When set, it overrides `Outcome`/`Text` and returns the canned scenario result. Supported values: `bug-triage-report`, `bug-triage-missing-information`, `bug-triage-external-decision-blocked`, `provider-controlled-failure`. |
 | `Hive:AiGateway:Stub:Outcome` | `success` | One of `success`, `error`, `timeout`, or `tool-call`. |
 | `Hive:AiGateway:Stub:Text` | `Stub AI response.` | Text returned for `success` and optional text returned with `tool-call`. Set to empty/null only when a tool call is present. |
 | `Hive:AiGateway:Stub:FinishReason` | `stop` | Finish reason for `success`, using the AI gateway wire values such as `stop`, `length`, or `content-filtered`. `tool-call` always returns `tool-calls`. |
@@ -321,6 +322,13 @@ HIVE__AIGATEWAY__STUB__USAGE__TOTALTOKENS=20
 HIVE__AIGATEWAY__STUB__COST__AMOUNT=0.03
 HIVE__AIGATEWAY__STUB__COST__CURRENCY=EUR
 HIVE__AIGATEWAY__STUB__COST__ISESTIMATED=true
+```
+
+F0 bug-triage vertical-slice scenarios can be selected by name:
+
+```text
+HIVE__AIGATEWAY__PROVIDER=stub
+HIVE__AIGATEWAY__STUB__SCENARIO=bug-triage-report
 ```
 
 ### Real provider configuration

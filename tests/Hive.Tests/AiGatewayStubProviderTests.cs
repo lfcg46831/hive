@@ -1,5 +1,7 @@
+using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 using Hive.Infrastructure.Ai;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -190,6 +192,56 @@ public sealed class AiGatewayStubProviderTests
     }
 
     [Fact]
+    public async Task Configured_bug_triage_report_scenario_returns_parseable_done_report()
+    {
+        var response = await CompleteScenarioAsync("bug-triage-report");
+
+        Assert.True(response.IsSuccess);
+        var parsed = AiDirectiveDecisionParser.Parse(response.Text);
+        Assert.True(parsed.IsSuccess, FormatDecisionErrors(parsed.Errors));
+        var decision = Assert.IsType<AiDirectiveReportDecision>(parsed.Decision);
+        Assert.Equal(ReportKind.Done, decision.Kind);
+        Assert.Contains("triage", decision.Body, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData(
+        "bug-triage-missing-information",
+        "Missing bug triage information")]
+    [InlineData(
+        "bug-triage-external-decision-blocked",
+        "External decision required")]
+    public async Task Configured_bug_triage_escalation_scenario_returns_parseable_escalation(
+        string scenario,
+        string expectedIssue)
+    {
+        var response = await CompleteScenarioAsync(scenario);
+
+        Assert.True(response.IsSuccess);
+        var parsed = AiDirectiveDecisionParser.Parse(response.Text);
+        Assert.True(parsed.IsSuccess, FormatDecisionErrors(parsed.Errors));
+        var decision = Assert.IsType<AiDirectiveEscalationDecision>(parsed.Decision);
+        Assert.Equal(expectedIssue, decision.Issue);
+        Assert.NotEmpty(decision.Context);
+        Assert.NotEmpty(decision.OptionsConsidered);
+    }
+
+    [Fact]
+    public async Task Configured_provider_controlled_failure_scenario_returns_structured_failure()
+    {
+        var response = await CompleteScenarioAsync("provider-controlled-failure");
+
+        Assert.True(response.IsFailure);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.ProviderUnavailable, error.Code);
+        Assert.True(error.IsRetryable);
+        Assert.Contains("controlled", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(error.Provider);
+        Assert.Equal("stub", error.Provider.ProviderId);
+        Assert.Equal("deterministic", error.Provider.ModelId);
+    }
+
+    [Fact]
     public async Task AddHiveAiGateway_keeps_stub_when_real_settings_are_present()
     {
         var configuration = new ConfigurationBuilder()
@@ -253,4 +305,28 @@ public sealed class AiGatewayStubProviderTests
             Thread,
             Message,
             "Classify this bug.");
+
+    private static async Task<AiGatewayResponse> CompleteScenarioAsync(string scenario)
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Hive:AiGateway:Provider"] = "stub",
+                ["Hive:AiGateway:Stub:Scenario"] = scenario,
+            })
+            .Build();
+        var services = new ServiceCollection();
+        services.AddHiveAiGateway(configuration);
+
+        using var provider = services.BuildServiceProvider();
+        var gateway = provider.GetRequiredService<IAiGateway>();
+
+        return await gateway.CompleteAsync(Request());
+    }
+
+    private static string FormatDecisionErrors(
+        IEnumerable<AiDirectiveDecisionParseError> errors) =>
+        string.Join(
+            Environment.NewLine,
+            errors.Select(error => $"{error.Path}: {error.Code}"));
 }

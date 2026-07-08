@@ -8,6 +8,8 @@ public sealed class StubAiGatewayProviderOptions
 
     public string ModelId { get; set; } = "deterministic";
 
+    public string? Scenario { get; set; }
+
     public string Outcome { get; set; } = "success";
 
     public string? Text { get; set; } = "Stub AI response.";

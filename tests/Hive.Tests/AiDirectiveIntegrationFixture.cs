@@ -312,6 +312,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     {
         target.ProviderId = source.ProviderId;
         target.ModelId = source.ModelId;
+        target.Scenario = source.Scenario;
         target.Outcome = source.Outcome;
         target.Text = source.Text;
         target.FinishReason = source.FinishReason;

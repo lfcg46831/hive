@@ -1,5 +1,7 @@
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
+using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Ai;
 
 namespace Hive.Tests;
@@ -89,6 +91,63 @@ public sealed class AiGatewayServiceTests
         Assert.Equal(usage, published.Usage);
         Assert.Equal(cost, published.Cost);
         Assert.Null(published.ErrorCode);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_records_journey_gateway_call_and_cost_without_raw_prompt_or_output()
+    {
+        var startedAt = new DateTimeOffset(2026, 7, 8, 10, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(210);
+        var providerMetadata = new AiProviderMetadata("stub", "bug-triage");
+        var usage = new AiTokenUsage(11, 13, 24, isEstimated: true);
+        var cost = new AiCostMetadata(0.00032m, "USD", isEstimated: true);
+        var request = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Classify checkout bug reported by user@example.com with token=sk-secret123456.",
+            provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "The checkout bug is reproducible for user@example.com.",
+            AiFinishReason.Stop,
+            providerMetadata,
+            usage: usage,
+            cost: cost);
+        var auditLog = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(response),
+            publisher,
+            new SequenceTimeProvider(startedAt, completedAt),
+            publisher);
+
+        await gateway.CompleteAsync(request);
+
+        Assert.Equal(
+            [JourneyAuditStage.GatewayCalled, JourneyAuditStage.GatewayCostRecorded],
+            auditLog.Records.Select(record => record.Stage));
+        Assert.All(auditLog.Records, record =>
+        {
+            Assert.Equal(JourneyAuditOutcome.Succeeded, record.Outcome);
+            Assert.Equal(Organization, record.OrganizationId);
+            Assert.Equal(Position, record.PositionId);
+            Assert.Equal(Thread, record.ThreadId);
+            Assert.Equal(Message, record.MessageId);
+            Assert.Equal(providerMetadata, record.Provider);
+            Assert.Equal(TimeSpan.FromMilliseconds(210), record.Latency);
+        });
+        Assert.Equal(24, auditLog.Records[1].Usage!.TotalTokens);
+        Assert.Equal(0.00032m, auditLog.Records[1].Cost!.Amount);
+        var payloadText = string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values));
+        Assert.Contains("request.content", payloadText, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-secret", payloadText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("user@example.com", payloadText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("checkout bug is reproducible", payloadText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -702,5 +761,25 @@ public sealed class AiGatewayServiceTests
 
             return timestamps[_index++];
         }
+    }
+
+    private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
+    {
+        private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
+
+        public void Append(JourneyAuditRecord record)
+        {
+            _records.Add(record);
+        }
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null) =>
+            _records
+                .Where(record => record.ThreadId == threadId &&
+                    (directiveId is null || record.DirectiveId == directiveId))
+                .ToArray();
     }
 }

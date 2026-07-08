@@ -1,4 +1,5 @@
 using Hive.Actors.Sharding;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -9,15 +10,18 @@ internal sealed class ShardedDirectiveSubmissionSink : IDirectiveSubmissionSink
 {
     private readonly DirectiveRoutingValidator _routingValidator;
     private readonly IPositionCommandDispatcher _dispatcher;
+    private readonly IJourneyAuditLog _auditLog;
 
     public ShardedDirectiveSubmissionSink(
         DirectiveRoutingValidator routingValidator,
-        IPositionCommandDispatcher dispatcher)
+        IPositionCommandDispatcher dispatcher,
+        IJourneyAuditLog? auditLog = null)
     {
         _routingValidator = routingValidator
             ?? throw new ArgumentNullException(nameof(routingValidator));
         _dispatcher = dispatcher
             ?? throw new ArgumentNullException(nameof(dispatcher));
+        _auditLog = auditLog ?? NoopJourneyAuditLog.Instance;
     }
 
     public async ValueTask<DirectiveSubmissionResult> SubmitAsync(
@@ -32,11 +36,17 @@ internal sealed class ShardedDirectiveSubmissionSink : IDirectiveSubmissionSink
             .ConfigureAwait(false);
         if (!validation.IsValid)
         {
+            var rejection = RoutingRejection.Create(
+                RoutingValidationContext.ForMessage(directive),
+                validation);
+            DirectiveSubmissionAudit.RecordRoutingRejection(
+                _auditLog,
+                directive,
+                rejection);
+
             return DirectiveSubmissionResult.Rejected(
                 directive,
-                RoutingRejection.Create(
-                    RoutingValidationContext.ForMessage(directive),
-                    validation));
+                rejection);
         }
 
         var target = (PositionEndpointRef)directive.To;

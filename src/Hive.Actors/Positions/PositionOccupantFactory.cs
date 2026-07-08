@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -18,6 +19,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 
     private readonly IAiAgentGatewayInvoker _aiGatewayInvoker;
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
+    private readonly IJourneyAuditLog _auditLog;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -31,12 +33,21 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 
     public PositionOccupantFactory(
         IAiAgentGatewayInvoker aiGatewayInvoker,
-        IAiDirectiveResultMessageGate resultMessageGate)
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IJourneyAuditLog auditLog)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
         _resultMessageGate = resultMessageGate
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
+        _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate)
+        : this(aiGatewayInvoker, resultMessageGate, NoopJourneyAuditLog.Instance)
+    {
     }
 
     public Props Create(OccupantId occupant, OccupantType occupantType)
@@ -48,7 +59,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             OccupantType.AiAgent => Props.Create(() => new AiAgentActor(
                 occupant,
                 _aiGatewayInvoker,
-                _resultMessageGate)),
+                _resultMessageGate,
+                _auditLog)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -78,6 +90,7 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveAuditSnapshot> _directiveAudits =
         new(StringComparer.Ordinal);
+    private readonly IJourneyAuditLog _auditLog;
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -92,13 +105,15 @@ internal sealed class AiAgentActor : ReceiveActor
     public AiAgentActor(
         OccupantId occupant,
         IAiAgentGatewayInvoker gatewayInvoker,
-        IAiDirectiveResultMessageGate resultMessageGate)
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IJourneyAuditLog auditLog)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
             ?? throw new ArgumentNullException(nameof(gatewayInvoker));
         ResultMessageGate = resultMessageGate
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
+        _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -184,6 +199,14 @@ internal sealed class AiAgentActor : ReceiveActor
         Receive<OrgMessage>(_ =>
         {
         });
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate)
+        : this(occupant, gatewayInvoker, resultMessageGate, NoopJourneyAuditLog.Instance)
+    {
     }
 
     public OccupantId Occupant { get; }
@@ -456,8 +479,68 @@ internal sealed class AiAgentActor : ReceiveActor
             positionEffects);
 
         _directiveAudits[context.CorrelationId] = snapshot;
+        RecordJourneyAudit(snapshot);
         publishAudit(snapshot);
     }
+
+    private void RecordJourneyAudit(AiDirectiveAuditSnapshot snapshot)
+    {
+        if (snapshot.Decision is { } decision)
+        {
+            _auditLog.Append(JourneyAuditRecord.Create(
+                JourneyAuditStage.AgentDecided,
+                DecisionOutcome(decision),
+                snapshot.Context.OrganizationId,
+                snapshot.Context.ThreadId,
+                snapshot.Context.MessageId,
+                snapshot.Context.DirectiveId,
+                snapshot.Context.PositionId,
+                decision.FailureCode,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["status"] = snapshot.Status.ToString(),
+                    ["terminalCode"] = snapshot.TerminalCode,
+                    ["decisionKind"] = decision.DecisionKind ?? "none",
+                    ["parseErrorCount"] = decision.ParseErrorCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    ["redactions"] = RedactionPayload(snapshot),
+                },
+                occurredAtUtc: snapshot.RecordedAt));
+        }
+
+        if (snapshot.ResultMessage is { } resultMessage)
+        {
+            _auditLog.Append(JourneyAuditRecord.Create(
+                JourneyAuditStage.ResultMessageCreated,
+                resultMessage.FailureCode is null
+                    ? JourneyAuditOutcome.Succeeded
+                    : JourneyAuditOutcome.Rejected,
+                snapshot.Context.OrganizationId,
+                snapshot.Context.ThreadId,
+                snapshot.Context.MessageId,
+                snapshot.Context.DirectiveId,
+                snapshot.Context.PositionId,
+                resultMessage.FailureCode,
+                resultMessage.MessageType,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["status"] = snapshot.Status.ToString(),
+                    ["terminalCode"] = snapshot.TerminalCode,
+                    ["resultMessageType"] = resultMessage.MessageType ?? "none",
+                    ["redactions"] = RedactionPayload(snapshot),
+                },
+                occurredAtUtc: snapshot.RecordedAt));
+        }
+    }
+
+    private static JourneyAuditOutcome DecisionOutcome(AiDirectiveAuditDecisionSnapshot decision) =>
+        decision.FailureCode is null
+            ? JourneyAuditOutcome.Succeeded
+            : JourneyAuditOutcome.Failed;
+
+    private static string RedactionPayload(AiDirectiveAuditSnapshot snapshot) =>
+        string.Join(
+            ",",
+            snapshot.Redactions.Select(redaction => $"{redaction.Path}:{redaction.Reason}"));
 
     private static string IdentityPromptFailureReason(AiDirectiveExecutionContext context) =>
         $"Identity prompt '{context.IdentityPromptRef ?? "<missing>"}' was not resolved; directive processing stopped before gateway request.";

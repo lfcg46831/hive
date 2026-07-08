@@ -41,17 +41,17 @@ public sealed class AiGateway : IAiGateway
         ArgumentNullException.ThrowIfNull(response);
 
         var completedAt = _timeProvider.GetUtcNow();
-        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
-            effectiveRequest,
-            response,
-            startedAt,
-            completedAt));
         _detailedAuditPublisher.Publish(
             AiGatewayDetailedAuditEnvelopeFactory.FromResponse(
                 effectiveRequest,
                 response,
                 startedAt,
                 completedAt));
+        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
+            effectiveRequest,
+            response,
+            startedAt,
+            completedAt));
 
         return response;
     }

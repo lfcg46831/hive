@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Hive.Actors.Sharding;
 using Hive.Api.Directives;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
@@ -67,6 +68,38 @@ public sealed class DirectiveSubmissionEndpointTests
     }
 
     [Fact]
+    public async Task Submit_root_directive_records_submission_audit_without_free_text_payload()
+    {
+        var sink = new CapturingDirectiveSubmissionSink();
+        var audit = new RecordingJourneyAuditLog();
+        await using var app = BuildApp(sink, audit);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            ValidRequest(from: "ceo", to: "delivery-lead"));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        Assert.Equal(
+            [JourneyAuditStage.SubmissionReceived, JourneyAuditStage.DirectiveCreated],
+            audit.Records.Select(record => record.Stage));
+        Assert.All(audit.Records, record =>
+        {
+            Assert.Equal(JourneyAuditOutcome.Accepted, record.Outcome);
+            Assert.Equal(OrganizationId.From("acme-delivery"), record.OrganizationId);
+            Assert.Equal(ThreadId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000111")), record.ThreadId);
+            Assert.Equal(DirectiveId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000112")), record.DirectiveId);
+            Assert.Equal(MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000110")), record.MessageId);
+            Assert.Equal(PositionId.From("delivery-lead"), record.PositionId);
+            Assert.DoesNotContain(
+                "Review the incoming production request",
+                string.Join(" ", record.Payload.Values),
+                StringComparison.Ordinal);
+        });
+    }
+
+    [Fact]
     public async Task Submit_root_directive_validates_route_and_dispatches_to_position_shard()
     {
         var dispatcher = new RecordingPositionCommandDispatcher();
@@ -94,7 +127,8 @@ public sealed class DirectiveSubmissionEndpointTests
     public async Task Submit_root_directive_rejects_invalid_vertical_route_before_dispatch()
     {
         var dispatcher = new RecordingPositionCommandDispatcher();
-        await using var app = BuildShardedApp(dispatcher, SampleRelations());
+        var audit = new RecordingJourneyAuditLog();
+        await using var app = BuildShardedApp(dispatcher, SampleRelations(), audit);
         await app.StartAsync();
         using var client = app.GetTestClient();
 
@@ -110,6 +144,12 @@ public sealed class DirectiveSubmissionEndpointTests
         var error = Assert.Single(errors.EnumerateArray());
         Assert.Equal("invalid-route", error.GetProperty("code").GetString());
         Assert.Equal("$", error.GetProperty("path").GetString());
+
+        var rejection = Assert.Single(
+            audit.Records,
+            record => record.Stage == JourneyAuditStage.PositionAccepted);
+        Assert.Equal(JourneyAuditOutcome.Rejected, rejection.Outcome);
+        Assert.Equal("invalid-route", rejection.ReasonCode);
     }
 
     [Fact]
@@ -189,11 +229,17 @@ public sealed class DirectiveSubmissionEndpointTests
         Assert.Null(sink.Submitted);
     }
 
-    private static WebApplication BuildApp(IDirectiveSubmissionSink sink)
+    private static WebApplication BuildApp(
+        IDirectiveSubmissionSink sink,
+        IJourneyAuditLog? auditLog = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton(sink);
+        if (auditLog is not null)
+        {
+            builder.Services.AddSingleton(auditLog);
+        }
 
         var app = builder.Build();
         app.MapHiveDirectiveSubmissionApi();
@@ -202,12 +248,18 @@ public sealed class DirectiveSubmissionEndpointTests
 
     private static WebApplication BuildShardedApp(
         IPositionCommandDispatcher dispatcher,
-        IOrganizationRelations relations)
+        IOrganizationRelations relations,
+        IJourneyAuditLog? auditLog = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton(relations);
         builder.Services.AddSingleton(dispatcher);
+        if (auditLog is not null)
+        {
+            builder.Services.AddSingleton(auditLog);
+        }
+
         builder.Services.AddHiveDirectiveSubmissionApi();
 
         var app = builder.Build();
@@ -271,5 +323,25 @@ public sealed class DirectiveSubmissionEndpointTests
             _envelopes.Add(envelope);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
+    {
+        private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
+
+        public void Append(JourneyAuditRecord record)
+        {
+            _records.Add(record);
+        }
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null) =>
+            _records
+                .Where(record => record.ThreadId == threadId &&
+                    (directiveId is null || record.DirectiveId == directiveId))
+                .ToArray();
     }
 }

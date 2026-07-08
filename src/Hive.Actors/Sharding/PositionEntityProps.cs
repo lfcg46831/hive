@@ -1,6 +1,8 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
+using Hive.Domain.Auditing;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Auditing;
 
 namespace Hive.Actors.Sharding;
 
@@ -12,14 +14,22 @@ internal sealed class PositionEntityProps : IPositionEntityProps
 {
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IPositionOccupantFactory _occupantFactory;
+    private readonly IPositionProjectionPublisher _projectionPublisher;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
-        IAiAgentGatewayInvoker aiGatewayInvoker)
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IJourneyAuditLog? auditLog = null)
     {
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
-        _occupantFactory = new PositionOccupantFactory(aiGatewayInvoker);
+        var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
+        _occupantFactory = new PositionOccupantFactory(
+            aiGatewayInvoker,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            resolvedAuditLog);
+        _projectionPublisher = new JourneyAuditPositionProjectionPublisher(
+            resolvedAuditLog);
     }
 
     public Props Create(string entityId) =>
@@ -27,5 +37,6 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             entityId,
             _configurationProvider,
             _occupantFactory,
+            _projectionPublisher,
             () => DateTimeOffset.UtcNow));
 }

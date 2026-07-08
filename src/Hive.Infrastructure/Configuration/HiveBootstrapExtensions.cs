@@ -1,3 +1,7 @@
+using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
+using Hive.Infrastructure.Auditing;
+using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Domain.Positions;
 using Hive.Domain.Organization;
 using Hive.Infrastructure.Ai;
@@ -33,6 +37,23 @@ public static class HiveBootstrapExtensions
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
         builder.Services.AddHiveAiGateway(builder.Configuration);
+        builder.Services.TryAddSingleton<IJourneyAuditLog>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? NoopJourneyAuditLog.Instance
+                : new PostgreSqlJourneyAuditLog(connectionString);
+        });
+        builder.Services.Replace(ServiceDescriptor.Singleton<
+            JourneyAuditAiGatewayPublisher,
+            JourneyAuditAiGatewayPublisher>());
+        builder.Services.Replace(ServiceDescriptor.Singleton<IAiGatewayAuditPublisher>(
+            serviceProvider => serviceProvider.GetRequiredService<JourneyAuditAiGatewayPublisher>()));
+        builder.Services.Replace(ServiceDescriptor.Singleton<IAiGatewayDetailedAuditPublisher>(
+            serviceProvider => serviceProvider.GetRequiredService<JourneyAuditAiGatewayPublisher>()));
         builder.Services.TryAddSingleton<IPositionConfigurationProvider>(serviceProvider =>
         {
             var connectionString = serviceProvider
@@ -72,6 +93,7 @@ public static class HiveBootstrapExtensions
         builder.Services.AddHostedService<PostgreSqlOrganizationRegistryImportHostedService>();
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlSchedulerPulseDeliveryMigrationHostedService>();
+        builder.Services.AddHostedService<PostgreSqlJourneyAuditLogMigrationHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

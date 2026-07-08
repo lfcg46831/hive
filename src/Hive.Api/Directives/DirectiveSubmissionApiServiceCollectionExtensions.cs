@@ -1,3 +1,4 @@
+using Hive.Domain.Auditing;
 using Hive.Domain.Messaging;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -11,6 +12,7 @@ public static class DirectiveSubmissionApiServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.TryAddSingleton<DirectiveRoutingValidator>();
+        services.TryAddSingleton<IJourneyAuditLog>(_ => NoopJourneyAuditLog.Instance);
         services.TryAddSingleton<IPositionCommandDispatcher, AkkaClusterShardingPositionCommandDispatcher>();
         services.TryAddSingleton<IDirectiveSubmissionSink, ShardedDirectiveSubmissionSink>();
         return services;

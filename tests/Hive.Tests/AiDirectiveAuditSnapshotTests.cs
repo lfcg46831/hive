@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -124,6 +125,54 @@ public sealed class AiDirectiveAuditSnapshotTests
             Assert.DoesNotContain("user@example.com", debugText, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("secret=abc123", debugText, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("Bug triage is complete", debugText, StringComparison.Ordinal);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_records_journey_audit_for_decision_and_result_message()
+    {
+        var request = Request();
+        var auditLog = new RecordingJourneyAuditLog();
+        var system = ActorSystem.Create($"ai-agent-journey-audit-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(ValidReportOutput()),
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    auditLog)),
+                "agent");
+
+            actor.Tell(request);
+
+            await WaitForAuditAsync(actor, request.CorrelationId);
+
+            Assert.Equal(
+                [JourneyAuditStage.AgentDecided, JourneyAuditStage.ResultMessageCreated],
+                auditLog.Records.Select(record => record.Stage));
+            Assert.All(auditLog.Records, record =>
+            {
+                Assert.Equal(JourneyAuditOutcome.Succeeded, record.Outcome);
+                Assert.Equal(Organization, record.OrganizationId);
+                Assert.Equal(Position, record.PositionId);
+                Assert.Equal(Thread, record.ThreadId);
+                Assert.Equal(IncomingDirective, record.DirectiveId);
+                Assert.Equal(IncomingMessage, record.MessageId);
+            });
+            Assert.Equal("Report", auditLog.Records[0].Payload["decisionKind"]);
+            Assert.Equal("Report", auditLog.Records[1].MessageType);
+            Assert.Equal("Report", auditLog.Records[1].Payload["resultMessageType"]);
+            var payloadText = string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values));
+            Assert.Contains("resultMessage.report.body", payloadText, StringComparison.Ordinal);
+            Assert.DoesNotContain("Bug triage is complete", payloadText, StringComparison.Ordinal);
+            Assert.DoesNotContain("user@example.com", payloadText, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("secret=abc123", payloadText, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -423,5 +472,25 @@ public sealed class AiDirectiveAuditSnapshotTests
         {
             Receive<AiDirectiveAuditSnapshot>(snapshot => published.TrySetResult(snapshot));
         }
+    }
+
+    private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
+    {
+        private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
+
+        public void Append(JourneyAuditRecord record)
+        {
+            _records.Add(record);
+        }
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null) =>
+            _records
+                .Where(record => record.ThreadId == threadId &&
+                    (directiveId is null || record.DirectiveId == directiveId))
+                .ToArray();
     }
 }

@@ -457,12 +457,7 @@ internal sealed class PositionActor :
 
     private void PublishProjection(PositionProjectionEvent @event)
     {
-        if (_projectionPublisher is not null)
-        {
-            _projectionPublisher.Publish(@event);
-            return;
-        }
-
+        _projectionPublisher?.Publish(@event);
         Context.System.EventStream.Publish(@event);
     }
 

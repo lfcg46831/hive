@@ -1,3 +1,7 @@
+using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
+using Hive.Infrastructure.Auditing;
+using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Scheduling.PostgreSql;
@@ -64,6 +68,34 @@ public sealed class HiveBootstrapTests
         Assert.True(schedulerMigration >= 0);
         Assert.True(roleWorkloads >= 0);
         Assert.True(schedulerMigration < roleWorkloads);
+    }
+
+    [Fact]
+    public void Bootstrap_registers_journey_audit_log_gateway_publishers_and_migration_before_role_workloads()
+    {
+        var builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Hive:Node:Roles:0"] = "api",
+        });
+        using var host = builder.Build();
+
+        Assert.NotNull(host.Services.GetRequiredService<IJourneyAuditLog>());
+        Assert.IsType<JourneyAuditAiGatewayPublisher>(
+            host.Services.GetRequiredService<IAiGatewayAuditPublisher>());
+        Assert.IsType<JourneyAuditAiGatewayPublisher>(
+            host.Services.GetRequiredService<IAiGatewayDetailedAuditPublisher>());
+
+        var hostedServices = host.Services.GetServices<IHostedService>().ToArray();
+        var auditMigration = Array.FindIndex(
+            hostedServices,
+            service => service.GetType() == typeof(PostgreSqlJourneyAuditLogMigrationHostedService));
+        var roleWorkloads = Array.FindIndex(
+            hostedServices,
+            service => service.GetType() == typeof(RoleWorkloadHostedService));
+
+        Assert.True(auditMigration >= 0);
+        Assert.True(roleWorkloads >= 0);
+        Assert.True(auditMigration < roleWorkloads);
     }
 
     private static HostApplicationBuilder CreateBuilder(

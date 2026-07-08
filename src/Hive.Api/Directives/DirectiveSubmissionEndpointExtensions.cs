@@ -1,6 +1,8 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Auditing;
 using Hive.Domain.Messaging;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Hive.Api.Directives;
 
@@ -22,6 +24,7 @@ public static class DirectiveSubmissionEndpointExtensions
         string organizationId,
         SubmitDirectiveRequest? request,
         IDirectiveSubmissionSink sink,
+        IServiceProvider services,
         CancellationToken cancellationToken)
     {
         if (!TryCreateDirective(
@@ -32,6 +35,9 @@ public static class DirectiveSubmissionEndpointExtensions
         {
             return problem!;
         }
+
+        var auditLog = services.GetService<IJourneyAuditLog>() ?? NoopJourneyAuditLog.Instance;
+        DirectiveSubmissionAudit.RecordAcceptedSubmission(auditLog, directive!);
 
         var result = await sink.SubmitAsync(directive!, cancellationToken);
         if (!result.IsAccepted)
@@ -196,4 +202,77 @@ public static class DirectiveSubmissionEndpointExtensions
                         .ToArray(),
                 },
             });
+}
+
+internal static class DirectiveSubmissionAudit
+{
+    public static void RecordAcceptedSubmission(
+        IJourneyAuditLog auditLog,
+        Directive directive)
+    {
+        ArgumentNullException.ThrowIfNull(auditLog);
+        ArgumentNullException.ThrowIfNull(directive);
+
+        var position = ((PositionEndpointRef)directive.To).PositionId;
+        var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["source"] = "api",
+            ["schemaVersion"] = directive.SchemaVersion.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["fromKind"] = directive.From.GetType().Name,
+            ["toKind"] = directive.To.GetType().Name,
+            ["redactions"] = "directive.objective,directive.context",
+        };
+
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.SubmissionReceived,
+            JourneyAuditOutcome.Accepted,
+            directive.OrganizationId,
+            directive.Thread,
+            directive.Id,
+            directive.DirectiveId,
+            position,
+            messageType: nameof(Directive),
+            payload: payload));
+
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.DirectiveCreated,
+            JourneyAuditOutcome.Accepted,
+            directive.OrganizationId,
+            directive.Thread,
+            directive.Id,
+            directive.DirectiveId,
+            position,
+            messageType: nameof(Directive),
+            payload: payload,
+            occurredAtUtc: directive.SentAt));
+    }
+
+    public static void RecordRoutingRejection(
+        IJourneyAuditLog auditLog,
+        Directive directive,
+        RoutingRejection rejection)
+    {
+        ArgumentNullException.ThrowIfNull(auditLog);
+        ArgumentNullException.ThrowIfNull(directive);
+        ArgumentNullException.ThrowIfNull(rejection);
+
+        var reasonCode = rejection.PublicResult.Errors.FirstOrDefault()?.Code
+            ?? "routing-rejected";
+        var position = ((PositionEndpointRef)directive.To).PositionId;
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.PositionAccepted,
+            JourneyAuditOutcome.Rejected,
+            directive.OrganizationId,
+            directive.Thread,
+            directive.Id,
+            directive.DirectiveId,
+            position,
+            reasonCode,
+            nameof(Directive),
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["source"] = "routing-validator",
+                ["reason"] = reasonCode,
+            }));
+    }
 }

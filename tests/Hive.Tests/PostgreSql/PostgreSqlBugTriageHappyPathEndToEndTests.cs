@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Akka.Actor;
+using Hive.Actors.Positions;
 using Hive.Actors.Sharding;
 using Hive.Api.Directives;
 using Hive.Domain.Auditing;
@@ -93,6 +95,88 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         AssertTimelineCoversHappyPath(timelineAfterRestart);
     }
 
+    [Theory]
+    [InlineData(
+        "bug-triage-missing-information",
+        "t14a-missing-information",
+        "Missing bug triage information",
+        "The report lacks enough reproduction or environment evidence to complete triage deterministically.",
+        "Request reproduction steps and affected environment")]
+    [InlineData(
+        "bug-triage-external-decision-blocked",
+        "t14a-actionable-escalation",
+        "External decision required",
+        "The next action depends on an external production or customer-impact decision outside the triage position authority.",
+        "Escalate for an accountable external decision")]
+    public async Task Alternative_escalation_paths_emit_canonical_message_and_correlated_audit(
+        string stubScenario,
+        string modelId,
+        string expectedIssue,
+        string expectedContext,
+        string expectedOption)
+    {
+        await using var dataSource = postgres.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = modelId;
+            options.Scenario = stubScenario;
+        });
+        var initialTask = Assert.Single(scenario.OpenTasks);
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            auditLog);
+        await using var app = BuildSubmissionApp(
+            fixture,
+            SampleRelations(),
+            auditLog);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            RequestFrom(scenario.Directive));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var timeline = await WaitForTimelineAsync(
+            dataSource,
+            scenario,
+            ready => ready.Entries.Any(entry =>
+                entry.Stage == JourneyAuditStage.ResultMessageCreated &&
+                entry.MessageType == nameof(Escalation)));
+        var agent = await fixture.ResolveAgentAsync();
+        var resultMessage = await agent.Ask<AiDirectiveResultMessageQueryResult>(
+            new GetAiDirectiveResultMessage(fixture.CorrelationId),
+            Timeout());
+        var state = await WaitForPositionStateAsync(
+            fixture,
+            snapshot => snapshot.OpenTasks.TryGetValue(initialTask.TaskId, out var task) &&
+                task.Priority == Priority.Critical &&
+                snapshot.ShortMemory.ContainsKey(scenario.ResultMemoryKey));
+
+        Assert.True(resultMessage.Found);
+        var escalation = Assert.IsType<Escalation>(resultMessage.Result!.Message);
+        Assert.Equal(new PositionEndpointRef(PositionId.From("triage-agent")), escalation.From);
+        Assert.Equal(new PositionEndpointRef(PositionId.From("delivery-lead")), escalation.To);
+        Assert.Equal(scenario.Directive.Thread, escalation.Thread);
+        Assert.Equal(scenario.Directive.Priority, escalation.Priority);
+        Assert.Equal(scenario.Directive.Deadline, escalation.Deadline);
+        Assert.Equal(expectedIssue, escalation.Issue);
+        Assert.Equal(expectedContext, escalation.Context);
+        Assert.Contains(expectedOption, escalation.OptionsConsidered);
+
+        var expectedNote = $"Escalation: {expectedIssue}. {expectedContext}";
+        Assert.Equal(expectedNote, state.ShortMemory[scenario.ResultMemoryKey]);
+        Assert.Equal(Priority.Critical, state.OpenTasks[initialTask.TaskId].Priority);
+
+        AssertTimelineCoversEscalationPath(
+            timeline,
+            scenario,
+            modelId);
+    }
+
     private static WebApplication BuildSubmissionApp(
         AiDirectiveIntegrationFixture fixture,
         IOrganizationRelations relations,
@@ -111,7 +195,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         return app;
     }
 
-    private static object RequestFrom(Directive directive)
+    private static object RequestFrom(Hive.Domain.Messaging.Directive directive)
     {
         var from = Assert.IsType<PositionEndpointRef>(directive.From);
         var to = Assert.IsType<PositionEndpointRef>(directive.To);
@@ -157,6 +241,25 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         throw new TimeoutException("Bug triage journey audit timeline did not reach the expected state.");
     }
 
+    private static async Task<PositionState> WaitForPositionStateAsync(
+        AiDirectiveIntegrationFixture fixture,
+        Func<PositionState, bool> isReady)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await fixture.GetPositionStateAsync();
+            if (isReady(state))
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("Bug triage position state did not reach the expected state.");
+    }
+
     private static void AssertTimelineCoversHappyPath(JourneyAuditTimeline timeline)
     {
         Assert.Equal(
@@ -199,6 +302,63 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
             entry.Stage == JourneyAuditStage.ResultMessageCreated &&
             entry.MessageType == nameof(Report) &&
             entry.RedactedPayload["resultMessageType"] == nameof(Report));
+    }
+
+    private static void AssertTimelineCoversEscalationPath(
+        JourneyAuditTimeline timeline,
+        AiDirectiveIntegrationScenario scenario,
+        string modelId)
+    {
+        Assert.Equal(scenario.Directive.OrganizationId, timeline.OrganizationId);
+        Assert.Equal(scenario.Directive.Thread, timeline.ThreadId);
+        Assert.Equal(scenario.Directive.DirectiveId, timeline.DirectiveId);
+        Assert.Equal(
+            [
+                JourneyAuditStage.SubmissionReceived,
+                JourneyAuditStage.DirectiveCreated,
+                JourneyAuditStage.PositionAccepted,
+                JourneyAuditStage.PositionDispatched,
+                JourneyAuditStage.GatewayCalled,
+                JourneyAuditStage.GatewayCostRecorded,
+                JourneyAuditStage.AgentDecided,
+                JourneyAuditStage.ResultMessageCreated,
+            ],
+            timeline.Entries.Select(entry => entry.Stage));
+
+        Assert.All(timeline.Entries, entry =>
+        {
+            Assert.Equal(scenario.Directive.Id, entry.MessageId);
+            Assert.Equal(scenario.Directive.DirectiveId, entry.DirectiveId);
+            Assert.Equal(PositionId.From("triage-agent"), entry.PositionId);
+            Assert.NotEqual(JourneyAuditOutcome.Rejected, entry.Outcome);
+        });
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.GatewayCalled &&
+            entry.Provider?.ProviderId == "stub" &&
+            entry.Provider.ModelId == modelId &&
+            entry.Latency is not null);
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.AgentDecided &&
+            entry.RedactedPayload["decisionKind"] == nameof(Escalation));
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.ResultMessageCreated &&
+            entry.MessageType == nameof(Escalation) &&
+            entry.RedactedPayload["resultMessageType"] == nameof(Escalation));
+
+        var resultAudit = Assert.Single(timeline.Entries.Where(entry =>
+            entry.Stage == JourneyAuditStage.ResultMessageCreated));
+        Assert.Contains(
+            "resultMessage.escalation.issue:free-text",
+            resultAudit.RedactedPayload["redactions"],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "resultMessage.escalation.context:free-text",
+            resultAudit.RedactedPayload["redactions"],
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "resultMessage.escalation.optionsConsidered:free-text",
+            resultAudit.RedactedPayload["redactions"],
+            StringComparison.Ordinal);
     }
 
     private static IOrganizationRelations SampleRelations() =>

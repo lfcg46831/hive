@@ -56,6 +56,38 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
         });
     }
 
+    [Fact]
+    public void Publish_records_deterministic_audit_ids_for_repeated_position_events()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        var directive = DirectiveMessage();
+
+        publisher.Publish(new PositionEventCommitted(Entity, new MessageReceived(directive, At)));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new MessageDispatched(
+                Message,
+                Thread,
+                OccupantId.From("agent-14a"),
+                OccupantType.AiAgent,
+                At.AddSeconds(1))));
+        publisher.Publish(new PositionEventCommitted(Entity, new MessageReceived(directive, At.AddSeconds(2))));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new MessageDispatched(
+                Message,
+                Thread,
+                OccupantId.From("agent-14a"),
+                OccupantType.AiAgent,
+                At.AddSeconds(3))));
+
+        Assert.Equal(4, audit.Records.Count);
+        Assert.Equal(audit.Records[0].AuditEventId, audit.Records[2].AuditEventId);
+        Assert.Equal(audit.Records[1].AuditEventId, audit.Records[3].AuditEventId);
+        Assert.NotEqual(audit.Records[0].AuditEventId, audit.Records[1].AuditEventId);
+    }
+
     private static Directive DirectiveMessage() =>
         new(
             Message,

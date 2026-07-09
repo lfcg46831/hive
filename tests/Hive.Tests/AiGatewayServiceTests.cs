@@ -151,6 +151,50 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_records_deterministic_journey_audit_ids_for_repeated_gateway_call()
+    {
+        var startedAt = new DateTimeOffset(2026, 7, 8, 10, 0, 0, TimeSpan.Zero);
+        var providerMetadata = new AiProviderMetadata("stub", "bug-triage");
+        var request = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Classify checkout bug reported by user@example.com.",
+            provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "The checkout bug is reproducible.",
+            AiFinishReason.Stop,
+            providerMetadata,
+            usage: new AiTokenUsage(11, 13, 24, isEstimated: true),
+            cost: new AiCostMetadata(0.00032m, "USD", isEstimated: true));
+        var auditLog = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(response),
+            publisher,
+            new SequenceTimeProvider(
+                startedAt,
+                startedAt.AddMilliseconds(210),
+                startedAt.AddSeconds(5),
+                startedAt.AddSeconds(5).AddMilliseconds(450)),
+            publisher);
+
+        await gateway.CompleteAsync(request);
+        await gateway.CompleteAsync(request);
+
+        Assert.Equal(4, auditLog.Records.Count);
+        Assert.Equal(auditLog.Records[0].AuditEventId, auditLog.Records[2].AuditEventId);
+        Assert.Equal(auditLog.Records[1].AuditEventId, auditLog.Records[3].AuditEventId);
+        Assert.NotEqual(auditLog.Records[0].Latency, auditLog.Records[2].Latency);
+        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[1].AuditEventId);
+    }
+
+    [Fact]
     public async Task CompleteAsync_publishes_redacted_detailed_audit_envelope_for_success()
     {
         var startedAt = new DateTimeOffset(2026, 6, 30, 9, 30, 0, TimeSpan.Zero);

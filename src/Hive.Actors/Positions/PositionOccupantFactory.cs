@@ -504,7 +504,8 @@ internal sealed class AiAgentActor : ReceiveActor
                     ["parseErrorCount"] = decision.ParseErrorCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ["redactions"] = RedactionPayload(snapshot),
                 },
-                occurredAtUtc: snapshot.RecordedAt));
+                occurredAtUtc: snapshot.RecordedAt,
+                idempotencyDiscriminator: decision.DecisionKind ?? "none"));
         }
 
         if (snapshot.ResultMessage is { } resultMessage)

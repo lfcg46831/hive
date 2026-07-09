@@ -100,6 +100,39 @@ public sealed class DirectiveSubmissionEndpointTests
     }
 
     [Fact]
+    public async Task Submit_root_directive_records_deterministic_submission_audit_ids()
+    {
+        var sink = new CapturingDirectiveSubmissionSink();
+        var audit = new RecordingJourneyAuditLog();
+        await using var app = BuildApp(sink, audit);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            ValidRequest(from: "ceo", to: "delivery-lead"));
+        await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            ValidRequest(from: "ceo", to: "delivery-lead"));
+
+        Assert.Equal(4, audit.Records.Count);
+        Assert.Equal(audit.Records[0].AuditEventId, audit.Records[2].AuditEventId);
+        Assert.Equal(audit.Records[1].AuditEventId, audit.Records[3].AuditEventId);
+        Assert.NotEqual(audit.Records[0].AuditEventId, audit.Records[1].AuditEventId);
+        Assert.Equal(
+            JourneyAuditIdempotencyKey.From(
+                JourneyAuditStage.SubmissionReceived,
+                JourneyAuditOutcome.Accepted,
+                audit.Records[0].OrganizationId,
+                audit.Records[0].ThreadId,
+                audit.Records[0].MessageId,
+                audit.Records[0].DirectiveId,
+                audit.Records[0].PositionId,
+                audit.Records[0].MessageType).AuditEventId,
+            audit.Records[0].AuditEventId);
+    }
+
+    [Fact]
     public async Task Submit_root_directive_validates_route_and_dispatches_to_position_shard()
     {
         var dispatcher = new RecordingPositionCommandDispatcher();

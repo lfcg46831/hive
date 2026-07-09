@@ -55,6 +55,25 @@ public sealed class AiDirectiveResultMessageTests
     }
 
     [Fact]
+    public void Create_uses_deterministic_report_message_id_for_same_directive()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+
+        var first = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveReportDecision(ReportKind.Done, "Bug triage is complete."),
+            clock: () => At.AddMinutes(5));
+        var second = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveReportDecision(ReportKind.Done, "Bug triage is complete."),
+            clock: () => At.AddMinutes(6));
+
+        var firstReport = Assert.IsType<Report>(first.Message);
+        var secondReport = Assert.IsType<Report>(second.Message);
+        Assert.Equal(firstReport.Id, secondReport.Id);
+    }
+
+    [Fact]
     public void Create_materializes_escalation_decision_to_direct_superior()
     {
         var context = AiDirectiveExecutionContext.From(Request());
@@ -141,6 +160,32 @@ public sealed class AiDirectiveResultMessageTests
         Assert.Equal(IncomingDirective, directive.ParentDirectiveId);
         Assert.Equal("Investigate checkout regression.", directive.Objective);
         Assert.Equal("Focus on payment callback failures.", directive.Context);
+    }
+
+    [Fact]
+    public void Create_uses_deterministic_child_directive_ids_for_same_directive_and_target()
+    {
+        var context = AiDirectiveExecutionContext.From(Request(directSubordinates: [Engineer]));
+
+        var first = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveChildDirectiveDecision(
+                Engineer,
+                "Investigate checkout regression.",
+                "Focus on payment callback failures."),
+            clock: () => At.AddMinutes(7));
+        var second = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveChildDirectiveDecision(
+                Engineer,
+                "Investigate checkout regression.",
+                "Focus on payment callback failures."),
+            clock: () => At.AddMinutes(8));
+
+        var firstDirective = Assert.IsType<OrgDirective>(first.Message);
+        var secondDirective = Assert.IsType<OrgDirective>(second.Message);
+        Assert.Equal(firstDirective.Id, secondDirective.Id);
+        Assert.Equal(firstDirective.DirectiveId, secondDirective.DirectiveId);
     }
 
     [Fact]

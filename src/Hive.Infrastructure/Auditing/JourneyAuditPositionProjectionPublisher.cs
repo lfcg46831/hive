@@ -46,23 +46,22 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                 break;
 
             case MessageDispatched dispatched:
-                _auditLog.Append(new JourneyAuditRecord(
-                    Guid.NewGuid(),
-                    committed.OccurredAt,
+                _auditLog.Append(JourneyAuditRecord.Create(
                     JourneyAuditStage.PositionDispatched,
                     JourneyAuditOutcome.Accepted,
                     committed.EntityId.Organization,
                     dispatched.Thread,
                     dispatched.Message,
-                    DirectiveFor(dispatched.Message),
-                    committed.EntityId.Position,
+                    directiveId: DirectiveFor(dispatched.Message),
+                    positionId: committed.EntityId.Position,
                     messageType: MessageTypeFor(dispatched.Message),
                     payload: new Dictionary<string, string>(StringComparer.Ordinal)
                     {
                         ["source"] = nameof(PositionEventCommitted),
                         ["occupantType"] = dispatched.OccupantType.ToString(),
                         ["redactions"] = "message.payload",
-                    }));
+                    },
+                    occurredAtUtc: committed.OccurredAt));
                 break;
         }
     }
@@ -85,16 +84,14 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         PositionId positionId,
         OrgMessage message,
         DateTimeOffset occurredAt) =>
-        new(
-            Guid.NewGuid(),
-            occurredAt,
+        JourneyAuditRecord.Create(
             stage,
             JourneyAuditOutcome.Accepted,
             message.OrganizationId,
             message.Thread,
             message.Id,
-            DirectiveFor(message.Id),
-            positionId,
+            directiveId: DirectiveFor(message.Id),
+            positionId: positionId,
             messageType: message.GetType().Name,
             payload: new Dictionary<string, string>(StringComparer.Ordinal)
             {
@@ -102,7 +99,8 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                 ["channel"] = message.Channel.ToString(),
                 ["priority"] = message.Priority.ToString(),
                 ["redactions"] = "message.payload",
-            });
+            },
+            occurredAtUtc: occurredAt);
 
     private DirectiveId? DirectiveFor(MessageId message) =>
         _directiveByMessage.TryGetValue(message, out var directiveId)

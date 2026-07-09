@@ -122,9 +122,21 @@ public sealed record JourneyAuditRecord
         AiCostMetadata? cost = null,
         TimeSpan? latency = null,
         IReadOnlyDictionary<string, string>? payload = null,
-        DateTimeOffset? occurredAtUtc = null) =>
-        new(
-            Guid.NewGuid(),
+        DateTimeOffset? occurredAtUtc = null,
+        string? idempotencyDiscriminator = null)
+    {
+        var key = JourneyAuditIdempotencyKey.From(
+            stage,
+            outcome,
+            organizationId,
+            threadId,
+            messageId,
+            directiveId,
+            positionId,
+            idempotencyDiscriminator ?? messageType);
+
+        return new JourneyAuditRecord(
+            key.AuditEventId,
             occurredAtUtc ?? DateTimeOffset.UtcNow,
             stage,
             outcome,
@@ -140,6 +152,7 @@ public sealed record JourneyAuditRecord
             cost,
             latency,
             payload);
+    }
 
     private static TEnum RequireDefined<TEnum>(TEnum value, string parameterName)
         where TEnum : struct, Enum

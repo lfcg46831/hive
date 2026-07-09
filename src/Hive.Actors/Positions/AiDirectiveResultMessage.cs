@@ -77,8 +77,8 @@ internal static class AiDirectiveResultMessageFactory
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(decision);
 
-        var messageIdFactory = newMessageId ?? MessageId.New;
-        var directiveIdFactory = newDirectiveId ?? DirectiveId.New;
+        var messageIdFactory = newMessageId ?? (() => DeterministicResultMessageId(context, decision));
+        var directiveIdFactory = newDirectiveId ?? (() => DeterministicChildDirectiveId(context, decision));
         var now = clock ?? (() => DateTimeOffset.UtcNow);
 
         return decision switch
@@ -196,6 +196,48 @@ internal static class AiDirectiveResultMessageFactory
 
     private static PositionEndpointRef FromCurrentPosition(AiDirectiveExecutionContext context) =>
         new(context.PositionId);
+
+    private static MessageId DeterministicResultMessageId(
+        AiDirectiveExecutionContext context,
+        AiDirectiveDecision decision) =>
+        MessageId.From(DeterministicGuid.FromName(
+            $"{ResultKeyPrefix(context, decision)}|identity=message"));
+
+    private static DirectiveId DeterministicChildDirectiveId(
+        AiDirectiveExecutionContext context,
+        AiDirectiveDecision decision)
+    {
+        if (decision is not AiDirectiveChildDirectiveDecision)
+        {
+            throw new InvalidOperationException(
+                "Only child directive decisions can request a deterministic child directive id.");
+        }
+
+        return DirectiveId.From(DeterministicGuid.FromName(
+            $"{ResultKeyPrefix(context, decision)}|identity=directive"));
+    }
+
+    private static string ResultKeyPrefix(
+        AiDirectiveExecutionContext context,
+        AiDirectiveDecision decision) =>
+        string.Join(
+            "|",
+            "ai-directive-result:v1",
+            $"organization={context.OrganizationId.Value}",
+            $"position={context.PositionId.Value}",
+            $"thread={context.Directive.ThreadId.Value:N}",
+            $"directive={context.Directive.DirectiveId.Value:N}",
+            $"source-message={context.Directive.MessageId.Value:N}",
+            $"result={ResultSlot(decision)}");
+
+    private static string ResultSlot(AiDirectiveDecision decision) =>
+        decision switch
+        {
+            AiDirectiveReportDecision => "Report",
+            AiDirectiveEscalationDecision => "Escalation",
+            AiDirectiveChildDirectiveDecision child => $"Directive:{child.TargetPositionId.Value}",
+            _ => throw new InvalidOperationException("Unknown AI directive decision type."),
+        };
 
     private static AiDirectiveResultMessage Rejected(
         AiDirectiveExecutionContext context,

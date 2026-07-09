@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Positions;
 
 namespace Hive.Actors.Serialization;
 
@@ -100,6 +101,43 @@ internal sealed class OccupantTypeJsonConverter : WireEnumJsonConverter<Occupant
 
             case "human":
                 result = OccupantType.Human;
+                return true;
+
+            default:
+                result = default;
+                return false;
+        }
+    }
+}
+
+internal sealed class MessageProcessingCompletionStatusJsonConverter :
+    WireEnumJsonConverter<MessageProcessingCompletionStatus>
+{
+    protected override string ToWire(MessageProcessingCompletionStatus value) =>
+        value switch
+        {
+            MessageProcessingCompletionStatus.Completed => "completed",
+            MessageProcessingCompletionStatus.Failed => "failed",
+            MessageProcessingCompletionStatus.Escalated => "escalated",
+            _ => throw new JsonException($"'{value}' is not a supported message processing completion status."),
+        };
+
+    protected override bool TryParseWire(
+        string? value,
+        out MessageProcessingCompletionStatus result)
+    {
+        switch (value)
+        {
+            case "completed":
+                result = MessageProcessingCompletionStatus.Completed;
+                return true;
+
+            case "failed":
+                result = MessageProcessingCompletionStatus.Failed;
+                return true;
+
+            case "escalated":
+                result = MessageProcessingCompletionStatus.Escalated;
                 return true;
 
             default:

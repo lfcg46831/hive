@@ -228,6 +228,16 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             passivated => passivated.Reason == reason);
     }
 
+    public async Task WaitForMessageProcessingCompletedAsync(PositionEntityId entity, MessageId message)
+    {
+        ArgumentNullException.ThrowIfNull(entity);
+        ArgumentNullException.ThrowIfNull(message);
+
+        await WaitForCommittedEventAsync<MessageProcessingCompleted>(
+            entity,
+            completed => completed.Message == message);
+    }
+
     public async Task WaitForEntityInactiveAsync(PositionEntityId entity)
     {
         ArgumentNullException.ThrowIfNull(entity);

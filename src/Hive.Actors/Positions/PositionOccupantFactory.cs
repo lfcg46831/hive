@@ -72,6 +72,9 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 
 internal sealed class AiAgentActor : ReceiveActor
 {
+    private const string GatewayCallWithoutTerminalResultCode =
+        "gateway-call-already-recorded-without-terminal-result";
+
     private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveExecutionContext> _directiveExecutionContexts =
@@ -196,8 +199,9 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveAuditSnapshotQueryResult.FoundSnapshot(snapshot)
                 : AiDirectiveAuditSnapshotQueryResult.Missing(query.CorrelationId));
         });
-        Receive<OrgMessage>(_ =>
+        Receive<OrgMessage>(message =>
         {
+            GenericMessageCompletion.Return(Context.Parent, message);
         });
     }
 
@@ -215,12 +219,24 @@ internal sealed class AiAgentActor : ReceiveActor
 
     internal IAiDirectiveResultMessageGate ResultMessageGate { get; }
 
+    private sealed record AiDirectiveRecoveryDecision(
+        AiDirectiveProcessingSnapshot Snapshot,
+        string? FailureCode = null);
+
     private async Task HandleDirectiveProcessingRequestAsync(AiDirectiveProcessingRequest request)
     {
         var parent = Context.Parent;
         Action<object> publishAudit = Context.System.EventStream.Publish;
         var context = AiDirectiveExecutionContext.From(request);
         var received = AiDirectiveProcessingSnapshot.Received(request);
+        if (TryRecoverJourney(context, received) is { } recovered)
+        {
+            _directiveExecutionContexts[request.CorrelationId] = context;
+            _directiveProcessingSnapshots[request.CorrelationId] = recovered.Snapshot;
+            ReturnCompletion(parent, recovered.Snapshot, failureCodeOverride: recovered.FailureCode);
+            return;
+        }
+
         if (context.IdentityPrompt is null)
         {
             var failed = received.AdvanceTo(
@@ -421,12 +437,72 @@ internal sealed class AiAgentActor : ReceiveActor
         }
     }
 
+    private AiDirectiveRecoveryDecision? TryRecoverJourney(
+        AiDirectiveExecutionContext context,
+        AiDirectiveProcessingSnapshot received)
+    {
+        var records = _auditLog
+            .ReadByThread(context.Directive.ThreadId, context.Directive.DirectiveId)
+            .Where(record =>
+                record.OrganizationId == context.OrganizationId
+                && record.MessageId == context.Directive.MessageId
+                && record.PositionId == context.PositionId)
+            .ToArray();
+
+        var resultMessage = records
+            .LastOrDefault(record => record.Stage == JourneyAuditStage.ResultMessageCreated);
+        if (resultMessage is not null)
+        {
+            var interpreted = RecoveredGatewayRequested(received)
+                .AdvanceTo(
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
+                    reason: "recovered terminal journey result");
+
+            var snapshot = resultMessage.Outcome == JourneyAuditOutcome.Succeeded
+                ? interpreted.AdvanceTo(
+                    AiDirectiveProcessingStatus.ResultEmitted,
+                    reason: "AI directive result message was already recorded.")
+                : interpreted.AdvanceTo(
+                    AiDirectiveProcessingStatus.Escalated,
+                    reason: resultMessage.ReasonCode ?? "AI directive result message was already rejected.");
+
+            return new AiDirectiveRecoveryDecision(snapshot);
+        }
+
+        var gatewayCalled = records.Any(record => record.Stage == JourneyAuditStage.GatewayCalled);
+        var agentDecided = records.Any(record => record.Stage == JourneyAuditStage.AgentDecided);
+        if (gatewayCalled && !agentDecided)
+        {
+            var snapshot = RecoveredGatewayRequested(received)
+                .AdvanceTo(
+                    AiDirectiveProcessingStatus.Failed,
+                    reason: GatewayCallWithoutTerminalResultCode);
+
+            return new AiDirectiveRecoveryDecision(
+                snapshot,
+                GatewayCallWithoutTerminalResultCode);
+        }
+
+        return null;
+    }
+
+    private static AiDirectiveProcessingSnapshot RecoveredGatewayRequested(
+        AiDirectiveProcessingSnapshot received) =>
+        received
+            .AdvanceTo(
+                AiDirectiveProcessingStatus.ContextAssembled,
+                reason: "recovered execution context")
+            .AdvanceTo(
+                AiDirectiveProcessingStatus.GatewayRequested,
+                reason: "recovered gateway request");
+
     private static void ReturnCompletion(
         IActorRef parent,
         AiDirectiveProcessingSnapshot processing,
         AiDirectiveInterpretationResult? interpretation = null,
         AiDirectiveResultMessage? resultMessage = null,
-        AiDirectiveIterationAuditTrail? iterationAudit = null)
+        AiDirectiveIterationAuditTrail? iterationAudit = null,
+        string? failureCodeOverride = null)
     {
         if (!processing.IsTerminal)
         {
@@ -450,7 +526,7 @@ internal sealed class AiAgentActor : ReceiveActor
             status,
             status == PositionOccupantProcessingStatus.Completed
                 ? null
-                : AiDirectiveAuditSnapshotFactory.TerminalCode(
+                : failureCodeOverride ?? AiDirectiveAuditSnapshotFactory.TerminalCode(
                     processing,
                     interpretation,
                     resultMessage,
@@ -591,10 +667,28 @@ internal sealed class HumanProxyActor : ReceiveActor
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
 
-        Receive<OrgMessage>(_ =>
+        Receive<OrgMessage>(message =>
         {
+            GenericMessageCompletion.Return(Context.Parent, message);
         });
     }
 
     public OccupantId Occupant { get; }
+}
+
+internal static class GenericMessageCompletion
+{
+    public static void Return(IActorRef parent, OrgMessage message)
+    {
+        var directiveId = message is Hive.Domain.Messaging.Directive directive
+            ? directive.DirectiveId
+            : DirectiveId.From(message.Id.Value);
+
+        parent.Tell(new PositionOccupantProcessingCompleted(
+            $"message:{message.Id.Value:N}:delivery",
+            message.Id,
+            message.Thread,
+            directiveId,
+            PositionOccupantProcessingStatus.Completed));
+    }
 }

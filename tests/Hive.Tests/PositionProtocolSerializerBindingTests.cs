@@ -135,6 +135,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(ShortMemoryUpdated);
         yield return typeof(OccupantChanged);
         yield return typeof(MessageDispatched);
+        yield return typeof(MessageProcessingCompleted);
         yield return typeof(PositionPassivated);
         yield return typeof(PositionConfigurationApplied);
         yield return typeof(PositionSnapshot);
@@ -157,6 +158,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("short-memory-updated", new ShortMemoryUpdated("current-thread", "customer-impact", At));
         yield return ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, At));
+        yield return ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
         yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
         yield return ("position-snapshot", SampleSnapshot());

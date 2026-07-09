@@ -24,6 +24,7 @@ internal static class CanonicalPositionProtocolFixtures
         ("short-memory-updated", new ShortMemoryUpdated("current-thread", "customer-impact", OccurredAt.AddMinutes(20))),
         ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(25))),
         ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(30))),
+        ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("position-passivated", new PositionPassivated(OccurredAt.AddMinutes(45), "idle")),
         ("position-snapshot", Snapshot()),
     ];

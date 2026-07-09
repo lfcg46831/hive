@@ -58,6 +58,12 @@ public sealed class PostgreSqlPositionActorRecoveryTests(PostgreSqlFixture fixtu
                         OccupantId.From("agent-7"),
                         OccupantType.AiAgent,
                         At.AddMinutes(1)),
+                    new MessageProcessingCompleted(
+                        "message-processing-completed:aaaaaaaa-0000-0000-0000-000000000601",
+                        handled.Id,
+                        handled.Thread,
+                        MessageProcessingCompletionStatus.Completed,
+                        At.AddMinutes(1).AddSeconds(1)),
                     new MessageReceived(pending, At.AddMinutes(2)),
                     new TaskCreated(
                         taskId,

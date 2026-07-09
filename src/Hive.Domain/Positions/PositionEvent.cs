@@ -6,9 +6,10 @@ namespace Hive.Domain.Positions;
 /// (<see cref="MessageReceived"/>), a task created/updated/completed (<see cref="TaskCreated"/>,
 /// <see cref="TaskUpdated"/>, <see cref="TaskCompleted"/>), short-term memory updated
 /// (<see cref="ShortMemoryUpdated"/>), the occupant changed (<see cref="OccupantChanged"/>), an
-/// accepted message dispatched to the occupant (<see cref="MessageDispatched"/>) and the position
-/// passivated (<see cref="PositionPassivated"/>). The runtime-configuration gate extends this set
-/// with <see cref="PositionConfigurationApplied"/> (US-F0-06-T08c).
+/// accepted message dispatched to the occupant (<see cref="MessageDispatched"/>), an occupant
+/// processing completion (<see cref="MessageProcessingCompleted"/>) and the position passivated
+/// (<see cref="PositionPassivated"/>). The runtime-configuration gate extends this set with
+/// <see cref="PositionConfigurationApplied"/> (US-F0-06-T08c).
 /// </summary>
 /// <remarks>
 /// <para>

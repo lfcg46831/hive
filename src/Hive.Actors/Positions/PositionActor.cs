@@ -106,9 +106,11 @@ internal sealed class PositionActor :
         Command<PositionConfigurationLoadFailed>(failure => throw new PositionConfigurationGateException(
             PersistenceId,
             failure.Cause));
-        // Neutral end-of-processing signal from an occupant child (bible v1.76). The position
-        // keeps no AI completion cache; state changes arrive as canonical position commands.
-        Command<PositionOccupantProcessingCompleted>(_ => { });
+        // Neutral end-of-processing signal from an occupant child. The position records only
+        // delivery completion so recovery can distinguish in-flight work from completed work.
+        Command<PositionOccupantProcessingCompleted>(completed =>
+            WhenReady(() =>
+                PersistProcessingCompletion(completed)));
         Command<AcceptMessage>(command =>
         {
             WhenReady(() =>
@@ -233,6 +235,22 @@ internal sealed class PositionActor :
         PersistEvents(events);
     }
 
+    private void PersistProcessingCompletion(PositionOccupantProcessingCompleted completed)
+    {
+        if (!_state.Inbox.Any(message => message.Id == completed.MessageId))
+        {
+            return;
+        }
+
+        PersistAndApply(new MessageProcessingCompleted(
+            completed.CorrelationId,
+            completed.MessageId,
+            completed.ThreadId,
+            CompletionStatus(completed.Status),
+            _clock(),
+            completed.FailureCode));
+    }
+
     private void PersistPendingDispatches(Action? afterDispatch = null)
     {
         if (_state.Occupant is not { } occupant || _state.OccupantType is not { } occupantType)
@@ -241,7 +259,11 @@ internal sealed class PositionActor :
             return;
         }
 
+        var alreadyDispatched = _state.Inbox
+            .Where(message => _state.RecentHistory.Contains(message.Id))
+            .ToArray();
         var events = _state.Inbox
+            .Where(message => !_state.RecentHistory.Contains(message.Id))
             .Select(message => (PositionEvent)new MessageDispatched(
                 message.Id,
                 message.Thread,
@@ -250,7 +272,15 @@ internal sealed class PositionActor :
                 _clock()))
             .ToArray();
 
-        PersistEvents(events, afterDispatch);
+        PersistEvents(events, () =>
+        {
+            foreach (var message in alreadyDispatched)
+            {
+                DeliverToOccupant(message, occupant, occupantType);
+            }
+
+            afterDispatch?.Invoke();
+        });
     }
 
     private void PersistEvents(IReadOnlyList<PositionEvent> events, Action? afterLast = null)
@@ -294,14 +324,26 @@ internal sealed class PositionActor :
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
-            ResolveOccupant(dispatchEvent.Occupant, dispatchEvent.OccupantType)
-                .Tell(CreateOccupantPayload(dispatchEvent, dispatchedMessage));
+            DeliverToOccupant(
+                dispatchedMessage,
+                dispatchEvent.Occupant,
+                dispatchEvent.OccupantType);
         }
     }
 
-    private object CreateOccupantPayload(MessageDispatched dispatchEvent, OrgMessage message)
+    private void DeliverToOccupant(
+        OrgMessage message,
+        OccupantId occupant,
+        OccupantType occupantType) =>
+        ResolveOccupant(occupant, occupantType)
+            .Tell(CreateOccupantPayload(occupant, occupantType, message));
+
+    private object CreateOccupantPayload(
+        OccupantId occupant,
+        OccupantType occupantType,
+        OrgMessage message)
     {
-        if (dispatchEvent.OccupantType == OccupantType.AiAgent
+        if (occupantType == OccupantType.AiAgent
             && message is Hive.Domain.Messaging.Directive directive)
         {
             var runtimeConfiguration = _runtimeConfiguration
@@ -312,7 +354,7 @@ internal sealed class PositionActor :
                 EntityId,
                 runtimeConfiguration,
                 _state,
-                dispatchEvent.Occupant,
+                occupant,
                 directive);
         }
 
@@ -454,6 +496,19 @@ internal sealed class PositionActor :
         _operationalState,
         _configurationBlockReason,
         _state.LastConfigurationStamp);
+
+    private static MessageProcessingCompletionStatus CompletionStatus(
+        PositionOccupantProcessingStatus status) =>
+        status switch
+        {
+            PositionOccupantProcessingStatus.Completed => MessageProcessingCompletionStatus.Completed,
+            PositionOccupantProcessingStatus.Failed => MessageProcessingCompletionStatus.Failed,
+            PositionOccupantProcessingStatus.Escalated => MessageProcessingCompletionStatus.Escalated,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(status),
+                status,
+                "Unknown occupant processing completion status."),
+        };
 
     private void PublishProjection(PositionProjectionEvent @event)
     {

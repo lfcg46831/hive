@@ -43,7 +43,13 @@ public sealed class PositionStateTests
             .Apply(new ShortMemoryUpdated("thread", "customer is blocked", At.AddMinutes(3)))
             .Apply(new OccupantChanged(occupant, OccupantType.AiAgent, At.AddMinutes(4)))
             .Apply(new MessageDispatched(message.Id, message.Thread, occupant, OccupantType.AiAgent, At.AddMinutes(5)))
-            .Apply(new PositionConfigurationApplied(new PositionConfigurationStamp(7, "sha256:v7"), At.AddMinutes(6)));
+            .Apply(new MessageProcessingCompleted(
+                "directive:completed",
+                message.Id,
+                message.Thread,
+                MessageProcessingCompletionStatus.Completed,
+                At.AddMinutes(6)))
+            .Apply(new PositionConfigurationApplied(new PositionConfigurationStamp(7, "sha256:v7"), At.AddMinutes(7)));
 
         Assert.Empty(state.Inbox);
         Assert.Contains(message.Id, state.ProcessedMessages);
@@ -72,6 +78,32 @@ public sealed class PositionStateTests
             .Apply(new TaskCompleted(taskId, At.AddMinutes(1), "done"));
 
         Assert.Empty(state.OpenTasks);
+    }
+
+    [Fact]
+    public void Dispatched_message_remains_recoverable_until_processing_completion()
+    {
+        var message = SampleMessage();
+        var occupant = OccupantId.From("agent-7");
+
+        var dispatched = PositionState.Empty
+            .Apply(new MessageReceived(message, At))
+            .Apply(new MessageDispatched(message.Id, message.Thread, occupant, OccupantType.AiAgent, At.AddMinutes(1)));
+
+        Assert.Equal(new[] { message }, dispatched.Inbox);
+        Assert.Equal(new[] { message.Id }, dispatched.RecentHistory);
+        Assert.Contains(message.Id, dispatched.ProcessedMessages);
+
+        var completed = dispatched.Apply(new MessageProcessingCompleted(
+            "directive:completed",
+            message.Id,
+            message.Thread,
+            MessageProcessingCompletionStatus.Completed,
+            At.AddMinutes(2)));
+
+        Assert.Empty(completed.Inbox);
+        Assert.Equal(new[] { message.Id }, completed.RecentHistory);
+        Assert.Contains(message.Id, completed.ProcessedMessages);
     }
 
     [Fact]

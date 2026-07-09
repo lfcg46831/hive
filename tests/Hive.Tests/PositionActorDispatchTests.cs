@@ -60,7 +60,7 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(message, dispatched.Message);
             Assert.Equal(occupant, dispatched.Occupant);
             Assert.Equal(OccupantType.AiAgent, dispatched.OccupantType);
-            Assert.Empty(state.Inbox);
+            Assert.Equal(new[] { message.Id }, state.Inbox.Select(inboxMessage => inboxMessage.Id));
             Assert.Equal(new[] { message.Id }, state.RecentHistory);
             Assert.Contains(message.Id, state.ProcessedMessages);
 
@@ -162,9 +162,57 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(AiDirectiveTaskStateStatus.Open, request.TaskState.Status);
             Assert.Same(task, request.TaskState.Task);
             Assert.Equal(new[] { task }, request.TaskState.Matches);
-            Assert.Empty(state.Inbox);
+            Assert.Equal(new[] { directive.Id }, state.Inbox.Select(inboxMessage => inboxMessage.Id));
             Assert.Equal(new[] { previousMessage, directive.Id }, state.RecentHistory);
             Assert.Contains(directive.Id, state.ProcessedMessages);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Default_ai_occupant_completes_generic_message_delivery()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(21, "sha256:v21");
+        var occupant = OccupantId.From("agent-7");
+        var message = SampleMessage(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000421"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000421"));
+        var system = CreateActorSystem("position-dispatch-generic-completion");
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                entity,
+                new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    lastConfigurationStamp: stamp));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, stamp),
+                    new PositionOccupantFactory(),
+                    () => At.AddMinutes(1))),
+                "position-dispatch-generic-completion-actor");
+
+            await WaitForReadyAsync(actor);
+            actor.Tell(new AcceptMessage(message));
+
+            var state = await WaitForStateAsync(actor, current => current.Inbox.IsEmpty);
+            var events = await ReadPersistedEventsAsync(system, entity);
+            var completed = Assert.Single(events.OfType<MessageProcessingCompleted>());
+
+            Assert.Empty(state.Inbox);
+            Assert.Equal(message.Id, completed.Message);
+            Assert.Equal(message.Thread, completed.Thread);
+            Assert.Equal(MessageProcessingCompletionStatus.Completed, completed.Status);
         }
         finally
         {
@@ -214,7 +262,7 @@ public sealed class PositionActorDispatchTests
             Assert.IsNotType<AiDirectiveProcessingRequest>(dispatched.Message);
             Assert.Equal(occupant, dispatched.Occupant);
             Assert.Equal(OccupantType.Human, dispatched.OccupantType);
-            Assert.Empty(state.Inbox);
+            Assert.Equal(new[] { directive.Id }, state.Inbox.Select(inboxMessage => inboxMessage.Id));
             Assert.Equal(new[] { directive.Id }, state.RecentHistory);
             Assert.Contains(directive.Id, state.ProcessedMessages);
 
@@ -226,6 +274,117 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(directive.Thread, dispatchEvent.Thread);
             Assert.Equal(occupant, dispatchEvent.Occupant);
             Assert.Equal(OccupantType.Human, dispatchEvent.OccupantType);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Recovered_dispatched_message_without_completion_is_redelivered_without_new_dispatch_event()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(31, "sha256:v31");
+        var occupant = OccupantId.From("agent-7");
+        var directive = SampleDirective(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000531"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000531"));
+        var system = CreateActorSystem("position-dispatch-recovered-inflight");
+        var capture = new TaskCompletionSource<DispatchedToOccupant>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                entity,
+                new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    inbox: [directive],
+                    recentHistory: [directive.Id],
+                    processedMessages: [directive.Id],
+                    lastConfigurationStamp: stamp));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, stamp),
+                    new CapturingOccupantFactory(capture),
+                    () => At.AddMinutes(1))),
+                "position-dispatch-recovered-inflight-actor");
+
+            await WaitForReadyAsync(actor);
+
+            var dispatched = await capture.Task.WaitAsync(Timeout());
+            var request = Assert.IsType<AiDirectiveProcessingRequest>(dispatched.Message);
+            var events = await ReadPersistedEventsAsync(system, entity);
+
+            Assert.Equal(directive.Id, request.MessageId);
+            Assert.Empty(events.OfType<MessageDispatched>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Occupant_processing_completion_is_persisted_and_removes_message_from_recoverable_inbox()
+    {
+        var entity = EntityId("acme", "bug-triage");
+        var stamp = new PositionConfigurationStamp(32, "sha256:v32");
+        var occupant = OccupantId.From("agent-7");
+        var directive = SampleDirective(
+            MessageId("aaaaaaaa-0000-0000-0000-000000000532"),
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000532"));
+        var system = CreateActorSystem("position-dispatch-completion");
+        var capture = new TaskCompletionSource<DispatchedToOccupant>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                entity,
+                new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    lastConfigurationStamp: stamp));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, stamp),
+                    new CapturingOccupantFactory(capture),
+                    () => At.AddMinutes(1))),
+                "position-dispatch-completion-actor");
+
+            await WaitForReadyAsync(actor);
+            actor.Tell(new AcceptMessage(directive));
+
+            var dispatched = await capture.Task.WaitAsync(Timeout());
+            var request = Assert.IsType<AiDirectiveProcessingRequest>(dispatched.Message);
+
+            actor.Tell(new PositionOccupantProcessingCompleted(
+                request.CorrelationId,
+                request.MessageId,
+                request.ThreadId,
+                request.DirectiveId,
+                PositionOccupantProcessingStatus.Completed));
+
+            var state = await WaitForStateAsync(actor, current => current.Inbox.IsEmpty);
+            var events = await ReadPersistedEventsAsync(system, entity);
+            var completed = Assert.Single(events.OfType<MessageProcessingCompleted>());
+
+            Assert.Empty(state.Inbox);
+            Assert.Equal(directive.Id, completed.Message);
+            Assert.Equal(directive.Thread, completed.Thread);
+            Assert.Equal(MessageProcessingCompletionStatus.Completed, completed.Status);
+            Assert.Equal(request.CorrelationId, completed.CorrelationId);
         }
         finally
         {
@@ -286,6 +445,10 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(firstOccupant, stopped.Occupant);
             Assert.Equal(OccupantType.AiAgent, stopped.OccupantType);
 
+            var redelivery = await factory.NextDeliveryAsync().WaitAsync(Timeout());
+            Assert.Equal(firstMessage, redelivery.Message);
+            Assert.Equal(nextOccupant, redelivery.Occupant);
+
             var secondDeliveryTask = factory.NextDeliveryAsync();
             actor.Tell(new AcceptMessage(secondMessage));
             var secondDelivery = await secondDeliveryTask.WaitAsync(Timeout());
@@ -295,7 +458,9 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(nextOccupant, secondDelivery.Occupant);
             Assert.Equal(OccupantType.AiAgent, secondDelivery.OccupantType);
             Assert.NotEqual(firstDelivery.Child, secondDelivery.Child);
-            Assert.Empty(state.Inbox);
+            Assert.Equal(
+                new[] { firstMessage.Id, secondMessage.Id },
+                state.Inbox.Select(inboxMessage => inboxMessage.Id));
             Assert.Equal(nextOccupant, state.Occupant);
             Assert.Equal(OccupantType.AiAgent, state.OccupantType);
             Assert.Contains(firstMessage.Id, state.ProcessedMessages);
@@ -355,7 +520,9 @@ public sealed class PositionActorDispatchTests
             Assert.Equal(occupant, firstDelivery.Occupant);
             Assert.Equal(occupant, secondDelivery.Occupant);
             Assert.Equal(firstDelivery.Child, secondDelivery.Child);
-            Assert.Empty(state.Inbox);
+            Assert.Equal(
+                new[] { firstMessage.Id, secondMessage.Id },
+                state.Inbox.Select(inboxMessage => inboxMessage.Id));
             Assert.Equal(new[] { firstMessage.Id, secondMessage.Id }, state.RecentHistory);
             Assert.Contains(firstMessage.Id, state.ProcessedMessages);
             Assert.Contains(secondMessage.Id, state.ProcessedMessages);
@@ -400,6 +567,27 @@ public sealed class PositionActorDispatchTests
         }
 
         throw new TimeoutException("PositionActor did not reach Ready.");
+    }
+
+    private static async Task<PositionState> WaitForStateAsync(
+        IActorRef actor,
+        Func<PositionState, bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(
+                GetPositionState.Instance,
+                TimeSpan.FromSeconds(1));
+            if (predicate(state))
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("PositionActor state did not reach the expected condition.");
     }
 
     private static async Task SeedSnapshotAsync(

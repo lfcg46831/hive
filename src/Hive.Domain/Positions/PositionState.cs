@@ -137,6 +137,7 @@ public sealed record PositionState
             ShortMemoryUpdated updated => Apply(updated),
             OccupantChanged changed => Apply(changed),
             MessageDispatched dispatched => Apply(dispatched),
+            MessageProcessingCompleted completed => Apply(completed),
             PositionPassivated => this,
             PositionConfigurationApplied applied => Apply(applied),
             _ => this,
@@ -232,10 +233,22 @@ public sealed record PositionState
         LastConfigurationStamp);
 
     private PositionState Apply(MessageDispatched @event) => new(
+        Inbox,
+        OpenTasks,
+        ShortMemory,
+        RecentHistory.Contains(@event.Message)
+            ? RecentHistory
+            : RecentHistory.Add(@event.Message),
+        ProcessedMessages,
+        Occupant,
+        OccupantType,
+        LastConfigurationStamp);
+
+    private PositionState Apply(MessageProcessingCompleted @event) => new(
         Inbox.RemoveAll(message => message.Id == @event.Message),
         OpenTasks,
         ShortMemory,
-        RecentHistory.Add(@event.Message),
+        RecentHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,

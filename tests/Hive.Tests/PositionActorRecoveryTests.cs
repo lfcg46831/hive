@@ -58,7 +58,7 @@ public sealed class PositionActorRecoveryTests
             await WaitForReadyAsync(actor);
             var recovered = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
-            Assert.Empty(recovered.Inbox);
+            Assert.Equal(new[] { snapshot.Inbox[0].Id }, recovered.Inbox.Select(message => message.Id));
             Assert.Equal(new[] { snapshot.Inbox[0].Id }, recovered.RecentHistory);
             Assert.Equal(snapshot.OpenTasks[0].TaskId, Assert.Single(recovered.OpenTasks).Key);
             Assert.Equal("snapshot-context", recovered.ShortMemory["current-thread"]);

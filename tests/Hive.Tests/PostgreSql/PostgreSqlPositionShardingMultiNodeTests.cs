@@ -32,7 +32,8 @@ public sealed class PostgreSqlPositionShardingMultiNodeTests(PostgreSqlFixture f
 
         await cluster.ChangeOccupantAsync(entity, OccupantId.From("agent-7"), OccupantType.AiAgent);
         await cluster.AcceptMessageAsync(entity, message);
-        await cluster.PassivateAsync(entity, "idle-after-dispatch");
+        await cluster.WaitForMessageProcessingCompletedAsync(entity, message.Id);
+        await cluster.PassivateAsync(entity, "idle-after-processing");
         await cluster.WaitForEntityInactiveAsync(entity);
 
         await cluster.RestartAgentNodeAsync(cluster.AgentNodes[0].Name);

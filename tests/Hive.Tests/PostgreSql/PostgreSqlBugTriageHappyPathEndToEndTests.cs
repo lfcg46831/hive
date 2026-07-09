@@ -177,16 +177,117 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
             modelId);
     }
 
+    [Fact]
+    public async Task Provider_controlled_failure_records_structured_error_without_result_message_or_partial_state()
+    {
+        await using var dataSource = postgres.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = "t14b-provider-failure";
+            options.Scenario = "provider-controlled-failure";
+        });
+        var initialTask = Assert.Single(scenario.OpenTasks);
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            auditLog);
+        await using var app = BuildSubmissionApp(
+            fixture,
+            SampleRelations(),
+            auditLog);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            RequestFrom(scenario.Directive));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var timeline = await WaitForTimelineAsync(
+            dataSource,
+            scenario,
+            ready => ready.Entries.Any(entry => entry.Stage == JourneyAuditStage.AgentDecided));
+        var persistedEvents = await WaitForPersistedEventsAsync(
+            fixture,
+            events => events.OfType<MessageProcessingCompleted>()
+                .Any(completed => completed.Message == scenario.Directive.Id));
+        var state = await WaitForPositionStateAsync(
+            fixture,
+            snapshot => snapshot.ProcessedMessages.Contains(scenario.Directive.Id));
+
+        AssertTimelineCoversProviderFailure(
+            timeline,
+            scenario,
+            modelId: "t14b-provider-failure");
+
+        Assert.Contains(scenario.Directive.Id, state.ProcessedMessages);
+        Assert.DoesNotContain(scenario.ResultMemoryKey, state.ShortMemory.Keys);
+        Assert.Contains(initialTask.TaskId, state.OpenTasks.Keys);
+        var completed = Assert.Single(persistedEvents.OfType<MessageProcessingCompleted>());
+        Assert.Equal(MessageProcessingCompletionStatus.Failed, completed.Status);
+        Assert.Equal("ai-gateway-failure", completed.FailureCode);
+        Assert.Empty(persistedEvents.OfType<ShortMemoryUpdated>());
+        Assert.Empty(persistedEvents.OfType<TaskUpdated>());
+        Assert.Empty(persistedEvents.OfType<TaskCompleted>());
+        Assert.Empty(persistedEvents.OfType<TaskCreated>());
+    }
+
+    [Fact]
+    public async Task Invalid_submission_returns_problem_details_without_dispatch_audit_or_position_state()
+    {
+        await using var dataSource = postgres.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var scenario = AiDirectiveIntegrationScenario.Create();
+        var initialTask = Assert.Single(scenario.OpenTasks);
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            auditLog);
+        var dispatcher = new FixturePositionCommandDispatcher(fixture);
+        await using var app = BuildSubmissionApp(
+            fixture,
+            SampleRelations(),
+            auditLog,
+            dispatcher);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            InvalidPriorityRequestFrom(scenario.Directive));
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var timeline = new PostgreSqlJourneyAuditReadModel(dataSource).ReadTimeline(
+            scenario.Directive.OrganizationId,
+            scenario.Directive.Thread,
+            scenario.Directive.DirectiveId);
+        var state = await fixture.GetPositionStateAsync();
+        var persistedEvents = await fixture.ReadPersistedEventsAsync();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("Invalid directive submission", problem.GetProperty("title").GetString());
+        Assert.Equal("priority", problem.GetProperty("path").GetString());
+        Assert.Equal(0, dispatcher.DispatchCount);
+        Assert.Empty(timeline.Entries);
+        Assert.Empty(persistedEvents);
+        Assert.DoesNotContain(scenario.Directive.Id, state.ProcessedMessages);
+        Assert.DoesNotContain(scenario.ResultMemoryKey, state.ShortMemory.Keys);
+        Assert.Contains(initialTask.TaskId, state.OpenTasks.Keys);
+    }
+
     private static WebApplication BuildSubmissionApp(
         AiDirectiveIntegrationFixture fixture,
         IOrganizationRelations relations,
-        IJourneyAuditLog auditLog)
+        IJourneyAuditLog auditLog,
+        IPositionCommandDispatcher? dispatcher = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
         builder.Services.AddSingleton(relations);
         builder.Services.AddSingleton<IPositionCommandDispatcher>(
-            new FixturePositionCommandDispatcher(fixture));
+            dispatcher ?? new FixturePositionCommandDispatcher(fixture));
         builder.Services.AddSingleton(auditLog);
         builder.Services.AddHiveDirectiveSubmissionApi();
 
@@ -207,6 +308,27 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
             to = new { kind = "position", positionId = to.PositionId.Value },
             threadId = directive.Thread.ToString(),
             priority = PriorityContract.ToWireValue(directive.Priority),
+            schemaVersion = directive.SchemaVersion,
+            sentAt = directive.SentAt,
+            deadline = directive.Deadline,
+            directiveId = directive.DirectiveId.ToString(),
+            objective = directive.Objective,
+            context = directive.Context,
+        };
+    }
+
+    private static object InvalidPriorityRequestFrom(Hive.Domain.Messaging.Directive directive)
+    {
+        var from = Assert.IsType<PositionEndpointRef>(directive.From);
+        var to = Assert.IsType<PositionEndpointRef>(directive.To);
+
+        return new
+        {
+            messageId = directive.Id.ToString(),
+            from = new { kind = "position", positionId = from.PositionId.Value },
+            to = new { kind = "position", positionId = to.PositionId.Value },
+            threadId = directive.Thread.ToString(),
+            priority = "urgent",
             schemaVersion = directive.SchemaVersion,
             sentAt = directive.SentAt,
             deadline = directive.Deadline,
@@ -239,6 +361,25 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         }
 
         throw new TimeoutException("Bug triage journey audit timeline did not reach the expected state.");
+    }
+
+    private static async Task<IReadOnlyList<PositionEvent>> WaitForPersistedEventsAsync(
+        AiDirectiveIntegrationFixture fixture,
+        Func<IReadOnlyList<PositionEvent>, bool> isReady)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var events = await fixture.ReadPersistedEventsAsync();
+            if (isReady(events))
+            {
+                return events;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("Bug triage position events did not reach the expected state.");
     }
 
     private static async Task<PositionState> WaitForPositionStateAsync(
@@ -361,6 +502,69 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
             StringComparison.Ordinal);
     }
 
+    private static void AssertTimelineCoversProviderFailure(
+        JourneyAuditTimeline timeline,
+        AiDirectiveIntegrationScenario scenario,
+        string modelId)
+    {
+        Assert.Equal(scenario.Directive.OrganizationId, timeline.OrganizationId);
+        Assert.Equal(scenario.Directive.Thread, timeline.ThreadId);
+        Assert.Equal(scenario.Directive.DirectiveId, timeline.DirectiveId);
+        Assert.Equal(
+            [
+                JourneyAuditStage.SubmissionReceived,
+                JourneyAuditStage.DirectiveCreated,
+                JourneyAuditStage.PositionAccepted,
+                JourneyAuditStage.PositionDispatched,
+                JourneyAuditStage.GatewayCalled,
+                JourneyAuditStage.GatewayCostRecorded,
+                JourneyAuditStage.AgentDecided,
+            ],
+            timeline.Entries.Select(entry => entry.Stage));
+
+        Assert.All(timeline.Entries, entry =>
+        {
+            Assert.Equal(scenario.Directive.Id, entry.MessageId);
+            Assert.Equal(scenario.Directive.DirectiveId, entry.DirectiveId);
+            Assert.Equal(PositionId.From("triage-agent"), entry.PositionId);
+        });
+
+        var gatewayCalled = Assert.Single(timeline.Entries.Where(entry =>
+            entry.Stage == JourneyAuditStage.GatewayCalled));
+        Assert.Equal(JourneyAuditOutcome.Failed, gatewayCalled.Outcome);
+        Assert.Equal("provider-unavailable", gatewayCalled.ReasonCode);
+        Assert.Equal("stub", gatewayCalled.Provider?.ProviderId);
+        Assert.Equal(modelId, gatewayCalled.Provider?.ModelId);
+        Assert.NotNull(gatewayCalled.Latency);
+        Assert.DoesNotContain(
+            "AI gateway stub returned a controlled provider failure",
+            string.Join(" ", gatewayCalled.RedactedPayload.Values),
+            StringComparison.Ordinal);
+
+        var gatewayCost = Assert.Single(timeline.Entries.Where(entry =>
+            entry.Stage == JourneyAuditStage.GatewayCostRecorded));
+        Assert.Equal(JourneyAuditOutcome.Failed, gatewayCost.Outcome);
+        Assert.Equal("provider-unavailable", gatewayCost.ReasonCode);
+        Assert.Equal("Failed", gatewayCost.RedactedPayload["result"]);
+        Assert.Equal("True", gatewayCost.RedactedPayload["isRetryable"]);
+
+        var agentDecided = Assert.Single(timeline.Entries.Where(entry =>
+            entry.Stage == JourneyAuditStage.AgentDecided));
+        Assert.Equal(JourneyAuditOutcome.Failed, agentDecided.Outcome);
+        Assert.Equal("ai-gateway-failure", agentDecided.ReasonCode);
+        Assert.Equal("Failed", agentDecided.RedactedPayload["status"]);
+        Assert.Equal("ai-gateway-failure", agentDecided.RedactedPayload["terminalCode"]);
+        Assert.Equal("none", agentDecided.RedactedPayload["decisionKind"]);
+        Assert.Equal("0", agentDecided.RedactedPayload["parseErrorCount"]);
+        Assert.Contains(
+            "gateway.error.message:free-text",
+            agentDecided.RedactedPayload["redactions"],
+            StringComparison.Ordinal);
+
+        Assert.DoesNotContain(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.ResultMessageCreated);
+    }
+
     private static IOrganizationRelations SampleRelations() =>
         new MaterializedOrganizationRelations(
             OrganizationRelationsSnapshot
@@ -387,9 +591,14 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
     private sealed class FixturePositionCommandDispatcher(
         AiDirectiveIntegrationFixture fixture) : IPositionCommandDispatcher
     {
+        public int DispatchCount { get; private set; }
+
         public ValueTask DispatchAsync(
             PositionEnvelope envelope,
-            CancellationToken cancellationToken) =>
-            fixture.DispatchAsync(envelope, cancellationToken);
+            CancellationToken cancellationToken)
+        {
+            DispatchCount++;
+            return fixture.DispatchAsync(envelope, cancellationToken);
+        }
     }
 }

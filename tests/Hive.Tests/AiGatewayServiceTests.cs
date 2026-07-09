@@ -13,6 +13,8 @@ public sealed class AiGatewayServiceTests
     private static readonly PositionId Position = PositionId.From("triage-agent");
     private static readonly ThreadId Thread =
         ThreadId.From(Guid.Parse("11111111-1111-1111-1111-111111111111"));
+    private static readonly DirectiveId Directive =
+        DirectiveId.From(Guid.Parse("33333333-3333-3333-3333-333333333333"));
     private static readonly MessageId Message =
         MessageId.From(Guid.Parse("22222222-2222-2222-2222-222222222222"));
 
@@ -107,6 +109,7 @@ public sealed class AiGatewayServiceTests
             Thread,
             Message,
             "Classify checkout bug reported by user@example.com with token=sk-secret123456.",
+            metadata: DirectiveMetadata(),
             provider: providerMetadata);
         var response = AiGatewayResponse.Succeeded(
             Organization,
@@ -137,6 +140,7 @@ public sealed class AiGatewayServiceTests
             Assert.Equal(Organization, record.OrganizationId);
             Assert.Equal(Position, record.PositionId);
             Assert.Equal(Thread, record.ThreadId);
+            Assert.Equal(Directive, record.DirectiveId);
             Assert.Equal(Message, record.MessageId);
             Assert.Equal(providerMetadata, record.Provider);
             Assert.Equal(TimeSpan.FromMilliseconds(210), record.Latency);
@@ -735,6 +739,12 @@ public sealed class AiGatewayServiceTests
             maxTimeout,
             allowedProcessingModes,
             authorizedTools);
+
+    private static IReadOnlyDictionary<string, string> DirectiveMetadata() =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["directive_id"] = Directive.ToString(),
+        };
 
     private static AiGatewayResponse SuccessResponse() =>
         AiGatewayResponse.Succeeded(

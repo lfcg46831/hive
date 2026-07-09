@@ -4,6 +4,8 @@ namespace Hive.Domain.Ai;
 
 public sealed record AiGatewayCostAuditEvent
 {
+    private const string DirectiveIdMetadataKey = "directive_id";
+
     public AiGatewayCostAuditEvent(
         OrganizationId organizationId,
         PositionId positionId,
@@ -16,7 +18,8 @@ public sealed record AiGatewayCostAuditEvent
         AiTokenUsage? usage = null,
         AiCostMetadata? cost = null,
         AiGatewayErrorCode? errorCode = null,
-        bool? isRetryable = null)
+        bool? isRetryable = null,
+        DirectiveId? directiveId = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -58,6 +61,7 @@ public sealed record AiGatewayCostAuditEvent
         Provider = provider;
         Usage = usage;
         Cost = cost;
+        DirectiveId = directiveId;
         ErrorCode = errorCode is null
             ? null
             : AiGatewayErrorCodeContract.RequireDefined(errorCode.Value, nameof(errorCode));
@@ -71,6 +75,8 @@ public sealed record AiGatewayCostAuditEvent
     public ThreadId ThreadId { get; }
 
     public MessageId MessageId { get; }
+
+    public DirectiveId? DirectiveId { get; }
 
     public DateTimeOffset StartedAt { get; }
 
@@ -111,7 +117,8 @@ public sealed record AiGatewayCostAuditEvent
                 AiGatewayCallResult.Succeeded,
                 response.Provider ?? request.Provider,
                 response.Usage,
-                response.Cost);
+                response.Cost,
+                directiveId: DirectiveIdFrom(request));
         }
 
         var error = response.Error!;
@@ -125,6 +132,19 @@ public sealed record AiGatewayCostAuditEvent
             AiGatewayCallResult.Failed,
             error.Provider ?? request.Provider,
             errorCode: error.Code,
-            isRetryable: error.IsRetryable);
+            isRetryable: error.IsRetryable,
+            directiveId: DirectiveIdFrom(request));
+    }
+
+    private static DirectiveId? DirectiveIdFrom(AiGatewayRequest request)
+    {
+        if (!request.Metadata.TryGetValue(DirectiveIdMetadataKey, out var value))
+        {
+            return null;
+        }
+
+        return Guid.TryParse(value, out var parsed)
+            ? DirectiveId.From(parsed)
+            : null;
     }
 }

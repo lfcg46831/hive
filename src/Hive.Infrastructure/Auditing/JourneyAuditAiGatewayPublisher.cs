@@ -1,5 +1,6 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Identity;
 
 namespace Hive.Infrastructure.Auditing;
 
@@ -7,6 +8,8 @@ public sealed class JourneyAuditAiGatewayPublisher :
     IAiGatewayAuditPublisher,
     IAiGatewayDetailedAuditPublisher
 {
+    private const string DirectiveIdMetadataKey = "directive_id";
+
     private readonly IJourneyAuditLog _auditLog;
 
     public JourneyAuditAiGatewayPublisher(IJourneyAuditLog auditLog)
@@ -24,6 +27,7 @@ public sealed class JourneyAuditAiGatewayPublisher :
             envelope.OrganizationId,
             envelope.ThreadId,
             envelope.MessageId,
+            directiveId: DirectiveIdFrom(envelope.Request.Metadata),
             positionId: envelope.PositionId,
             reasonCode: envelope.RejectionReason,
             provider: envelope.Provider,
@@ -42,6 +46,7 @@ public sealed class JourneyAuditAiGatewayPublisher :
             @event.OrganizationId,
             @event.ThreadId,
             @event.MessageId,
+            directiveId: @event.DirectiveId,
             positionId: @event.PositionId,
             reasonCode: @event.ErrorCode is null
                 ? null
@@ -100,5 +105,18 @@ public sealed class JourneyAuditAiGatewayPublisher :
         }
 
         return payload;
+    }
+
+    private static DirectiveId? DirectiveIdFrom(
+        IReadOnlyDictionary<string, string> metadata)
+    {
+        if (!metadata.TryGetValue(DirectiveIdMetadataKey, out var value))
+        {
+            return null;
+        }
+
+        return Guid.TryParse(value, out var parsed)
+            ? DirectiveId.From(parsed)
+            : null;
     }
 }

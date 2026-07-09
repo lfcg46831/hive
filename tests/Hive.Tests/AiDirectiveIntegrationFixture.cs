@@ -3,13 +3,16 @@ using System.Text;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence;
+using Hive.Actors.Sharding;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Ai;
+using Hive.Infrastructure.Auditing;
 using Microsoft.Extensions.DependencyInjection;
 using OrgDirective = Hive.Domain.Messaging.Directive;
 
@@ -23,6 +26,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private readonly PositionEntityId _entity;
     private readonly IAiGateway _gateway;
     private readonly PositionRuntimeConfiguration _runtimeConfiguration;
+    private readonly IJourneyAuditLog _auditLog;
     private IActorRef _position;
     private int _positionGeneration;
 
@@ -33,6 +37,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         PositionEntityId entity,
         IAiGateway gateway,
         PositionRuntimeConfiguration runtimeConfiguration,
+        IJourneyAuditLog auditLog,
         IActorRef position)
     {
         _services = services;
@@ -41,6 +46,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         _entity = entity;
         _gateway = gateway;
         _runtimeConfiguration = runtimeConfiguration;
+        _auditLog = auditLog;
         _position = position;
     }
 
@@ -49,11 +55,13 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     public string CorrelationId => _scenario.CorrelationId;
 
     public static async Task<AiDirectiveIntegrationFixture> StartAsync(
-        AiDirectiveIntegrationScenario? scenario = null)
+        AiDirectiveIntegrationScenario? scenario = null,
+        IJourneyAuditLog? auditLog = null)
     {
         var resolvedScenario = scenario ?? AiDirectiveIntegrationScenario.Create();
+        var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
         var stubOptions = resolvedScenario.CreateStubOptions();
-        var services = BuildGatewayProvider(stubOptions);
+        var services = BuildGatewayProvider(stubOptions, resolvedAuditLog);
         var system = CreateActorSystem("ai-directive-integration");
 
         try
@@ -71,6 +79,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 resolvedScenario,
                 gateway,
                 runtimeConfiguration,
+                resolvedAuditLog,
                 generation: 0);
 
             var readyFixture = new AiDirectiveIntegrationFixture(
@@ -80,6 +89,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 resolvedScenario.Entity,
                 gateway,
                 runtimeConfiguration,
+                resolvedAuditLog,
                 position);
             await readyFixture.WaitForReadyAsync().ConfigureAwait(false);
 
@@ -164,6 +174,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             _scenario,
             _gateway,
             _runtimeConfiguration,
+            _auditLog,
             _positionGeneration);
 
         await WaitForReadyAsync().ConfigureAwait(false);
@@ -171,6 +182,23 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
     public void RedeliverDirective() =>
         _position.Tell(new AcceptMessage(_scenario.Directive));
+
+    public ValueTask DispatchAsync(
+        PositionEnvelope envelope,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (envelope.Position != _entity)
+        {
+            throw new InvalidOperationException(
+                $"Fixture can only dispatch to '{_entity.Value}', but received '{envelope.Position.Value}'.");
+        }
+
+        _position.Tell(envelope.Command);
+        return ValueTask.CompletedTask;
+    }
 
     public Task<PositionState> GetPositionStateAsync() =>
         _position.Ask<PositionState>(GetPositionState.Instance, Timeout());
@@ -266,13 +294,18 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         AiDirectiveIntegrationScenario scenario,
         IAiGateway gateway,
         PositionRuntimeConfiguration runtimeConfiguration,
+        IJourneyAuditLog auditLog,
         int generation) =>
         system.ActorOf(
             Props.Create(() => new PositionActor(
                 scenario.Entity.Value,
                 new StaticConfigurationProvider(
                     PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration)),
-                new PositionOccupantFactory(new AiAgentGatewayInvoker(gateway)),
+                new PositionOccupantFactory(
+                    new AiAgentGatewayInvoker(gateway),
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    auditLog),
+                new JourneyAuditPositionProjectionPublisher(auditLog, null),
                 scenario.Clock)),
             $"position-{generation}");
 
@@ -294,9 +327,16 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 """));
 
     private static ServiceProvider BuildGatewayProvider(
-        StubAiGatewayProviderOptions stubOptions)
+        StubAiGatewayProviderOptions stubOptions,
+        IJourneyAuditLog auditLog)
     {
         var services = new ServiceCollection();
+        services.AddSingleton(auditLog);
+        services.AddSingleton<JourneyAuditAiGatewayPublisher>();
+        services.AddSingleton<IAiGatewayAuditPublisher>(provider =>
+            provider.GetRequiredService<JourneyAuditAiGatewayPublisher>());
+        services.AddSingleton<IAiGatewayDetailedAuditPublisher>(provider =>
+            provider.GetRequiredService<JourneyAuditAiGatewayPublisher>());
         services.AddHiveAiGatewayStub(options => CopyStubOptions(stubOptions, options));
 
         return services.BuildServiceProvider(new ServiceProviderOptions

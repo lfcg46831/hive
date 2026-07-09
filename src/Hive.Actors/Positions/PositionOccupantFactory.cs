@@ -74,6 +74,10 @@ internal sealed class AiAgentActor : ReceiveActor
 {
     private const string GatewayCallWithoutTerminalResultCode =
         "gateway-call-already-recorded-without-terminal-result";
+    private const string TerminalResultAlreadyMaterializedReason =
+        "terminal-result-already-materialized";
+    private const string GatewayCallAlreadyMaterializedReason =
+        "gateway-call-already-materialized";
 
     private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
         new(StringComparer.Ordinal);
@@ -453,6 +457,11 @@ internal sealed class AiAgentActor : ReceiveActor
             .LastOrDefault(record => record.Stage == JourneyAuditStage.ResultMessageCreated);
         if (resultMessage is not null)
         {
+            RecordDuplicateSuppression(
+                context,
+                resultMessage,
+                TerminalResultAlreadyMaterializedReason);
+
             var interpreted = RecoveredGatewayRequested(received)
                 .AdvanceTo(
                     AiDirectiveProcessingStatus.ResponseInterpreted,
@@ -469,10 +478,16 @@ internal sealed class AiAgentActor : ReceiveActor
             return new AiDirectiveRecoveryDecision(snapshot);
         }
 
-        var gatewayCalled = records.Any(record => record.Stage == JourneyAuditStage.GatewayCalled);
+        var gatewayCalled = records
+            .LastOrDefault(record => record.Stage == JourneyAuditStage.GatewayCalled);
         var agentDecided = records.Any(record => record.Stage == JourneyAuditStage.AgentDecided);
-        if (gatewayCalled && !agentDecided)
+        if (gatewayCalled is not null && !agentDecided)
         {
+            RecordDuplicateSuppression(
+                context,
+                gatewayCalled,
+                GatewayCallAlreadyMaterializedReason);
+
             var snapshot = RecoveredGatewayRequested(received)
                 .AdvanceTo(
                     AiDirectiveProcessingStatus.Failed,
@@ -484,6 +499,31 @@ internal sealed class AiAgentActor : ReceiveActor
         }
 
         return null;
+    }
+
+    private void RecordDuplicateSuppression(
+        AiDirectiveExecutionContext context,
+        JourneyAuditRecord suppressed,
+        string reasonCode)
+    {
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.DuplicateSuppressed,
+            JourneyAuditOutcome.Rejected,
+            context.OrganizationId,
+            context.Directive.ThreadId,
+            context.Directive.MessageId,
+            context.Directive.DirectiveId,
+            context.PositionId,
+            reasonCode: reasonCode,
+            messageType: suppressed.MessageType,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["suppressedStage"] = suppressed.Stage.ToString(),
+                ["suppressedOutcome"] = suppressed.Outcome.ToString(),
+                ["reasonCode"] = reasonCode,
+                ["redactions"] = "directive.objective,directive.context,gateway.request.content,gateway.response.text",
+            },
+            idempotencyDiscriminator: reasonCode));
     }
 
     private static AiDirectiveProcessingSnapshot RecoveredGatewayRequested(

@@ -105,6 +105,31 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
         Assert.DoesNotContain("Customer reports checkout failures", payloadJson, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Store_deduplicates_duplicate_suppression_observations_by_audit_event_id()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var first = DuplicateSuppressionRecord(OccurredAt);
+        var repeated = DuplicateSuppressionRecord(OccurredAt.AddSeconds(5));
+
+        auditLog.Append(first);
+        auditLog.Append(repeated);
+
+        var reloaded = Assert.Single(auditLog.ReadByThread(Thread, Directive));
+        Assert.Equal(first.AuditEventId, reloaded.AuditEventId);
+        Assert.Equal(JourneyAuditStage.DuplicateSuppressed, reloaded.Stage);
+        Assert.Equal(JourneyAuditOutcome.Rejected, reloaded.Outcome);
+        Assert.Equal("terminal-result-already-materialized", reloaded.ReasonCode);
+        Assert.Equal("ResultMessageCreated", reloaded.Payload["suppressedStage"]);
+        Assert.DoesNotContain(
+            "Customer reports checkout failures",
+            JsonSerializer.Serialize(reloaded.Payload),
+            StringComparison.Ordinal);
+    }
+
     private static JourneyAuditRecord Record(
         JourneyAuditStage stage,
         JourneyAuditOutcome outcome,
@@ -128,6 +153,25 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
             cost: cost,
             latency: latency,
             payload: payload);
+
+    private static JourneyAuditRecord DuplicateSuppressionRecord(DateTimeOffset occurredAt) =>
+        JourneyAuditRecord.Create(
+            JourneyAuditStage.DuplicateSuppressed,
+            JourneyAuditOutcome.Rejected,
+            Organization,
+            Thread,
+            Message,
+            Directive,
+            Position,
+            reasonCode: "terminal-result-already-materialized",
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["suppressedStage"] = "ResultMessageCreated",
+                ["suppressedOutcome"] = "Succeeded",
+                ["redactions"] = "directive.objective,directive.context,gateway.response.text",
+            },
+            occurredAtUtc: occurredAt,
+            idempotencyDiscriminator: "terminal-result-already-materialized");
 
     private static async Task ResetAuditAsync(NpgsqlDataSource dataSource)
     {

@@ -52,6 +52,20 @@ public sealed class AiDirectiveRecoveryGuardTests
             Assert.Equal(request.MessageId, completed.MessageId);
             Assert.Equal(0, invoker.InvocationCount);
             Assert.False(command.Task.IsCompleted);
+            var suppression = Assert.Single(
+                auditLog.Records.Where(record => record.Stage.ToString() == "DuplicateSuppressed"));
+            Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
+            Assert.Equal("terminal-result-already-materialized", suppression.ReasonCode);
+            Assert.Equal(scenario.Entity.Organization, suppression.OrganizationId);
+            Assert.Equal(scenario.Directive.Thread, suppression.ThreadId);
+            Assert.Equal(scenario.Directive.DirectiveId, suppression.DirectiveId);
+            Assert.Equal(scenario.Directive.Id, suppression.MessageId);
+            Assert.Equal(scenario.Entity.Position, suppression.PositionId);
+            Assert.Equal("ResultMessageCreated", suppression.Payload["suppressedStage"]);
+            Assert.DoesNotContain(
+                "Recovered report should not be recomputed",
+                string.Join(" ", suppression.Payload.Values),
+                StringComparison.Ordinal);
         }
         finally
         {
@@ -102,6 +116,20 @@ public sealed class AiDirectiveRecoveryGuardTests
                 completed.FailureCode);
             Assert.Equal(0, invoker.InvocationCount);
             Assert.False(command.Task.IsCompleted);
+            var suppression = Assert.Single(
+                auditLog.Records.Where(record => record.Stage.ToString() == "DuplicateSuppressed"));
+            Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
+            Assert.Equal("gateway-call-already-materialized", suppression.ReasonCode);
+            Assert.Equal(scenario.Entity.Organization, suppression.OrganizationId);
+            Assert.Equal(scenario.Directive.Thread, suppression.ThreadId);
+            Assert.Equal(scenario.Directive.DirectiveId, suppression.DirectiveId);
+            Assert.Equal(scenario.Directive.Id, suppression.MessageId);
+            Assert.Equal(scenario.Entity.Position, suppression.PositionId);
+            Assert.Equal("GatewayCalled", suppression.Payload["suppressedStage"]);
+            Assert.DoesNotContain(
+                "provider output",
+                string.Join(" ", suppression.Payload.Values),
+                StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
@@ -181,6 +209,8 @@ public sealed class AiDirectiveRecoveryGuardTests
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
     {
         private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
 
         public void Append(JourneyAuditRecord record)
         {

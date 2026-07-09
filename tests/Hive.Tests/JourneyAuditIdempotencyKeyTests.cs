@@ -104,4 +104,45 @@ public sealed class JourneyAuditIdempotencyKeyTests
         Assert.DoesNotContain("provider output", key.Value, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("prompt", key.Value, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public void Duplicate_suppression_key_is_deterministic_by_reason_without_free_text()
+    {
+        Assert.True(Enum.TryParse<JourneyAuditStage>("DuplicateSuppressed", out var stage));
+
+        var first = JourneyAuditIdempotencyKey.From(
+            stage,
+            JourneyAuditOutcome.Rejected,
+            Organization,
+            Thread,
+            Message,
+            Directive,
+            Position,
+            "terminal-result-already-materialized");
+        var second = JourneyAuditIdempotencyKey.From(
+            stage,
+            JourneyAuditOutcome.Rejected,
+            Organization,
+            Thread,
+            Message,
+            Directive,
+            Position,
+            "terminal-result-already-materialized");
+        var gatewaySuppression = JourneyAuditIdempotencyKey.From(
+            stage,
+            JourneyAuditOutcome.Rejected,
+            Organization,
+            Thread,
+            Message,
+            Directive,
+            Position,
+            "gateway-call-already-materialized");
+
+        Assert.Equal(first, second);
+        Assert.Equal(first.AuditEventId, second.AuditEventId);
+        Assert.NotEqual(first.AuditEventId, gatewaySuppression.AuditEventId);
+        Assert.DoesNotContain("Customer reports checkout failures", first.Value, StringComparison.Ordinal);
+        Assert.DoesNotContain("provider output", first.Value, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("prompt", first.Value, StringComparison.OrdinalIgnoreCase);
+    }
 }

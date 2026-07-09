@@ -20,9 +20,12 @@ public sealed class PositionActorRecoveryTests
     [Fact]
     public async Task Position_actor_restores_snapshot_then_replays_later_events_before_commands()
     {
-        var entity = PositionEntityId.From(OrganizationId.From("acme"), PositionId.From("bug-triage"));
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From($"bug-triage-recovery-{Guid.NewGuid():N}"));
         var persistenceId = PositionActor.PersistenceIdFor(entity.Value);
         var snapshot = SampleSnapshot();
+        Assert.Equal(new[] { snapshot.Inbox[0].Id }, snapshot.RecentHistory);
         var replayed = new ShortMemoryUpdated("after-snapshot", "replayed", At.AddMinutes(1));
         var system = ActorSystem.Create(
             $"position-recovery-{Guid.NewGuid():N}",
@@ -51,8 +54,13 @@ public sealed class PositionActorRecoveryTests
             await seeder.GracefulStop(Timeout());
 
             var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
+            var occupantFactory = new IgnoringOccupantFactory();
             var actor = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(2))),
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    occupantFactory,
+                    () => At.AddMinutes(2))),
                 "position-recovery-reader");
 
             await WaitForReadyAsync(actor);
@@ -75,7 +83,11 @@ public sealed class PositionActorRecoveryTests
             await actor.GracefulStop(Timeout());
 
             var restarted = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(3))),
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    occupantFactory,
+                    () => At.AddMinutes(3))),
                 "position-recovery-restarted");
 
             await WaitForReadyAsync(restarted);
@@ -89,15 +101,81 @@ public sealed class PositionActorRecoveryTests
         }
     }
 
+    [Fact]
+    public async Task Recovered_pending_message_delivered_to_real_occupant_is_completed_and_persisted()
+    {
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From($"bug-triage-recovery-real-occupant-{Guid.NewGuid():N}"));
+        var persistenceId = PositionActor.PersistenceIdFor(entity.Value);
+        var snapshot = SampleSnapshot();
+        var replayed = new ShortMemoryUpdated("after-snapshot", "replayed", At.AddMinutes(1));
+        var system = ActorSystem.Create(
+            $"position-recovery-real-occupant-{Guid.NewGuid():N}",
+            ConfigurationFactory.ParseString("""
+                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                akka.actor {
+                  serializers {
+                    hive-position-protocol = "Hive.Actors.Serialization.PositionProtocolJsonSerializer, Hive.Actors"
+                  }
+                  serialization-bindings {
+                    "Hive.Domain.Positions.PositionEvent, Hive.Domain" = hive-position-protocol
+                    "Hive.Domain.Positions.PositionSnapshot, Hive.Domain" = hive-position-protocol
+                  }
+                }
+                """));
+
+        try
+        {
+            var seeder = system.ActorOf(
+                Props.Create(() => new PositionActorSeedPersistenceActor(persistenceId)),
+                "position-recovery-real-occupant-seeder");
+
+            await seeder.Ask<SnapshotSeeded>(new SeedSnapshot(snapshot), Timeout());
+            await seeder.Ask<EventSeeded>(new SeedEvent(replayed), Timeout());
+            await seeder.GracefulStop(Timeout());
+
+            var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(2))),
+                "position-recovery-real-occupant-reader");
+
+            await WaitForReadyAsync(actor);
+            var completed = await WaitForStateAsync(actor, state => state.Inbox.IsEmpty);
+
+            Assert.Equal(new[] { snapshot.Inbox[0].Id }, completed.RecentHistory);
+            Assert.Contains(snapshot.ProcessedMessages[0], completed.ProcessedMessages);
+            Assert.Equal("replayed", completed.ShortMemory["after-snapshot"]);
+
+            await actor.GracefulStop(Timeout());
+
+            var restarted = system.ActorOf(
+                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(3))),
+                "position-recovery-real-occupant-restarted");
+
+            await WaitForReadyAsync(restarted);
+            var afterRestart = await restarted.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+            Assert.Empty(afterRestart.Inbox);
+            Assert.Equal(new[] { snapshot.Inbox[0].Id }, afterRestart.RecentHistory);
+            Assert.Contains(snapshot.ProcessedMessages[0], afterRestart.ProcessedMessages);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static PositionSnapshot SampleSnapshot()
     {
         var message = SampleMessage(MessageId("aaaaaaaa-0000-0000-0000-000000000101"));
         return new PositionSnapshot(
-            At,
-            OccupantId.From("agent-7"),
-            OccupantType.AiAgent,
-            new[] { message },
-            new[]
+            takenAt: At,
+            occupant: OccupantId.From("agent-7"),
+            occupantType: OccupantType.AiAgent,
+            inbox: new[] { message },
+            openTasks: new[]
             {
                 new PersistedTask(
                     PositionTaskId.From(new Guid("cccccccc-0000-0000-0000-000000000101")),
@@ -108,9 +186,9 @@ public sealed class PositionActorRecoveryTests
                     At.AddHours(2),
                     message.Id),
             },
-            new Dictionary<string, string> { ["current-thread"] = "snapshot-context" },
-            Array.Empty<MessageId>(),
-            new[] { message.Id });
+            shortMemory: new Dictionary<string, string> { ["current-thread"] = "snapshot-context" },
+            recentHistory: new[] { message.Id },
+            processedMessages: new[] { message.Id });
     }
 
     private static Memo SampleMessage(MessageId id) =>
@@ -151,6 +229,28 @@ public sealed class PositionActorRecoveryTests
         throw new TimeoutException("PositionActor did not reach Ready.");
     }
 
+    private static async Task<PositionState> WaitForStateAsync(
+        IActorRef actor,
+        Func<PositionState, bool> predicate)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        PositionState? latest = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            latest = await actor.Ask<PositionState>(
+                GetPositionState.Instance,
+                TimeSpan.FromSeconds(1));
+            if (predicate(latest))
+            {
+                return latest;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"PositionActor state did not match predicate. Latest state: {latest}.");
+    }
+
     private static IPositionConfigurationProvider LoadedProvider(
         PositionEntityId entity,
         PositionConfigurationStamp stamp) =>
@@ -188,6 +288,22 @@ public sealed class PositionActorRecoveryTests
             PositionEntityId entityId,
             CancellationToken cancellationToken) =>
             Task.FromResult(result);
+    }
+
+    private sealed class IgnoringOccupantFactory : IPositionOccupantFactory
+    {
+        public Props Create(OccupantId occupant, OccupantType occupantType) =>
+            Props.Create<IgnoringOccupantActor>();
+    }
+
+    private sealed class IgnoringOccupantActor : ReceiveActor
+    {
+        public IgnoringOccupantActor()
+        {
+            ReceiveAny(_ =>
+            {
+            });
+        }
     }
 
     private sealed class PositionActorSeedPersistenceActor : ReceivePersistentActor

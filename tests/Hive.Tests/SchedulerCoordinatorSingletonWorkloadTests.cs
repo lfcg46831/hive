@@ -13,6 +13,7 @@ using Hive.Infrastructure.Scheduling;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Hive.Tests;
 
@@ -44,6 +45,35 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
             // The single active instance is reachable through the proxy on this node.
             var coordinator = await AskWhereIsAsync(workload.Proxy, TimeSpan.FromSeconds(20));
             Assert.NotNull(coordinator);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Single_agents_node_does_not_emit_transient_singleton_proxy_warning_on_startup()
+    {
+        using var logs = new CapturingLoggerProvider();
+        using var host = BuildHost(
+            GetFreeTcpPort(),
+            roles: [NodeRoleNames.Agents],
+            loggerProvider: logs);
+
+        await host.StartAsync();
+        try
+        {
+            var workload = host.Services.GetRequiredService<SchedulerCoordinatorSingletonWorkload>();
+            await WaitForAsync(() => workload.Proxy is not null, TimeSpan.FromSeconds(20));
+            await Task.Delay(500);
+
+            Assert.DoesNotContain(
+                logs.Entries,
+                entry => entry.LogLevel >= LogLevel.Warning
+                    && entry.Message.Contains(
+                        "ClusterSingletonProxy failed to find an associated singleton named [coordinator]",
+                        StringComparison.Ordinal));
         }
         finally
         {
@@ -197,7 +227,8 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         string[] roles,
         TimeSpan? clusterUpTimeout = null,
         string? seedNode = null,
-        ISchedulerPulseDeliveryStore? deliveryStore = null)
+        ISchedulerPulseDeliveryStore? deliveryStore = null,
+        ILoggerProvider? loggerProvider = null)
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -232,6 +263,11 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
         }
 
         builder.AddHiveBootstrap();
+        if (loggerProvider is not null)
+        {
+            builder.Logging.AddProvider(loggerProvider);
+        }
+
         builder.AddHiveActorSystem();
         return builder.Build();
     }
@@ -427,4 +463,72 @@ public sealed class SchedulerCoordinatorSingletonWorkloadTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
     }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        private readonly object _gate = new();
+        private readonly List<CapturedLogEntry> _entries = [];
+
+        public IReadOnlyList<CapturedLogEntry> Entries
+        {
+            get
+            {
+                lock (_gate)
+                {
+                    return _entries.ToArray();
+                }
+            }
+        }
+
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(this, categoryName);
+
+        public void Dispose()
+        {
+        }
+
+        private void Add(CapturedLogEntry entry)
+        {
+            lock (_gate)
+            {
+                _entries.Add(entry);
+            }
+        }
+
+        private sealed class CapturingLogger(
+            CapturingLoggerProvider provider,
+            string categoryName) : ILogger
+        {
+            public IDisposable BeginScope<TState>(TState state) where TState : notnull =>
+                NullScope.Instance;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(
+                LogLevel logLevel,
+                EventId eventId,
+                TState state,
+                Exception? exception,
+                Func<TState, Exception?, string> formatter)
+            {
+                provider.Add(new CapturedLogEntry(
+                    categoryName,
+                    logLevel,
+                    formatter(state, exception)));
+            }
+        }
+
+        private sealed class NullScope : IDisposable
+        {
+            public static NullScope Instance { get; } = new();
+
+            public void Dispose()
+            {
+            }
+        }
+    }
+
+    private sealed record CapturedLogEntry(
+        string CategoryName,
+        LogLevel LogLevel,
+        string Message);
 }

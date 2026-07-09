@@ -166,15 +166,27 @@ public sealed class SchedulerCoordinatorSingletonWorkload : IRoleWorkload
                     managerSettings),
                 SchedulerCoordinatorIdentity.SingletonManagerName);
 
-            var proxySettings = ClusterSingletonProxySettings.Create(_system)
-                .WithRole(NodeRoleNames.Agents)
-                .WithSingletonName(SchedulerCoordinatorIdentity.SingletonName);
+            var localSingleton = await TryResolveLocalSingletonWhenThisNodeIsTheOnlyAgentsMemberAsync(
+                    cancellationToken)
+                .ConfigureAwait(false);
+            if (localSingleton is not null)
+            {
+                _proxy = _system.ActorOf(
+                    SchedulerCoordinatorLocalProxy.Props(localSingleton),
+                    SchedulerCoordinatorIdentity.ProxyName);
+            }
+            else
+            {
+                var proxySettings = ClusterSingletonProxySettings.Create(_system)
+                    .WithRole(NodeRoleNames.Agents)
+                    .WithSingletonName(SchedulerCoordinatorIdentity.SingletonName);
 
-            _proxy = _system.ActorOf(
-                ClusterSingletonProxy.Props(
-                    SchedulerCoordinatorIdentity.SingletonManagerPath,
-                    proxySettings),
-                SchedulerCoordinatorIdentity.ProxyName);
+                _proxy = _system.ActorOf(
+                    ClusterSingletonProxy.Props(
+                        SchedulerCoordinatorIdentity.SingletonManagerPath,
+                        proxySettings),
+                    SchedulerCoordinatorIdentity.ProxyName);
+            }
 
             _logger.LogInformation(
                 "Scheduler coordinator singleton materialized on role {Role} "
@@ -188,6 +200,50 @@ public sealed class SchedulerCoordinatorSingletonWorkload : IRoleWorkload
         {
             _startGate.Release();
         }
+    }
+
+    private async Task<IActorRef?> TryResolveLocalSingletonWhenThisNodeIsTheOnlyAgentsMemberAsync(
+        CancellationToken cancellationToken)
+    {
+        var cluster = Cluster.Get(_system);
+        if (cluster.SelfMember.Status != MemberStatus.Up
+            || !cluster.SelfMember.Roles.Contains(NodeRoleNames.Agents))
+        {
+            return null;
+        }
+
+        var otherUpAgentsMember = cluster.State.Members.Any(member =>
+            member.Address != cluster.SelfAddress
+            && member.Status == MemberStatus.Up
+            && member.Roles.Contains(NodeRoleNames.Agents));
+        if (otherUpAgentsMember)
+        {
+            return null;
+        }
+
+        var selection = _system.ActorSelection(
+            $"{SchedulerCoordinatorIdentity.SingletonManagerPath}/{SchedulerCoordinatorIdentity.SingletonName}");
+        var deadline = DateTimeOffset.UtcNow + _clusterUpTimeout;
+
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            try
+            {
+                return await selection.ResolveOne(TimeSpan.FromMilliseconds(100)).ConfigureAwait(false);
+            }
+            catch (ActorNotFoundException)
+            {
+            }
+            catch (AskTimeoutException)
+            {
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(25), cancellationToken).ConfigureAwait(false);
+        }
+
+        return null;
     }
 
     /// <summary>

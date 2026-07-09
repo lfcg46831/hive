@@ -1,0 +1,23 @@
+# Three-node F0 bug-triage vertical slice demo override (US-F0-10-T12).
+#
+# Layer after docker-compose.yml, docker-compose.cluster.yml, and
+# docker-compose.roles.yml. Role placement remains owned by the roles override;
+# this file only makes the deterministic AI gateway stub available on every node
+# so the agents node can process the demo directive without external network or
+# secrets.
+
+services:
+  api:
+    environment:
+      HIVE__AIGATEWAY__PROVIDER: "stub"
+      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+
+  api2:
+    environment:
+      HIVE__AIGATEWAY__PROVIDER: "stub"
+      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+
+  api3:
+    environment:
+      HIVE__AIGATEWAY__PROVIDER: "stub"
+      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"

@@ -218,6 +218,37 @@ Three-node topology:
 
 The command exits `0` only when every check passes and exits non-zero with the failed invariant otherwise. Pass the node count matching the Compose file set used to start the environment.
 
+### F0 bug-triage vertical slice demo
+
+The F0 demo uses the tracked ACME Delivery organization, the deterministic AI gateway stub, and the reproducible demo seed `us-f0-10-t12-demo`. It does not require external AI credentials or network calls beyond the local Compose stack.
+
+Start the one-node demo topology:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up --build
+```
+
+Start the three-node demo topology with the role split from `docker-compose.roles.yml`:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.roles.yml -f docker-compose.demo.cluster.yml up --build
+```
+
+After the selected topology is healthy, submit the reproducible directive from another terminal:
+
+```powershell
+dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost:8080 --seed us-f0-10-t12-demo
+```
+
+The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission.
+
+Stop the demo with the same Compose file set used to start it:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml down
+docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.roles.yml -f docker-compose.demo.cluster.yml down
+```
+
 The base file declares an explicit internal network and port policy (US-F0-02-T06, see below), a named persistent PostgreSQL volume (US-F0-02-T07, see below), Docker health/readiness checks for PostgreSQL and the HIVE node (US-F0-02-T08/T09, see below), and the local environment-variable contract from `.env.example` (US-F0-02-T10). Per-service roles remain optional through the `docker-compose.roles.yml` override (US-F0-02-T05).
 
 ### Persistent storage

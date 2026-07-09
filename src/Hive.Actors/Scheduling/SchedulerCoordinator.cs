@@ -614,6 +614,21 @@ internal sealed record WhereIsSchedulerCoordinator
     public static WhereIsSchedulerCoordinator Instance { get; } = new();
 }
 
+internal sealed class SchedulerCoordinatorLocalProxy : ReceiveActor
+{
+    private readonly IActorRef _target;
+
+    public SchedulerCoordinatorLocalProxy(IActorRef target)
+    {
+        _target = target ?? throw new ArgumentNullException(nameof(target));
+
+        ReceiveAny(message => _target.Forward(message));
+    }
+
+    public static Props Props(IActorRef target) =>
+        Akka.Actor.Props.Create(() => new SchedulerCoordinatorLocalProxy(target));
+}
+
 internal sealed record SchedulerScheduleKey
 {
     private SchedulerScheduleKey(

@@ -1,5 +1,7 @@
+using Hive.Actors.Sharding;
 using Hive.Domain.Identity;
 using Hive.Domain.Positions;
+using Hive.Api.Directives;
 using Hive.Infrastructure.Configuration;
 
 namespace Hive.Tests;
@@ -62,6 +64,33 @@ public sealed class PositionShardingMultiNodeFixtureTests
     }
 
     [Fact]
+    public async Task Api_node_dispatcher_routes_position_commands_through_the_agents_sharding_region()
+    {
+        await using var fixture = await PositionShardingMultiNodeFixture.StartAsync();
+        var apiNode = Assert.Single(fixture.Nodes.Where(node => node.HasRole(NodeRoleNames.Api)));
+        Assert.Null(apiNode.Region);
+
+        var dispatcher = new AkkaClusterShardingPositionCommandDispatcher(apiNode.System, numberOfShards: 8);
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From("api-dispatch-target"));
+
+        await dispatcher.DispatchAsync(
+            PositionEnvelope.For(entity, new UpdateShortMemory("api-proxy-dispatch", "delivered")),
+            CancellationToken.None);
+
+        await WaitForAsync(
+            () => fixture
+                .CommittedEvents<ShortMemoryUpdated>(entity)
+                .Any(committed => committed.Event is
+                {
+                    Key: "api-proxy-dispatch",
+                    Value: "delivered",
+                }),
+            TimeSpan.FromSeconds(30));
+    }
+
+    [Fact]
     public async Task Rebalance_between_agent_regions_keeps_each_entity_active_once()
     {
         await using var fixture = await PositionShardingMultiNodeFixture.StartAsync(
@@ -107,5 +136,21 @@ public sealed class PositionShardingMultiNodeFixtureTests
 
         var owner = Assert.Single(owners);
         Assert.False(string.IsNullOrWhiteSpace(owner));
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition, TimeSpan timeout)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(timeout);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (condition())
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException("Condition was not met within the allotted time.");
     }
 }

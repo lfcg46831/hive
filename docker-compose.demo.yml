@@ -1,0 +1,17 @@
+# One-node F0 bug-triage vertical slice demo override (US-F0-10-T12).
+#
+# Layer on top of docker-compose.yml. It keeps the base service set intact and
+# turns the single api host into an all-in-one demo node: HTTP intake, position
+# actors, gateway provider, and connector role are all local. The AI gateway is
+# the deterministic stub scenario used by the F0 bug-triage slice, so no external
+# provider or secret is required.
+
+services:
+  api:
+    environment:
+      HIVE__NODE__ROLES__0: "api"
+      HIVE__NODE__ROLES__1: "agents"
+      HIVE__NODE__ROLES__2: "gateway"
+      HIVE__NODE__ROLES__3: "connectors"
+      HIVE__AIGATEWAY__PROVIDER: "stub"
+      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"

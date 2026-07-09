@@ -84,6 +84,65 @@ public sealed class AcmeDeliveryDemoDirectiveClientTests
             name => name.Contains("Bug", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Seeded_ids_are_stable_distinct_and_seed_dependent()
+    {
+        var first = DemoDirectiveIds.FromSeed("us-f0-10-t12-demo");
+        var second = DemoDirectiveIds.FromSeed("us-f0-10-t12-demo");
+        var other = DemoDirectiveIds.FromSeed("another-demo-run");
+
+        Assert.Equal(first, second);
+        Assert.NotEqual(Guid.Empty, first.MessageId);
+        Assert.NotEqual(Guid.Empty, first.ThreadId);
+        Assert.NotEqual(Guid.Empty, first.DirectiveId);
+        Assert.NotEqual(first.MessageId, first.ThreadId);
+        Assert.NotEqual(first.MessageId, first.DirectiveId);
+        Assert.NotEqual(first.ThreadId, first.DirectiveId);
+        Assert.NotEqual(first.MessageId, other.MessageId);
+        Assert.NotEqual(first.ThreadId, other.ThreadId);
+        Assert.NotEqual(first.DirectiveId, other.DirectiveId);
+    }
+
+    [Fact]
+    public async Task Demo_command_submits_reproducible_directive_to_the_configured_api()
+    {
+        var handler = new CapturingHttpMessageHandler(new HttpResponseMessage(HttpStatusCode.Accepted)
+        {
+            Content = JsonContent.Create(new { status = "accepted" }),
+        });
+        using var client = new HttpClient(handler);
+        using var output = new StringWriter();
+
+        var exitCode = await DemoDirectiveCommand.RunAsync(
+            [
+                "--repository-root",
+                RepositoryRoot,
+                "--base-url",
+                "http://localhost:8080",
+                "--submit",
+                "--seed",
+                "us-f0-10-t12-demo",
+            ],
+            client,
+            output,
+            CancellationToken.None);
+
+        Assert.Equal(0, exitCode);
+        Assert.NotNull(handler.Request);
+        Assert.Equal(HttpMethod.Post, handler.Request.Method);
+        Assert.Equal(
+            "http://localhost:8080/api/v1/organizations/acme-delivery/directives",
+            handler.Request.RequestUri!.ToString());
+
+        var body = handler.ReadRequestBody<DemoDirectiveRequest>();
+        var ids = DemoDirectiveIds.FromSeed("us-f0-10-t12-demo");
+        Assert.Equal(ids.MessageId.ToString("D"), body.MessageId);
+        Assert.Equal(ids.ThreadId.ToString("D"), body.ThreadId);
+        Assert.Equal(ids.DirectiveId.ToString("D"), body.DirectiveId);
+        Assert.Equal(DemoDirectiveCommand.DefaultSentAt, body.SentAt);
+        Assert.Contains("\"status\": \"accepted\"", output.ToString(), StringComparison.Ordinal);
+    }
+
     private static WebApplication BuildApp(IDirectiveSubmissionSink sink)
     {
         var builder = WebApplication.CreateBuilder();
@@ -133,6 +192,41 @@ public sealed class AcmeDeliveryDemoDirectiveClientTests
         {
             Submitted = directive;
             return ValueTask.FromResult(DirectiveSubmissionResult.Accepted(directive));
+        }
+    }
+
+    private sealed class CapturingHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly HttpResponseMessage _response;
+        private string? _requestBody;
+
+        public CapturingHttpMessageHandler(HttpResponseMessage response)
+        {
+            _response = response;
+        }
+
+        public HttpRequestMessage? Request { get; private set; }
+
+        public T ReadRequestBody<T>()
+        {
+            Assert.NotNull(_requestBody);
+            var value = JsonSerializer.Deserialize<T>(
+                _requestBody,
+                new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            Assert.NotNull(value);
+            return value;
+        }
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Request = request;
+            _requestBody = request.Content is null
+                ? string.Empty
+                : await request.Content.ReadAsStringAsync(cancellationToken);
+
+            return _response;
         }
     }
 }

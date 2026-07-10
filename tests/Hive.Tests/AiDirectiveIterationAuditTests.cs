@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -96,6 +97,59 @@ public sealed class AiDirectiveIterationAuditTests
                 Assert.Single(audit.Entries);
                 Assert.All(audit.Entries, entry => Assert.Null(entry.ExecutionKind));
             });
+    }
+
+    [Fact]
+    public void RecordDecision_exposes_safe_acting_under_status_code_and_declared_key()
+    {
+        const string authorityKey = "delivery.bug-triage";
+        const string invalidRawValue = "finance.secret-override";
+        var context = Context(maxIterations: 3, canDecide: [authorityKey]);
+        var state = AiDirectiveIterationState.Start(context, At);
+        var declaredDecision = state.Evaluate(
+            Response(
+                text: null,
+                AiFinishReason.ToolCalls,
+                [
+                    new AiToolCall(
+                        "call-1",
+                        "files",
+                        new Dictionary<string, object?> { ["acting_under"] = authorityKey }),
+                ]),
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+        var invalidDecision = state.Evaluate(
+            Response(
+                text: null,
+                AiFinishReason.ToolCalls,
+                [
+                    new AiToolCall(
+                        "call-2",
+                        "files",
+                        new Dictionary<string, object?> { ["acting_under"] = invalidRawValue }),
+                ]),
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+
+        var declaredEntry = Assert.Single(
+            AiDirectiveIterationAuditTrail
+                .Start(state)
+                .RecordDecision(state, declaredDecision, At.AddSeconds(1))
+                .Entries);
+        var invalidEntry = Assert.Single(
+            AiDirectiveIterationAuditTrail
+                .Start(state)
+                .RecordDecision(state, invalidDecision, At.AddSeconds(1))
+                .Entries);
+
+        Assert.Equal(ActingUnderDeclarationState.Declared, declaredEntry.ActingUnderState);
+        Assert.Equal(ActingUnderDeclaration.DeclaredCode, declaredEntry.ActingUnderCode);
+        Assert.Equal(authorityKey, declaredEntry.ActingUnderKey!.Value);
+
+        Assert.Equal(ActingUnderDeclarationState.Invalid, invalidEntry.ActingUnderState);
+        Assert.Equal(ActingUnderDeclaration.InvalidCode, invalidEntry.ActingUnderCode);
+        Assert.Null(invalidEntry.ActingUnderKey);
+        Assert.DoesNotContain(invalidRawValue, invalidEntry.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]
@@ -202,16 +256,18 @@ public sealed class AiDirectiveIterationAuditTests
 
     private static AiDirectiveExecutionContext Context(
         TimeSpan? timeout = null,
-        int? maxIterations = null)
+        int? maxIterations = null,
+        IEnumerable<string>? canDecide = null)
     {
-        var request = Request(timeout, maxIterations);
+        var request = Request(timeout, maxIterations, canDecide);
 
         return AiDirectiveExecutionContext.From(request);
     }
 
     private static AiDirectiveProcessingRequest Request(
         TimeSpan? timeout = null,
-        int? maxIterations = null)
+        int? maxIterations = null,
+        IEnumerable<string>? canDecide = null)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var directive = new OrgDirective(
@@ -250,7 +306,7 @@ public sealed class AiDirectiveIterationAuditTests
                     "triage-v1",
                     "prompts/triage-v1.md",
                     "You are responsible for triaging incoming bugs.")),
-            new PositionAuthorityRuntimeConfiguration());
+            new PositionAuthorityRuntimeConfiguration(canDecide));
 
         return AiDirectiveProcessingRequest.Create(
             entity,

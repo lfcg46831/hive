@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -52,6 +53,29 @@ public sealed class AiDirectiveResultMessageTests
         Assert.Equal(IncomingDirective, report.AboutDirectiveId);
         Assert.Equal(ReportKind.Done, report.Kind);
         Assert.Equal("Bug triage is complete.", report.Body);
+        Assert.Equal(ActingUnderDeclarationState.Missing, result.ActingUnder.State);
+    }
+
+    [Fact]
+    public void Create_keeps_acting_under_on_candidate_without_changing_org_message()
+    {
+        var context = AiDirectiveExecutionContext.From(Request());
+        var actingUnder = ActingUnderDeclaration.Declared(
+            AuthorityKey.From("delivery.bug-triage"));
+
+        var result = AiDirectiveResultMessageFactory.Create(
+            context,
+            new AiDirectiveReportDecision(
+                ReportKind.Done,
+                "Bug triage is complete.",
+                actingUnder),
+            clock: () => At.AddMinutes(5));
+
+        Assert.True(result.IsSuccess, result.Failure?.AuditReason);
+        Assert.Same(actingUnder, result.ActingUnder);
+        var report = Assert.IsType<Report>(result.Message);
+        Assert.Null(typeof(OrgMessage).GetProperty("ActingUnder"));
+        Assert.Null(report.GetType().GetProperty("ActingUnder"));
     }
 
     [Fact]
@@ -209,6 +233,7 @@ public sealed class AiDirectiveResultMessageTests
         var failure = Assert.IsType<AiDirectiveResultMessageFailure>(result.Failure);
         Assert.Equal("child-directive-target-not-permitted", failure.Code);
         Assert.Contains("qa", failure.AuditReason, StringComparison.Ordinal);
+        Assert.Equal(ActingUnderDeclarationState.Missing, result.ActingUnder.State);
     }
 
     [Fact]

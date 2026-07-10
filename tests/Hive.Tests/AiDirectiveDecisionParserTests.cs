@@ -1,4 +1,5 @@
 using Hive.Actors.Positions;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 
 namespace Hive.Tests;
@@ -52,6 +53,66 @@ public sealed class AiDirectiveDecisionParserTests
         Assert.Equal(AiDirectiveDecisionIntent.Report, decision.Intent);
         Assert.Equal(ReportKind.Progress, decision.Kind);
         Assert.Equal("Investigation is underway.", decision.Body);
+        Assert.Equal(ActingUnderDeclarationState.Missing, decision.ActingUnder.State);
+        Assert.Equal(ActingUnderDeclaration.MissingCode, decision.ActingUnder.Code);
+        Assert.Null(decision.ActingUnder.Key);
+    }
+
+    [Fact]
+    public void Valid_acting_under_is_bound_to_the_positions_closed_vocabulary()
+    {
+        const string output = """
+            {
+              "schema_version": 1,
+              "intent": "Report",
+              "acting_under": "delivery.bug-triage",
+              "report": {
+                "kind": "Progress",
+                "body": "Investigation is underway."
+              }
+            }
+            """;
+        var allowed = AuthorityKey.From("delivery.bug-triage");
+
+        var result = AiDirectiveDecisionParser.Parse(output, [allowed]);
+
+        AssertSuccess(result);
+        var decision = Assert.IsType<AiDirectiveReportDecision>(result.Decision);
+        Assert.Equal(ActingUnderDeclarationState.Declared, decision.ActingUnder.State);
+        Assert.Equal(ActingUnderDeclaration.DeclaredCode, decision.ActingUnder.Code);
+        Assert.Same(allowed, decision.ActingUnder.Key);
+    }
+
+    [Theory]
+    [InlineData("\"finance.commitments\"")]
+    [InlineData("\"not-namespaced\"")]
+    [InlineData("42")]
+    [InlineData("null")]
+    public void Invalid_acting_under_is_non_declared_without_rejecting_the_payload(
+        string actingUnderJson)
+    {
+        var output = $$"""
+            {
+              "schema_version": 1,
+              "intent": "Report",
+              "acting_under": {{actingUnderJson}},
+              "report": {
+                "kind": "Progress",
+                "body": "Investigation is underway."
+              }
+            }
+            """;
+
+        var result = AiDirectiveDecisionParser.Parse(
+            output,
+            [AuthorityKey.From("delivery.bug-triage")]);
+
+        AssertSuccess(result);
+        var decision = Assert.IsType<AiDirectiveReportDecision>(result.Decision);
+        Assert.Equal(ActingUnderDeclarationState.Invalid, decision.ActingUnder.State);
+        Assert.Equal(ActingUnderDeclaration.InvalidCode, decision.ActingUnder.Code);
+        Assert.Null(decision.ActingUnder.Key);
+        Assert.DoesNotContain("finance.commitments", decision.ActingUnder.ToString(), StringComparison.Ordinal);
     }
 
     [Fact]

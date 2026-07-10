@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Governance;
 
 namespace Hive.Actors.Positions;
 
@@ -18,7 +19,8 @@ internal sealed record AiDirectiveIterationAuditEntry
         string code,
         string auditReason,
         AiDirectiveIterationContinuationKind? continuationKind = null,
-        AiDirectiveIterationExecutionKind? executionKind = null)
+        AiDirectiveIterationExecutionKind? executionKind = null,
+        ActingUnderDeclaration? actingUnder = null)
     {
         if (iteration <= 0)
         {
@@ -67,6 +69,11 @@ internal sealed record AiDirectiveIterationAuditEntry
         AuditReason = AiAgentGatewayText.Require(auditReason, nameof(auditReason));
         ContinuationKind = continuationKind;
         ExecutionKind = executionKind;
+        ActingUnderState = actingUnder?.State;
+        ActingUnderCode = actingUnder?.Code;
+        ActingUnderKey = actingUnder?.State == ActingUnderDeclarationState.Declared
+            ? actingUnder.Key
+            : null;
     }
 
     public string CorrelationId { get; }
@@ -84,6 +91,12 @@ internal sealed record AiDirectiveIterationAuditEntry
     public AiDirectiveIterationContinuationKind? ContinuationKind { get; }
 
     public AiDirectiveIterationExecutionKind? ExecutionKind { get; }
+
+    public ActingUnderDeclarationState? ActingUnderState { get; }
+
+    public string? ActingUnderCode { get; }
+
+    public AuthorityKey? ActingUnderKey { get; }
 }
 
 internal sealed record AiDirectiveIterationAuditTrail
@@ -155,7 +168,8 @@ internal sealed record AiDirectiveIterationAuditTrail
             stopReason?.Code ?? "continue",
             stopReason?.AuditReason ?? "AI directive loop selected a continuation.",
             ContinuationKind(decision),
-            executionKind: null);
+            executionKind: null,
+            actingUnder: ActingUnder(decision));
 
         return Append(
             entry,
@@ -233,6 +247,14 @@ internal sealed record AiDirectiveIterationAuditTrail
         AiDirectiveIterationDecision decision) =>
         decision.CanContinue && decision.Continuations.Length == 1
             ? decision.Continuations[0].Kind
+            : null;
+
+    private static ActingUnderDeclaration? ActingUnder(
+        AiDirectiveIterationDecision decision) =>
+        decision.CanContinue &&
+        decision.Continuations.Length == 1 &&
+        decision.Continuations[0].Kind == AiDirectiveIterationContinuationKind.ConnectorTool
+            ? decision.Continuations[0].ActingUnder
             : null;
 
     private static string SuccessCode(AiDirectiveIterationExecutionKind? kind) =>

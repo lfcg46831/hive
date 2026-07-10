@@ -22,6 +22,7 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         {
           "schema_version": 1,
           "intent": "Report",
+          "acting_under": "delivery.bug-triage",
           "report": {
             "kind": "Done",
             "body": "Bug triage complete: checkout confirmation failures are reproducible with high user impact."
@@ -34,6 +35,7 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         {
           "schema_version": 1,
           "intent": "Escalation",
+          "acting_under": "delivery.bug-triage",
           "escalation": {
             "issue": "Missing bug triage information",
             "context": "The report lacks enough reproduction or environment evidence to complete triage deterministically.",
@@ -50,6 +52,7 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         {
           "schema_version": 1,
           "intent": "Escalation",
+          "acting_under": "delivery.bug-triage",
           "escalation": {
             "issue": "External decision required",
             "context": "The next action depends on an external production or customer-impact decision outside the triage position authority.",

@@ -31,3 +31,5 @@ Nao acumules narrativa de implementacao no bible nem nos ficheiros de instrucoes
 ## Fecho de tarefas
 
 - Sempre que terminares uma tarefa, gera uma mensagem curta em ingles com o resumo do que foi feito para ser usada no commit do git.
+
+## Imported Claude Cowork project instructions

@@ -44,7 +44,7 @@ public sealed class AiDirectivePromptTests
         Assert.Equal(
             "Authorized HIVE connector 'jira' with scopes: issues/read, issues/comment.",
             requestTool.Description);
-        Assert.Empty(requestTool.ParametersSchema);
+        AssertActingUnderSchema(requestTool, "bug.triage");
 
         Assert.NotNull(request.SystemInstruction);
         Assert.Contains("current position", request.SystemInstruction, StringComparison.Ordinal);
@@ -54,6 +54,14 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("Report", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Escalation", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Directive", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains(
+            "required top-level \"acting_under\"",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Allowed \"acting_under\" values for this position: \"bug.triage\".",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
         Assert.Contains("Do not invent routing", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains(
             "Directive only when a permitted downward target is explicit",
@@ -104,6 +112,135 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("CanDecide: <empty>", request.Content, StringComparison.Ordinal);
         Assert.Contains("AuthorityOverrides: <empty>", request.Content, StringComparison.Ordinal);
         Assert.Contains("AuthorizedTools: <empty>", request.Content, StringComparison.Ordinal);
+        Assert.Empty(request.Tools);
+        Assert.Contains(
+            "required top-level \"acting_under\"",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Allowed \"acting_under\" values for this position: <empty>.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateInitialRequest_canonicalizes_and_isolates_acting_under_vocabularies()
+    {
+        var first = AiDirectivePrompt.CreateInitialRequest(
+            AiDirectiveExecutionContext.From(Request(
+                includeOptionalContext: true,
+                canDecide: ["zeta.scope", "alpha.scope", "zeta.scope"])));
+        var second = AiDirectivePrompt.CreateInitialRequest(
+            AiDirectiveExecutionContext.From(Request(
+                includeOptionalContext: true,
+                canDecide: ["other.scope"])));
+
+        AssertActingUnderSchema(Assert.Single(first.Tools), "alpha.scope", "zeta.scope");
+        AssertActingUnderSchema(Assert.Single(second.Tools), "other.scope");
+        Assert.Contains(
+            "Allowed \"acting_under\" values for this position: \"alpha.scope\", \"zeta.scope\".",
+            first.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("other.scope", first.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains(
+            "Allowed \"acting_under\" values for this position: \"other.scope\".",
+            second.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("alpha.scope", second.SystemInstruction, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void CreateInitialRequest_omits_authorized_tools_when_can_decide_is_empty()
+    {
+        var request = AiDirectivePrompt.CreateInitialRequest(
+            AiDirectiveExecutionContext.From(Request(
+                includeOptionalContext: false,
+                canDecide: [],
+                tools: [new ToolConfiguration("jira", ["issues/read"])])));
+
+        Assert.Empty(request.Tools);
+        Assert.Contains("- jira: issues/read", request.Content, StringComparison.Ordinal);
+        Assert.Contains(
+            "Allowed \"acting_under\" values for this position: <empty>.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Tool_schema_composition_preserves_functional_schema_without_mutating_source()
+    {
+        var ticketProperty = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["type"] = "string",
+        };
+        var sourceProperties = new Dictionary<string, object?>(StringComparer.Ordinal)
+        {
+            ["ticket"] = ticketProperty,
+        };
+        var sourceRequired = new[] { "ticket" };
+        var source = new AiToolDefinition(
+            "jira",
+            "Looks up a ticket.",
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["type"] = "object",
+                ["properties"] = sourceProperties,
+                ["required"] = sourceRequired,
+                ["additionalProperties"] = false,
+            });
+
+        var composed = AiToolActingUnderSchema.Compose(
+            source,
+            [
+                AuthorityKey.From("zeta.scope"),
+                AuthorityKey.From("alpha.scope"),
+                AuthorityKey.From("zeta.scope"),
+            ]);
+
+        Assert.Equal("jira", composed.Name);
+        Assert.Equal("Looks up a ticket.", composed.Description);
+        Assert.Equal("object", composed.ParametersSchema["type"]);
+        Assert.Equal(false, composed.ParametersSchema["additionalProperties"]);
+        var composedProperties = SchemaObject(composed.ParametersSchema["properties"]);
+        Assert.Same(ticketProperty, composedProperties["ticket"]);
+        AssertActingUnderProperty(composedProperties, "alpha.scope", "zeta.scope");
+        Assert.Equal(
+            ["ticket", "acting_under"],
+            SchemaStrings(composed.ParametersSchema["required"]));
+
+        Assert.False(sourceProperties.ContainsKey("acting_under"));
+        Assert.Equal(["ticket"], sourceRequired);
+        Assert.Same(sourceProperties, source.ParametersSchema["properties"]);
+        Assert.Same(sourceRequired, source.ParametersSchema["required"]);
+    }
+
+    [Fact]
+    public void Tool_schema_composition_rejects_reserved_collision_and_incompatible_shapes()
+    {
+        IReadOnlyDictionary<string, object?>[] incompatibleSchemas =
+        [
+            new Dictionary<string, object?> { ["type"] = "array" },
+            new Dictionary<string, object?> { ["properties"] = new[] { "not-an-object" } },
+            new Dictionary<string, object?> { ["required"] = new object?[] { "ticket", 7 } },
+            new Dictionary<string, object?>
+            {
+                ["properties"] = new Dictionary<string, object?>
+                {
+                    ["acting_under"] = new Dictionary<string, object?> { ["type"] = "string" },
+                },
+            },
+            new Dictionary<string, object?> { ["required"] = new[] { "acting_under" } },
+        ];
+
+        foreach (var schema in incompatibleSchemas)
+        {
+            var tool = new AiToolDefinition("jira", "Looks up a ticket.", schema);
+
+            Assert.Throws<InvalidOperationException>(() =>
+                AiToolActingUnderSchema.Compose(
+                    tool,
+                    [AuthorityKey.From("delivery.bug-triage")]));
+        }
     }
 
     [Fact]
@@ -163,7 +300,7 @@ public sealed class AiDirectivePromptTests
             Assert.Equal(
                 "Authorized HIVE connector 'jira' with scopes: issues/read, issues/comment.",
                 gatewayTool.Description);
-            Assert.Empty(gatewayTool.ParametersSchema);
+            AssertActingUnderSchema(gatewayTool, "bug.triage");
             Assert.True(gatewayResult.Found);
             Assert.True(gatewayResult.Result!.IsSuccess);
             Assert.Equal(processingRequest.CorrelationId, gatewayResult.Result.CorrelationId);
@@ -350,7 +487,9 @@ public sealed class AiDirectivePromptTests
         bool includeOptionalContext,
         bool includeIdentityPrompt = true,
         TimeSpan? timeout = null,
-        int? maxIterations = null)
+        int? maxIterations = null,
+        IReadOnlyList<string>? canDecide = null,
+        IReadOnlyList<ToolConfiguration>? tools = null)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -374,6 +513,12 @@ public sealed class AiDirectivePromptTests
             parentDirective,
             objective: "Triage checkout regression",
             context: "Customer reports checkout failures.");
+        IReadOnlyList<ToolConfiguration> effectiveTools = tools ??
+            (includeOptionalContext
+                ? [new ToolConfiguration("jira", ["issues/read", "issues/comment"])]
+                : []);
+        IReadOnlyList<string> effectiveCanDecide = canDecide ??
+            (includeOptionalContext ? ["bug.triage"] : []);
 
         var configuration = new PositionRuntimeConfiguration(
             stamp,
@@ -387,9 +532,7 @@ public sealed class AiDirectivePromptTests
             new OccupantRuntimeConfiguration(
                 OccupantType.AiAgent,
                 identityPromptRef: includeIdentityPrompt ? "triage-v1" : null,
-                tools: includeOptionalContext
-                    ? [new ToolConfiguration("jira", ["issues/read", "issues/comment"])]
-                    : null,
+                tools: effectiveTools,
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
@@ -402,17 +545,16 @@ public sealed class AiDirectivePromptTests
                         "prompts/triage-v1.md",
                         "You are responsible for triaging incoming bugs.")
                     : null),
-            includeOptionalContext
-                ? new PositionAuthorityRuntimeConfiguration(
-                    canDecide: ["bug.triage"],
-                    overrides:
-                    [
+            new PositionAuthorityRuntimeConfiguration(
+                effectiveCanDecide,
+                overrides: includeOptionalContext
+                    ? [
                         new PositionAuthorityOverrideRuntimeConfiguration(
                             "comms.external-official",
                             ActionDomainGate.HumanApproval,
                             "delivery-lead"),
-                    ])
-                : new PositionAuthorityRuntimeConfiguration());
+                    ]
+                    : null));
 
         var state = includeOptionalContext
             ? PositionState.Restore(new PositionSnapshot(
@@ -454,6 +596,34 @@ public sealed class AiDirectivePromptTests
             occupant,
             directive);
     }
+
+    private static void AssertActingUnderSchema(
+        AiToolDefinition tool,
+        params string[] expectedVocabulary)
+    {
+        Assert.Equal("object", tool.ParametersSchema["type"]);
+        AssertActingUnderProperty(
+            SchemaObject(tool.ParametersSchema["properties"]),
+            expectedVocabulary);
+        Assert.Equal(
+            ["acting_under"],
+            SchemaStrings(tool.ParametersSchema["required"]));
+    }
+
+    private static void AssertActingUnderProperty(
+        IReadOnlyDictionary<string, object?> properties,
+        params string[] expectedVocabulary)
+    {
+        var actingUnder = SchemaObject(properties["acting_under"]);
+        Assert.Equal("string", actingUnder["type"]);
+        Assert.Equal(expectedVocabulary, SchemaStrings(actingUnder["enum"]));
+    }
+
+    private static IReadOnlyDictionary<string, object?> SchemaObject(object? value) =>
+        Assert.IsAssignableFrom<IReadOnlyDictionary<string, object?>>(value);
+
+    private static string[] SchemaStrings(object? value) =>
+        Assert.IsAssignableFrom<IEnumerable<string>>(value).ToArray();
 
     private static void AssertContainsInOrder(string text, string first, string second)
     {

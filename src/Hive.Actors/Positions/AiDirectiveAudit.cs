@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -317,7 +318,8 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
         string? decisionKind = null,
         string? failureCode = null,
         int parseErrorCount = 0,
-        bool? isRetryable = null)
+        bool? isRetryable = null,
+        ActingUnderDeclaration? actingUnder = null)
     {
         if (!Enum.IsDefined(outcome))
         {
@@ -341,6 +343,7 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
             : AiAgentGatewayText.Require(failureCode, nameof(failureCode));
         ParseErrorCount = parseErrorCount;
         IsRetryable = isRetryable;
+        ActingUnder = actingUnder;
     }
 
     public AiDirectiveInterpretationOutcomeKind Outcome { get; }
@@ -352,6 +355,8 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
     public int ParseErrorCount { get; }
 
     public bool? IsRetryable { get; }
+
+    public ActingUnderDeclaration? ActingUnder { get; }
 }
 
 internal sealed record AiDirectiveAuditResultMessageSnapshot
@@ -361,7 +366,8 @@ internal sealed record AiDirectiveAuditResultMessageSnapshot
         MessageId? messageId = null,
         EndpointRef? from = null,
         EndpointRef? to = null,
-        string? failureCode = null)
+        string? failureCode = null,
+        ActingUnderDeclaration? actingUnder = null)
     {
         MessageType = messageType is null
             ? null
@@ -372,6 +378,7 @@ internal sealed record AiDirectiveAuditResultMessageSnapshot
         FailureCode = failureCode is null
             ? null
             : AiAgentGatewayText.Require(failureCode, nameof(failureCode));
+        ActingUnder = actingUnder;
     }
 
     public string? MessageType { get; }
@@ -383,6 +390,8 @@ internal sealed record AiDirectiveAuditResultMessageSnapshot
     public EndpointRef? To { get; }
 
     public string? FailureCode { get; }
+
+    public ActingUnderDeclaration? ActingUnder { get; }
 }
 
 internal sealed record AiDirectiveAuditPositionEffectsSnapshot
@@ -516,7 +525,8 @@ internal static class AiDirectiveAuditSnapshotFactory
             DecisionKind(interpretation.Decision),
             interpretation.Failure?.Code,
             interpretation.Failure?.ParseErrors.Length ?? 0,
-            interpretation.Failure?.IsRetryable);
+            interpretation.Failure?.IsRetryable,
+            interpretation.Decision?.ActingUnder);
     }
 
     private static AiDirectiveAuditResultMessageSnapshot? CreateResultMessageSnapshot(
@@ -533,7 +543,8 @@ internal static class AiDirectiveAuditSnapshotFactory
             message?.Id,
             message?.From,
             message?.To,
-            resultMessage.Failure?.Code);
+            resultMessage.Failure?.Code,
+            resultMessage.ActingUnder);
     }
 
     private static AiDirectiveAuditPositionEffectsSnapshot? CreatePositionEffectsSnapshot(

@@ -1,4 +1,6 @@
+using System.Linq;
 using System.Text;
+using System.Text.Json;
 using Hive.Domain.Ai;
 using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
@@ -19,7 +21,7 @@ internal static class AiDirectivePrompt
             context.Directive.ThreadId,
             context.Directive.MessageId,
             BuildContent(context, identityPrompt),
-            BuildSystemInstruction(),
+            BuildSystemInstruction(context),
             tools: GatewayTools(context),
             modelParameters: EffectiveModelParameters(context),
             metadata: Metadata(context),
@@ -29,7 +31,7 @@ internal static class AiDirectivePrompt
             policy: Policy(context));
     }
 
-    private static string BuildSystemInstruction()
+    private static string BuildSystemInstruction(AiDirectiveExecutionContext context)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -47,6 +49,8 @@ internal static class AiDirectivePrompt
                 "Return JSON only with no Markdown fences or explanatory prose.",
                 $"Set \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" to {AiDirectiveDecisionSchema.SchemaVersion}.",
                 $"Use exactly one top-level \"{AiDirectiveDecisionSchema.IntentProperty}\" value: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
+                $"Include required top-level \"{AiToolActingUnderSchema.PropertyName}\" alongside \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" and \"{AiDirectiveDecisionSchema.IntentProperty}\" for every organizational message output.",
+                $"Allowed \"{AiToolActingUnderSchema.PropertyName}\" values for this position: {ActingUnderVocabulary(context)}.",
                 $"For {reportIntent}, include {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
                 $"For {escalationIntent}, include {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
                 $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
@@ -286,10 +290,32 @@ internal static class AiDirectivePrompt
     }
 
     private static IEnumerable<AiToolDefinition> GatewayTools(
-        AiDirectiveExecutionContext context) =>
-        context.AuthorizedTools.Select(tool => new AiToolDefinition(
-            tool.Connector,
-            $"Authorized HIVE connector '{tool.Connector}' with scopes: {JoinOrEmpty(tool.Scope)}."));
+        AiDirectiveExecutionContext context)
+    {
+        if (AiToolActingUnderSchema
+            .CanonicalVocabulary(context.Authority.CanDecide)
+            .IsEmpty)
+        {
+            return Enumerable.Empty<AiToolDefinition>();
+        }
+
+        return context.AuthorizedTools.Select(tool =>
+            AiToolActingUnderSchema.Compose(
+                new AiToolDefinition(
+                    tool.Connector,
+                    $"Authorized HIVE connector '{tool.Connector}' with scopes: {JoinOrEmpty(tool.Scope)}."),
+                context.Authority.CanDecide));
+    }
+
+    private static string ActingUnderVocabulary(AiDirectiveExecutionContext context)
+    {
+        var vocabulary = AiToolActingUnderSchema.CanonicalVocabulary(
+            context.Authority.CanDecide);
+
+        return vocabulary.IsEmpty
+            ? "<empty>"
+            : string.Join(", ", vocabulary.Select(value => JsonSerializer.Serialize(value)));
+    }
 
     private static string Endpoint(EndpointRef endpoint) =>
         endpoint switch

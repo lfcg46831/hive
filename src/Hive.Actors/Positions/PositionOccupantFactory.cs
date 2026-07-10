@@ -285,7 +285,9 @@ internal sealed class AiAgentActor : ReceiveActor
                 prompt.Policy?.HasAvailableBudget ?? true,
                 DateTimeOffset.UtcNow);
             _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
-            var interpretation = AiDirectiveDecisionInterpreter.Interpret(result);
+            var interpretation = AiDirectiveDecisionInterpreter.Interpret(
+                result,
+                context.Authority.CanDecide);
             _directiveInterpretations[request.CorrelationId] = interpretation;
 
             if (interpretation.IsDecision)
@@ -306,7 +308,8 @@ internal sealed class AiAgentActor : ReceiveActor
                     {
                         resultMessage = AiDirectiveResultMessage.Rejected(
                             request.CorrelationId,
-                            gateResult.Failure!);
+                            gateResult.Failure!,
+                            resultMessage.ActingUnder);
                     }
                 }
 
@@ -617,6 +620,9 @@ internal sealed class AiAgentActor : ReceiveActor
                     ["status"] = snapshot.Status.ToString(),
                     ["terminalCode"] = snapshot.TerminalCode,
                     ["decisionKind"] = decision.DecisionKind ?? "none",
+                    ["actingUnderState"] = decision.ActingUnder?.State.ToString() ?? "none",
+                    ["actingUnderCode"] = decision.ActingUnder?.Code ?? "none",
+                    ["actingUnderKey"] = decision.ActingUnder?.Key?.Value ?? "none",
                     ["parseErrorCount"] = decision.ParseErrorCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
                     ["redactions"] = RedactionPayload(snapshot),
                 },
@@ -643,6 +649,9 @@ internal sealed class AiAgentActor : ReceiveActor
                     ["status"] = snapshot.Status.ToString(),
                     ["terminalCode"] = snapshot.TerminalCode,
                     ["resultMessageType"] = resultMessage.MessageType ?? "none",
+                    ["actingUnderState"] = resultMessage.ActingUnder?.State.ToString() ?? "none",
+                    ["actingUnderCode"] = resultMessage.ActingUnder?.Code ?? "none",
+                    ["actingUnderKey"] = resultMessage.ActingUnder?.Key?.Value ?? "none",
                     ["redactions"] = RedactionPayload(snapshot),
                 },
                 occurredAtUtc: snapshot.RecordedAt));

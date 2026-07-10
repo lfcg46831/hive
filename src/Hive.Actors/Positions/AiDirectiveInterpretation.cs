@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 
 namespace Hive.Actors.Positions;
 
@@ -129,7 +130,8 @@ internal sealed record AiDirectiveInterpretationResult
 internal static class AiDirectiveDecisionInterpreter
 {
     public static AiDirectiveInterpretationResult Interpret(
-        AiAgentGatewayInvocationResult invocation)
+        AiAgentGatewayInvocationResult invocation,
+        IEnumerable<AuthorityKey>? canDecide = null)
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
@@ -141,7 +143,9 @@ internal static class AiDirectiveDecisionInterpreter
                 failure);
         }
 
-        var parseResult = AiDirectiveDecisionParser.Parse(invocation.Response.Text);
+        var parseResult = AiDirectiveDecisionParser.Parse(
+            invocation.Response.Text,
+            canDecide);
         if (parseResult.IsSuccess)
         {
             return AiDirectiveInterpretationResult.AcceptedDecision(

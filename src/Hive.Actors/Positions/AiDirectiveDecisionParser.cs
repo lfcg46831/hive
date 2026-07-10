@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -92,6 +93,7 @@ internal static class AiDirectiveDecisionParser
     [
         AiDirectiveDecisionSchema.SchemaVersionProperty,
         AiDirectiveDecisionSchema.IntentProperty,
+        AiDirectiveDecisionSchema.ActingUnderProperty,
         AiDirectiveDecisionSchema.ReportPayloadProperty,
         AiDirectiveDecisionSchema.EscalationPayloadProperty,
         AiDirectiveDecisionSchema.DirectivePayloadProperty,
@@ -117,7 +119,9 @@ internal static class AiDirectiveDecisionParser
         AiDirectiveDecisionSchema.DirectiveContextField,
     ];
 
-    public static AiDirectiveDecisionParseResult Parse(string? output)
+    public static AiDirectiveDecisionParseResult Parse(
+        string? output,
+        IEnumerable<AuthorityKey>? canDecide = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -141,6 +145,7 @@ internal static class AiDirectiveDecisionParser
 
         var schemaVersionValid = ValidateSchemaVersion(root, errors);
         var intent = ReadIntent(root, errors);
+        var actingUnder = ReadActingUnder(root, canDecide ?? []);
         var payloads = ReadPayloads(root);
 
         if (payloads.Count == 0)
@@ -162,7 +167,11 @@ internal static class AiDirectiveDecisionParser
             }
             else
             {
-                decision = ParsePayload(expectedIntent, payload.Element, errors);
+                decision = ParsePayload(
+                    expectedIntent,
+                    payload.Element,
+                    actingUnder,
+                    errors);
             }
         }
 
@@ -228,6 +237,24 @@ internal static class AiDirectiveDecisionParser
         return parsed;
     }
 
+    private static ActingUnderDeclaration ReadActingUnder(
+        JsonElement root,
+        IEnumerable<AuthorityKey> canDecide)
+    {
+        if (!root.TryGetProperty(AiDirectiveDecisionSchema.ActingUnderProperty, out var value))
+        {
+            return ActingUnderDeclaration.Resolve(
+                fieldPresent: false,
+                value: null,
+                allowedKeys: canDecide);
+        }
+
+        return ActingUnderDeclaration.Resolve(
+            fieldPresent: true,
+            value: value.ValueKind is JsonValueKind.String ? value.GetString() : null,
+            allowedKeys: canDecide);
+    }
+
     private static List<DecisionPayload> ReadPayloads(JsonElement root)
     {
         var payloads = new List<DecisionPayload>(capacity: 3);
@@ -266,17 +293,19 @@ internal static class AiDirectiveDecisionParser
     private static AiDirectiveDecision? ParsePayload(
         AiDirectiveDecisionIntent intent,
         JsonElement payload,
+        ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors) =>
         intent switch
         {
-            AiDirectiveDecisionIntent.Report => ParseReport(payload, errors),
-            AiDirectiveDecisionIntent.Escalation => ParseEscalation(payload, errors),
-            AiDirectiveDecisionIntent.Directive => ParseDirective(payload, errors),
+            AiDirectiveDecisionIntent.Report => ParseReport(payload, actingUnder, errors),
+            AiDirectiveDecisionIntent.Escalation => ParseEscalation(payload, actingUnder, errors),
+            AiDirectiveDecisionIntent.Directive => ParseDirective(payload, actingUnder, errors),
             _ => throw new InvalidOperationException("Validated decision intent is not mapped."),
         };
 
     private static AiDirectiveReportDecision? ParseReport(
         JsonElement payload,
+        ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
         const string payloadPath = AiDirectiveDecisionSchema.ReportPayloadProperty;
@@ -299,12 +328,13 @@ internal static class AiDirectiveDecisionParser
             errors);
 
         return kind is { } parsedKind && body is not null && !HasPayloadErrors(errors, payloadPath)
-            ? new AiDirectiveReportDecision(parsedKind, body)
+            ? new AiDirectiveReportDecision(parsedKind, body, actingUnder)
             : null;
     }
 
     private static AiDirectiveEscalationDecision? ParseEscalation(
         JsonElement payload,
+        ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
         const string payloadPath = AiDirectiveDecisionSchema.EscalationPayloadProperty;
@@ -334,12 +364,17 @@ internal static class AiDirectiveDecisionParser
             context is not null &&
             options is { } parsedOptions &&
             !HasPayloadErrors(errors, payloadPath)
-                ? new AiDirectiveEscalationDecision(issue, context, parsedOptions)
+                ? new AiDirectiveEscalationDecision(
+                    issue,
+                    context,
+                    parsedOptions,
+                    actingUnder)
                 : null;
     }
 
     private static AiDirectiveChildDirectiveDecision? ParseDirective(
         JsonElement payload,
+        ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
         const string payloadPath = AiDirectiveDecisionSchema.DirectivePayloadProperty;
@@ -369,7 +404,11 @@ internal static class AiDirectiveDecisionParser
             objective is not null &&
             context is not null &&
             !HasPayloadErrors(errors, payloadPath)
-                ? new AiDirectiveChildDirectiveDecision(target, objective, context)
+                ? new AiDirectiveChildDirectiveDecision(
+                    target,
+                    objective,
+                    context,
+                    actingUnder)
                 : null;
     }
 

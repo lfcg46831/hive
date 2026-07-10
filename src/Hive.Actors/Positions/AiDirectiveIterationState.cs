@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 
 namespace Hive.Actors.Positions;
 
@@ -50,7 +51,8 @@ internal sealed record AiDirectiveIterationContinuation
 {
     private AiDirectiveIterationContinuation(
         AiDirectiveIterationContinuationKind kind,
-        AiToolCall? toolCall)
+        AiToolCall? toolCall,
+        ActingUnderDeclaration actingUnder)
     {
         if (!Enum.IsDefined(kind))
         {
@@ -71,22 +73,31 @@ internal sealed record AiDirectiveIterationContinuation
 
         Kind = kind;
         ToolCall = toolCall;
+        ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
     }
 
     public AiDirectiveIterationContinuationKind Kind { get; }
 
     public AiToolCall? ToolCall { get; }
 
-    public static AiDirectiveIterationContinuation Inference() =>
-        new(AiDirectiveIterationContinuationKind.Inference, toolCall: null);
+    public ActingUnderDeclaration ActingUnder { get; }
 
-    public static AiDirectiveIterationContinuation ConnectorTool(AiToolCall toolCall)
+    public static AiDirectiveIterationContinuation Inference() =>
+        new(
+            AiDirectiveIterationContinuationKind.Inference,
+            toolCall: null,
+            ActingUnderDeclaration.Missing());
+
+    public static AiDirectiveIterationContinuation ConnectorTool(
+        AiToolCall toolCall,
+        ActingUnderDeclaration? actingUnder = null)
     {
         ArgumentNullException.ThrowIfNull(toolCall);
 
         return new AiDirectiveIterationContinuation(
             AiDirectiveIterationContinuationKind.ConnectorTool,
-            toolCall);
+            toolCall,
+            actingUnder ?? ActingUnderDeclaration.Missing());
     }
 }
 
@@ -182,6 +193,7 @@ internal sealed record AiDirectiveIterationState
         DateTimeOffset? deadline,
         int? maxIterations,
         ImmutableArray<string> authorizedToolNames,
+        ImmutableArray<AuthorityKey> canDecide,
         ImmutableArray<AiDirectiveIterationHistoryEntry> history)
     {
         if (currentIteration <= 0)
@@ -220,6 +232,7 @@ internal sealed record AiDirectiveIterationState
         Deadline = deadline;
         MaxIterations = maxIterations;
         AuthorizedToolNames = RequireToolNames(authorizedToolNames, nameof(authorizedToolNames));
+        CanDecide = RequireAuthorityKeys(canDecide, nameof(canDecide));
         History = RequireHistory(history, nameof(history));
     }
 
@@ -234,6 +247,8 @@ internal sealed record AiDirectiveIterationState
     public int? MaxIterations { get; }
 
     public ImmutableArray<string> AuthorizedToolNames { get; }
+
+    public ImmutableArray<AuthorityKey> CanDecide { get; }
 
     public ImmutableArray<AiDirectiveIterationHistoryEntry> History { get; }
 
@@ -254,6 +269,7 @@ internal sealed record AiDirectiveIterationState
             deadline,
             context.Limits.MaxIterations,
             AuthorizedToolNamesFrom(context),
+            context.Authority.CanDecide,
             ImmutableArray.Create(new AiDirectiveIterationHistoryEntry(1, startedAt)));
     }
 
@@ -270,7 +286,13 @@ internal sealed record AiDirectiveIterationState
         }
 
         return EvaluateContinuations(
-            response.ToolCalls.Select(AiDirectiveIterationContinuation.ConnectorTool),
+            response.ToolCalls.Select(toolCall =>
+            {
+                var binding = AiToolCallActingUnderBinder.Bind(toolCall, CanDecide);
+                return AiDirectiveIterationContinuation.ConnectorTool(
+                    binding.ToolCall,
+                    binding.Declaration);
+            }),
             observedAt,
             hasAvailableBudget);
     }
@@ -303,6 +325,7 @@ internal sealed record AiDirectiveIterationState
             Deadline,
             MaxIterations,
             AuthorizedToolNames,
+            CanDecide,
             History.Add(new AiDirectiveIterationHistoryEntry(nextIteration, startedAt)));
     }
 
@@ -443,6 +466,30 @@ internal sealed record AiDirectiveIterationState
         foreach (var value in values)
         {
             AiAgentGatewayText.Require(value, parameterName);
+        }
+
+        return values;
+    }
+
+    private static ImmutableArray<AuthorityKey> RequireAuthorityKeys(
+        ImmutableArray<AuthorityKey> values,
+        string parameterName)
+    {
+        if (values.IsDefault)
+        {
+            throw new ArgumentException(
+                "Authority keys cannot be default.",
+                parameterName);
+        }
+
+        foreach (var value in values)
+        {
+            if (value is null)
+            {
+                throw new ArgumentException(
+                    "Authority keys cannot contain null entries.",
+                    parameterName);
+            }
         }
 
         return values;

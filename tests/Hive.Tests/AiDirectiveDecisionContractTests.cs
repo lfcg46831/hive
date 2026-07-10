@@ -1,4 +1,5 @@
 using Hive.Actors.Positions;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -12,6 +13,7 @@ public sealed class AiDirectiveDecisionContractTests
         Assert.Equal(1, AiDirectiveDecisionSchema.SchemaVersion);
         Assert.Equal("schema_version", AiDirectiveDecisionSchema.SchemaVersionProperty);
         Assert.Equal("intent", AiDirectiveDecisionSchema.IntentProperty);
+        Assert.Equal("acting_under", AiDirectiveDecisionSchema.ActingUnderProperty);
         Assert.Equal(
             ["Report", "Escalation", "Directive"],
             AiDirectiveDecisionSchema.AllowedIntents.ToArray());
@@ -58,14 +60,21 @@ public sealed class AiDirectiveDecisionContractTests
     [Fact]
     public void Report_decision_preserves_allowed_payload_and_rejects_invalid_values()
     {
-        var progress = new AiDirectiveReportDecision(ReportKind.Progress, "Investigation started.");
+        var actingUnder = ActingUnderDeclaration.Declared(
+            AuthorityKey.From("delivery.bug-triage"));
+        var progress = new AiDirectiveReportDecision(
+            ReportKind.Progress,
+            "Investigation started.",
+            actingUnder);
         var done = new AiDirectiveReportDecision(ReportKind.Done, "Bug triaged.");
 
         Assert.Equal(AiDirectiveDecisionIntent.Report, progress.Intent);
         Assert.Equal(ReportKind.Progress, progress.Kind);
         Assert.Equal("Investigation started.", progress.Body);
+        Assert.Same(actingUnder, progress.ActingUnder);
         Assert.Equal(AiDirectiveDecisionIntent.Report, done.Intent);
         Assert.Equal(ReportKind.Done, done.Kind);
+        Assert.Equal(ActingUnderDeclarationState.Missing, done.ActingUnder.State);
 
         Assert.Throws<ArgumentOutOfRangeException>(() =>
             new AiDirectiveReportDecision((ReportKind)0, "Body."));

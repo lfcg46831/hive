@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -91,7 +92,10 @@ public sealed class AiDirectiveAuditSnapshotTests
 
             Assert.Equal(AiDirectiveInterpretationOutcomeKind.DecisionAccepted, snapshot.Decision!.Outcome);
             Assert.Equal("Report", snapshot.Decision.DecisionKind);
+            Assert.Equal(ActingUnderDeclarationState.Declared, snapshot.Decision.ActingUnder!.State);
+            Assert.Equal("bug.triage", snapshot.Decision.ActingUnder.Key!.Value);
             Assert.Equal("Report", snapshot.ResultMessage!.MessageType);
+            Assert.Equal(ActingUnderDeclarationState.Declared, snapshot.ResultMessage.ActingUnder!.State);
             Assert.Equal("UpdateShortMemory", snapshot.PositionEffects!.CommandTypes[0]);
             Assert.Equal("CompleteTask", snapshot.PositionEffects.CommandTypes[1]);
             Assert.True(snapshot.IterationAudit!.IsTerminal);
@@ -188,13 +192,67 @@ public sealed class AiDirectiveAuditSnapshotTests
                     "Report").AuditEventId,
                 auditLog.Records[1].AuditEventId);
             Assert.Equal("Report", auditLog.Records[0].Payload["decisionKind"]);
+            Assert.Equal("Declared", auditLog.Records[0].Payload["actingUnderState"]);
+            Assert.Equal(ActingUnderDeclaration.DeclaredCode, auditLog.Records[0].Payload["actingUnderCode"]);
+            Assert.Equal("bug.triage", auditLog.Records[0].Payload["actingUnderKey"]);
             Assert.Equal("Report", auditLog.Records[1].MessageType);
             Assert.Equal("Report", auditLog.Records[1].Payload["resultMessageType"]);
+            Assert.Equal("Declared", auditLog.Records[1].Payload["actingUnderState"]);
+            Assert.Equal("bug.triage", auditLog.Records[1].Payload["actingUnderKey"]);
             var payloadText = string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values));
             Assert.Contains("resultMessage.report.body", payloadText, StringComparison.Ordinal);
             Assert.DoesNotContain("Bug triage is complete", payloadText, StringComparison.Ordinal);
             Assert.DoesNotContain("user@example.com", payloadText, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("secret=abc123", payloadText, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_audits_invalid_acting_under_without_retaining_the_raw_value()
+    {
+        const string invalidKey = "finance.commitments";
+        var request = Request();
+        var auditLog = new RecordingJourneyAuditLog();
+        var output = ValidReportOutput().Replace(
+            "bug.triage",
+            invalidKey,
+            StringComparison.Ordinal);
+        var system = ActorSystem.Create($"ai-agent-acting-under-audit-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(output),
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    auditLog)),
+                "agent");
+
+            actor.Tell(request);
+
+            var stored = await WaitForAuditAsync(actor, request.CorrelationId);
+            var snapshot = stored.Snapshot!;
+
+            Assert.Equal(ActingUnderDeclarationState.Invalid, snapshot.Decision!.ActingUnder!.State);
+            Assert.Equal(ActingUnderDeclaration.InvalidCode, snapshot.Decision.ActingUnder.Code);
+            Assert.Null(snapshot.Decision.ActingUnder.Key);
+            Assert.Equal(ActingUnderDeclarationState.Invalid, snapshot.ResultMessage!.ActingUnder!.State);
+            Assert.DoesNotContain(invalidKey, snapshot.ToString(), StringComparison.Ordinal);
+            Assert.All(auditLog.Records, record =>
+            {
+                Assert.Equal("Invalid", record.Payload["actingUnderState"]);
+                Assert.Equal(ActingUnderDeclaration.InvalidCode, record.Payload["actingUnderCode"]);
+                Assert.Equal("none", record.Payload["actingUnderKey"]);
+                Assert.DoesNotContain(
+                    invalidKey,
+                    string.Join(" ", record.Payload.Values),
+                    StringComparison.Ordinal);
+            });
         }
         finally
         {
@@ -440,6 +498,7 @@ public sealed class AiDirectiveAuditSnapshotTests
         {
           "schema_version": 1,
           "intent": "Report",
+          "acting_under": "bug.triage",
           "report": {
             "kind": "Done",
             "body": "Bug triage is complete for user@example.com with secret=abc123."

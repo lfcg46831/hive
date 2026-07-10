@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -77,6 +78,7 @@ internal static class AiDirectiveDecisionSchema
     public const int SchemaVersion = 1;
     public const string SchemaVersionProperty = "schema_version";
     public const string IntentProperty = "intent";
+    public const string ActingUnderProperty = "acting_under";
     public const string ReportPayloadProperty = "report";
     public const string ReportKindField = "kind";
     public const string ReportBodyField = "body";
@@ -119,18 +121,26 @@ internal static class AiDirectiveDecisionSchema
 
 internal abstract record AiDirectiveDecision
 {
-    protected AiDirectiveDecision(AiDirectiveDecisionIntent intent)
+    protected AiDirectiveDecision(
+        AiDirectiveDecisionIntent intent,
+        ActingUnderDeclaration? actingUnder = null)
     {
         Intent = AiDirectiveDecisionIntentContract.RequireDefined(intent, nameof(intent));
+        ActingUnder = actingUnder ?? ActingUnderDeclaration.Missing();
     }
 
     public AiDirectiveDecisionIntent Intent { get; }
+
+    public ActingUnderDeclaration ActingUnder { get; }
 }
 
 internal sealed record AiDirectiveReportDecision : AiDirectiveDecision
 {
-    public AiDirectiveReportDecision(ReportKind kind, string body)
-        : base(AiDirectiveDecisionIntent.Report)
+    public AiDirectiveReportDecision(
+        ReportKind kind,
+        string body,
+        ActingUnderDeclaration? actingUnder = null)
+        : base(AiDirectiveDecisionIntent.Report, actingUnder)
     {
         Kind = ReportKindContract.RequireDefined(kind, nameof(kind));
         Body = AiAgentGatewayText.Require(body, nameof(body));
@@ -146,8 +156,9 @@ internal sealed record AiDirectiveEscalationDecision : AiDirectiveDecision
     public AiDirectiveEscalationDecision(
         string issue,
         string context,
-        IEnumerable<string> optionsConsidered)
-        : base(AiDirectiveDecisionIntent.Escalation)
+        IEnumerable<string> optionsConsidered,
+        ActingUnderDeclaration? actingUnder = null)
+        : base(AiDirectiveDecisionIntent.Escalation, actingUnder)
     {
         Issue = AiAgentGatewayText.Require(issue, nameof(issue));
         Context = AiAgentGatewayText.Require(context, nameof(context));
@@ -175,8 +186,9 @@ internal sealed record AiDirectiveChildDirectiveDecision : AiDirectiveDecision
     public AiDirectiveChildDirectiveDecision(
         PositionId targetPositionId,
         string objective,
-        string context)
-        : base(AiDirectiveDecisionIntent.Directive)
+        string context,
+        ActingUnderDeclaration? actingUnder = null)
+        : base(AiDirectiveDecisionIntent.Directive, actingUnder)
     {
         TargetPositionId = targetPositionId
             ?? throw new ArgumentNullException(nameof(targetPositionId));

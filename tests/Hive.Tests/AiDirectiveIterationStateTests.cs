@@ -1,5 +1,6 @@
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -126,6 +127,84 @@ public sealed class AiDirectiveIterationStateTests
     }
 
     [Fact]
+    public void Evaluate_binds_acting_under_and_removes_it_from_functional_tool_arguments()
+    {
+        const string authorityKey = "delivery.bug-triage";
+        var state = AiDirectiveIterationState.Start(
+            Context(maxIterations: 3, canDecide: [authorityKey]),
+            At);
+        var original = new AiToolCall(
+            "call-1",
+            "files",
+            new Dictionary<string, object?>
+            {
+                ["acting_under"] = authorityKey,
+                ["ticket"] = "HIVE-123",
+            });
+
+        var decision = state.Evaluate(
+            Response(text: null, AiFinishReason.ToolCalls, [original]),
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+
+        Assert.True(decision.CanContinue);
+        var continuation = Assert.Single(decision.Continuations);
+        Assert.Equal(ActingUnderDeclarationState.Declared, continuation.ActingUnder.State);
+        Assert.Equal(ActingUnderDeclaration.DeclaredCode, continuation.ActingUnder.Code);
+        Assert.Equal(authorityKey, continuation.ActingUnder.Key!.Value);
+        Assert.Equal("HIVE-123", continuation.ToolCall!.Arguments["ticket"]);
+        Assert.DoesNotContain("acting_under", continuation.ToolCall.Arguments.Keys);
+        Assert.Equal(authorityKey, original.Arguments["acting_under"]);
+    }
+
+    [Fact]
+    public void Evaluate_classifies_missing_and_invalid_acting_under_without_stopping_iteration()
+    {
+        const string authorityKey = "delivery.bug-triage";
+        var state = AiDirectiveIterationState.Start(
+            Context(maxIterations: 3, canDecide: [authorityKey]),
+            At);
+        var response = Response(
+            text: null,
+            AiFinishReason.ToolCalls,
+            [
+                new AiToolCall("call-1", "files"),
+                new AiToolCall(
+                    "call-2",
+                    "email",
+                    new Dictionary<string, object?> { ["acting_under"] = 42 }),
+            ]);
+        var contextWithTwoTools = Context(
+            maxIterations: 3,
+            tools:
+            [
+                new ToolConfiguration("files", ["bugs/read"]),
+                new ToolConfiguration("email", ["messages/send"]),
+            ],
+            canDecide: [authorityKey]);
+        state = AiDirectiveIterationState.Start(contextWithTwoTools, At);
+
+        var decision = state.Evaluate(
+            response,
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+
+        Assert.True(decision.CanContinue);
+        Assert.Equal(2, decision.Continuations.Length);
+        Assert.Equal(
+            ActingUnderDeclarationState.Missing,
+            decision.Continuations[0].ActingUnder.State);
+        Assert.Equal(
+            ActingUnderDeclarationState.Invalid,
+            decision.Continuations[1].ActingUnder.State);
+        Assert.Null(decision.Continuations[0].ActingUnder.Key);
+        Assert.Null(decision.Continuations[1].ActingUnder.Key);
+        Assert.DoesNotContain(
+            "acting_under",
+            decision.Continuations[1].ToolCall!.Arguments.Keys);
+    }
+
+    [Fact]
     public void Evaluate_allows_new_inference_when_limits_and_budget_allow_it()
     {
         var state = AiDirectiveIterationState.Start(Context(maxIterations: 3), At);
@@ -167,7 +246,8 @@ public sealed class AiDirectiveIterationStateTests
     private static AiDirectiveExecutionContext Context(
         TimeSpan? timeout = null,
         int? maxIterations = null,
-        IEnumerable<ToolConfiguration>? tools = null)
+        IEnumerable<ToolConfiguration>? tools = null,
+        IEnumerable<string>? canDecide = null)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var directive = new OrgDirective(
@@ -207,7 +287,7 @@ public sealed class AiDirectiveIterationStateTests
                     "triage-v1",
                     "prompts/triage-v1.md",
                     "You are responsible for triaging incoming bugs.")),
-            new PositionAuthorityRuntimeConfiguration());
+            new PositionAuthorityRuntimeConfiguration(canDecide));
 
         var request = AiDirectiveProcessingRequest.Create(
             entity,

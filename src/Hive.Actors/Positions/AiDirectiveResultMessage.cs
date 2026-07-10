@@ -1,3 +1,4 @@
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -27,11 +28,13 @@ internal sealed record AiDirectiveResultMessage
     private AiDirectiveResultMessage(
         string correlationId,
         OrgMessage? message,
-        AiDirectiveResultMessageFailure? failure)
+        AiDirectiveResultMessageFailure? failure,
+        ActingUnderDeclaration actingUnder)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         Message = message;
         Failure = failure;
+        ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
     }
 
     public string CorrelationId { get; }
@@ -40,26 +43,38 @@ internal sealed record AiDirectiveResultMessage
 
     public AiDirectiveResultMessageFailure? Failure { get; }
 
+    public ActingUnderDeclaration ActingUnder { get; }
+
     public bool IsSuccess => Message is not null;
 
     public bool IsFailure => !IsSuccess;
 
     public static AiDirectiveResultMessage Success(
         string correlationId,
-        OrgMessage message)
+        OrgMessage message,
+        ActingUnderDeclaration? actingUnder = null)
     {
         ArgumentNullException.ThrowIfNull(message);
 
-        return new AiDirectiveResultMessage(correlationId, message, failure: null);
+        return new AiDirectiveResultMessage(
+            correlationId,
+            message,
+            failure: null,
+            actingUnder ?? ActingUnderDeclaration.Missing());
     }
 
     public static AiDirectiveResultMessage Rejected(
         string correlationId,
-        AiDirectiveResultMessageFailure failure)
+        AiDirectiveResultMessageFailure failure,
+        ActingUnderDeclaration? actingUnder = null)
     {
         ArgumentNullException.ThrowIfNull(failure);
 
-        return new AiDirectiveResultMessage(correlationId, message: null, failure);
+        return new AiDirectiveResultMessage(
+            correlationId,
+            message: null,
+            failure,
+            actingUnder ?? ActingUnderDeclaration.Missing());
     }
 }
 
@@ -113,6 +128,7 @@ internal static class AiDirectiveResultMessageFactory
         {
             return Rejected(
                 context,
+                decision.ActingUnder,
                 "direct-superior-missing",
                 "AI directive report could not be materialized because the current position has no direct superior.");
         }
@@ -131,7 +147,8 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.Deadline,
                 context.Directive.DirectiveId,
                 decision.Kind,
-                decision.Body));
+                decision.Body),
+            decision.ActingUnder);
     }
 
     private static AiDirectiveResultMessage CreateEscalation(
@@ -158,7 +175,8 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.Deadline,
                 decision.Issue,
                 decision.Context,
-                decision.OptionsConsidered));
+                decision.OptionsConsidered),
+            decision.ActingUnder);
     }
 
     private static AiDirectiveResultMessage CreateChildDirective(
@@ -172,6 +190,7 @@ internal static class AiDirectiveResultMessageFactory
         {
             return Rejected(
                 context,
+                decision.ActingUnder,
                 "child-directive-target-not-permitted",
                 $"AI directive child directive target '{decision.TargetPositionId.Value}' is not a permitted direct subordinate of '{context.PositionId.Value}'.");
         }
@@ -191,7 +210,8 @@ internal static class AiDirectiveResultMessageFactory
                 newDirectiveId(),
                 context.Directive.DirectiveId,
                 decision.Objective,
-                decision.Context));
+                decision.Context),
+            decision.ActingUnder);
     }
 
     private static PositionEndpointRef FromCurrentPosition(AiDirectiveExecutionContext context) =>
@@ -241,11 +261,13 @@ internal static class AiDirectiveResultMessageFactory
 
     private static AiDirectiveResultMessage Rejected(
         AiDirectiveExecutionContext context,
+        ActingUnderDeclaration actingUnder,
         string code,
         string auditReason) =>
         AiDirectiveResultMessage.Rejected(
             context.CorrelationId,
-            new AiDirectiveResultMessageFailure(code, auditReason));
+            new AiDirectiveResultMessageFailure(code, auditReason),
+            actingUnder);
 }
 
 internal sealed record GetAiDirectiveResultMessage

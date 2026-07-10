@@ -1,4 +1,6 @@
+using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Ai;
 using Microsoft.Extensions.AI;
@@ -298,7 +300,8 @@ public sealed class RealAiGatewayProviderTests
         });
         var request = Request(tools:
         [
-            new AiToolDefinition(
+            AiToolActingUnderSchema.Compose(
+                new AiToolDefinition(
                 "ticket.lookup",
                 "Looks up a ticket.",
                 new Dictionary<string, object?>
@@ -313,6 +316,11 @@ public sealed class RealAiGatewayProviderTests
                     },
                     ["required"] = new[] { "ticket" },
                 }),
+                [
+                    AuthorityKey.From("zeta.scope"),
+                    AuthorityKey.From("alpha.scope"),
+                    AuthorityKey.From("zeta.scope"),
+                ]),
         ]);
 
         await Gateway(chatClient).CompleteAsync(request);
@@ -330,6 +338,26 @@ public sealed class RealAiGatewayProviderTests
                 .GetProperty("ticket")
                 .GetProperty("type")
                 .GetString());
+        var actingUnder = declaration
+            .JsonSchema
+            .GetProperty("properties")
+            .GetProperty("acting_under");
+        Assert.Equal("string", actingUnder.GetProperty("type").GetString());
+        Assert.Equal(
+            ["alpha.scope", "zeta.scope"],
+            actingUnder
+                .GetProperty("enum")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray());
+        Assert.Equal(
+            ["ticket", "acting_under"],
+            declaration
+                .JsonSchema
+                .GetProperty("required")
+                .EnumerateArray()
+                .Select(value => value.GetString())
+                .ToArray());
     }
 
     [Fact]

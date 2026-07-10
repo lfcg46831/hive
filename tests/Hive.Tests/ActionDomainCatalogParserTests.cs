@@ -153,6 +153,46 @@ public sealed class ActionDomainCatalogParserTests
     }
 
     [Fact]
+    public void Invalid_text_scalars_are_reported_on_the_exact_field_path()
+    {
+        const string yaml = """
+            version: 1
+            defaults:
+              unmatched_action: escalate
+            domains:
+              - key: delivery.bug-triage
+                description: ""
+                gate: decide
+              - key: comms.external-official
+                description: Comunicacao oficial para fora da organizacao
+                gate: escalate
+                match:
+                  - action: tool
+                    bad key: email
+                    recipient: ""
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.False(result.IsSuccess);
+
+        var descriptionError = Assert.Single(result.Errors, error => error.FieldPath == "domains[0].description");
+        Assert.Contains("empty", descriptionError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(descriptionError.Line);
+        Assert.NotNull(descriptionError.Column);
+
+        var keyError = Assert.Single(result.Errors, error => error.FieldPath == "domains[1].match[0].bad key");
+        Assert.Contains("whitespace", keyError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(keyError.Line);
+        Assert.NotNull(keyError.Column);
+
+        var valueError = Assert.Single(result.Errors, error => error.FieldPath == "domains[1].match[0].recipient");
+        Assert.Contains("empty", valueError.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(valueError.Line);
+        Assert.NotNull(valueError.Column);
+    }
+
+    [Fact]
     public void Malformed_yaml_reports_root_error()
     {
         const string yaml = "version: [unterminated\n";

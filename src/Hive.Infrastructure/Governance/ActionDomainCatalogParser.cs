@@ -149,7 +149,7 @@ public sealed class ActionDomainCatalogParser
         var keyNode = Child(domain, "key");
         var gateNode = Child(domain, "gate");
         var keyValue = RequireScalar(domain, "key", path, context);
-        var description = RequireScalar(domain, "description", path, context);
+        var description = RequireTextScalar(domain, "description", path, context);
         var gateValue = RequireScalar(domain, "gate", path, context);
         var match = ReadMatch(domain, path, context);
 
@@ -259,7 +259,27 @@ public sealed class ActionDomainCatalogParser
                 continue;
             }
 
-            var attributePath = $"{path}.{key}";
+            var attributePath = AttributePath(path, key);
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                context.AddAt(
+                    keyNode,
+                    attributePath,
+                    "match predicate attribute key cannot be empty or whitespace.");
+                ok = false;
+                continue;
+            }
+
+            if (key.Any(char.IsWhiteSpace))
+            {
+                context.AddAt(
+                    keyNode,
+                    attributePath,
+                    "match predicate attribute key cannot contain whitespace.");
+                ok = false;
+                continue;
+            }
+
             if (IsNull(pair.Value))
             {
                 context.AddAt(pair.Value, attributePath, "match predicate attributes must not be null.");
@@ -274,32 +294,60 @@ public sealed class ActionDomainCatalogParser
                 continue;
             }
 
-            attributes[key] = ReadScalarAttribute(valueNode);
+            var (valueOk, value) = ReadScalarAttribute(valueNode, attributePath, context);
+            if (!valueOk)
+            {
+                ok = false;
+                continue;
+            }
+
+            attributes[key] = value!;
         }
 
         return ok ? attributes : null;
     }
 
-    private static object ReadScalarAttribute(YamlScalarNode valueNode)
+    private static (bool Ok, object? Value) ReadScalarAttribute(
+        YamlScalarNode valueNode,
+        string path,
+        ParseContext context)
     {
         var value = valueNode.Value ?? string.Empty;
 
         if (bool.TryParse(value, out var boolean))
         {
-            return boolean;
+            return (true, boolean);
         }
 
         if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer))
         {
-            return integer;
+            return (true, integer);
         }
 
         if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
         {
-            return number;
+            return (true, number);
         }
 
-        return value;
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            context.AddAt(
+                valueNode,
+                path,
+                "match predicate attribute value cannot be empty or whitespace.");
+            return (false, null);
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            context.AddAt(
+                valueNode,
+                path,
+                "match predicate attribute value cannot contain leading or trailing whitespace.");
+            return (false, null);
+        }
+
+        return (true, value);
     }
 
     private static AuthorityKey? ReadAuthorityKey(string value, YamlNode node, string path, ParseContext context)
@@ -409,6 +457,34 @@ public sealed class ActionDomainCatalogParser
 
     private static string FieldPath(string path, string key) =>
         string.Equals(path, RootPath, StringComparison.Ordinal) ? key : $"{path}.{key}";
+
+    private static string AttributePath(string path, string key) =>
+        string.IsNullOrEmpty(key) ? $"{path}.<empty>" : $"{path}.{key}";
+
+    private static string? RequireTextScalar(YamlMappingNode map, string key, string path, ParseContext context)
+    {
+        var fieldPath = FieldPath(path, key);
+        var node = Child(map, key);
+        var value = RequireScalar(map, key, path, context);
+        if (value is null)
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            context.AddAt(node!, fieldPath, $"field '{key}' cannot be empty or whitespace.");
+            return null;
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal))
+        {
+            context.AddAt(node!, fieldPath, $"field '{key}' cannot contain leading or trailing whitespace.");
+            return null;
+        }
+
+        return value;
+    }
 
     private static bool IsNull(YamlNode node)
     {

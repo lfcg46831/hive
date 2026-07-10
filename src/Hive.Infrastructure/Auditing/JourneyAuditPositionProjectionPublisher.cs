@@ -7,6 +7,9 @@ namespace Hive.Infrastructure.Auditing;
 
 public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectionPublisher
 {
+    private const string TerminalResultAlreadyMaterializedReason =
+        "terminal-result-already-materialized";
+
     private readonly IJourneyAuditLog _auditLog;
     private readonly IPositionProjectionPublisher? _inner;
     private readonly Dictionary<MessageId, DirectiveId> _directiveByMessage = new();
@@ -27,6 +30,10 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         if (@event is PositionEventCommitted committed)
         {
             PublishCommitted(committed);
+        }
+        else if (@event is PositionMessageDuplicateRejected duplicate)
+        {
+            PublishDuplicateSuppression(duplicate);
         }
 
         _inner?.Publish(@event);
@@ -64,6 +71,41 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                     occurredAtUtc: committed.OccurredAt));
                 break;
         }
+    }
+
+    private void PublishDuplicateSuppression(PositionMessageDuplicateRejected duplicate)
+    {
+        var terminalResult = _auditLog
+            .ReadByThread(duplicate.Thread)
+            .Where(record =>
+                record.OrganizationId == duplicate.EntityId.Organization
+                && record.MessageId == duplicate.Message
+                && record.PositionId == duplicate.EntityId.Position)
+            .LastOrDefault(record => record.Stage == JourneyAuditStage.ResultMessageCreated);
+        if (terminalResult is null)
+        {
+            return;
+        }
+
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.DuplicateSuppressed,
+            JourneyAuditOutcome.Rejected,
+            duplicate.EntityId.Organization,
+            duplicate.Thread,
+            duplicate.Message,
+            terminalResult.DirectiveId,
+            duplicate.EntityId.Position,
+            reasonCode: TerminalResultAlreadyMaterializedReason,
+            messageType: terminalResult.MessageType,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["suppressedStage"] = terminalResult.Stage.ToString(),
+                ["suppressedOutcome"] = terminalResult.Outcome.ToString(),
+                ["reasonCode"] = TerminalResultAlreadyMaterializedReason,
+                ["redactions"] = "directive.objective,directive.context,gateway.request.content,gateway.response.text",
+            },
+            occurredAtUtc: duplicate.OccurredAt,
+            idempotencyDiscriminator: TerminalResultAlreadyMaterializedReason));
     }
 
     private void Remember(OrgMessage message)

@@ -88,6 +88,52 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
         Assert.NotEqual(audit.Records[0].AuditEventId, audit.Records[1].AuditEventId);
     }
 
+    [Fact]
+    public void Publish_records_duplicate_suppression_when_duplicate_message_has_terminal_result()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var inner = new RecordingPositionProjectionPublisher();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit, inner);
+        audit.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.ResultMessageCreated,
+            JourneyAuditOutcome.Succeeded,
+            Organization,
+            Thread,
+            Message,
+            directiveId: Directive,
+            positionId: Position,
+            messageType: nameof(Report),
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["resultMessageType"] = nameof(Report),
+                ["redactions"] = "resultMessage.report.body:free-text",
+            }));
+
+        publisher.Publish(new PositionMessageDuplicateRejected(
+            Entity,
+            Message,
+            Thread,
+            At.AddSeconds(5)));
+
+        var suppression = Assert.Single(audit.Records.Where(record =>
+            record.Stage == JourneyAuditStage.DuplicateSuppressed));
+        Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
+        Assert.Equal("terminal-result-already-materialized", suppression.ReasonCode);
+        Assert.Equal(Organization, suppression.OrganizationId);
+        Assert.Equal(Thread, suppression.ThreadId);
+        Assert.Equal(Directive, suppression.DirectiveId);
+        Assert.Equal(Message, suppression.MessageId);
+        Assert.Equal(Position, suppression.PositionId);
+        Assert.Equal(nameof(Report), suppression.MessageType);
+        Assert.Equal("ResultMessageCreated", suppression.Payload["suppressedStage"]);
+        Assert.Equal("Succeeded", suppression.Payload["suppressedOutcome"]);
+        Assert.Equal(
+            "directive.objective,directive.context,gateway.request.content,gateway.response.text",
+            suppression.Payload["redactions"]);
+        Assert.DoesNotContain("Customer reports checkout failures", string.Join(" ", suppression.Payload.Values));
+        Assert.Contains(inner.Events, @event => @event is PositionMessageDuplicateRejected);
+    }
+
     private static Directive DirectiveMessage() =>
         new(
             Message,

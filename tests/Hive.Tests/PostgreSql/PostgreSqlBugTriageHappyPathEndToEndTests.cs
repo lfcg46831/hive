@@ -95,6 +95,110 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         AssertTimelineCoversHappyPath(timelineAfterRestart);
     }
 
+    [Fact]
+    public async Task Restart_and_redelivery_do_not_duplicate_provider_result_effects_or_audit()
+    {
+        await using var dataSource = postgres.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = "t14c-restart-redelivery";
+            options.Scenario = "bug-triage-report";
+        });
+        var initialTask = Assert.Single(scenario.OpenTasks);
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            auditLog);
+        await using var app = BuildSubmissionApp(
+            fixture,
+            SampleRelations(),
+            auditLog);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            RequestFrom(scenario.Directive));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var timelineBeforeRestart = await WaitForTimelineAsync(
+            dataSource,
+            scenario,
+            timeline => timeline.Entries.Any(entry =>
+                entry.Stage == JourneyAuditStage.ResultMessageCreated &&
+                entry.MessageType == nameof(Report)));
+        var eventsBeforeRestart = await WaitForPersistedEventsAsync(
+            fixture,
+            events => events.OfType<TaskCompleted>()
+                .Any(completed => completed.TaskId == initialTask.TaskId));
+        var stateBeforeRestart = await WaitForPositionStateAsync(
+            fixture,
+            snapshot => snapshot.ShortMemory.ContainsKey(scenario.ResultMemoryKey) &&
+                !snapshot.OpenTasks.ContainsKey(initialTask.TaskId));
+
+        await fixture.RestartPositionAsync();
+
+        var firstRedelivery = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            RequestFrom(scenario.Directive));
+        Assert.Equal(HttpStatusCode.Accepted, firstRedelivery.StatusCode);
+        var stateAfterFirstRedelivery = await fixture.GetPositionStateAsync();
+        var timelineAfterFirstRedelivery = await WaitForTimelineAsync(
+            dataSource,
+            scenario,
+            timeline => timeline.Entries.Count(entry =>
+                entry.Stage == JourneyAuditStage.DuplicateSuppressed) == 1);
+
+        var secondRedelivery = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme/directives",
+            RequestFrom(scenario.Directive));
+        Assert.Equal(HttpStatusCode.Accepted, secondRedelivery.StatusCode);
+        var stateAfterSecondRedelivery = await fixture.GetPositionStateAsync();
+        var timelineAfterSecondRedelivery = new PostgreSqlJourneyAuditReadModel(dataSource).ReadTimeline(
+            scenario.Directive.OrganizationId,
+            scenario.Directive.Thread,
+            scenario.Directive.DirectiveId);
+        var eventsAfterRedelivery = await fixture.ReadPersistedEventsAsync();
+
+        Assert.Equal(
+            stateBeforeRestart.ShortMemory[scenario.ResultMemoryKey],
+            stateAfterFirstRedelivery.ShortMemory[scenario.ResultMemoryKey]);
+        Assert.Equal(
+            stateBeforeRestart.ShortMemory[scenario.ResultMemoryKey],
+            stateAfterSecondRedelivery.ShortMemory[scenario.ResultMemoryKey]);
+        Assert.DoesNotContain(initialTask.TaskId, stateAfterFirstRedelivery.OpenTasks.Keys);
+        Assert.DoesNotContain(initialTask.TaskId, stateAfterSecondRedelivery.OpenTasks.Keys);
+        Assert.Equal(
+            eventsBeforeRestart.OfType<MessageReceived>().Count(),
+            eventsAfterRedelivery.OfType<MessageReceived>().Count());
+        Assert.Equal(
+            eventsBeforeRestart.OfType<MessageDispatched>().Count(),
+            eventsAfterRedelivery.OfType<MessageDispatched>().Count());
+        Assert.Equal(
+            eventsBeforeRestart.OfType<ShortMemoryUpdated>().Count(),
+            eventsAfterRedelivery.OfType<ShortMemoryUpdated>().Count());
+        Assert.Equal(
+            eventsBeforeRestart.OfType<TaskCompleted>().Count(),
+            eventsAfterRedelivery.OfType<TaskCompleted>().Count());
+
+        AssertJourneyStageCountsAfterRedelivery(timelineAfterFirstRedelivery);
+        AssertJourneyStageCountsAfterRedelivery(timelineAfterSecondRedelivery);
+
+        var suppression = Assert.Single(timelineAfterSecondRedelivery.Entries.Where(entry =>
+            entry.Stage == JourneyAuditStage.DuplicateSuppressed));
+        Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
+        Assert.Equal("terminal-result-already-materialized", suppression.ReasonCode);
+        Assert.Equal("ResultMessageCreated", suppression.RedactedPayload["suppressedStage"]);
+        var suppressionPayload = string.Join(" ", suppression.RedactedPayload.Values);
+        Assert.DoesNotContain(scenario.Directive.Objective, suppressionPayload, StringComparison.Ordinal);
+        Assert.DoesNotContain(scenario.Directive.Context, suppressionPayload, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            JourneyAuditStage.DuplicateSuppressed,
+            timelineBeforeRestart.Entries.Select(entry => entry.Stage));
+    }
+
     [Theory]
     [InlineData(
         "bug-triage-missing-information",
@@ -563,6 +667,23 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
 
         Assert.DoesNotContain(timeline.Entries, entry =>
             entry.Stage == JourneyAuditStage.ResultMessageCreated);
+    }
+
+    private static void AssertJourneyStageCountsAfterRedelivery(JourneyAuditTimeline timeline)
+    {
+        Assert.Equal(9, timeline.Entries.Count);
+        Assert.Equal(1, Count(JourneyAuditStage.SubmissionReceived));
+        Assert.Equal(1, Count(JourneyAuditStage.DirectiveCreated));
+        Assert.Equal(1, Count(JourneyAuditStage.PositionAccepted));
+        Assert.Equal(1, Count(JourneyAuditStage.PositionDispatched));
+        Assert.Equal(1, Count(JourneyAuditStage.GatewayCalled));
+        Assert.Equal(1, Count(JourneyAuditStage.GatewayCostRecorded));
+        Assert.Equal(1, Count(JourneyAuditStage.AgentDecided));
+        Assert.Equal(1, Count(JourneyAuditStage.ResultMessageCreated));
+        Assert.Equal(1, Count(JourneyAuditStage.DuplicateSuppressed));
+
+        int Count(JourneyAuditStage stage) =>
+            timeline.Entries.Count(entry => entry.Stage == stage);
     }
 
     private static IOrganizationRelations SampleRelations() =>

@@ -15,7 +15,7 @@ public sealed class ActionDomainCatalogValidatorTests
                 Predicate(
                     ActionDomainActionKind.Tool,
                     ("tool", "email"),
-                    ("recipient", "external"))),
+                    ("recipient_scope", "external"))),
             Domain(
                 "delivery.release-prod",
                 ActionDomainGate.HumanApproval,
@@ -41,8 +41,16 @@ public sealed class ActionDomainCatalogValidatorTests
             declaredApprovers: ["ceo", "delivery-lead"],
             actionContracts:
             [
-                ActionDomainActionContract.ForTool("email", ["tool", "recipient"]),
-                ActionDomainActionContract.ForTool("http", ["tool", "method", "url"]),
+                ActionDomainActionContract.ForTool(
+                    "email",
+                    [DerivedString("recipient_scope", "internal", "external")]),
+                ActionDomainActionContract.ForTool(
+                    "http",
+                    [DirectString("method"), DirectString("url")]),
+            ],
+            actionExtractors:
+            [
+                ActionAttributeExtractorRegistration.ForTool("email", EmptyExtractor.Instance),
             ]);
 
         var result = ActionDomainCatalogValidator.Validate(catalog, binding);
@@ -101,7 +109,7 @@ public sealed class ActionDomainCatalogValidatorTests
                 Predicate(
                     ActionDomainActionKind.Tool,
                     ("tool", "email"),
-                    ("recipient", "external"))),
+                    ("recipient_scope", "external"))),
             Domain(
                 "delivery.release-prod",
                 ActionDomainGate.HumanApproval,
@@ -138,8 +146,14 @@ public sealed class ActionDomainCatalogValidatorTests
             declaredApprovers: ["ceo"],
             actionContracts:
             [
-                ActionDomainActionContract.ForTool("email", ["tool", "recipient"]),
-                ActionDomainActionContract.ForTool("http", ["tool", "method"]),
+                ActionDomainActionContract.ForTool(
+                    "email",
+                    [DerivedString("recipient_scope", "internal", "external")]),
+                ActionDomainActionContract.ForTool("http", [DirectString("method")]),
+            ],
+            actionExtractors:
+            [
+                ActionAttributeExtractorRegistration.ForTool("email", EmptyExtractor.Instance),
             ]);
 
         var result = ActionDomainCatalogValidator.Validate(catalog, binding);
@@ -200,7 +214,7 @@ public sealed class ActionDomainCatalogValidatorTests
                 Predicate(
                     ActionDomainActionKind.Tool,
                     ("tool", "email"),
-                    ("recipient", "external"))));
+                    ("recipient_scope", "external"))));
         var binding = new ActionDomainCatalogBinding(
             authorities:
             [
@@ -217,7 +231,13 @@ public sealed class ActionDomainCatalogValidatorTests
             declaredApprovers: ["ceo"],
             actionContracts:
             [
-                ActionDomainActionContract.ForTool("email", ["tool", "recipient"]),
+                ActionDomainActionContract.ForTool(
+                    "email",
+                    [DerivedString("recipient_scope", "internal", "external")]),
+            ],
+            actionExtractors:
+            [
+                ActionAttributeExtractorRegistration.ForTool("email", EmptyExtractor.Instance),
             ]);
 
         var result = ActionDomainCatalogValidator.Validate(catalog, binding);
@@ -261,10 +281,10 @@ public sealed class ActionDomainCatalogValidatorTests
         var binding = new ActionDomainCatalogBinding(
             actionContracts:
             [
-                ActionDomainActionContract.ForTool("http", ["tool", "method"]),
+                ActionDomainActionContract.ForTool("http", [DirectString("method")]),
                 ActionDomainActionContract.ForOrganizationalMessage(
                     "report",
-                    ["message_type", "recipient"]),
+                    [DirectString("recipient")]),
             ]);
 
         var result = ActionDomainCatalogValidator.Validate(catalog, binding);
@@ -287,6 +307,139 @@ public sealed class ActionDomainCatalogValidatorTests
         Assert.DoesNotContain(
             result.Errors,
             error => error.Path.StartsWith("domains[2]", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Match_predicate_types_and_allowed_values_are_validated_against_the_exact_contract()
+    {
+        var catalog = Catalog(
+            Domain(
+                "comms.external-type",
+                ActionDomainGate.Escalate,
+                Predicate(
+                    ActionDomainActionKind.Tool,
+                    ("tool", "email.send"),
+                    ("recipient_scope", true))),
+            Domain(
+                "comms.external-value",
+                ActionDomainGate.Escalate,
+                Predicate(
+                    ActionDomainActionKind.Tool,
+                    ("tool", "email.send"),
+                    ("recipient_scope", "partner"))));
+        var binding = new ActionDomainCatalogBinding(
+            actionContracts:
+            [
+                ActionDomainActionContract.ForTool(
+                    "email.send",
+                    [DerivedString("recipient_scope", "internal", "external")]),
+            ],
+            actionExtractors:
+            [
+                ActionAttributeExtractorRegistration.ForTool(
+                    "email.send",
+                    EmptyExtractor.Instance),
+            ]);
+
+        var result = ActionDomainCatalogValidator.Validate(catalog, binding);
+
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "predicate-attribute-type-mismatch",
+                Path: "domains[0].match[0].recipient_scope",
+            });
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "predicate-attribute-value-not-allowed",
+                Path: "domains[1].match[0].recipient_scope",
+            });
+    }
+
+    [Fact]
+    public void Derived_attributes_require_exactly_one_matching_extractor_binding()
+    {
+        var binding = new ActionDomainCatalogBinding(
+            actionContracts:
+            [
+                ActionDomainActionContract.ForTool(
+                    "email.send",
+                    [DerivedString("recipient_scope", "internal", "external")]),
+                ActionDomainActionContract.ForTool(
+                    "http.post",
+                    [DirectString("url")]),
+            ],
+            actionExtractors:
+            [
+                ActionAttributeExtractorRegistration.ForTool(
+                    "http.post",
+                    EmptyExtractor.Instance),
+                ActionAttributeExtractorRegistration.ForTool(
+                    "http.post",
+                    EmptyExtractor.Instance),
+                ActionAttributeExtractorRegistration.ForTool(
+                    "email.other",
+                    EmptyExtractor.Instance),
+            ]);
+
+        var result = ActionDomainCatalogValidator.Validate(
+            Catalog(Domain("delivery.bug-triage", ActionDomainGate.Decide)),
+            binding);
+
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "action-contract-extractor-missing",
+                Path: "action_contracts[0]",
+            });
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "action-contract-extractor-unexpected",
+                Path: "action_contracts[1]",
+            });
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "duplicate-action-extractor",
+                Path: "action_extractors[1]",
+            });
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "action-extractor-contract-not-found",
+                Path: "action_extractors[2]",
+            });
+    }
+
+    [Fact]
+    public void Duplicate_action_contracts_are_rejected_instead_of_using_first_wins()
+    {
+        var binding = new ActionDomainCatalogBinding(
+            actionContracts:
+            [
+                ActionDomainActionContract.ForTool("http.post", [DirectString("url")]),
+                ActionDomainActionContract.ForTool("http.post", [DirectString("method")]),
+            ]);
+
+        var result = ActionDomainCatalogValidator.Validate(
+            Catalog(Domain("delivery.bug-triage", ActionDomainGate.Decide)),
+            binding);
+
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "duplicate-action-contract",
+                Path: "action_contracts[1]",
+            });
     }
 
     [Fact]
@@ -327,4 +480,28 @@ public sealed class ActionDomainCatalogValidatorTests
                 StringComparer.Ordinal));
 
     private static AuthorityKey Key(string value) => AuthorityKey.From(value);
+
+    private static ActionAttributeDefinition DirectString(
+        string name,
+        params string[] allowedValues) =>
+        ActionAttributeDefinition.Direct(
+            name,
+            ActionAttributeValueKind.String,
+            allowedValues.Select(ActionAttributeValue.FromString).ToArray());
+
+    private static ActionAttributeDefinition DerivedString(
+        string name,
+        params string[] allowedValues) =>
+        ActionAttributeDefinition.Derived(
+            name,
+            ActionAttributeValueKind.String,
+            allowedValues.Select(ActionAttributeValue.FromString).ToArray());
+
+    private sealed class EmptyExtractor : IActionAttributeExtractor
+    {
+        public static EmptyExtractor Instance { get; } = new();
+
+        public ActionAttributeExtractorOutput Extract(ActionAttributeExtractionRequest request) =>
+            ActionAttributeExtractorOutput.Success();
+    }
 }

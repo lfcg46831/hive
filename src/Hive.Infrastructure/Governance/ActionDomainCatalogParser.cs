@@ -314,6 +314,14 @@ public sealed class ActionDomainCatalogParser
     {
         var value = valueNode.Value ?? string.Empty;
 
+        if (valueNode.Style is ScalarStyle.SingleQuoted
+            or ScalarStyle.DoubleQuoted
+            or ScalarStyle.Literal
+            or ScalarStyle.Folded)
+        {
+            return ReadTextAttribute(valueNode, value, path, context);
+        }
+
         if (bool.TryParse(value, out var boolean))
         {
             return (true, boolean);
@@ -324,11 +332,25 @@ public sealed class ActionDomainCatalogParser
             return (true, integer);
         }
 
+        if (long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longInteger))
+        {
+            return (true, longInteger);
+        }
+
         if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var number))
         {
             return (true, number);
         }
 
+        return ReadTextAttribute(valueNode, value, path, context);
+    }
+
+    private static (bool Ok, object? Value) ReadTextAttribute(
+        YamlScalarNode valueNode,
+        string value,
+        string path,
+        ParseContext context)
+    {
         if (string.IsNullOrWhiteSpace(value))
         {
             context.AddAt(

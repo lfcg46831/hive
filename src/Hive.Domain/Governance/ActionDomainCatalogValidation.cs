@@ -53,11 +53,13 @@ public sealed record ActionDomainCatalogBinding
     public ActionDomainCatalogBinding(
         IReadOnlyList<ActionDomainAuthorityBinding>? authorities = null,
         IReadOnlyList<string>? declaredApprovers = null,
-        IReadOnlyList<ActionDomainActionContract>? actionContracts = null)
+        IReadOnlyList<ActionDomainActionContract>? actionContracts = null,
+        IReadOnlyList<ActionAttributeExtractorRegistration>? actionExtractors = null)
     {
         Authorities = SnapshotItems(authorities, nameof(authorities));
         DeclaredApprovers = SnapshotText(declaredApprovers, nameof(declaredApprovers));
         ActionContracts = SnapshotItems(actionContracts, nameof(actionContracts));
+        ActionExtractors = SnapshotItems(actionExtractors, nameof(actionExtractors));
     }
 
     public IReadOnlyList<ActionDomainAuthorityBinding> Authorities { get; }
@@ -65,6 +67,8 @@ public sealed record ActionDomainCatalogBinding
     public IReadOnlyList<string> DeclaredApprovers { get; }
 
     public IReadOnlyList<ActionDomainActionContract> ActionContracts { get; }
+
+    public IReadOnlyList<ActionAttributeExtractorRegistration> ActionExtractors { get; }
 
     private static ImmutableArray<T> SnapshotItems<T>(
         IReadOnlyList<T>? values,
@@ -186,25 +190,55 @@ public sealed record ActionDomainActionContract
         ActionDomainActionKind action,
         string selectorAttribute,
         string selectorValue,
-        IReadOnlyList<string> providedAttributes)
+        IReadOnlyList<ActionAttributeDefinition> attributes)
     {
         Action = ActionDomainCatalogGuards.RequireDefined(action, nameof(action));
         SelectorAttribute = ActionDomainCatalogGuards.RequireText(
             selectorAttribute,
             nameof(selectorAttribute));
         SelectorValue = ActionDomainCatalogGuards.RequireText(selectorValue, nameof(selectorValue));
-        ProvidedAttributes = SnapshotAttributes(
-            providedAttributes,
-            nameof(providedAttributes));
+        Attributes = SnapshotAttributes(attributes, nameof(attributes));
 
-        if (!ProvidedAttributes.Contains(SelectorAttribute, StringComparer.Ordinal))
+        var expectedSelector = SelectorAttributeFor(action);
+        if (!string.Equals(SelectorAttribute, expectedSelector, StringComparison.Ordinal))
         {
             throw new ArgumentException(
                 string.Create(
                     CultureInfo.InvariantCulture,
-                    $"The selector attribute '{SelectorAttribute}' must be declared as provided."),
-                nameof(providedAttributes));
+                    $"Action '{action}' must use selector attribute '{expectedSelector}' rather than '{SelectorAttribute}'."),
+                nameof(selectorAttribute));
         }
+
+        var duplicate = Attributes
+            .GroupBy(attribute => attribute.Name, StringComparer.Ordinal)
+            .FirstOrDefault(group => group.Count() > 1);
+        if (duplicate is not null)
+        {
+            throw new ArgumentException(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Action attribute '{duplicate.Key}' is declared more than once."),
+                nameof(attributes));
+        }
+
+        var selector = FindAttribute(SelectorAttribute);
+        var selectorValueFact = ActionAttributeValue.FromString(SelectorValue);
+        if (selector is null
+            || selector.Source != ActionAttributeSource.Direct
+            || selector.ValueKind != ActionAttributeValueKind.String
+            || selector.AllowedValues.Count != 1
+            || !selector.AllowedValues.Contains(selectorValueFact))
+        {
+            throw new ArgumentException(
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Selector attribute '{SelectorAttribute}' must be a direct string fixed to '{SelectorValue}'."),
+                nameof(attributes));
+        }
+
+        ProvidedAttributes = Attributes
+            .Select(attribute => attribute.Name)
+            .ToImmutableArray();
     }
 
     public ActionDomainActionKind Action { get; }
@@ -213,48 +247,76 @@ public sealed record ActionDomainActionContract
 
     public string SelectorValue { get; }
 
+    public IReadOnlyList<ActionAttributeDefinition> Attributes { get; }
+
     public IReadOnlyList<string> ProvidedAttributes { get; }
+
+    public bool HasDerivedAttributes =>
+        Attributes.Any(attribute => attribute.Source == ActionAttributeSource.Derived);
+
+    public ActionAttributeDefinition? FindAttribute(string name)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+
+        return Attributes.FirstOrDefault(
+            attribute => string.Equals(attribute.Name, name, StringComparison.Ordinal));
+    }
 
     public static ActionDomainActionContract ForTool(
         string tool,
-        IReadOnlyList<string> providedAttributes) =>
+        IReadOnlyList<ActionAttributeDefinition>? attributes = null) =>
         new(
             ActionDomainActionKind.Tool,
             "tool",
             tool,
-            providedAttributes);
+            WithSelector("tool", tool, attributes));
 
     public static ActionDomainActionContract ForOrganizationalMessage(
         string messageType,
-        IReadOnlyList<string> providedAttributes) =>
+        IReadOnlyList<ActionAttributeDefinition>? attributes = null) =>
         new(
             ActionDomainActionKind.OrganizationalMessage,
             "message_type",
             messageType,
-            providedAttributes);
+            WithSelector("message_type", messageType, attributes));
 
-    private static ImmutableArray<string> SnapshotAttributes(
-        IReadOnlyList<string> values,
+    private static ImmutableArray<ActionAttributeDefinition> SnapshotAttributes(
+        IReadOnlyList<ActionAttributeDefinition> values,
         string parameterName)
     {
         ArgumentNullException.ThrowIfNull(values, parameterName);
 
-        var builder = ImmutableArray.CreateBuilder<string>(values.Count);
-        foreach (var value in values)
+        var snapshot = values.ToImmutableArray();
+        if (snapshot.Any(value => value is null))
         {
-            var attribute = ActionDomainCatalogGuards.RequireText(value, parameterName);
-            if (attribute.Any(char.IsWhiteSpace))
-            {
-                throw new ArgumentException(
-                    "Provided attribute names cannot contain whitespace.",
-                    parameterName);
-            }
-
-            builder.Add(attribute);
+            throw new ArgumentException(
+                "Action attributes cannot contain null entries.",
+                parameterName);
         }
 
-        return builder.ToImmutable();
+        return snapshot;
     }
+
+    private static IReadOnlyList<ActionAttributeDefinition> WithSelector(
+        string selectorAttribute,
+        string selectorValue,
+        IReadOnlyList<ActionAttributeDefinition>? attributes)
+    {
+        var selector = ActionAttributeDefinition.Direct(
+            selectorAttribute,
+            ActionAttributeValueKind.String,
+            [ActionAttributeValue.FromString(selectorValue)]);
+
+        return attributes is null ? [selector] : [selector, .. attributes];
+    }
+
+    internal static string SelectorAttributeFor(ActionDomainActionKind action) =>
+        action switch
+        {
+            ActionDomainActionKind.Tool => "tool",
+            ActionDomainActionKind.OrganizationalMessage => "message_type",
+            _ => throw new ArgumentOutOfRangeException(nameof(action), action, "Unknown action kind."),
+        };
 }
 
 public static class ActionDomainCatalogValidator
@@ -409,14 +471,79 @@ public static class ActionDomainCatalogValidator
         ActionDomainCatalogBinding binding,
         List<ActionDomainCatalogValidationError> errors)
     {
-        var contracts = new Dictionary<ContractKey, ActionDomainActionContract>();
-        foreach (var contract in binding.ActionContracts)
+        var contracts = new Dictionary<ContractKey, ActionContractEntry>();
+        for (var index = 0; index < binding.ActionContracts.Count; index++)
         {
+            var contract = binding.ActionContracts[index];
             var key = new ContractKey(
                 contract.Action,
                 contract.SelectorAttribute,
                 contract.SelectorValue);
-            contracts.TryAdd(key, contract);
+            if (!contracts.TryAdd(key, new ActionContractEntry(contract, index)))
+            {
+                errors.Add(new ActionDomainCatalogValidationError(
+                    "duplicate-action-contract",
+                    $"action_contracts[{index}]",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Action contract for {contract.SelectorAttribute} '{contract.SelectorValue}' is declared more than once.")));
+            }
+        }
+
+        var extractors = new Dictionary<ContractKey, ActionExtractorEntry>();
+        for (var index = 0; index < binding.ActionExtractors.Count; index++)
+        {
+            var registration = binding.ActionExtractors[index];
+            var selectorAttribute = SelectorAttribute(registration.Action);
+            var key = new ContractKey(
+                registration.Action,
+                selectorAttribute,
+                registration.SelectorValue);
+            if (!extractors.TryAdd(key, new ActionExtractorEntry(registration, index)))
+            {
+                errors.Add(new ActionDomainCatalogValidationError(
+                    "duplicate-action-extractor",
+                    $"action_extractors[{index}]",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Action extractor for {selectorAttribute} '{registration.SelectorValue}' is registered more than once.")));
+            }
+        }
+
+        foreach (var (key, entry) in contracts)
+        {
+            var hasExtractor = extractors.ContainsKey(key);
+            if (entry.Contract.HasDerivedAttributes && !hasExtractor)
+            {
+                errors.Add(new ActionDomainCatalogValidationError(
+                    "action-contract-extractor-missing",
+                    $"action_contracts[{entry.Index}]",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Action contract for {key.SelectorAttribute} '{key.SelectorValue}' declares derived attributes but has no extractor.")));
+            }
+            else if (!entry.Contract.HasDerivedAttributes && hasExtractor)
+            {
+                errors.Add(new ActionDomainCatalogValidationError(
+                    "action-contract-extractor-unexpected",
+                    $"action_contracts[{entry.Index}]",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Action contract for {key.SelectorAttribute} '{key.SelectorValue}' has no derived attributes and must not register an extractor.")));
+            }
+        }
+
+        foreach (var (key, entry) in extractors)
+        {
+            if (!contracts.ContainsKey(key))
+            {
+                errors.Add(new ActionDomainCatalogValidationError(
+                    "action-extractor-contract-not-found",
+                    $"action_extractors[{entry.Index}]",
+                    string.Create(
+                        CultureInfo.InvariantCulture,
+                        $"Action extractor for {key.SelectorAttribute} '{key.SelectorValue}' has no action contract.")));
+            }
         }
 
         for (var domainIndex = 0; domainIndex < catalog.Domains.Count; domainIndex++)
@@ -445,7 +572,7 @@ public static class ActionDomainCatalogValidator
                     selectorAttribute,
                     selectorValue);
 
-                if (!contracts.TryGetValue(contractKey, out var contract))
+                if (!contracts.TryGetValue(contractKey, out var contractEntry))
                 {
                     errors.Add(new ActionDomainCatalogValidationError(
                         "action-contract-not-found",
@@ -456,12 +583,10 @@ public static class ActionDomainCatalogValidator
                     continue;
                 }
 
-                var providedAttributes = new HashSet<string>(
-                    contract.ProvidedAttributes,
-                    StringComparer.Ordinal);
-                foreach (var attribute in predicate.Attributes.Keys)
+                foreach (var (attribute, rawValue) in predicate.Attributes)
                 {
-                    if (!providedAttributes.Contains(attribute))
+                    var definition = contractEntry.Contract.FindAttribute(attribute);
+                    if (definition is null)
                     {
                         errors.Add(new ActionDomainCatalogValidationError(
                             "predicate-attribute-not-declared",
@@ -469,6 +594,29 @@ public static class ActionDomainCatalogValidator
                             string.Create(
                                 CultureInfo.InvariantCulture,
                                 $"Predicate attribute '{attribute}' is not declared by the action contract for '{selectorValue}'.")));
+                        continue;
+                    }
+
+                    if (!ActionAttributeValue.TryFromScalar(rawValue, out var value)
+                        || value!.Kind != definition.ValueKind)
+                    {
+                        errors.Add(new ActionDomainCatalogValidationError(
+                            "predicate-attribute-type-mismatch",
+                            $"{path}.{attribute}",
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"Predicate attribute '{attribute}' does not use the declared value kind '{definition.ValueKind}'.")));
+                        continue;
+                    }
+
+                    if (!definition.Allows(value))
+                    {
+                        errors.Add(new ActionDomainCatalogValidationError(
+                            "predicate-attribute-value-not-allowed",
+                            $"{path}.{attribute}",
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"Predicate attribute '{attribute}' uses a value outside the action contract's allowed values.")));
                     }
                 }
             }
@@ -512,6 +660,12 @@ public static class ActionDomainCatalogValidator
                 $"Authority key '{key}' does not resolve to the action-domain catalog."));
 
     private sealed record DomainEntry(ActionDomain Domain, int Index);
+
+    private sealed record ActionContractEntry(ActionDomainActionContract Contract, int Index);
+
+    private sealed record ActionExtractorEntry(
+        ActionAttributeExtractorRegistration Registration,
+        int Index);
 
     private readonly record struct ContractKey(
         ActionDomainActionKind Action,

@@ -81,6 +81,44 @@ public sealed class ActionDomainCatalogParserTests
     }
 
     [Fact]
+    public void Quoted_match_scalars_remain_strings_while_plain_scalars_keep_canonical_types()
+    {
+        const string yaml = """
+            version: 1
+            defaults:
+              unmatched_action: escalate
+            domains:
+              - key: delivery.scalar-types
+                description: Preserve explicit YAML scalar kinds
+                gate: escalate
+                match:
+                  - action: tool
+                    tool: typed
+                    quoted_boolean: "true"
+                    quoted_integer: '123'
+                    plain_boolean: true
+                    plain_integer: 123
+                    plain_long: 2147483648
+                    plain_negative_long: -2147483649
+                    plain_decimal: 12.5
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.True(result.IsSuccess, string.Join("\n", result.Errors));
+        var attributes = Assert.Single(Assert.Single(result.Catalog!.Domains).Match).Attributes;
+        Assert.IsType<string>(attributes["quoted_boolean"]);
+        Assert.Equal("true", attributes["quoted_boolean"]);
+        Assert.IsType<string>(attributes["quoted_integer"]);
+        Assert.Equal("123", attributes["quoted_integer"]);
+        Assert.Equal(true, attributes["plain_boolean"]);
+        Assert.Equal(123, attributes["plain_integer"]);
+        Assert.Equal(2147483648L, attributes["plain_long"]);
+        Assert.Equal(-2147483649L, attributes["plain_negative_long"]);
+        Assert.Equal(12.5m, attributes["plain_decimal"]);
+    }
+
+    [Fact]
     public void Missing_required_fields_are_reported_with_paths()
     {
         const string yaml = """

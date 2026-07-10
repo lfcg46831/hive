@@ -71,6 +71,26 @@ public sealed class ActionDomainCatalogValidatorTests
     }
 
     [Fact]
+    public void Unmatched_action_default_must_remain_fail_closed_escalate()
+    {
+        var catalog = new ActionDomainCatalog(
+            version: 1,
+            defaults: new ActionDomainCatalogDefaults(ActionDomainGate.Decide),
+            domains: [Domain("delivery.bug-triage", ActionDomainGate.Decide)]);
+
+        var result = ActionDomainCatalogValidator.Validate(catalog, EmptyBinding);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "unmatched-action-default-not-escalate",
+                Path: "defaults.unmatched_action",
+            });
+    }
+
+    [Fact]
     public void Authority_references_must_exist_and_overrides_can_only_tighten_the_catalog_gate()
     {
         var catalog = Catalog(
@@ -166,6 +186,49 @@ public sealed class ActionDomainCatalogValidatorTests
             {
                 Code: "authority-key-not-found",
                 Path: "positions[2].occupant.authority.overrides[2].key",
+            });
+    }
+
+    [Fact]
+    public void Overrides_must_target_objective_keys_with_match_predicates()
+    {
+        var catalog = Catalog(
+            Domain("delivery.bug-triage", ActionDomainGate.Decide),
+            Domain(
+                "comms.external-official",
+                ActionDomainGate.Escalate,
+                Predicate(
+                    ActionDomainActionKind.Tool,
+                    ("tool", "email"),
+                    ("recipient", "external"))));
+        var binding = new ActionDomainCatalogBinding(
+            authorities:
+            [
+                new ActionDomainAuthorityBinding(
+                    "positions[1].occupant.authority",
+                    overrides:
+                    [
+                        new ActionDomainAuthorityOverride(
+                            Key("delivery.bug-triage"),
+                            ActionDomainGate.HumanApproval,
+                            approver: "ceo"),
+                    ]),
+            ],
+            declaredApprovers: ["ceo"],
+            actionContracts:
+            [
+                ActionDomainActionContract.ForTool("email", ["tool", "recipient"]),
+            ]);
+
+        var result = ActionDomainCatalogValidator.Validate(catalog, binding);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(
+            result.Errors,
+            error => error is
+            {
+                Code: "override-key-has-no-match",
+                Path: "positions[1].occupant.authority.overrides[0].key",
             });
     }
 

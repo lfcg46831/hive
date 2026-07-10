@@ -281,6 +281,16 @@ public static class ActionDomainCatalogValidator
     {
         var domainsByKey = new Dictionary<string, DomainEntry>(StringComparer.Ordinal);
 
+        if (catalog.Defaults.UnmatchedAction != ActionDomainGate.Escalate)
+        {
+            errors.Add(new ActionDomainCatalogValidationError(
+                "unmatched-action-default-not-escalate",
+                "defaults.unmatched_action",
+                string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"Unmatched action default must be 'escalate', not '{catalog.Defaults.UnmatchedAction}'.")));
+        }
+
         for (var index = 0; index < catalog.Domains.Count; index++)
         {
             var domain = catalog.Domains[index];
@@ -355,6 +365,16 @@ public static class ActionDomainCatalogValidator
 
                 if (domainsByKey.TryGetValue(key, out var domain))
                 {
+                    if (domain.Domain.Match.Count == 0)
+                    {
+                        errors.Add(new ActionDomainCatalogValidationError(
+                            "override-key-has-no-match",
+                            $"{overridePath}.key",
+                            string.Create(
+                                CultureInfo.InvariantCulture,
+                                $"Override for '{key}' targets a trust key without match predicates.")));
+                    }
+
                     if (authorityOverride.Gate < domain.Domain.Gate)
                     {
                         errors.Add(new ActionDomainCatalogValidationError(

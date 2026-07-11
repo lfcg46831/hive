@@ -1,0 +1,20 @@
+version: 1
+defaults:
+  unmatched_action: escalate
+
+domains:
+  - key: org.quarterly-priorities
+    description: Define the organization's quarterly priorities
+    gate: decide
+
+  - key: delivery.bug-triage
+    description: Classify, prioritize and assign bugs internally
+    gate: decide
+
+  - key: comms.external-official
+    description: Send official communications outside the organization
+    gate: escalate
+    match:
+      - action: tool
+        tool: email.send
+        recipient_scope: external

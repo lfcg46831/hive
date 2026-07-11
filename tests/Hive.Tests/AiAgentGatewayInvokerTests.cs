@@ -146,7 +146,7 @@ public sealed class AiAgentGatewayInvokerTests
     }
 
     [Fact]
-    public void AddHiveActorSystem_registers_invoker_and_position_entity_props_with_di()
+    public void AddHiveActorSystem_composes_ai_occupant_factory_outside_position_entity_props()
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
@@ -165,9 +165,27 @@ public sealed class AiAgentGatewayInvokerTests
 
         Assert.IsType<AiAgentGatewayInvoker>(
             host.Services.GetRequiredService<IAiAgentGatewayInvoker>());
+        Assert.IsType<FailClosedAiAgentActionGate>(
+            host.Services.GetRequiredService<IAiAgentActionGate>());
+        Assert.IsType<PositionOccupantFactory>(
+            host.Services.GetRequiredService<IPositionOccupantFactory>());
 
         var props = host.Services.GetRequiredService<IPositionEntityProps>();
         Assert.IsType<Props>(props.Create("acme-delivery/triage-agent"));
+    }
+
+    [Fact]
+    public void PositionEntityProps_depends_on_neutral_occupant_factory_not_ai_contracts()
+    {
+        var parameters = typeof(PositionEntityProps)
+            .GetConstructors()
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType)
+            .ToArray();
+
+        Assert.Contains(typeof(IPositionOccupantFactory), parameters);
+        Assert.DoesNotContain(typeof(IAiAgentGatewayInvoker), parameters);
+        Assert.DoesNotContain(typeof(IAiAgentActionGate), parameters);
     }
 
     [Fact]

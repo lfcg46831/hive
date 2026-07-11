@@ -19,6 +19,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
 
     private readonly IAiAgentGatewayInvoker _aiGatewayInvoker;
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
+    private readonly IAiAgentActionGate _actionGate;
     private readonly IJourneyAuditLog _auditLog;
 
     public PositionOccupantFactory()
@@ -35,11 +36,25 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiAgentGatewayInvoker aiGatewayInvoker,
         IAiDirectiveResultMessageGate resultMessageGate,
         IJourneyAuditLog auditLog)
+        : this(
+            aiGatewayInvoker,
+            resultMessageGate,
+            AllowingAiAgentActionGate.Instance,
+            auditLog)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
         _resultMessageGate = resultMessageGate
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
+        _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
     }
 
@@ -47,6 +62,14 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiAgentGatewayInvoker aiGatewayInvoker,
         IAiDirectiveResultMessageGate resultMessageGate)
         : this(aiGatewayInvoker, resultMessageGate, NoopJourneyAuditLog.Instance)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate)
+        : this(aiGatewayInvoker, resultMessageGate, actionGate, NoopJourneyAuditLog.Instance)
     {
     }
 
@@ -60,6 +83,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 occupant,
                 _aiGatewayInvoker,
                 _resultMessageGate,
+                _actionGate,
                 _auditLog)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
@@ -91,6 +115,8 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveResultMessage> _directiveResultMessages =
         new(StringComparer.Ordinal);
+    private readonly Dictionary<string, AiAgentActionGateResult> _directiveActionGateResults =
+        new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectiveIterationAuditTrail> _directiveIterationAudits =
         new(StringComparer.Ordinal);
     private readonly Dictionary<string, AiDirectivePositionEffects> _directivePositionEffects =
@@ -114,12 +140,28 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiAgentGatewayInvoker gatewayInvoker,
         IAiDirectiveResultMessageGate resultMessageGate,
         IJourneyAuditLog auditLog)
+        : this(
+            occupant,
+            gatewayInvoker,
+            resultMessageGate,
+            AllowingAiAgentActionGate.Instance,
+            auditLog)
+    {
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
             ?? throw new ArgumentNullException(nameof(gatewayInvoker));
         ResultMessageGate = resultMessageGate
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
+        ActionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
@@ -179,6 +221,12 @@ internal sealed class AiAgentActor : ReceiveActor
                 ? AiDirectiveResultMessageQueryResult.FoundResult(result)
                 : AiDirectiveResultMessageQueryResult.Missing(query.CorrelationId));
         });
+        Receive<GetAiAgentActionGateResult>(query =>
+        {
+            Sender.Tell(new AiAgentActionGateQueryResult(
+                query.CorrelationId,
+                _directiveActionGateResults.GetValueOrDefault(query.CorrelationId)));
+        });
         Receive<GetAiDirectiveIterationAuditSnapshot>(query =>
         {
             Sender.Tell(_directiveIterationAudits.TryGetValue(
@@ -217,11 +265,27 @@ internal sealed class AiAgentActor : ReceiveActor
     {
     }
 
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate)
+        : this(
+            occupant,
+            gatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            NoopJourneyAuditLog.Instance)
+    {
+    }
+
     public OccupantId Occupant { get; }
 
     internal IAiAgentGatewayInvoker GatewayInvoker { get; }
 
     internal IAiDirectiveResultMessageGate ResultMessageGate { get; }
+
+    internal IAiAgentActionGate ActionGate { get; }
 
     private sealed record AiDirectiveRecoveryDecision(
         AiDirectiveProcessingSnapshot Snapshot,
@@ -300,16 +364,37 @@ internal sealed class AiAgentActor : ReceiveActor
                     interpretation.Decision!);
                 if (resultMessage.IsSuccess)
                 {
-                    var gateResult = await ResultMessageGate
-                        .ValidateAsync(context, resultMessage.Message!)
+                    var actionGateResult = await ActionGate
+                        .EvaluateAsync(
+                            context,
+                            AiAgentActionCandidate.ForMessage(
+                                resultMessage.Message!,
+                                resultMessage.ActingUnder))
                         .ConfigureAwait(false);
+                    _directiveActionGateResults[request.CorrelationId] = actionGateResult;
 
-                    if (gateResult.IsRejected)
+                    if (actionGateResult.IsRetained)
                     {
                         resultMessage = AiDirectiveResultMessage.Rejected(
                             request.CorrelationId,
-                            gateResult.Failure!,
+                            new AiDirectiveResultMessageFailure(
+                                actionGateResult.Code,
+                                $"AI action was retained by the authority gate with code '{actionGateResult.Code}'."),
                             resultMessage.ActingUnder);
+                    }
+                    else
+                    {
+                        var gateResult = await ResultMessageGate
+                            .ValidateAsync(context, resultMessage.Message!)
+                            .ConfigureAwait(false);
+
+                        if (gateResult.IsRejected)
+                        {
+                            resultMessage = AiDirectiveResultMessage.Rejected(
+                                request.CorrelationId,
+                                gateResult.Failure!,
+                                resultMessage.ActingUnder);
+                        }
                     }
                 }
 

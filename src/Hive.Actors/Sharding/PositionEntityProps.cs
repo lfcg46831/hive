@@ -18,16 +18,14 @@ internal sealed class PositionEntityProps : IPositionEntityProps
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
-        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IPositionOccupantFactory occupantFactory,
         IJourneyAuditLog? auditLog = null)
     {
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
+        _occupantFactory = occupantFactory
+            ?? throw new ArgumentNullException(nameof(occupantFactory));
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
-        _occupantFactory = new PositionOccupantFactory(
-            aiGatewayInvoker,
-            AiDirectiveResultMessageEmissionGate.Instance,
-            resolvedAuditLog);
         _projectionPublisher = new JourneyAuditPositionProjectionPublisher(
             resolvedAuditLog);
     }

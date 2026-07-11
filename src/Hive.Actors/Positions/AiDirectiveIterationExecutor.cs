@@ -12,15 +12,21 @@ internal enum AiDirectiveIterationExecutionKind
 
 internal sealed record AiDirectiveIterationExecutionFailure
 {
-    public AiDirectiveIterationExecutionFailure(string code, string auditReason)
+    public AiDirectiveIterationExecutionFailure(
+        string code,
+        string auditReason,
+        AiAgentActionGateResult? actionGateResult = null)
     {
         Code = AiAgentGatewayText.Require(code, nameof(code));
         AuditReason = AiAgentGatewayText.Require(auditReason, nameof(auditReason));
+        ActionGateResult = actionGateResult;
     }
 
     public string Code { get; }
 
     public string AuditReason { get; }
+
+    public AiAgentActionGateResult? ActionGateResult { get; }
 }
 
 internal sealed record AiDirectiveConnectorToolExecution
@@ -222,18 +228,31 @@ internal sealed class AiDirectiveIterationExecutor
 {
     private readonly IAiAgentGatewayInvoker _gatewayInvoker;
     private readonly IAiDirectiveConnectorToolExecutor _toolExecutor;
+    private readonly IAiAgentActionGate _actionGate;
 
     public AiDirectiveIterationExecutor(IAiAgentGatewayInvoker gatewayInvoker)
-        : this(gatewayInvoker, UnavailableAiDirectiveConnectorToolExecutor.Instance)
+        : this(
+            gatewayInvoker,
+            UnavailableAiDirectiveConnectorToolExecutor.Instance,
+            AllowingAiAgentActionGate.Instance)
     {
     }
 
     public AiDirectiveIterationExecutor(
         IAiAgentGatewayInvoker gatewayInvoker,
         IAiDirectiveConnectorToolExecutor toolExecutor)
+        : this(gatewayInvoker, toolExecutor, AllowingAiAgentActionGate.Instance)
+    {
+    }
+
+    public AiDirectiveIterationExecutor(
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveConnectorToolExecutor toolExecutor,
+        IAiAgentActionGate actionGate)
     {
         _gatewayInvoker = gatewayInvoker ?? throw new ArgumentNullException(nameof(gatewayInvoker));
         _toolExecutor = toolExecutor ?? throw new ArgumentNullException(nameof(toolExecutor));
+        _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
     }
 
     public async ValueTask<AiDirectiveIterationExecutionResult> ExecuteAsync(
@@ -343,6 +362,22 @@ internal sealed class AiDirectiveIterationExecutor
                 state.CorrelationId,
                 "tool-call-not-allowed",
                 $"AI directive iteration rejected unauthorized tool call '{toolCall.Name}'.");
+        }
+
+        var gateResult = await _actionGate
+            .EvaluateAsync(
+                context,
+                AiAgentActionCandidate.ForTool(toolCall, continuation.ActingUnder),
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (gateResult.IsRetained)
+        {
+            return AiDirectiveIterationExecutionResult.Failed(
+                state.CorrelationId,
+                new AiDirectiveIterationExecutionFailure(
+                    gateResult.Code,
+                    $"AI connector tool action was retained by the authority gate with code '{gateResult.Code}'.",
+                    gateResult));
         }
 
         var execution = new AiDirectiveConnectorToolExecution(

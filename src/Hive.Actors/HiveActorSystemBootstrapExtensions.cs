@@ -7,6 +7,7 @@ using Hive.Actors.Positions;
 using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
+using Hive.Domain.Auditing;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
@@ -103,6 +104,14 @@ public static class HiveActorSystemBootstrapExtensions
         // IRoleWorkload seam. The entity Props seam now supplies the persistent PositionActor
         // (US-F0-06-T06b); TryAdd keeps the wiring replaceable for later entity behaviour.
         builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
+        builder.Services.TryAddSingleton<IAiAgentActionGate>(
+            FailClosedAiAgentActionGate.Instance);
+        builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
+            new PositionOccupantFactory(
+                serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
+                AiDirectiveResultMessageEmissionGate.Instance,
+                serviceProvider.GetRequiredService<IAiAgentActionGate>(),
+                serviceProvider.GetRequiredService<IJourneyAuditLog>()));
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.TryAddSingleton<ISchedulerPulseDispatcher>(
             AkkaClusterShardingSchedulerPulseDispatcher.Instance);

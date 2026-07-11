@@ -399,6 +399,98 @@ public sealed class AiDirectiveResultMessageTests
         }
     }
 
+    [Fact]
+    public async Task AiAgentActor_retains_objectively_gated_message_before_routing_and_exposes_gate_result()
+    {
+        var request = Request();
+        var key = AuthorityKey.From("messages.reports-reviewed");
+        var catalog = new ActionDomainCatalog(
+            1,
+            new ActionDomainCatalogDefaults(ActionDomainGate.Escalate),
+            [
+                new ActionDomain(
+                    key,
+                    "Reports require hierarchical review.",
+                    ActionDomainGate.Escalate,
+                    [
+                        new ActionDomainMatchPredicate(
+                            ActionDomainActionKind.OrganizationalMessage,
+                            new Dictionary<string, object>
+                            {
+                                ["message_type"] = nameof(Report),
+                            }),
+                    ]),
+            ]);
+        var actionGate = new AiAgentActionGate(
+            catalog,
+            new ActionDomainCatalogBinding(
+                actionContracts:
+                [
+                    ActionDomainActionContract.ForOrganizationalMessage(nameof(Report)),
+                ]),
+            UnusedApprovalResolver.Instance,
+            () => At.AddMinutes(15));
+        var system = ActorSystem.Create($"ai-agent-action-gate-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    new StaticResponseInvoker(ValidReportOutput()),
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    actionGate)),
+                "agent");
+
+            actor.Tell(request);
+
+            var result = await WaitForResultMessageAsync(actor, request.CorrelationId);
+            var gate = await actor.Ask<AiAgentActionGateQueryResult>(
+                new GetAiAgentActionGateResult(request.CorrelationId),
+                Timeout());
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                Timeout());
+
+            Assert.False(result.Result!.IsSuccess);
+            Assert.Equal(ActionGateResolution.ObjectiveEscalationCode, result.Result.Failure!.Code);
+            Assert.True(gate.Found);
+            Assert.Equal(AiAgentActionGateOutcome.RetainedForEscalation, gate.Result!.Outcome);
+            var escalation = Assert.IsType<Escalation>(
+                Assert.Single(gate.Result.Retention!.GovernanceMessages));
+            Assert.Equal(new PositionEndpointRef(Superior), escalation.To);
+            Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task AiAgentActor_returns_missing_for_unknown_action_gate_correlation()
+    {
+        var system = ActorSystem.Create($"ai-agent-action-gate-missing-{Guid.NewGuid():N}");
+
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(OccupantId.From("agent-missing"))),
+                "agent");
+
+            var result = await actor.Ask<AiAgentActionGateQueryResult>(
+                new GetAiAgentActionGateResult("missing-correlation"),
+                Timeout());
+
+            Assert.False(result.Found);
+            Assert.Null(result.Result);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static async Task<AiDirectiveResultMessageQueryResult> WaitForResultMessageAsync(
         IActorRef actor,
         string correlationId)
@@ -518,5 +610,15 @@ public sealed class AiDirectiveResultMessageTests
                         "routing-rejected",
                         "Routing gate rejected the candidate result message.")));
         }
+    }
+
+    private sealed class UnusedApprovalResolver : IAiActionApprovalResolver
+    {
+        public static UnusedApprovalResolver Instance { get; } = new();
+
+        public ValueTask<AiActionApprovalResolution> ResolveAsync(
+            AiActionApprovalResolutionQuery query,
+            CancellationToken cancellationToken = default) =>
+            throw new InvalidOperationException("Approval resolution was not expected.");
     }
 }

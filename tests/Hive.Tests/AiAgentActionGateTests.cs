@@ -1,5 +1,6 @@
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -56,7 +57,8 @@ public sealed class AiAgentActionGateTests
             new AiToolCall("call-1", "files"),
             ActingUnderDeclaration.Declared(key));
 
-        var result = await FailClosedAiAgentActionGate.Instance.EvaluateAsync(
+        var result = await AiAgentActionGate.CreateFailClosed(
+            NoopJourneyAuditLog.Instance).EvaluateAsync(
             Context(canDecide: [key.Value]),
             candidate);
 

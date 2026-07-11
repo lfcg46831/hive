@@ -39,7 +39,20 @@ public sealed class JourneyAuditReadModelTests
                     ["redactions"] = "directive.objective,directive.context,gateway.response.text",
                     ["safeSummary"] = "ids and codes only",
                 },
-                provider: new AiProviderMetadata("stub", "bug-triage")));
+                provider: new AiProviderMetadata("stub", "bug-triage")),
+            Record(
+                6,
+                Organization,
+                Thread,
+                Directive,
+                JourneyAuditStage.ActionGateEvaluated,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["gateOutcome"] = "allowed",
+                    ["effectiveGate"] = "decide",
+                    ["allowedAuthorityKey"] = "delivery.bug-triage",
+                    ["redactions"] = "action.message.payload:omitted,acting_under.raw:discarded",
+                }));
         var readModel = new JourneyAuditReadModel(auditLog);
 
         var timeline = readModel.ReadTimeline(Organization, Thread, Directive);
@@ -48,15 +61,26 @@ public sealed class JourneyAuditReadModelTests
         Assert.Equal(Thread, timeline.ThreadId);
         Assert.Equal(Directive, timeline.DirectiveId);
         Assert.Equal(
-            [JourneyAuditStage.SubmissionReceived, JourneyAuditStage.AgentDecided],
+            [
+                JourneyAuditStage.SubmissionReceived,
+                JourneyAuditStage.AgentDecided,
+                JourneyAuditStage.ActionGateEvaluated,
+            ],
             timeline.Entries.Select(entry => entry.Stage));
         Assert.All(timeline.Entries, entry => Assert.Equal(Directive, entry.DirectiveId));
         Assert.All(timeline.Entries, entry =>
             Assert.NotEqual(typeof(JourneyAuditRecord), entry.GetType()));
-        Assert.Equal("stub", timeline.Entries.Last().Provider?.ProviderId);
+        Assert.Equal(
+            "stub",
+            timeline.Entries.Single(entry => entry.Stage == JourneyAuditStage.AgentDecided)
+                .Provider?.ProviderId);
         Assert.Equal(
             "directive.objective,directive.context,gateway.response.text",
-            timeline.Entries.Last().RedactedPayload["redactions"]);
+            timeline.Entries.Single(entry => entry.Stage == JourneyAuditStage.AgentDecided)
+                .RedactedPayload["redactions"]);
+        Assert.Equal(
+            "delivery.bug-triage",
+            timeline.Entries.Last().RedactedPayload["allowedAuthorityKey"]);
         Assert.DoesNotContain(
             "Customer reports checkout failure",
             JsonSerializer.Serialize(timeline),

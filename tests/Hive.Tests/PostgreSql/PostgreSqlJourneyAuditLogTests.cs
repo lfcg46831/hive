@@ -130,6 +130,33 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task Store_round_trips_and_deduplicates_action_gate_evaluations()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var first = ActionGateRecord(OccurredAt);
+        var repeated = ActionGateRecord(OccurredAt.AddSeconds(5));
+
+        auditLog.Append(first);
+        auditLog.Append(repeated);
+
+        var reloaded = Assert.Single(auditLog.ReadByThread(Thread, Directive));
+        Assert.Equal(first.AuditEventId, reloaded.AuditEventId);
+        Assert.Equal(JourneyAuditStage.ActionGateEvaluated, reloaded.Stage);
+        Assert.Equal(JourneyAuditOutcome.Rejected, reloaded.Outcome);
+        Assert.Equal("action-gate-unmatched-action-default", reloaded.ReasonCode);
+        Assert.Equal("retained-for-escalation", reloaded.Payload["gateOutcome"]);
+        Assert.Equal("escalate", reloaded.Payload["effectiveGate"]);
+        Assert.Equal("acting-under-invalid", reloaded.Payload["actingUnderCode"]);
+        Assert.DoesNotContain(
+            "finance.commitments",
+            JsonSerializer.Serialize(reloaded.Payload),
+            StringComparison.Ordinal);
+    }
+
     private static JourneyAuditRecord Record(
         JourneyAuditStage stage,
         JourneyAuditOutcome outcome,
@@ -172,6 +199,32 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
             },
             occurredAtUtc: occurredAt,
             idempotencyDiscriminator: "terminal-result-already-materialized");
+
+    private static JourneyAuditRecord ActionGateRecord(DateTimeOffset occurredAt) =>
+        JourneyAuditRecord.Create(
+            JourneyAuditStage.ActionGateEvaluated,
+            JourneyAuditOutcome.Rejected,
+            Organization,
+            Thread,
+            Message,
+            Directive,
+            Position,
+            reasonCode: "action-gate-unmatched-action-default",
+            messageType: "Report",
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["actionKind"] = "organizational-message",
+                ["actionSelector"] = "Report",
+                ["actionInstanceDigest"] = "sha256:3fd7f45f",
+                ["gateOutcome"] = "retained-for-escalation",
+                ["effectiveGate"] = "escalate",
+                ["actingUnderState"] = "invalid",
+                ["actingUnderCode"] = "acting-under-invalid",
+                ["redactions"] = "action.message.payload:omitted,acting_under.raw:discarded",
+            },
+            occurredAtUtc: occurredAt,
+            idempotencyDiscriminator:
+                "action-gate:v1|organizational-message|Report|sha256:3fd7f45f|retained-for-escalation|action-gate-unmatched-action-default|acting-under-invalid");
 
     private static async Task ResetAuditAsync(NpgsqlDataSource dataSource)
     {

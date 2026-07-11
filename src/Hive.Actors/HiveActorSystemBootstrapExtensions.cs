@@ -102,10 +102,12 @@ public static class HiveActorSystemBootstrapExtensions
         // Cluster Sharding for the PositionActor is a role-conditional workload (US-F0-06-T04b):
         // the host starts it only on nodes that declare the agents role, through the existing
         // IRoleWorkload seam. The entity Props seam now supplies the persistent PositionActor
-        // (US-F0-06-T06b); TryAdd keeps the wiring replaceable for later entity behaviour.
+        // (US-F0-06-T06b). The action gate's base pipeline guarantees durable audit before a
+        // decision can leave the boundary (US-F0-11-T10).
         builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
-        builder.Services.TryAddSingleton<IAiAgentActionGate>(
-            FailClosedAiAgentActionGate.Instance);
+        builder.Services.TryAddSingleton<IAiAgentActionGate>(serviceProvider =>
+            AiAgentActionGate.CreateFailClosed(
+                serviceProvider.GetRequiredService<IJourneyAuditLog>()));
         builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
             new PositionOccupantFactory(
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),

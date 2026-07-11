@@ -299,12 +299,20 @@ public sealed class PositionActorPassivationTests
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var status = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
-            if (status.OperationalState == PositionOperationalState.Ready)
+            try
             {
-                return;
+                var status = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+                if (status.OperationalState == PositionOperationalState.Ready)
+                {
+                    return;
+                }
+            }
+            catch (AskTimeoutException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                // Recovery temporarily suspends command handling. Keep polling until the
+                // overall readiness deadline instead of failing on the first short Ask timeout.
             }
 
             await Task.Delay(25);

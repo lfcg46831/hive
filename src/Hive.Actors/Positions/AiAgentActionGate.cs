@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -12,6 +13,55 @@ internal enum AiAgentActionGateOutcome
     Allowed = 1,
     RetainedForEscalation = 2,
     RetainedForHumanApproval = 3,
+}
+
+internal static class AiAgentActionGateCodes
+{
+    public const string UnknownFailure = "action-gate-failure";
+
+    private static readonly HashSet<string> Known = new(StringComparer.Ordinal)
+    {
+        ActionGateResolution.DeclaredAuthorityCode,
+        ActionGateResolution.ObjectiveEscalationCode,
+        ActionGateResolution.ObjectiveHumanApprovalCode,
+        ActionGateResolution.UnmatchedActionDefaultCode,
+        "action-gate-contract-unavailable",
+        "action-gate-extractor-binding-invalid",
+        "action-gate-direct-facts-invalid",
+        "action-gate-action-contract-mismatch",
+        "action-gate-action-extractor-unexpected",
+        "action-gate-action-extractor-missing",
+        "action-gate-action-extractor-contract-mismatch",
+        "action-gate-action-attribute-extractor-threw",
+        "action-gate-action-attribute-extractor-returned-null",
+        "action-gate-action-attribute-extractor-invalid-input",
+        "action-gate-action-attribute-extractor-classification-unavailable",
+        "action-gate-action-attribute-extractor-configuration-unavailable",
+        "action-gate-direct-attribute-selector-collision",
+        "action-gate-direct-attribute-not-declared",
+        "action-gate-direct-derived-attribute-collision",
+        "action-gate-direct-attribute-type-mismatch",
+        "action-gate-direct-attribute-value-not-allowed",
+        "action-gate-direct-attribute-missing",
+        "action-gate-derived-attribute-unexpected",
+        "action-gate-derived-direct-attribute-collision",
+        "action-gate-derived-attribute-type-mismatch",
+        "action-gate-derived-attribute-value-not-allowed",
+        "action-gate-derived-attribute-missing",
+        "action-gate-outcome-invalid",
+        "action-gate-evaluation-failed",
+        "action-gate-approval-resolution-failed",
+        "action-gate-approver-unresolved",
+        "action-gate-approver-mismatch",
+        "action-gate-approval-resolver-unavailable",
+        "action-gate-policy-not-found",
+    };
+
+    public static string Normalize(string code)
+    {
+        var required = AiAgentGatewayText.Require(code, nameof(code));
+        return Known.Contains(required) ? required : UnknownFailure;
+    }
 }
 
 internal sealed record AiAgentActionCandidate
@@ -104,7 +154,7 @@ internal sealed record AiAgentActionRetentionIntent
         SourceMessageId = sourceMessageId ?? throw new ArgumentNullException(nameof(sourceMessageId));
         DirectiveId = directiveId ?? throw new ArgumentNullException(nameof(directiveId));
         ParentDirectiveId = parentDirectiveId;
-        Code = AiAgentGatewayText.Require(code, nameof(code));
+        Code = AiAgentActionGateCodes.Normalize(code);
         ArgumentNullException.ThrowIfNull(governanceMessages);
         GovernanceMessages = governanceMessages.ToImmutableArray();
         if (GovernanceMessages.IsDefaultOrEmpty || GovernanceMessages.Any(message => message is null))
@@ -200,7 +250,7 @@ internal sealed record AiAgentActionGateResult
             candidate ?? throw new ArgumentNullException(nameof(candidate)),
             facts,
             resolution,
-            AiAgentGatewayText.Require(code, nameof(code)),
+            AiAgentActionGateCodes.Normalize(code),
             retention ?? throw new ArgumentNullException(nameof(retention)));
     }
 }
@@ -268,7 +318,7 @@ internal sealed record AiActionApprovalResolution
         new(
             approver: null,
             policy: null,
-            AiAgentGatewayText.Require(code, nameof(code)));
+            AiAgentActionGateCodes.Normalize(code));
 }
 
 internal interface IAiActionApprovalResolver
@@ -278,7 +328,7 @@ internal interface IAiActionApprovalResolver
         CancellationToken cancellationToken = default);
 }
 
-internal sealed class AiAgentActionGate : IAiAgentActionGate
+internal sealed class AiAgentActionGate : AiAgentActionGateBase
 {
     private readonly ActionDomainCatalog _catalog;
     private readonly ActionDomainCatalogBinding _binding;
@@ -290,6 +340,23 @@ internal sealed class AiAgentActionGate : IAiAgentActionGate
         ActionDomainCatalogBinding binding,
         IAiActionApprovalResolver approvalResolver,
         Func<DateTimeOffset>? clock = null)
+        : this(
+            catalog,
+            binding,
+            approvalResolver,
+            NoopJourneyAuditLog.Instance,
+            clock)
+    {
+    }
+
+    public AiAgentActionGate(
+        ActionDomainCatalog catalog,
+        ActionDomainCatalogBinding binding,
+        IAiActionApprovalResolver approvalResolver,
+        IJourneyAuditLog auditLog,
+        Func<DateTimeOffset>? clock = null,
+        Func<DateTimeOffset>? auditClock = null)
+        : base(auditLog, auditClock)
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _binding = binding ?? throw new ArgumentNullException(nameof(binding));
@@ -297,7 +364,22 @@ internal sealed class AiAgentActionGate : IAiAgentActionGate
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public async ValueTask<AiAgentActionGateResult> EvaluateAsync(
+    internal static AiAgentActionGate CreateFailClosed(
+        IJourneyAuditLog auditLog,
+        Func<DateTimeOffset>? clock = null,
+        Func<DateTimeOffset>? auditClock = null) =>
+        new(
+            new ActionDomainCatalog(
+                1,
+                new ActionDomainCatalogDefaults(ActionDomainGate.Escalate),
+                []),
+            new ActionDomainCatalogBinding(),
+            RejectingApprovalResolver.Instance,
+            auditLog,
+            clock,
+            auditClock);
+
+    protected override async ValueTask<AiAgentActionGateResult> EvaluateCoreAsync(
         AiDirectiveExecutionContext context,
         AiAgentActionCandidate candidate,
         CancellationToken cancellationToken = default)
@@ -508,6 +590,7 @@ internal sealed class AiAgentActionGate : IAiAgentActionGate
         string code,
         AiAgentActionGateOutcome outcome = AiAgentActionGateOutcome.RetainedForEscalation)
     {
+        var safeCode = AiAgentActionGateCodes.Normalize(code);
         EndpointRef destination = context.Relation.ReportsTo is { } superior
             ? new PositionEndpointRef(superior)
             : new OrganizationOwnerEndpointRef();
@@ -522,16 +605,16 @@ internal sealed class AiAgentActionGate : IAiAgentActionGate
             _clock(),
             context.Directive.Deadline,
             "Action retained by authority gate.",
-            $"{ActionDescriptor(candidate)} was retained with code '{code}'.",
+            $"{ActionDescriptor(candidate)} was retained with code '{safeCode}'.",
             []);
-        var retention = Retention(context, candidate, code, [escalation]);
+        var retention = Retention(context, candidate, safeCode, [escalation]);
 
         return AiAgentActionGateResult.Retained(
             outcome,
             candidate,
             facts,
             resolution,
-            code,
+            safeCode,
             retention);
     }
 
@@ -627,8 +710,21 @@ internal sealed class AiAgentActionGate : IAiAgentActionGate
             candidate.Kind,
             candidate.Selector,
             slot)));
+
+    private sealed class RejectingApprovalResolver : IAiActionApprovalResolver
+    {
+        public static RejectingApprovalResolver Instance { get; } = new();
+
+        public ValueTask<AiActionApprovalResolution> ResolveAsync(
+            AiActionApprovalResolutionQuery query,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(
+                AiActionApprovalResolution.Failed("action-gate-approval-resolver-unavailable"));
+    }
 }
 
+// Compatibility bypass for focused actor/unit constructors. It is never registered by the
+// production composition root, whose gate must derive from AiAgentActionGateBase.
 internal sealed class AllowingAiAgentActionGate : IAiAgentActionGate
 {
     public static AllowingAiAgentActionGate Instance { get; } = new();
@@ -646,39 +742,5 @@ internal sealed class AllowingAiAgentActionGate : IAiAgentActionGate
         ArgumentNullException.ThrowIfNull(candidate);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(AiAgentActionGateResult.Allowed(candidate));
-    }
-}
-
-internal sealed class FailClosedAiAgentActionGate : IAiAgentActionGate
-{
-    public static FailClosedAiAgentActionGate Instance { get; } = new();
-
-    private readonly AiAgentActionGate _inner = new(
-        new ActionDomainCatalog(
-            1,
-            new ActionDomainCatalogDefaults(ActionDomainGate.Escalate),
-            []),
-        new ActionDomainCatalogBinding(),
-        RejectingApprovalResolver.Instance);
-
-    private FailClosedAiAgentActionGate()
-    {
-    }
-
-    public ValueTask<AiAgentActionGateResult> EvaluateAsync(
-        AiDirectiveExecutionContext context,
-        AiAgentActionCandidate candidate,
-        CancellationToken cancellationToken = default) =>
-        _inner.EvaluateAsync(context, candidate, cancellationToken);
-
-    private sealed class RejectingApprovalResolver : IAiActionApprovalResolver
-    {
-        public static RejectingApprovalResolver Instance { get; } = new();
-
-        public ValueTask<AiActionApprovalResolution> ResolveAsync(
-            AiActionApprovalResolutionQuery query,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(
-                AiActionApprovalResolution.Failed("action-gate-approval-resolver-unavailable"));
     }
 }

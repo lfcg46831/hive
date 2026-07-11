@@ -165,13 +165,24 @@ public sealed class AiAgentGatewayInvokerTests
 
         Assert.IsType<AiAgentGatewayInvoker>(
             host.Services.GetRequiredService<IAiAgentGatewayInvoker>());
-        Assert.IsType<FailClosedAiAgentActionGate>(
+        Assert.IsType<AiAgentActionGate>(
             host.Services.GetRequiredService<IAiAgentActionGate>());
         Assert.IsType<PositionOccupantFactory>(
             host.Services.GetRequiredService<IPositionOccupantFactory>());
 
         var props = host.Services.GetRequiredService<IPositionEntityProps>();
         Assert.IsType<Props>(props.Create("acme-delivery/triage-agent"));
+    }
+
+    [Fact]
+    public void AiAgentActionGate_uses_the_non_overridable_audited_base_pipeline()
+    {
+        Assert.True(typeof(AiAgentActionGate).IsSubclassOf(typeof(AiAgentActionGateBase)));
+        var evaluate = typeof(AiAgentActionGateBase).GetMethod(
+            nameof(IAiAgentActionGate.EvaluateAsync));
+
+        Assert.NotNull(evaluate);
+        Assert.True(evaluate.IsFinal);
     }
 
     [Fact]
@@ -283,4 +294,5 @@ public sealed class AiAgentGatewayInvokerTests
                 SuccessResponse()));
         }
     }
+
 }

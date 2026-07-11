@@ -277,6 +277,52 @@ public sealed class ActionDomainGateResolverTests
         Assert.Empty(resolution.RequiredApprovals);
     }
 
+    [Theory]
+    [InlineData(ActionDomainGate.Decide, ActionDomainGate.Decide, ActionDomainGate.Decide)]
+    [InlineData(ActionDomainGate.Decide, ActionDomainGate.Escalate, ActionDomainGate.Escalate)]
+    [InlineData(ActionDomainGate.Decide, ActionDomainGate.HumanApproval, ActionDomainGate.HumanApproval)]
+    [InlineData(ActionDomainGate.Escalate, ActionDomainGate.Decide, ActionDomainGate.Escalate)]
+    [InlineData(ActionDomainGate.Escalate, ActionDomainGate.Escalate, ActionDomainGate.Escalate)]
+    [InlineData(ActionDomainGate.Escalate, ActionDomainGate.HumanApproval, ActionDomainGate.HumanApproval)]
+    [InlineData(ActionDomainGate.HumanApproval, ActionDomainGate.Decide, ActionDomainGate.HumanApproval)]
+    [InlineData(ActionDomainGate.HumanApproval, ActionDomainGate.Escalate, ActionDomainGate.HumanApproval)]
+    [InlineData(ActionDomainGate.HumanApproval, ActionDomainGate.HumanApproval, ActionDomainGate.HumanApproval)]
+    public void Effective_gate_is_the_most_severe_across_catalog_and_overrides_regardless_of_order(
+        ActionDomainGate catalogGate,
+        ActionDomainGate overrideGate,
+        ActionDomainGate expectedGate)
+    {
+        var key = Key("deployment.production");
+        var facts = ToolFacts("deployment.promote");
+        var catalog = Catalog(
+            Objective(key, catalogGate, ToolPredicate("deployment.promote")));
+        var forwardAuthority = Authority(
+            overrides:
+            [
+                Override(key, ActionDomainGate.Decide),
+                Override(key, overrideGate),
+            ]);
+        var reverseAuthority = Authority(
+            overrides:
+            [
+                Override(key, overrideGate),
+                Override(key, ActionDomainGate.Decide),
+            ]);
+
+        var forward = Resolve(catalog, facts, forwardAuthority);
+        var reverse = Resolve(catalog, facts, reverseAuthority);
+
+        Assert.Equal(forward, reverse);
+        Assert.Equal(expectedGate, Assert.Single(forward.Matches).EffectiveGate);
+        Assert.Equal(
+            expectedGate switch
+            {
+                ActionDomainGate.HumanApproval => ActionGateOutcome.HumanApprovalRequired,
+                _ => ActionGateOutcome.EscalationRequired,
+            },
+            forward.Outcome);
+    }
+
     [Fact]
     public void Objective_decide_matches_do_not_authorize_but_a_valid_trust_declaration_does()
     {

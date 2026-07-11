@@ -108,6 +108,19 @@ public sealed class ActingUnderDeclarationTests
     }
 
     [Fact]
+    public void Resolver_rejects_a_well_formed_value_when_the_authorized_vocabulary_is_empty()
+    {
+        var declaration = ActingUnderDeclaration.Resolve(
+            fieldPresent: true,
+            value: "delivery.bug-triage",
+            allowedKeys: []);
+
+        Assert.Equal(ActingUnderDeclarationState.Invalid, declaration.State);
+        Assert.Null(declaration.Key);
+        Assert.Equal("acting-under-invalid", declaration.Code);
+    }
+
+    [Fact]
     public void Invalid_declaration_does_not_retain_the_raw_value()
     {
         const string rawValue = "finance.secret-override";

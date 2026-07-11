@@ -555,9 +555,18 @@ public sealed class PositionActorDispatchTests
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var status = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
+            PositionRuntimeStatus status;
+            try
+            {
+                status = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+            }
+            catch (AskTimeoutException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                continue;
+            }
+
             if (status.OperationalState == PositionOperationalState.Ready)
             {
                 return;

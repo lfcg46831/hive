@@ -55,11 +55,13 @@ public sealed class PositionActorRecoveryTests
 
             var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
             var occupantFactory = new IgnoringOccupantFactory();
+            var publisher = new CapturingProjectionPublisher();
             var actor = system.ActorOf(
                 Props.Create(() => new PositionActor(
                     entity.Value,
                     provider,
                     occupantFactory,
+                    publisher,
                     () => At.AddMinutes(2))),
                 "position-recovery-reader");
 
@@ -80,13 +82,29 @@ public sealed class PositionActorRecoveryTests
 
             Assert.Equal("accepted", afterCommand.ShortMemory["after-command"]);
 
+            var retained = SampleRetainedAction(entity, "directive:retained");
+            actor.Tell(new RetainAction(retained));
+            actor.Tell(new RetainAction(SampleRetainedAction(
+                entity,
+                retained.CorrelationId,
+                RetainedActionId.New())));
+            var afterRetention = await WaitForStateAsync(
+                actor,
+                state => state.RetainedActions.Count == 1);
+            Assert.Equal(retained, Assert.Single(afterRetention.RetainedActions).Value);
+            Assert.Contains(
+                publisher.Events,
+                @event => @event is PositionRetainedActionReady ready && ready.Action == retained);
+
             await actor.GracefulStop(Timeout());
 
+            var restartPublisher = new CapturingProjectionPublisher();
             var restarted = system.ActorOf(
                 Props.Create(() => new PositionActor(
                     entity.Value,
                     provider,
                     occupantFactory,
+                    restartPublisher,
                     () => At.AddMinutes(3))),
                 "position-recovery-restarted");
 
@@ -94,6 +112,10 @@ public sealed class PositionActorRecoveryTests
             var afterRestart = await restarted.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
             Assert.Equal("accepted", afterRestart.ShortMemory["after-command"]);
+            Assert.Equal(retained, Assert.Single(afterRestart.RetainedActions).Value);
+            Assert.DoesNotContain(
+                restartPublisher.Events,
+                @event => @event is PositionRetainedActionReady);
         }
         finally
         {
@@ -204,11 +226,41 @@ public sealed class PositionActorRecoveryTests
             deadline: null,
             body: "Customer reported a regression.");
 
+    private static PersistedRetainedAction SampleRetainedAction(
+        PositionEntityId entity,
+        string correlationId,
+        RetainedActionId? id = null) =>
+        new(
+            id ?? RetainedActionId.New(),
+            ActionFingerprint.From("sha256:recovery-action"),
+            RetainedActionKind.Tool,
+            "github.create-issue",
+            "{\"title\":\"Regression\"}",
+            "{}",
+            correlationId,
+            entity.Organization,
+            entity.Position,
+            ThreadId(),
+            MessageId("aaaaaaaa-0000-0000-0000-000000000199"),
+            DirectiveId.From(new Guid("dddddddd-0000-0000-0000-000000000199")),
+            DirectiveId.From(new Guid("eeeeeeee-0000-0000-0000-000000000199")),
+            "action-gate-escalation-required",
+            At.AddMinutes(2));
+
     private static ThreadId ThreadId() =>
         Hive.Domain.Identity.ThreadId.From(new Guid("bbbbbbbb-0000-0000-0000-000000000101"));
 
     private static MessageId MessageId(string value) =>
         Hive.Domain.Identity.MessageId.From(new Guid(value));
+
+    private sealed class CapturingProjectionPublisher : IPositionProjectionPublisher
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<PositionProjectionEvent> _events = new();
+
+        public IReadOnlyCollection<PositionProjectionEvent> Events => _events.ToArray();
+
+        public void Publish(PositionProjectionEvent @event) => _events.Enqueue(@event);
+    }
 
     private static async Task WaitForReadyAsync(IActorRef actor)
     {

@@ -31,7 +31,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.ShortMemory,
             dto.RecentHistory,
             dto.ProcessedMessages,
-            dto.LastConfigurationStamp);
+            dto.LastConfigurationStamp,
+            dto.RetainedActions);
     }
 
     public override void Write(
@@ -56,6 +57,7 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             RecentHistory = value.RecentHistory.ToList(),
             ProcessedMessages = value.ProcessedMessages.ToList(),
             LastConfigurationStamp = value.LastConfigurationStamp,
+            RetainedActions = value.RetainedActions.IsEmpty ? null : value.RetainedActions.ToList(),
         };
 
         JsonSerializer.Serialize(writer, dto, options);
@@ -80,5 +82,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
         public List<MessageId>? ProcessedMessages { get; set; }
 
         public PositionConfigurationStamp? LastConfigurationStamp { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<PersistedRetainedAction>? RetainedActions { get; set; }
     }
 }

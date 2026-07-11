@@ -26,6 +26,7 @@ internal static class CanonicalPositionProtocolFixtures
         ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(30))),
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("position-passivated", new PositionPassivated(OccurredAt.AddMinutes(45), "idle")),
+        ("action-retained", new ActionRetained(RetainedAction())),
         ("position-snapshot", Snapshot()),
     ];
 
@@ -60,4 +61,23 @@ internal static class CanonicalPositionProtocolFixtures
 
     private static PositionTaskId TaskId() =>
         PositionTaskId.From(new Guid("c6000000-0000-0000-0000-000000000001"));
+
+    private static PersistedRetainedAction RetainedAction() =>
+        new(
+            RetainedActionId.From(new Guid("f9000000-0000-0000-0000-000000000001")),
+            ActionFingerprint.From("sha256:canonical-retained-action"),
+            RetainedActionKind.OrganizationalMessage,
+            "Memo",
+            "{\"body\":\"Customer reported a regression.\"}",
+            "{}",
+            "directive:retained",
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            ThreadId(),
+            MessageId(),
+            DirectiveId.From(new Guid("f9000000-0000-0000-0000-0000000000d1")),
+            null,
+            "action-gate-escalation-required",
+            OccurredAt.AddMinutes(40),
+            governanceMessages: new[] { Message() });
 }

@@ -20,6 +20,7 @@ internal static class PositionProtocolManifests
         ("update-short-memory", typeof(UpdateShortMemory)),
         ("change-occupant", typeof(ChangeOccupant)),
         ("request-passivation", typeof(RequestPassivation)),
+        ("retain-action", typeof(RetainAction)),
         ("message-received", typeof(MessageReceived)),
         ("task-created", typeof(TaskCreated)),
         ("task-updated", typeof(TaskUpdated)),
@@ -30,6 +31,7 @@ internal static class PositionProtocolManifests
         ("message-processing-completed", typeof(MessageProcessingCompleted)),
         ("position-passivated", typeof(PositionPassivated)),
         ("position-configuration-applied", typeof(PositionConfigurationApplied)),
+        ("action-retained", typeof(ActionRetained)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

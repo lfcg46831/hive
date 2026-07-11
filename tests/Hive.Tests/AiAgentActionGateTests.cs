@@ -143,6 +143,13 @@ public sealed class AiAgentActionGateTests
         Assert.Equal(
             [new PositionEndpointRef(PositionId.From("ceo")), new PositionEndpointRef(Superior)],
             requests.Select(request => request.To).ToArray());
+        var retained = AiAgentRetainedActionFactory.Create(result, At).Action;
+        Assert.Equal(RetainedActionKind.OrganizationalMessage, retained.Kind);
+        Assert.Equal(
+            ["action-domain-ceo", "action-domain-delivery-lead"],
+            retained.ApprovalPolicies.Select(policy => policy.Value));
+        Assert.Equal(Directive, retained.DirectiveId);
+        Assert.Null(retained.ParentDirectiveId);
     }
 
     [Fact]
@@ -214,6 +221,10 @@ public sealed class AiAgentActionGateTests
         Assert.Null(result.Facts);
         Assert.Null(result.Resolution);
         Assert.Empty(resolver.Queries);
+        var retained = AiAgentRetainedActionFactory.Create(result, At).Action;
+        Assert.Equal(RetainedActionKind.Tool, retained.Kind);
+        Assert.Contains("\"Name\":\"files\"", retained.CanonicalPayload, StringComparison.Ordinal);
+        Assert.StartsWith("sha256:", retained.Fingerprint.Value, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -109,12 +109,20 @@ public sealed class PositionActorIdempotencyTests
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var status = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
-            if (status.OperationalState == PositionOperationalState.Ready)
+            try
             {
-                return;
+                var status = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+                if (status.OperationalState == PositionOperationalState.Ready)
+                {
+                    return;
+                }
+            }
+            catch (AskTimeoutException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                // Recovery may temporarily delay replies when the shared test runner is busy.
+                // Keep polling until the outer readiness deadline is exhausted.
             }
 
             await Task.Delay(25);

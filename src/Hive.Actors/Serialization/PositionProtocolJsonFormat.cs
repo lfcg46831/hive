@@ -33,8 +33,11 @@ internal static class PositionProtocolJsonFormat
         var options = OrgMessageJsonFormat.CreateOptions();
 
         options.Converters.Add(new GuidIdJsonConverter<PositionTaskId>(PositionTaskId.From, id => id.Value));
+        options.Converters.Add(new GuidIdJsonConverter<RetainedActionId>(RetainedActionId.From, id => id.Value));
+        options.Converters.Add(new StructuralIdJsonConverter<ActionFingerprint>(ActionFingerprint.From, id => id.Value));
         options.Converters.Add(new OccupantTypeJsonConverter());
         options.Converters.Add(new MessageProcessingCompletionStatusJsonConverter());
+        options.Converters.Add(new PersistedRetainedActionJsonConverter());
         options.Converters.Add(new PositionSnapshotJsonConverter());
         options.Converters.Add(new ManifestedPayloadJsonConverter<OrgMessage>(
             OrgMessageManifests.ForType,

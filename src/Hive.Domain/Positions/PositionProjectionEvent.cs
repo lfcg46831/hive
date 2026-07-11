@@ -37,6 +37,21 @@ public sealed record PositionEventCommitted : PositionProjectionEvent
     public PositionEvent Event { get; }
 }
 
+/// <summary>
+/// A retained action is durable and its already-materialized governance messages may now be
+/// handed to routing/dispatch. This signal is never published during recovery.
+/// </summary>
+public sealed record PositionRetainedActionReady : PositionProjectionEvent
+{
+    public PositionRetainedActionReady(PositionEntityId entityId, PersistedRetainedAction action)
+        : base(entityId, (action ?? throw new ArgumentNullException(nameof(action))).RetainedAt)
+    {
+        Action = action;
+    }
+
+    public PersistedRetainedAction Action { get; }
+}
+
 /// <summary>The position restored its durable state from snapshot/journal replay.</summary>
 public sealed record PositionRecovered : PositionProjectionEvent
 {

@@ -42,4 +42,5 @@ public enum PositionPassivationBlockReason
     CriticalTaskOpen = 2,
     ActiveSchedule = 3,
     ActiveSubscription = 4,
+    RetainedAction = 5,
 }

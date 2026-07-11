@@ -34,7 +34,8 @@ public sealed record PositionSnapshot
         IReadOnlyDictionary<string, string>? shortMemory = null,
         IEnumerable<MessageId>? recentHistory = null,
         IEnumerable<MessageId>? processedMessages = null,
-        PositionConfigurationStamp? lastConfigurationStamp = null)
+        PositionConfigurationStamp? lastConfigurationStamp = null,
+        IEnumerable<PersistedRetainedAction>? retainedActions = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -60,6 +61,17 @@ public sealed record PositionSnapshot
         RecentHistory = ToValidatedArray(recentHistory, nameof(recentHistory));
         ProcessedMessages = ToValidatedArray(processedMessages, nameof(processedMessages));
         LastConfigurationStamp = lastConfigurationStamp;
+        RetainedActions = ToValidatedArray(retainedActions, nameof(retainedActions));
+        if (RetainedActions.Select(action => action.Id).Distinct().Count() != RetainedActions.Length)
+        {
+            throw new ArgumentException("Retained action ids must be unique.", nameof(retainedActions));
+        }
+
+        if (RetainedActions.Select(action => action.CorrelationId).Distinct(StringComparer.Ordinal).Count()
+            != RetainedActions.Length)
+        {
+            throw new ArgumentException("Retained action correlations must be unique.", nameof(retainedActions));
+        }
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -88,6 +100,9 @@ public sealed record PositionSnapshot
 
     /// <summary>The latest runtime configuration stamp accepted by the position entity.</summary>
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
+
+    /// <summary>Actions durably stopped by the authority gate.</summary>
+    public ImmutableArray<PersistedRetainedAction> RetainedActions { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

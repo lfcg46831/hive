@@ -362,9 +362,10 @@ internal sealed class AiAgentActor : ReceiveActor
                 var resultMessage = AiDirectiveResultMessageFactory.Create(
                     context,
                     interpretation.Decision!);
+                AiAgentActionGateResult? actionGateResult = null;
                 if (resultMessage.IsSuccess)
                 {
-                    var actionGateResult = await ActionGate
+                    actionGateResult = await ActionGate
                         .EvaluateAsync(
                             context,
                             AiAgentActionCandidate.ForMessage(
@@ -399,6 +400,12 @@ internal sealed class AiAgentActor : ReceiveActor
                 }
 
                 _directiveResultMessages[request.CorrelationId] = resultMessage;
+                if (actionGateResult?.IsRetained == true)
+                {
+                    parent.Tell(AiAgentRetainedActionFactory.Create(
+                        actionGateResult,
+                        DateTimeOffset.UtcNow));
+                }
                 var positionEffects = AiDirectivePositionEffectFactory.Create(
                     context,
                     resultMessage);

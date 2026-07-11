@@ -1,0 +1,43 @@
+{
+  "Action": {
+    "Id": "f9000000-0000-0000-0000-000000000001",
+    "Fingerprint": "sha256:canonical-retained-action",
+    "Kind": 2,
+    "Selector": "Memo",
+    "CanonicalPayload": "{\u0022body\u0022:\u0022Customer reported a regression.\u0022}",
+    "CanonicalFacts": "{}",
+    "CorrelationId": "directive:retained",
+    "OrganizationId": "acme",
+    "PositionId": "delivery-lead",
+    "ThreadId": "d3000000-0000-0000-0000-0000000000a1",
+    "SourceMessageId": "d3000000-0000-0000-0000-000000000001",
+    "DirectiveId": "f9000000-0000-0000-0000-0000000000d1",
+    "ParentDirectiveId": null,
+    "Code": "action-gate-escalation-required",
+    "RetainedAt": "2026-06-26T10:40:00\u002B00:00",
+    "ApprovalPolicies": [],
+    "GovernanceMessages": [
+      {
+        "manifest": "memo",
+        "payload": {
+          "Body": "Heads up: the staging credential rotates tonight.",
+          "Id": "d3000000-0000-0000-0000-000000000001",
+          "OrganizationId": "acme",
+          "From": {
+            "kind": "position",
+            "positionId": "bug-triage"
+          },
+          "To": {
+            "kind": "position",
+            "positionId": "release-manager"
+          },
+          "Thread": "d3000000-0000-0000-0000-0000000000a1",
+          "Priority": "high",
+          "SchemaVersion": 1,
+          "SentAt": "2026-06-21T10:00:00\u002B00:00",
+          "Deadline": null
+        }
+      }
+    ]
+  }
+}

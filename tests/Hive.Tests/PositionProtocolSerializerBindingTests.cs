@@ -116,6 +116,31 @@ public sealed class PositionProtocolSerializerBindingTests
         }
     }
 
+    [Fact]
+    public async Task Older_position_snapshot_without_retained_actions_remains_readable()
+    {
+        using var host = BuildHost(GetFreeTcpPort());
+        await host.StartAsync();
+        try
+        {
+            var system = host.Services.GetRequiredService<ActorSystem>();
+            var serializer = Assert.IsAssignableFrom<SerializerWithStringManifest>(
+                system.Serialization.FindSerializerForType(typeof(PositionSnapshot)));
+            var node = JsonNode.Parse(serializer.ToBinary(new PositionSnapshot(At)))!.AsObject();
+            node.Remove("RetainedActions");
+
+            var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
+                System.Text.Encoding.UTF8.GetBytes(node.ToJsonString()),
+                "position-snapshot"));
+
+            Assert.Empty(restored.RetainedActions);
+        }
+        finally
+        {
+            await host.StopAsync();
+        }
+    }
+
     private static IEnumerable<Type> BoundTypes()
     {
         yield return typeof(PositionEnvelope);
@@ -127,6 +152,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(UpdateShortMemory);
         yield return typeof(ChangeOccupant);
         yield return typeof(RequestPassivation);
+        yield return typeof(RetainAction);
         yield return typeof(PositionEvent);
         yield return typeof(MessageReceived);
         yield return typeof(TaskCreated);
@@ -138,6 +164,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(MessageProcessingCompleted);
         yield return typeof(PositionPassivated);
         yield return typeof(PositionConfigurationApplied);
+        yield return typeof(ActionRetained);
         yield return typeof(PositionSnapshot);
     }
 
@@ -151,6 +178,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("update-short-memory", new UpdateShortMemory("current-thread", "customer-impact"));
         yield return ("change-occupant", new ChangeOccupant(OccupantId.From("agent-7"), OccupantType.AiAgent));
         yield return ("request-passivation", new RequestPassivation("idle"));
+        yield return ("retain-action", new RetainAction(SampleRetainedAction()));
         yield return ("message-received", new MessageReceived(SampleMessage(), At));
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));
@@ -161,6 +189,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
         yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
+        yield return ("action-retained", new ActionRetained(SampleRetainedAction()));
         yield return ("position-snapshot", SampleSnapshot());
     }
 
@@ -182,7 +211,27 @@ public sealed class PositionProtocolSerializerBindingTests
             new Dictionary<string, string> { ["current-thread"] = "customer-impact" },
             new[] { MessageId() },
             new[] { MessageId() },
-            ConfigurationStamp());
+            ConfigurationStamp(),
+            new[] { SampleRetainedAction() });
+
+    private static PersistedRetainedAction SampleRetainedAction() =>
+        new(
+            RetainedActionId.From(new Guid("dddddddd-0000-0000-0000-000000000001")),
+            ActionFingerprint.From("sha256:sample"),
+            RetainedActionKind.OrganizationalMessage,
+            "Report",
+            "{\"body\":\"retained\"}",
+            "{}",
+            "directive:retained",
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            ThreadId(),
+            MessageId(),
+            DirectiveId.From(new Guid("eeeeeeee-0000-0000-0000-000000000001")),
+            null,
+            "action-gate-escalation-required",
+            At,
+            governanceMessages: new[] { SampleMessage() });
 
     private static Memo SampleMessage() =>
         new(

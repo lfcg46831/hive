@@ -19,7 +19,8 @@ public sealed record PositionState
         ImmutableHashSet<MessageId> processedMessages,
         OccupantId? occupant,
         OccupantType? occupantType,
-        PositionConfigurationStamp? lastConfigurationStamp)
+        PositionConfigurationStamp? lastConfigurationStamp,
+        ImmutableDictionary<RetainedActionId, PersistedRetainedAction> retainedActions)
     {
         Inbox = inbox;
         OpenTasks = openTasks;
@@ -29,6 +30,7 @@ public sealed record PositionState
         Occupant = occupant;
         OccupantType = occupantType;
         LastConfigurationStamp = lastConfigurationStamp;
+        RetainedActions = retainedActions;
     }
 
     /// <summary>The initial state before any snapshot or event has been replayed.</summary>
@@ -40,7 +42,8 @@ public sealed record PositionState
         ImmutableHashSet<MessageId>.Empty,
         occupant: null,
         occupantType: null,
-        lastConfigurationStamp: null);
+        lastConfigurationStamp: null,
+        ImmutableDictionary<RetainedActionId, PersistedRetainedAction>.Empty);
 
     /// <summary>The messages admitted but not yet dispatched.</summary>
     public ImmutableArray<OrgMessage> Inbox { get; }
@@ -66,6 +69,9 @@ public sealed record PositionState
     /// <summary>The latest runtime configuration stamp accepted by the position entity.</summary>
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
 
+    /// <summary>Actions retained by the authority gate, keyed by durable identity.</summary>
+    public ImmutableDictionary<RetainedActionId, PersistedRetainedAction> RetainedActions { get; }
+
     /// <summary>Rebuilds live state from a persisted point-in-time snapshot.</summary>
     public static PositionState Restore(PositionSnapshot snapshot)
     {
@@ -79,7 +85,8 @@ public sealed record PositionState
             snapshot.ProcessedMessages.ToImmutableHashSet(),
             snapshot.Occupant,
             snapshot.OccupantType,
-            snapshot.LastConfigurationStamp);
+            snapshot.LastConfigurationStamp,
+            snapshot.RetainedActions.ToImmutableDictionary(action => action.Id));
     }
 
     /// <summary>Exports the live state into the persisted snapshot shape.</summary>
@@ -92,7 +99,8 @@ public sealed record PositionState
         ShortMemory,
         RecentHistory,
         ProcessedMessages.OrderBy(message => message.Value),
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions.Values.OrderBy(action => action.Id.Value));
 
     /// <summary>Evaluates whether the recovered state is currently safe to passivate.</summary>
     public PositionPassivationDecision EvaluatePassivation(PositionRuntimeConfiguration configuration)
@@ -120,6 +128,11 @@ public sealed record PositionState
             reasons.Add(PositionPassivationBlockReason.ActiveSubscription);
         }
 
+        if (!RetainedActions.IsEmpty)
+        {
+            reasons.Add(PositionPassivationBlockReason.RetainedAction);
+        }
+
         return new PositionPassivationDecision(reasons);
     }
 
@@ -140,6 +153,7 @@ public sealed record PositionState
             MessageProcessingCompleted completed => Apply(completed),
             PositionPassivated => this,
             PositionConfigurationApplied applied => Apply(applied),
+            ActionRetained retained => Apply(retained),
             _ => this,
         };
     }
@@ -152,7 +166,8 @@ public sealed record PositionState
         ProcessedMessages.Add(@event.Message.Id),
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(TaskCreated @event) => new(
         Inbox,
@@ -171,7 +186,8 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(TaskUpdated @event)
     {
@@ -197,7 +213,8 @@ public sealed record PositionState
             ProcessedMessages,
             Occupant,
             OccupantType,
-            LastConfigurationStamp);
+            LastConfigurationStamp,
+            RetainedActions);
     }
 
     private PositionState Apply(TaskCompleted @event) => new(
@@ -208,7 +225,8 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(ShortMemoryUpdated @event) => new(
         Inbox,
@@ -220,7 +238,8 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(OccupantChanged @event) => new(
         Inbox,
@@ -230,7 +249,8 @@ public sealed record PositionState
         ProcessedMessages,
         @event.Occupant,
         @event.Type,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(MessageDispatched @event) => new(
         Inbox,
@@ -242,7 +262,8 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(MessageProcessingCompleted @event) => new(
         Inbox.RemoveAll(message => message.Id == @event.Message),
@@ -252,7 +273,8 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        LastConfigurationStamp);
+        LastConfigurationStamp,
+        RetainedActions);
 
     private PositionState Apply(PositionConfigurationApplied @event) => new(
         Inbox,
@@ -262,5 +284,29 @@ public sealed record PositionState
         ProcessedMessages,
         Occupant,
         OccupantType,
-        @event.Stamp);
+        @event.Stamp,
+        RetainedActions);
+
+    private PositionState Apply(ActionRetained @event)
+    {
+        if (RetainedActions.ContainsKey(@event.Action.Id)
+            || RetainedActions.Values.Any(action => string.Equals(
+                action.CorrelationId,
+                @event.Action.CorrelationId,
+                StringComparison.Ordinal)))
+        {
+            return this;
+        }
+
+        return new PositionState(
+            Inbox,
+            OpenTasks,
+            ShortMemory,
+            RecentHistory,
+            ProcessedMessages,
+            Occupant,
+            OccupantType,
+            LastConfigurationStamp,
+            RetainedActions.Add(@event.Action.Id, @event.Action));
+    }
 }

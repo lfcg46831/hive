@@ -155,6 +155,9 @@ internal sealed class PositionActor :
         Command<ChangeOccupant>(command =>
             WhenReady(() =>
                 PersistOccupantChange(command)));
+        Command<RetainAction>(command =>
+            WhenReady(() =>
+                PersistRetainedAction(command)));
         Command<RequestPassivation>(command =>
             WhenReady(() =>
                 PersistPassivationIfAllowed(command)));
@@ -251,6 +254,28 @@ internal sealed class PositionActor :
             completed.FailureCode));
     }
 
+    private void PersistRetainedAction(RetainAction command)
+    {
+        if (_state.RetainedActions.ContainsKey(command.Action.Id)
+            || _state.RetainedActions.Values.Any(action => string.Equals(
+                action.CorrelationId,
+                command.Action.CorrelationId,
+                StringComparison.Ordinal)))
+        {
+            return;
+        }
+
+        if (command.Action.OrganizationId != EntityId.Organization
+            || command.Action.PositionId != EntityId.Position)
+        {
+            throw new ArgumentException(
+                "Retained action organization and position must match the target entity.",
+                nameof(command));
+        }
+
+        PersistAndApply(new ActionRetained(command.Action));
+    }
+
     private void PersistPendingDispatches(Action? afterDispatch = null)
     {
         if (_state.Occupant is not { } occupant || _state.OccupantType is not { } occupantType)
@@ -314,6 +339,11 @@ internal sealed class PositionActor :
 
         _state = _state.Apply(persisted);
         PublishProjection(new PositionEventCommitted(EntityId, persisted));
+
+        if (persisted is ActionRetained retained)
+        {
+            PublishProjection(new PositionRetainedActionReady(EntityId, retained.Action));
+        }
 
         if (persisted is OccupantChanged changed)
         {

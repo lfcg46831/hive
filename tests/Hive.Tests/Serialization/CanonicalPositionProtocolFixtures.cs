@@ -65,7 +65,7 @@ internal static class CanonicalPositionProtocolFixtures
     private static PersistedRetainedAction RetainedAction() =>
         new(
             RetainedActionId.From(new Guid("f9000000-0000-0000-0000-000000000001")),
-            ActionFingerprint.From("sha256:canonical-retained-action"),
+            ActionFingerprint.From("sha256:0000000000000000000000000000000000000000000000000000000000000004"),
             RetainedActionKind.OrganizationalMessage,
             "Memo",
             "{\"body\":\"Customer reported a regression.\"}",

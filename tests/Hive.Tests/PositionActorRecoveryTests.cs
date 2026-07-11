@@ -232,7 +232,7 @@ public sealed class PositionActorRecoveryTests
         RetainedActionId? id = null) =>
         new(
             id ?? RetainedActionId.New(),
-            ActionFingerprint.From("sha256:recovery-action"),
+            ActionFingerprint.From("sha256:0000000000000000000000000000000000000000000000000000000000000003"),
             RetainedActionKind.Tool,
             "github.create-issue",
             "{\"title\":\"Regression\"}",

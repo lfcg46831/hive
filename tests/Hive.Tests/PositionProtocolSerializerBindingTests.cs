@@ -217,7 +217,7 @@ public sealed class PositionProtocolSerializerBindingTests
     private static PersistedRetainedAction SampleRetainedAction() =>
         new(
             RetainedActionId.From(new Guid("dddddddd-0000-0000-0000-000000000001")),
-            ActionFingerprint.From("sha256:sample"),
+            ActionFingerprint.From("sha256:0000000000000000000000000000000000000000000000000000000000000001"),
             RetainedActionKind.OrganizationalMessage,
             "Report",
             "{\"body\":\"retained\"}",

@@ -1,7 +1,7 @@
 {
   "Action": {
     "Id": "f9000000-0000-0000-0000-000000000001",
-    "Fingerprint": "sha256:canonical-retained-action",
+    "Fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
     "Kind": 2,
     "Selector": "Memo",
     "CanonicalPayload": "{\u0022body\u0022:\u0022Customer reported a regression.\u0022}",

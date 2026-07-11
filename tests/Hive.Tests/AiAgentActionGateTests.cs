@@ -224,9 +224,17 @@ public sealed class AiAgentActionGateTests
         Assert.Null(result.Resolution);
         Assert.Empty(resolver.Queries);
         var retained = AiAgentRetainedActionFactory.Create(result, At).Action;
+        var repeated = AiAgentRetainedActionFactory.Create(result, At).Action;
         Assert.Equal(RetainedActionKind.Tool, retained.Kind);
         Assert.Contains("\"Name\":\"files\"", retained.CanonicalPayload, StringComparison.Ordinal);
         Assert.StartsWith("sha256:", retained.Fingerprint.Value, StringComparison.Ordinal);
+        Assert.Equal(
+            RetainedActionFingerprintFactory.Create(
+                result.Retention!.Candidate,
+                result.Facts).Fingerprint,
+            retained.Fingerprint);
+        Assert.Equal(retained.Fingerprint, repeated.Fingerprint);
+        Assert.Equal(retained.Id, repeated.Id);
     }
 
     [Fact]

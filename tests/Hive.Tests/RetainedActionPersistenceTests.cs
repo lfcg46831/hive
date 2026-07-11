@@ -86,7 +86,7 @@ public sealed class RetainedActionPersistenceTests
         DirectiveId? parentDirectiveId = null) =>
         new(
             id ?? RetainedActionId.New(),
-            ActionFingerprint.From("sha256:action"),
+            ActionFingerprint.From("sha256:0000000000000000000000000000000000000000000000000000000000000002"),
             RetainedActionKind.Tool,
             "github.create-issue",
             "{\"arguments\":{\"title\":\"Incident\"}}",

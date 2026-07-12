@@ -521,6 +521,23 @@ internal sealed class PositionActor :
             PublishProjection(new PositionRetainedActionReady(EntityId, retained.Action));
         }
 
+        if (RetainedActionIdFor(persisted) is { } retainedActionId
+            && _state.RetainedActions.TryGetValue(retainedActionId, out var retainedAction))
+        {
+            PublishProjection(new PositionRetainedActionLifecycleChanged(
+                EntityId,
+                retainedAction,
+                persisted));
+
+            if (persisted is RetainedActionExpired or RetainedActionReturned)
+            {
+                PublishProjection(new PositionRetainedActionReEscalationReady(
+                    EntityId,
+                    retainedAction,
+                    persisted));
+            }
+        }
+
         if (persisted is OccupantChanged changed)
         {
             StopObsoleteOccupant(
@@ -536,6 +553,17 @@ internal sealed class PositionActor :
                 dispatchEvent.OccupantType);
         }
     }
+
+    private static RetainedActionId? RetainedActionIdFor(PositionEvent @event) =>
+        @event switch
+        {
+            RetainedActionAuthorized authorized => authorized.Grant.RetainedActionId,
+            RetainedActionDenied denied => denied.Denial.RetainedActionId,
+            RetainedActionConsumed consumed => consumed.ActionId,
+            RetainedActionExpired expired => expired.ActionId,
+            RetainedActionReturned returned => returned.ActionId,
+            _ => null,
+        };
 
     private void DeliverToOccupant(
         OrgMessage message,

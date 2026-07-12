@@ -32,8 +32,15 @@ public sealed class PositionActorRetainedActionLifecycleTests
             var provider = new LoadedConfigurationProvider(entity);
             var action = Action(entity);
             var firstGrant = Grant(action);
+            var initialProjections = new RecordingProjectionPublisher();
             var actor = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, provider, () => At)),
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    PositionOccupantFactory.Instance,
+                    initialProjections,
+                    () => At,
+                    null)),
                 "position");
 
             actor.Tell(new RetainAction(action));
@@ -47,14 +54,25 @@ public sealed class PositionActorRetainedActionLifecycleTests
             Assert.Equal(firstGrant, authorized.RetainedActions[action.Id].ActiveGrant);
 
             await actor.GracefulStop(TimeSpan.FromSeconds(5));
+            var restartedProjections = new RecordingProjectionPublisher();
             var restarted = system.ActorOf(
-                Props.Create(() => new PositionActor(entity.Value, provider, () => At.AddMinutes(1))),
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    PositionOccupantFactory.Instance,
+                    restartedProjections,
+                    () => At.AddMinutes(1),
+                    null)),
                 "position-restarted");
             var recovered = await WaitForStateAsync(
                 restarted,
                 state => state.RetainedActions.TryGetValue(action.Id, out var current)
                     && current.State == RetainedActionState.Authorized);
             Assert.Equal(firstGrant, recovered.RetainedActions[action.Id].ActiveGrant);
+            Assert.DoesNotContain(
+                restartedProjections.Events,
+                @event => @event is PositionRetainedActionLifecycleChanged
+                    or PositionRetainedActionReEscalationReady);
 
             restarted.Tell(new ReturnRetainedAction(action.Id, firstGrant.Id, "policy-tightened"));
             var returned = await WaitForStateAsync(
@@ -78,6 +96,10 @@ public sealed class PositionActorRetainedActionLifecycleTests
             Assert.Equal(replacement, expired.RetainedActions[action.Id].AuthorizationGrant);
             Assert.Null(expired.RetainedActions[action.Id].ActiveGrant);
             Assert.Equal("authorization-expired", expired.RetainedActions[action.Id].ReEscalationCode);
+            Assert.Equal(
+                2,
+                restartedProjections.Events.Count(@event =>
+                    @event is PositionRetainedActionReEscalationReady));
         }
         finally
         {
@@ -287,5 +309,12 @@ public sealed class PositionActorRetainedActionLifecycleTests
     private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
+    }
+
+    private sealed class RecordingProjectionPublisher : IPositionProjectionPublisher
+    {
+        public List<PositionProjectionEvent> Events { get; } = [];
+
+        public void Publish(PositionProjectionEvent @event) => Events.Add(@event);
     }
 }

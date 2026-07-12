@@ -13,4 +13,7 @@ public enum JourneyAuditStage
     DuplicateSuppressed = 9,
     ActionGateEvaluated = 10,
     RetainedActionResume = 11,
+    AuthorizationResolution = 12,
+    RetainedActionLifecycle = 13,
+    RetainedActionReEscalation = 14,
 }

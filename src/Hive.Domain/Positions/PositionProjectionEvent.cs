@@ -52,6 +52,62 @@ public sealed record PositionRetainedActionReady : PositionProjectionEvent
     public PersistedRetainedAction Action { get; }
 }
 
+/// <summary>A retained-action lifecycle transition has been confirmed by the journal.</summary>
+public sealed record PositionRetainedActionLifecycleChanged : PositionProjectionEvent
+{
+    public PositionRetainedActionLifecycleChanged(
+        PositionEntityId entityId,
+        PersistedRetainedAction action,
+        PositionEvent transition)
+        : base(entityId, (transition ?? throw new ArgumentNullException(nameof(transition))).OccurredAt)
+    {
+        Action = action ?? throw new ArgumentNullException(nameof(action));
+        if (transition is not (RetainedActionAuthorized
+            or RetainedActionDenied
+            or RetainedActionConsumed
+            or RetainedActionExpired
+            or RetainedActionReturned))
+        {
+            throw new ArgumentException(
+                "Transition must be a retained-action lifecycle event.",
+                nameof(transition));
+        }
+
+        Transition = transition;
+    }
+
+    public PersistedRetainedAction Action { get; }
+
+    public PositionEvent Transition { get; }
+}
+
+/// <summary>
+/// A persisted expiry or return requires governance routing to re-escalate the retained action.
+/// </summary>
+public sealed record PositionRetainedActionReEscalationReady : PositionProjectionEvent
+{
+    public PositionRetainedActionReEscalationReady(
+        PositionEntityId entityId,
+        PersistedRetainedAction action,
+        PositionEvent transition)
+        : base(entityId, (transition ?? throw new ArgumentNullException(nameof(transition))).OccurredAt)
+    {
+        Action = action ?? throw new ArgumentNullException(nameof(action));
+        if (transition is not (RetainedActionExpired or RetainedActionReturned))
+        {
+            throw new ArgumentException(
+                "Re-escalation transition must be an expiry or return.",
+                nameof(transition));
+        }
+
+        Transition = transition;
+    }
+
+    public PersistedRetainedAction Action { get; }
+
+    public PositionEvent Transition { get; }
+}
+
 /// <summary>The position restored its durable state from snapshot/journal replay.</summary>
 public sealed record PositionRecovered : PositionProjectionEvent
 {

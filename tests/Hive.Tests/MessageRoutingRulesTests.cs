@@ -12,6 +12,7 @@ public sealed class MessageRoutingRulesTests
         Assert.Equal(3, (int)RoutingRelation.RootLeadershipToOrganizationOwner);
         Assert.Equal(4, (int)RoutingRelation.RequesterToAuthorizedApprover);
         Assert.Equal(5, (int)RoutingRelation.AuthorizedApproverToOriginalRequester);
+        Assert.Equal(6, (int)RoutingRelation.EscalationRecipientToOriginalRequester);
         Assert.Equal(
             [
                 RoutingRelation.DirectSuperiorToDirectSubordinate,
@@ -19,6 +20,7 @@ public sealed class MessageRoutingRulesTests
                 RoutingRelation.RootLeadershipToOrganizationOwner,
                 RoutingRelation.RequesterToAuthorizedApprover,
                 RoutingRelation.AuthorizedApproverToOriginalRequester,
+                RoutingRelation.EscalationRecipientToOriginalRequester,
             ],
             Enum.GetValues<RoutingRelation>());
     }
@@ -30,6 +32,8 @@ public sealed class MessageRoutingRulesTests
             [
                 typeof(ApprovalDecision),
                 typeof(ApprovalRequest),
+                typeof(AuthorizationDenial),
+                typeof(AuthorizationGrant),
                 typeof(Directive),
                 typeof(Escalation),
                 typeof(Report),
@@ -71,6 +75,18 @@ public sealed class MessageRoutingRulesTests
                 RoutingRelation.AuthorizedApproverToOriginalRequester),
             Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
                 RoutingRelation.AuthorizedApproverToOriginalRequester));
+        AssertRule<AuthorizationGrant>(
+            MessageChannel.Governance,
+            Path<PositionEndpointRef, PositionEndpointRef>(
+                RoutingRelation.EscalationRecipientToOriginalRequester),
+            Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
+                RoutingRelation.EscalationRecipientToOriginalRequester));
+        AssertRule<AuthorizationDenial>(
+            MessageChannel.Governance,
+            Path<PositionEndpointRef, PositionEndpointRef>(
+                RoutingRelation.EscalationRecipientToOriginalRequester),
+            Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
+                RoutingRelation.EscalationRecipientToOriginalRequester));
     }
 
     [Fact]

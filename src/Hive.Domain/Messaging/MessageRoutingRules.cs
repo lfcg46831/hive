@@ -71,6 +71,18 @@ public static class MessageRoutingRules
                     RoutingRelation.AuthorizedApproverToOriginalRequester),
                 Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
                     RoutingRelation.AuthorizedApproverToOriginalRequester)),
+            Rule<AuthorizationGrant>(
+                MessageChannel.Governance,
+                Path<PositionEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.EscalationRecipientToOriginalRequester),
+                Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.EscalationRecipientToOriginalRequester)),
+            Rule<AuthorizationDenial>(
+                MessageChannel.Governance,
+                Path<PositionEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.EscalationRecipientToOriginalRequester),
+                Path<OrganizationOwnerEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.EscalationRecipientToOriginalRequester)),
         }.ToImmutableDictionary(rule => rule.MessageType);
 
     public static MessageRoutingRule For<TMessage>()

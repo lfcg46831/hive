@@ -7,4 +7,5 @@ public enum RoutingRelation
     RootLeadershipToOrganizationOwner = 3,
     RequesterToAuthorizedApprover = 4,
     AuthorizedApproverToOriginalRequester = 5,
+    EscalationRecipientToOriginalRequester = 6,
 }

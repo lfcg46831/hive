@@ -1,0 +1,20 @@
+{
+  "Id": "dc000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "position",
+    "positionId": "vp-eng"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "release-manager"
+  },
+  "Thread": "dc000000-0000-0000-0000-0000000000a1",
+  "Priority": "high",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "InReplyTo": "dc000000-0000-0000-0000-0000000000b1",
+  "RetainedActionId": "dc000000-0000-0000-0000-0000000000c1",
+  "Reason": "Denied because the deployment window is closed."
+}

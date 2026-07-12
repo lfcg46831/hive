@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -72,6 +73,8 @@ internal static class OrgMessageJsonFormat
         options.Converters.Add(new StructuralIdJsonConverter<PositionId>(PositionId.From, id => id.Value));
         options.Converters.Add(new StructuralIdJsonConverter<OccupantId>(OccupantId.From, id => id.Value));
         options.Converters.Add(new StructuralIdJsonConverter<ApprovalPolicyRef>(ApprovalPolicyRef.From, id => id.Value));
+        options.Converters.Add(new StructuralIdJsonConverter<ActionFingerprint>(ActionFingerprint.From, id => id.Value));
+        options.Converters.Add(new StructuralIdJsonConverter<AuthorityKey>(AuthorityKey.From, key => key.Value));
 
         // Sharded identity of the PositionActor: entityId = OrganizationId/PositionId (§9.1, US-F0-06-T01).
         options.Converters.Add(new StructuralIdJsonConverter<PositionEntityId>(PositionEntityId.Parse, id => id.Value));
@@ -80,6 +83,7 @@ internal static class OrgMessageJsonFormat
         options.Converters.Add(new GuidIdJsonConverter<MessageId>(MessageId.From, id => id.Value));
         options.Converters.Add(new GuidIdJsonConverter<ThreadId>(ThreadId.From, id => id.Value));
         options.Converters.Add(new GuidIdJsonConverter<DirectiveId>(DirectiveId.From, id => id.Value));
+        options.Converters.Add(new GuidIdJsonConverter<RetainedActionId>(RetainedActionId.From, id => id.Value));
 
         return options;
     }

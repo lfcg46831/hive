@@ -124,6 +124,48 @@ public sealed class OrgMessageCompatibilityTests
         Assert.Equal(SupportedSchemaVersion, restored.SchemaVersion);
     }
 
+    [Fact]
+    public void Tolerates_an_authorization_grant_without_the_optional_reason()
+    {
+        var node = BaselineNode("authorization-grant");
+        node.Remove("Reason");
+
+        var restored = (AuthorizationGrant)_serializer.FromBinary(
+            ToBytes(node),
+            "authorization-grant");
+
+        Assert.Null(restored.Reason);
+        Assert.NotNull(restored.RetainedActionId);
+        Assert.NotNull(restored.Fingerprint);
+        Assert.NotNull(restored.Key);
+    }
+
+    [Theory]
+    [InlineData("RetainedActionId", "00000000-0000-0000-0000-000000000000")]
+    [InlineData("Fingerprint", "sha256:not-a-digest")]
+    [InlineData("Key", "not-namespaced")]
+    public void Rejects_invalid_authorization_value_objects(string property, string invalidValue)
+    {
+        var node = BaselineNode("authorization-grant");
+        node[property] = invalidValue;
+
+        Assert.ThrowsAny<Exception>(() =>
+            _serializer.FromBinary(ToBytes(node), "authorization-grant"));
+    }
+
+    [Theory]
+    [InlineData("authorization-grant", "RetainedActionId")]
+    [InlineData("authorization-denial", "InReplyTo")]
+    public void Rejects_authorization_payloads_missing_required_fields(
+        string manifest,
+        string requiredProperty)
+    {
+        var node = BaselineNode(manifest);
+        node.Remove(requiredProperty);
+
+        Assert.ThrowsAny<Exception>(() => _serializer.FromBinary(ToBytes(node), manifest));
+    }
+
     // ----- Controlled rejection of unknown / unsupported versions (§9.9) --------------------------
 
     [Theory]

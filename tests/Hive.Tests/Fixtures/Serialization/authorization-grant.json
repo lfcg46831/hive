@@ -1,0 +1,22 @@
+{
+  "Id": "db000000-0000-0000-0000-000000000001",
+  "OrganizationId": "acme",
+  "From": {
+    "kind": "organization-owner"
+  },
+  "To": {
+    "kind": "position",
+    "positionId": "release-manager"
+  },
+  "Thread": "db000000-0000-0000-0000-0000000000a1",
+  "Priority": "high",
+  "SchemaVersion": 1,
+  "SentAt": "2026-06-21T10:00:00+00:00",
+  "Deadline": null,
+  "InReplyTo": "db000000-0000-0000-0000-0000000000b1",
+  "RetainedActionId": "db000000-0000-0000-0000-0000000000c1",
+  "Fingerprint": "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "Key": "delivery.production-deploy",
+  "ExpiresAt": "2026-06-22T10:00:00+00:00",
+  "Reason": null
+}

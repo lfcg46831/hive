@@ -20,6 +20,8 @@ internal static class OrgMessageManifests
         ("peer-response", typeof(PeerResponse)),
         ("approval-request", typeof(ApprovalRequest)),
         ("approval-decision", typeof(ApprovalDecision)),
+        ("authorization-grant", typeof(AuthorizationGrant)),
+        ("authorization-denial", typeof(AuthorizationDenial)),
         ("pulse", typeof(Pulse)),
         ("event-trigger", typeof(EventTrigger)),
     ];

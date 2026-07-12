@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Akka.Actor;
 using Hive.Actors.Serialization;
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -182,6 +183,8 @@ public sealed class OrgMessageJsonSerializerTests : IClassFixture<OrgMessageJson
         yield return ("peer-response", CreatePeerResponse());
         yield return ("approval-request", CreateApprovalRequest());
         yield return ("approval-decision", CreateApprovalDecision());
+        yield return ("authorization-grant", CreateAuthorizationGrant());
+        yield return ("authorization-denial", CreateAuthorizationDenial());
         yield return ("pulse", CreatePulse());
         yield return ("event-trigger", CreateEventTrigger());
     }
@@ -301,6 +304,39 @@ public sealed class OrgMessageJsonSerializerTests : IClassFixture<OrgMessageJson
             MessageId.New(),
             true,
             "Approved given the active outage.");
+
+    private static AuthorizationGrant CreateAuthorizationGrant() =>
+        new(
+            MessageId.New(),
+            OrganizationId.From("acme"),
+            new OrganizationOwnerEndpointRef(),
+            Position("release-manager"),
+            ThreadId.New(),
+            Priority.High,
+            1,
+            SentAt,
+            null,
+            MessageId.New(),
+            RetainedActionId.New(),
+            ActionFingerprint.From("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            AuthorityKey.From("delivery.production-deploy"),
+            SentAt.AddHours(24),
+            null);
+
+    private static AuthorizationDenial CreateAuthorizationDenial() =>
+        new(
+            MessageId.New(),
+            OrganizationId.From("acme"),
+            Position("vp-eng"),
+            Position("release-manager"),
+            ThreadId.New(),
+            Priority.High,
+            1,
+            SentAt,
+            null,
+            MessageId.New(),
+            RetainedActionId.New(),
+            "Denied because the deployment window is closed.");
 
     private static Pulse CreatePulse() =>
         new(

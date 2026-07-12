@@ -1,3 +1,4 @@
+using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 
@@ -29,6 +30,8 @@ internal static class CanonicalMessageFixtures
         ("peer-response", CreatePeerResponse()),
         ("approval-request", CreateApprovalRequest()),
         ("approval-decision", CreateApprovalDecision()),
+        ("authorization-grant", CreateAuthorizationGrant()),
+        ("authorization-denial", CreateAuthorizationDenial()),
         ("pulse", CreatePulse()),
         ("event-trigger", CreateEventTrigger()),
     ];
@@ -148,6 +151,39 @@ internal static class CanonicalMessageFixtures
             MessageId.From(new Guid("d8000000-0000-0000-0000-0000000000b1")),
             true,
             "Approved given the active outage.");
+
+    private static AuthorizationGrant CreateAuthorizationGrant() =>
+        new(
+            MessageId.From(new Guid("db000000-0000-0000-0000-000000000001")),
+            OrganizationId.From(Org),
+            new OrganizationOwnerEndpointRef(),
+            Position("release-manager"),
+            ThreadId.From(new Guid("db000000-0000-0000-0000-0000000000a1")),
+            Priority.High,
+            1,
+            SentAt,
+            null,
+            MessageId.From(new Guid("db000000-0000-0000-0000-0000000000b1")),
+            RetainedActionId.From(new Guid("db000000-0000-0000-0000-0000000000c1")),
+            ActionFingerprint.From("sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"),
+            AuthorityKey.From("delivery.production-deploy"),
+            SentAt.AddHours(24),
+            null);
+
+    private static AuthorizationDenial CreateAuthorizationDenial() =>
+        new(
+            MessageId.From(new Guid("dc000000-0000-0000-0000-000000000001")),
+            OrganizationId.From(Org),
+            Position("vp-eng"),
+            Position("release-manager"),
+            ThreadId.From(new Guid("dc000000-0000-0000-0000-0000000000a1")),
+            Priority.High,
+            1,
+            SentAt,
+            null,
+            MessageId.From(new Guid("dc000000-0000-0000-0000-0000000000b1")),
+            RetainedActionId.From(new Guid("dc000000-0000-0000-0000-0000000000c1")),
+            "Denied because the deployment window is closed.");
 
     private static Pulse CreatePulse() =>
         new(

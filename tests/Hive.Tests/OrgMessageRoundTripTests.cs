@@ -87,17 +87,9 @@ public sealed class OrgMessageRoundTripTests : IClassFixture<OrgMessageRoundTrip
     [Fact]
     public void Every_concrete_canonical_type_has_round_trip_coverage()
     {
-        // Authorization wire contracts and fixtures are deliberately introduced by US-F0-12-T03.
-        // Keep the exception explicit so every unrelated concrete type still requires round-trip coverage.
-        var pendingSerializationTypes = new HashSet<Type>
-        {
-            typeof(AuthorizationGrant),
-            typeof(AuthorizationDenial),
-        };
         var canonicalTypes = typeof(OrgMessage).Assembly
             .GetTypes()
             .Where(type => type is { IsAbstract: false } && type.IsSubclassOf(typeof(OrgMessage)))
-            .Where(type => !pendingSerializationTypes.Contains(type))
             .ToHashSet();
 
         var coveredTypes = CanonicalMessageFixtures.All

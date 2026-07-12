@@ -226,11 +226,12 @@ public sealed class PositionShardingWorkloadTests
     [Fact]
     public async Task Agents_node_fails_observably_when_the_cluster_does_not_reach_up_in_time()
     {
-        // Point the single seed node at a free (unreachable) port so this node can never self-seed
-        // nor join, and never reaches cluster Up. With a small gate window the workload must fail
-        // the arranque observably instead of initializing sharding on a node that has not joined.
+        // Reserve a distinct non-Akka endpoint for the seed so the node can neither self-seed nor
+        // join. Keeping the listener bound prevents Windows from immediately recycling the same
+        // ephemeral port for the node under test, which would make this test intermittently self-seed.
+        using var nonClusterSeed = ReserveTcpPort();
         var unreachableSeed =
-            $"akka.tcp://{HiveActorSystemBootstrapExtensions.ActorSystemName}@127.0.0.1:{GetFreeTcpPort()}";
+            $"akka.tcp://{HiveActorSystemBootstrapExtensions.ActorSystemName}@127.0.0.1:{((System.Net.IPEndPoint)nonClusterSeed.LocalEndpoint).Port}";
         using var host = BuildHost(
             GetFreeTcpPort(),
             roles: [NodeRoleNames.Agents],
@@ -338,5 +339,12 @@ public sealed class PositionShardingWorkloadTests
         {
             listener.Stop();
         }
+    }
+
+    private static System.Net.Sockets.TcpListener ReserveTcpPort()
+    {
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        return listener;
     }
 }

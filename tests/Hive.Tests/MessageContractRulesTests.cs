@@ -60,6 +60,23 @@ public sealed class MessageContractRulesTests
             [nameof(OrgMessage.Deadline), nameof(ApprovalDecision.Reason)]
         },
         {
+            typeof(AuthorizationGrant), MessageChannel.Governance,
+            [
+                nameof(AuthorizationGrant.InReplyTo), nameof(AuthorizationGrant.RetainedActionId),
+                nameof(AuthorizationGrant.Fingerprint), nameof(AuthorizationGrant.Key),
+                nameof(AuthorizationGrant.ExpiresAt)
+            ],
+            [nameof(OrgMessage.Deadline), nameof(AuthorizationGrant.Reason)]
+        },
+        {
+            typeof(AuthorizationDenial), MessageChannel.Governance,
+            [
+                nameof(AuthorizationDenial.InReplyTo), nameof(AuthorizationDenial.RetainedActionId),
+                nameof(AuthorizationDenial.Reason)
+            ],
+            [nameof(OrgMessage.Deadline)]
+        },
+        {
             typeof(Pulse), MessageChannel.System,
             [nameof(Pulse.ScheduleId), nameof(Pulse.Payload)],
             [nameof(OrgMessage.Deadline)]
@@ -112,6 +129,12 @@ public sealed class MessageContractRulesTests
             Position(),
             Position(), Owner());
         AssertEndpoints<ApprovalDecision>(
+            [Position(), Owner()],
+            [Position()]);
+        AssertEndpoints<AuthorizationGrant>(
+            [Position(), Owner()],
+            [Position()]);
+        AssertEndpoints<AuthorizationDenial>(
             [Position(), Owner()],
             [Position()]);
         AssertEndpoints<Pulse>(

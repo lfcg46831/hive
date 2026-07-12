@@ -77,6 +77,13 @@ internal static class MessageStructuralValidator
             errors.Add(Error("invalid-report-kind", "kind"));
         }
 
+        if (message is AuthorizationGrant grant
+            && grant.ExpiresAt != default
+            && grant.ExpiresAt <= grant.SentAt)
+        {
+            errors.Add(Error("invalid-expiration", "expiresAt"));
+        }
+
         ValidateSystemEndpointKind(message.From, "from", errors);
         ValidateSystemEndpointKind(message.To, "to", errors);
     }

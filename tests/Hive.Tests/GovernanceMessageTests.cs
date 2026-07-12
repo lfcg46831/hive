@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 
 namespace Hive.Tests;
@@ -75,6 +76,78 @@ public sealed class GovernanceMessageTests
     }
 
     [Fact]
+    public void AuthorizationGrant_preserves_bound_payload_and_allows_no_reason()
+    {
+        var inReplyTo = MessageId.New();
+        var retainedActionId = RetainedActionId.New();
+        var fingerprint = ActionFingerprint.From($"sha256:{new string('a', 64)}");
+        var key = AuthorityKey.From("delivery.bug-triage");
+        var expiresAt = SentAt.AddHours(24);
+
+        var message = new AuthorizationGrant(
+            MessageId.New(), OrganizationId.From("acme"),
+            new OrganizationOwnerEndpointRef(), Position("delivery-lead"),
+            ThreadId.New(), Priority.High, 1, SentAt, null,
+            inReplyTo, retainedActionId, fingerprint, key, expiresAt, reason: null);
+
+        Assert.Equal(inReplyTo, message.InReplyTo);
+        Assert.Equal(retainedActionId, message.RetainedActionId);
+        Assert.Equal(fingerprint, message.Fingerprint);
+        Assert.Equal(key, message.Key);
+        Assert.Equal(expiresAt, message.ExpiresAt);
+        Assert.Null(message.Reason);
+        Assert.Equal(MessageChannel.Governance, message.Channel);
+    }
+
+    [Fact]
+    public void AuthorizationDenial_preserves_bound_payload()
+    {
+        var inReplyTo = MessageId.New();
+        var retainedActionId = RetainedActionId.New();
+
+        var message = new AuthorizationDenial(
+            MessageId.New(), OrganizationId.From("acme"), Position("delivery-lead"),
+            Position("developer"), ThreadId.New(), Priority.High, 1, SentAt, null,
+            inReplyTo, retainedActionId, "Use the approved deployment window");
+
+        Assert.Equal(inReplyTo, message.InReplyTo);
+        Assert.Equal(retainedActionId, message.RetainedActionId);
+        Assert.Equal("Use the approved deployment window", message.Reason);
+        Assert.Equal(MessageChannel.Governance, message.Channel);
+    }
+
+    [Theory]
+    [InlineData(true, false, false, false)]
+    [InlineData(false, true, false, false)]
+    [InlineData(false, false, true, false)]
+    [InlineData(false, false, false, true)]
+    public void AuthorizationGrant_rejects_missing_typed_references(
+        bool missingReply, bool missingAction, bool missingFingerprint, bool missingKey)
+    {
+        Assert.Throws<ArgumentNullException>(() => new AuthorizationGrant(
+            MessageId.New(), OrganizationId.From("acme"), Position("lead"), Position("developer"),
+            ThreadId.New(), Priority.High, 1, SentAt, null,
+            missingReply ? null! : MessageId.New(),
+            missingAction ? null! : RetainedActionId.New(),
+            missingFingerprint ? null! : ActionFingerprint.From($"sha256:{new string('b', 64)}"),
+            missingKey ? null! : AuthorityKey.From("delivery.bug-triage"),
+            SentAt.AddHours(1), null));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AuthorizationDenial_rejects_missing_typed_references(bool missingReply)
+    {
+        Assert.Throws<ArgumentNullException>(() => new AuthorizationDenial(
+            MessageId.New(), OrganizationId.From("acme"), Position("lead"), Position("developer"),
+            ThreadId.New(), Priority.High, 1, SentAt, null,
+            missingReply ? null! : MessageId.New(),
+            missingReply ? RetainedActionId.New() : null!,
+            "Denied"));
+    }
+
+    [Fact]
     public void Governance_payload_properties_are_get_only()
     {
         AssertGetOnly<ApprovalRequest>(
@@ -87,6 +160,19 @@ public sealed class GovernanceMessageTests
             nameof(ApprovalDecision.Approved),
             nameof(ApprovalDecision.Reason),
             nameof(ApprovalDecision.Channel));
+        AssertGetOnly<AuthorizationGrant>(
+            nameof(AuthorizationGrant.InReplyTo),
+            nameof(AuthorizationGrant.RetainedActionId),
+            nameof(AuthorizationGrant.Fingerprint),
+            nameof(AuthorizationGrant.Key),
+            nameof(AuthorizationGrant.ExpiresAt),
+            nameof(AuthorizationGrant.Reason),
+            nameof(AuthorizationGrant.Channel));
+        AssertGetOnly<AuthorizationDenial>(
+            nameof(AuthorizationDenial.InReplyTo),
+            nameof(AuthorizationDenial.RetainedActionId),
+            nameof(AuthorizationDenial.Reason),
+            nameof(AuthorizationDenial.Channel));
     }
 
     private static PositionEndpointRef Position(string value) =>

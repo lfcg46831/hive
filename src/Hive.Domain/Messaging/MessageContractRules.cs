@@ -160,6 +160,28 @@ public static class MessageContractRules
                 [nameof(OrgMessage.Deadline), nameof(ApprovalDecision.Reason)],
                 [Position, Owner],
                 [Position]),
+            Rule<AuthorizationGrant>(
+                MessageChannel.Governance,
+                [
+                    nameof(AuthorizationGrant.InReplyTo),
+                    nameof(AuthorizationGrant.RetainedActionId),
+                    nameof(AuthorizationGrant.Fingerprint),
+                    nameof(AuthorizationGrant.Key),
+                    nameof(AuthorizationGrant.ExpiresAt),
+                ],
+                [nameof(OrgMessage.Deadline), nameof(AuthorizationGrant.Reason)],
+                [Position, Owner],
+                [Position]),
+            Rule<AuthorizationDenial>(
+                MessageChannel.Governance,
+                [
+                    nameof(AuthorizationDenial.InReplyTo),
+                    nameof(AuthorizationDenial.RetainedActionId),
+                    nameof(AuthorizationDenial.Reason),
+                ],
+                [nameof(OrgMessage.Deadline)],
+                [Position, Owner],
+                [Position]),
             Rule<Pulse>(
                 MessageChannel.System,
                 [nameof(Pulse.ScheduleId), nameof(Pulse.Payload)],

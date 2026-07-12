@@ -31,6 +31,27 @@ public sealed class RetainedActionResumeCoordinatorTests
         AssertAuditIsRedacted(audit.Single());
     }
 
+    [Fact]
+    public async Task Missing_active_grant_returns_before_policy_or_execution()
+    {
+        var policy = new RecordingPolicy(ActionGateOutcome.Allowed);
+        var executor = new RecordingExecutor(RetainedActionExecutionResult.Success());
+        var audit = new RecordingAuditLog();
+        var authorized = AuthorizedAction();
+        var action = authorized.ReturnToRetained(
+            Now.AddMinutes(-1),
+            RetainedActionResumeCoordinator.HumanApprovalRequiredCode);
+
+        var result = await Coordinator(policy, executor, audit)
+            .ResumeAsync(action, Runtime(action), Guid.NewGuid());
+
+        Assert.Equal(RetainedActionResumeOutcome.Noop, result.Outcome);
+        Assert.Equal(RetainedActionResumeCoordinator.NotAuthorizedCode, result.Code);
+        Assert.Equal(0, policy.Calls);
+        Assert.Empty(executor.Requests);
+        AssertAuditIsRedacted(audit.Single());
+    }
+
     [Theory]
     [InlineData(-1, (int)RetainedActionResumeOutcome.Expired, 0)]
     [InlineData(0, (int)RetainedActionResumeOutcome.Expired, 0)]
@@ -43,13 +64,15 @@ public sealed class RetainedActionResumeCoordinatorTests
         var action = AuthorizedAction(expiresAt: Now.AddSeconds(secondsFromNow));
         var policy = new RecordingPolicy(ActionGateOutcome.EscalationRequired);
         var executor = new RecordingExecutor(RetainedActionExecutionResult.Success());
+        var audit = new RecordingAuditLog();
 
-        var result = await Coordinator(policy, executor, new RecordingAuditLog())
+        var result = await Coordinator(policy, executor, audit)
             .ResumeAsync(action, Runtime(action), Guid.NewGuid());
 
         Assert.Equal((RetainedActionResumeOutcome)expectedValue, result.Outcome);
         Assert.Equal(expectedExecutions, executor.Requests.Count);
         Assert.Equal(expectedExecutions, policy.Calls);
+        AssertAuditIsRedacted(audit.Single());
     }
 
     [Fact]
@@ -57,16 +80,18 @@ public sealed class RetainedActionResumeCoordinatorTests
     {
         var action = AuthorizedAction();
         var executor = new RecordingExecutor(RetainedActionExecutionResult.Success());
+        var audit = new RecordingAuditLog();
 
         var result = await Coordinator(
                 new RecordingPolicy(ActionGateOutcome.HumanApprovalRequired),
                 executor,
-                new RecordingAuditLog())
+                audit)
             .ResumeAsync(action, Runtime(action), Guid.NewGuid());
 
         Assert.Equal(RetainedActionResumeOutcome.Returned, result.Outcome);
         Assert.Equal(RetainedActionResumeCoordinator.HumanApprovalRequiredCode, result.Code);
         Assert.Empty(executor.Requests);
+        AssertAuditIsRedacted(audit.Single());
     }
 
     [Fact]
@@ -76,10 +101,11 @@ public sealed class RetainedActionResumeCoordinatorTests
         var executor = new RecordingExecutor(
             RetainedActionExecutionResult.Failed("connector-unavailable"),
             RetainedActionExecutionResult.Success());
+        var audit = new RecordingAuditLog();
         var coordinator = Coordinator(
             new RecordingPolicy(ActionGateOutcome.Allowed),
             executor,
-            new RecordingAuditLog());
+            audit);
 
         var first = await coordinator.ResumeAsync(action, Runtime(action), Guid.NewGuid());
         var second = await coordinator.ResumeAsync(action, Runtime(action), Guid.NewGuid());
@@ -91,6 +117,41 @@ public sealed class RetainedActionResumeCoordinatorTests
         Assert.Equal(executor.Requests[0].IdempotencyKey, executor.Requests[1].IdempotencyKey);
         Assert.Contains(action.Id.ToString(), executor.Requests[0].IdempotencyKey, StringComparison.Ordinal);
         Assert.Contains(action.ActiveGrant!.Id.ToString(), executor.Requests[0].IdempotencyKey, StringComparison.Ordinal);
+        Assert.All(audit.Records, AssertAuditIsRedacted);
+    }
+
+    [Fact]
+    public async Task Policy_exception_fails_closed_before_execution()
+    {
+        var action = AuthorizedAction();
+        var executor = new RecordingExecutor(RetainedActionExecutionResult.Success());
+        var audit = new RecordingAuditLog();
+
+        var result = await Coordinator(new ThrowingPolicy(), executor, audit)
+            .ResumeAsync(action, Runtime(action), Guid.NewGuid());
+
+        Assert.Equal(RetainedActionResumeOutcome.Retry, result.Outcome);
+        Assert.Equal(RetainedActionResumeCoordinator.PolicyFailureCode, result.Code);
+        Assert.Empty(executor.Requests);
+        AssertAuditIsRedacted(audit.Single());
+    }
+
+    [Fact]
+    public async Task Executor_exception_keeps_the_grant_retryable()
+    {
+        var action = AuthorizedAction();
+        var audit = new RecordingAuditLog();
+
+        var result = await Coordinator(
+                new RecordingPolicy(ActionGateOutcome.Allowed),
+                new ThrowingExecutor(),
+                audit)
+            .ResumeAsync(action, Runtime(action), Guid.NewGuid());
+
+        Assert.Equal(RetainedActionResumeOutcome.Retry, result.Outcome);
+        Assert.Equal(RetainedActionResumeCoordinator.ExecutionFailureCode, result.Code);
+        Assert.Equal(action.ActiveGrant!.Id, result.GrantId);
+        AssertAuditIsRedacted(audit.Single());
     }
 
     private static RetainedActionResumeCoordinator Coordinator(
@@ -171,6 +232,16 @@ public sealed class RetainedActionResumeCoordinatorTests
         }
     }
 
+    private sealed class ThrowingPolicy : IRetainedActionPolicyEvaluator
+    {
+        public ValueTask<ActionGateOutcome> EvaluateAsync(
+            PersistedRetainedAction action,
+            PositionRuntimeConfiguration runtimeConfiguration,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<ActionGateOutcome>(
+                new InvalidOperationException("Policy unavailable."));
+    }
+
     private sealed class RecordingExecutor(params RetainedActionExecutionResult[] results)
         : IRetainedActionExecutor
     {
@@ -188,9 +259,20 @@ public sealed class RetainedActionResumeCoordinatorTests
         }
     }
 
+    private sealed class ThrowingExecutor : IRetainedActionExecutor
+    {
+        public ValueTask<RetainedActionExecutionResult> ExecuteAsync(
+            RetainedActionExecutionRequest request,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<RetainedActionExecutionResult>(
+                new InvalidOperationException("Connector unavailable."));
+    }
+
     private sealed class RecordingAuditLog : IJourneyAuditLog
     {
         private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
 
         public void Append(JourneyAuditRecord record) => _records.Add(record);
 

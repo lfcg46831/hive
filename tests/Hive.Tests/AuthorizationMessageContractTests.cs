@@ -1,3 +1,4 @@
+using System.Reflection;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -80,6 +81,48 @@ public sealed class AuthorizationMessageContractTests
             result.Errors);
     }
 
+    [Theory]
+    [InlineData(typeof(AuthorizationGrant))]
+    [InlineData(typeof(AuthorizationDenial))]
+    public void Authorization_contracts_are_public_sealed_immutable_records(Type messageType)
+    {
+        Assert.True(messageType.IsPublic);
+        Assert.True(messageType.IsSealed);
+        Assert.Equal(typeof(OrgMessage), messageType.BaseType);
+        Assert.All(
+            messageType.GetProperties(BindingFlags.Instance | BindingFlags.Public),
+            property => Assert.Null(property.SetMethod));
+    }
+
+    [Fact]
+    public void Authorization_payload_exposes_only_the_canonical_properties()
+    {
+        Assert.Equal(
+            ["Channel", "ExpiresAt", "Fingerprint", "InReplyTo", "Key", "Reason", "RetainedActionId"],
+            DeclaredPropertyNames<AuthorizationGrant>());
+        Assert.Equal(
+            ["Channel", "InReplyTo", "Reason", "RetainedActionId"],
+            DeclaredPropertyNames<AuthorizationDenial>());
+    }
+
+    [Fact]
+    public void Typed_authorization_payload_references_cannot_be_null()
+    {
+        var fingerprint = ActionFingerprint.From($"sha256:{new string('c', 64)}");
+        var key = AuthorityKey.From("delivery.bug-triage");
+
+        Assert.Throws<ArgumentNullException>(() => GrantPayload(
+            null!, RetainedActionId.New(), fingerprint, key));
+        Assert.Throws<ArgumentNullException>(() => GrantPayload(
+            MessageId.New(), null!, fingerprint, key));
+        Assert.Throws<ArgumentNullException>(() => GrantPayload(
+            MessageId.New(), RetainedActionId.New(), null!, key));
+        Assert.Throws<ArgumentNullException>(() => GrantPayload(
+            MessageId.New(), RetainedActionId.New(), fingerprint, null!));
+        Assert.Throws<ArgumentNullException>(() => DenialPayload(null!, RetainedActionId.New()));
+        Assert.Throws<ArgumentNullException>(() => DenialPayload(MessageId.New(), null!));
+    }
+
     private static AuthorizationGrant Grant(
         EndpointRef? from = null,
         EndpointRef? to = null) =>
@@ -102,6 +145,31 @@ public sealed class AuthorizationMessageContractTests
             MessageId.New(), OrganizationId.From("acme"), new OrganizationOwnerEndpointRef(),
             Position("developer"), ThreadId.New(), Priority.High, 1, SentAt, null,
             MessageId.New(), RetainedActionId.New(), reason);
+
+    private static AuthorizationGrant GrantPayload(
+        MessageId inReplyTo,
+        RetainedActionId retainedActionId,
+        ActionFingerprint fingerprint,
+        AuthorityKey key) =>
+        new(
+            MessageId.New(), OrganizationId.From("acme"), Position("lead"),
+            Position("developer"), ThreadId.New(), Priority.High, 1, SentAt, null,
+            inReplyTo, retainedActionId, fingerprint, key, SentAt.AddHours(1), null);
+
+    private static AuthorizationDenial DenialPayload(
+        MessageId inReplyTo,
+        RetainedActionId retainedActionId) =>
+        new(
+            MessageId.New(), OrganizationId.From("acme"), new OrganizationOwnerEndpointRef(),
+            Position("developer"), ThreadId.New(), Priority.High, 1, SentAt, null,
+            inReplyTo, retainedActionId, "Denied.");
+
+    private static string[] DeclaredPropertyNames<T>() =>
+        typeof(T).GetProperties(
+                BindingFlags.Instance | BindingFlags.Public | BindingFlags.DeclaredOnly)
+            .Select(property => property.Name)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
 
     private static PositionEndpointRef Position(string value) =>
         new(PositionId.From(value));

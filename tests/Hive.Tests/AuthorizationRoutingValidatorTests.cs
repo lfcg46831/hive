@@ -27,6 +27,19 @@ public sealed class AuthorizationRoutingValidatorTests
     }
 
     [Fact]
+    public async Task Lookup_is_scoped_by_message_organization_and_in_reply_to()
+    {
+        var log = new RecordingLog(Record());
+        var grant = Grant(Recipient, Requester);
+        var validator = new AuthorizationRoutingValidator(log, new FixedTimeProvider(Now));
+
+        var result = await validator.ValidateAsync(grant);
+
+        Assert.True(result.IsValid);
+        Assert.Equal([(grant.OrganizationId, grant.InReplyTo)], log.Queries);
+    }
+
+    [Fact]
     public async Task Grant_from_original_owner_recipient_is_valid()
     {
         var owner = new OrganizationOwnerEndpointRef();
@@ -286,6 +299,20 @@ public sealed class AuthorizationRoutingValidatorTests
             MessageId escalationId,
             CancellationToken cancellationToken = default) =>
             new(record);
+    }
+
+    private sealed class RecordingLog(AuthorizationEscalationRecord? record) : IAuthorizationEscalationLog
+    {
+        public List<(OrganizationId OrganizationId, MessageId EscalationId)> Queries { get; } = [];
+
+        public ValueTask<AuthorizationEscalationRecord?> FindEscalationAsync(
+            OrganizationId organizationId,
+            MessageId escalationId,
+            CancellationToken cancellationToken = default)
+        {
+            Queries.Add((organizationId, escalationId));
+            return new(record);
+        }
     }
 
     private sealed class FailingLog(Exception failure) : IAuthorizationEscalationLog

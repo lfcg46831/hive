@@ -33,6 +33,36 @@ public sealed class RetainedActionIdentityTests
     }
 
     [Fact]
+    public void Action_fingerprint_round_trips_its_canonical_text()
+    {
+        var text = $"sha256:{new string('b', ActionFingerprint.DigestLength)}";
+
+        var fingerprint = ActionFingerprint.From(text);
+
+        Assert.Equal(text, fingerprint.ToString());
+        Assert.Equal(fingerprint, ActionFingerprint.From(fingerprint.ToString()));
+    }
+
+    [Fact]
+    public void Correlation_changes_identity_but_not_action_fingerprint()
+    {
+        var first = AiAgentRetainedActionFactory.Create(
+            RetainedResult("directive:correlation-1"),
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero)).Action;
+        var repeated = AiAgentRetainedActionFactory.Create(
+            RetainedResult("directive:correlation-1"),
+            new DateTimeOffset(2026, 7, 12, 13, 0, 0, TimeSpan.Zero)).Action;
+        var otherCorrelation = AiAgentRetainedActionFactory.Create(
+            RetainedResult("directive:correlation-2"),
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero)).Action;
+
+        Assert.Equal(first.Id, repeated.Id);
+        Assert.Equal(first.Fingerprint, repeated.Fingerprint);
+        Assert.NotEqual(first.Id, otherCorrelation.Id);
+        Assert.Equal(first.Fingerprint, otherCorrelation.Fingerprint);
+    }
+
+    [Fact]
     public void Tool_vector_pins_recursive_canonical_json_and_digest()
     {
         var candidate = ToolCandidate(
@@ -162,6 +192,48 @@ public sealed class RetainedActionIdentityTests
         AiAgentActionCandidate.ForTool(
             new AiToolCall(id, "files", arguments),
             ActingUnderDeclaration.Missing());
+
+    private static AiAgentActionGateResult RetainedResult(string correlationId)
+    {
+        var organization = OrganizationId.From("acme");
+        var position = PositionId.From("agent");
+        var thread = ThreadId.From(Guid.Parse("40000000-0000-0000-0000-000000000004"));
+        var candidate = ToolCandidate(
+            "call-42",
+            new Dictionary<string, object?> { ["path"] = "bugs/123.txt" });
+        var governanceMessage = new ApprovalRequest(
+            MessageId.From(Guid.Parse("50000000-0000-0000-0000-000000000005")),
+            organization,
+            new PositionEndpointRef(position),
+            new OrganizationOwnerEndpointRef(),
+            thread,
+            Priority.High,
+            1,
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero),
+            null,
+            "files",
+            "Approval required.",
+            ApprovalPolicyRef.From("policy/files"));
+        var retention = new AiAgentActionRetentionIntent(
+            candidate,
+            correlationId,
+            organization,
+            position,
+            thread,
+            MessageId.From(Guid.Parse("60000000-0000-0000-0000-000000000006")),
+            DirectiveId.From(Guid.Parse("70000000-0000-0000-0000-000000000007")),
+            null,
+            "action-gate-escalation-required",
+            [governanceMessage]);
+
+        return AiAgentActionGateResult.Retained(
+            AiAgentActionGateOutcome.RetainedForEscalation,
+            candidate,
+            facts: null,
+            resolution: null,
+            "action-gate-escalation-required",
+            retention);
+    }
 
     private static ActionFacts ToolFacts(string scope)
     {

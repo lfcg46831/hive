@@ -99,8 +99,14 @@ public sealed class RetainedActionLifecycleTests
 
         Assert.Same(initial, initial.Apply(new RetainedActionAuthorized(wrongRoute, At.AddMinutes(1))));
         Assert.Same(initial, initial.Apply(new RetainedActionConsumed(action.Id, grant.Id, At.AddMinutes(1))));
+        Assert.Same(initial, initial.Apply(new RetainedActionConsumed(
+            RetainedActionId.New(), grant.Id, At.AddMinutes(1))));
 
         var authorized = initial.Apply(new RetainedActionAuthorized(grant, At.AddMinutes(1)));
+        Assert.Same(authorized, authorized.Apply(new RetainedActionAuthorized(
+            Grant(action, MessageId.New()), At.AddMinutes(2))));
+        Assert.Same(authorized, authorized.Apply(new RetainedActionDenied(
+            Denial(action), At.AddMinutes(2))));
         var unchanged = authorized.Apply(new RetainedActionConsumed(
             action.Id,
             MessageId.New(),
@@ -120,6 +126,70 @@ public sealed class RetainedActionLifecycleTests
 
         Assert.Equal(Current(state), Current(restored));
         Assert.Equal(grant, Current(restored).ActiveGrant);
+    }
+
+    [Fact]
+    public void Transitions_requiring_an_active_grant_are_no_ops_while_retained()
+    {
+        var action = Action();
+        var grantId = MessageId.New();
+        var initial = Retained(action);
+
+        Assert.Same(initial, initial.Apply(new RetainedActionConsumed(action.Id, grantId, At)));
+        Assert.Same(initial, initial.Apply(new RetainedActionExpired(
+            action.Id, grantId, "authorization-expired", At)));
+        Assert.Same(initial, initial.Apply(new RetainedActionReturned(
+            action.Id, grantId, "policy-tightened", At)));
+    }
+
+    [Fact]
+    public void Every_lifecycle_event_is_a_no_op_after_a_terminal_state()
+    {
+        var action = Action();
+        var grant = Grant(action);
+        var denial = Denial(action);
+        var authorized = Retained(action).Apply(new RetainedActionAuthorized(grant, At.AddMinutes(1)));
+        var terminalStates = new[]
+        {
+            authorized.Apply(new RetainedActionConsumed(action.Id, grant.Id, At.AddMinutes(2))),
+            Retained(action).Apply(new RetainedActionDenied(denial, At.AddMinutes(2))),
+            authorized.Apply(new RetainedActionExpired(
+                action.Id, grant.Id, "authorization-expired", At.AddMinutes(2))),
+        };
+        PositionEvent[] laterEvents =
+        [
+            new RetainedActionAuthorized(Grant(action, MessageId.New()), At.AddMinutes(3)),
+            new RetainedActionDenied(denial, At.AddMinutes(3)),
+            new RetainedActionConsumed(action.Id, grant.Id, At.AddMinutes(3)),
+            new RetainedActionExpired(action.Id, grant.Id, "authorization-expired", At.AddMinutes(3)),
+            new RetainedActionReturned(action.Id, grant.Id, "policy-tightened", At.AddMinutes(3)),
+        ];
+
+        foreach (var terminal in terminalStates)
+        {
+            foreach (var laterEvent in laterEvents)
+            {
+                Assert.Same(terminal, terminal.Apply(laterEvent));
+            }
+
+            Assert.Null(Current(terminal).ActiveGrant);
+        }
+    }
+
+    [Fact]
+    public void Authorization_and_denial_require_the_exact_action_scope()
+    {
+        var action = Action();
+        var initial = Retained(action);
+        var wrongOrganization = Grant(action, organizationId: OrganizationId.From("other"));
+        var wrongThread = Grant(action, threadId: ThreadId.New());
+        var wrongAction = Grant(action, retainedActionId: RetainedActionId.New());
+        var wrongDenial = Denial(action, threadId: ThreadId.New());
+
+        Assert.Same(initial, initial.Apply(new RetainedActionAuthorized(wrongOrganization, At)));
+        Assert.Same(initial, initial.Apply(new RetainedActionAuthorized(wrongThread, At)));
+        Assert.Same(initial, initial.Apply(new RetainedActionAuthorized(wrongAction, At)));
+        Assert.Same(initial, initial.Apply(new RetainedActionDenied(wrongDenial, At)));
     }
 
     private static PositionState Retained(PersistedRetainedAction action) =>
@@ -149,31 +219,36 @@ public sealed class RetainedActionLifecycleTests
     private static AuthorizationGrant Grant(
         PersistedRetainedAction action,
         MessageId? id = null,
-        PositionId? to = null) =>
+        PositionId? to = null,
+        OrganizationId? organizationId = null,
+        ThreadId? threadId = null,
+        RetainedActionId? retainedActionId = null) =>
         new(
             id ?? MessageId.New(),
-            action.OrganizationId,
+            organizationId ?? action.OrganizationId,
             new OrganizationOwnerEndpointRef(),
             new PositionEndpointRef(to ?? action.PositionId),
-            action.ThreadId,
+            threadId ?? action.ThreadId,
             Priority.High,
             1,
             At,
             null,
             MessageId.New(),
-            action.Id,
+            retainedActionId ?? action.Id,
             action.Fingerprint,
             AuthorityKey.From("governance.authorize-retained-action"),
             At.AddHours(1),
             null);
 
-    private static AuthorizationDenial Denial(PersistedRetainedAction action) =>
+    private static AuthorizationDenial Denial(
+        PersistedRetainedAction action,
+        ThreadId? threadId = null) =>
         new(
             MessageId.New(),
             action.OrganizationId,
             new OrganizationOwnerEndpointRef(),
             new PositionEndpointRef(action.PositionId),
-            action.ThreadId,
+            threadId ?? action.ThreadId,
             Priority.High,
             1,
             At,

@@ -50,7 +50,7 @@ positions:
           total_max_eur_per_day: 6.00
           max_calls_per_hour: 60
       authority:
-        can_decide: ["org.quarterly-priorities"]
+        can_decide: ["governance.authorize-retained-action", "org.quarterly-priorities"]
   - id: delivery-lead
     name: Delivery Lead
     unit: engenharia

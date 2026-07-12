@@ -93,6 +93,85 @@ public sealed class AiAgentActionGateTests
     }
 
     [Fact]
+    public async Task Authorization_grant_requires_the_fixed_trust_key_at_the_emission_gate()
+    {
+        var emissionKey = AuthorizationGrantAuthority.Key;
+        var payloadKey = AuthorityKey.From("finance.commitments");
+        var context = Context(canDecide: [emissionKey.Value]);
+        var grant = Grant(context, payloadKey);
+        var gate = Gate(
+            Catalog(Trust(emissionKey), Trust(payloadKey)),
+            [AuthorizationGrantAuthority.ActionContract]);
+
+        var result = await gate.EvaluateAsync(
+            context,
+            AiAgentActionCandidate.ForMessage(
+                grant,
+                ActingUnderDeclaration.Declared(emissionKey)));
+
+        Assert.True(result.IsAllowed);
+        Assert.Same(grant, result.Candidate.Message);
+        Assert.Equal(emissionKey, result.Resolution!.AllowedAuthorityKey);
+        Assert.NotEqual(grant.Key, result.Resolution.AllowedAuthorityKey);
+    }
+
+    [Theory]
+    [InlineData(false, true, "missing")]
+    [InlineData(true, false, "missing")]
+    [InlineData(true, true, "invalid")]
+    [InlineData(true, true, "other")]
+    public async Task Authorization_grant_without_all_three_trust_bindings_escalates_one_level(
+        bool catalogContainsKey,
+        bool emitterCanDecide,
+        string declaration)
+    {
+        var emissionKey = AuthorizationGrantAuthority.Key;
+        var otherKey = AuthorityKey.From("governance.other-action");
+        var context = Context(canDecide: emitterCanDecide ? [emissionKey.Value] : []);
+        var domains = catalogContainsKey
+            ? new[] { Trust(emissionKey), Trust(otherKey) }
+            : new[] { Trust(otherKey) };
+        var actingUnder = declaration switch
+        {
+            "invalid" => ActingUnderDeclaration.Invalid(),
+            "other" => ActingUnderDeclaration.Declared(otherKey),
+            _ => ActingUnderDeclaration.Missing(),
+        };
+        var gate = Gate(Catalog(domains), [AuthorizationGrantAuthority.ActionContract]);
+
+        var result = await gate.EvaluateAsync(
+            context,
+            AiAgentActionCandidate.ForMessage(
+                Grant(context, AuthorityKey.From("delivery.bug-triage")),
+                actingUnder));
+
+        Assert.Equal(AiAgentActionGateOutcome.RetainedForEscalation, result.Outcome);
+        Assert.Equal(ActionGateResolution.UnmatchedActionDefaultCode, result.Code);
+        var escalation = Assert.IsType<Escalation>(
+            Assert.Single(result.Retention!.GovernanceMessages));
+        Assert.Equal(new PositionEndpointRef(Superior), escalation.To);
+    }
+
+    [Fact]
+    public async Task Unauthorized_root_grant_escalates_to_the_organization_owner()
+    {
+        var context = Context(hasSuperior: false);
+        var gate = Gate(
+            Catalog(Trust(AuthorizationGrantAuthority.Key)),
+            [AuthorizationGrantAuthority.ActionContract]);
+
+        var result = await gate.EvaluateAsync(
+            context,
+            AiAgentActionCandidate.ForMessage(
+                Grant(context, AuthorityKey.From("delivery.bug-triage")),
+                ActingUnderDeclaration.Missing()));
+
+        var escalation = Assert.IsType<Escalation>(
+            Assert.Single(result.Retention!.GovernanceMessages));
+        Assert.IsType<OrganizationOwnerEndpointRef>(escalation.To);
+    }
+
+    [Fact]
     public async Task Human_approval_materializes_one_request_per_canonical_requirement()
     {
         var first = AuthorityKey.From("finance.commitments");
@@ -405,6 +484,27 @@ public sealed class AiAgentActionGateTests
             context.Directive.DirectiveId,
             ReportKind.Done,
             "Bug triage is complete.");
+
+    private static AuthorizationGrant Grant(
+        AiDirectiveExecutionContext context,
+        AuthorityKey payloadKey) =>
+        new(
+            MessageId.From(Guid.Parse("eeeeeeee-0000-0000-0000-000000001207")),
+            context.OrganizationId,
+            new PositionEndpointRef(context.PositionId),
+            new PositionEndpointRef(PositionId.From("requester")),
+            context.Directive.ThreadId,
+            context.Directive.Priority,
+            schemaVersion: 1,
+            At.AddMinutes(5),
+            context.Directive.Deadline,
+            MessageId.From(Guid.Parse("ffffffff-0000-0000-0000-000000001207")),
+            RetainedActionId.From(Guid.Parse("11111111-0000-0000-0000-000000001207")),
+            ActionFingerprint.From(
+                "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            payloadKey,
+            At.AddHours(1),
+            reason: null);
 
     private sealed class RecordingApprovalResolver(
         Func<AiActionApprovalResolutionQuery, AiActionApprovalResolution> resolve)

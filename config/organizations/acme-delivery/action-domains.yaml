@@ -11,6 +11,10 @@ domains:
     description: Classify, prioritize and assign bugs internally
     gate: decide
 
+  - key: governance.authorize-retained-action
+    description: Authorize re-execution of a retained action escalated by a direct subordinate
+    gate: decide
+
   - key: comms.external-official
     description: Send official communications outside the organization
     gate: escalate

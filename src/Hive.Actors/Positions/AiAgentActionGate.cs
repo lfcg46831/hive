@@ -126,6 +126,7 @@ internal sealed record AiAgentActionCandidate
             Directive => nameof(Directive),
             ApprovalRequest => nameof(ApprovalRequest),
             ApprovalDecision => nameof(ApprovalDecision),
+            AuthorizationGrant => AuthorizationGrantAuthority.MessageSelector,
             _ => throw new ArgumentException(
                 $"Organizational message type '{message.GetType().Name}' has no action-domain selector.",
                 nameof(message)),

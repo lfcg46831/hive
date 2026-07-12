@@ -220,7 +220,9 @@ The command exits `0` only when every check passes and exits non-zero with the f
 
 ### F0 bug-triage vertical slice demo
 
-The F0 demo uses the tracked ACME Delivery organization, the deterministic AI gateway stub, and the reproducible demo seed `us-f0-10-t12-demo`. It does not require external AI credentials or network calls beyond the local Compose stack.
+The F0 demo uses the tracked ACME Delivery organization, the real OpenAI gateway adapter, and the reproducible demo seed `us-f0-10-t12-demo`. The demo profile selects the real provider by configuration only; the base hosts and the default test suite remain offline and use no external credentials.
+
+Copy `.env.example` to the ignored `.env` file, then set `OPENAI_API_KEY` there. `OPENAI_MODEL_ID` is optional and defaults to `gpt-4o-mini` when it is empty or absent. Never commit the populated `.env` file. Compose stops during configuration resolution when the key is missing, before starting a misconfigured demo.
 
 Start the one-node demo topology:
 
@@ -240,7 +242,7 @@ After the selected topology is healthy, submit the reproducible directive from a
 dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost:8080 --seed us-f0-10-t12-demo
 ```
 
-The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission.
+The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
 
 Stop the demo with the same Compose file set used to start it:
 
@@ -315,7 +317,7 @@ Both executable projects use the standard .NET configuration hierarchy. Base `ap
 
 ## AI gateway
 
-The default `IAiGateway` provider remains unavailable until a provider is selected. For local tests and deterministic integration flows, enable the stub provider with:
+The base `IAiGateway` provider remains unavailable until a provider is selected. The demo Compose overrides select the real provider by default; local tests and deterministic integration flows continue to select the stub explicitly with:
 
 ```text
 HIVE__AIGATEWAY__PROVIDER=stub
@@ -364,7 +366,7 @@ HIVE__AIGATEWAY__STUB__SCENARIO=bug-triage-report
 
 ### Real provider configuration
 
-The optional real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The default suite does not enable it, does not require credentials, and does not open external network connections. The first concrete provider supported by US-F0-07-T05c is OpenAI through `ProviderId=openai`; unsupported real provider ids fail startup as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables or user-secrets.
+The real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The demo Compose profile does this by default; the default test suite does not enable it, does not require credentials, and does not open external network connections. The first concrete provider supported by US-F0-07-T05c is OpenAI through `ProviderId=openai`; unsupported real provider ids fail startup as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables, the ignored local `.env` file used by Compose, or user-secrets.
 
 | Setting | Required | Purpose |
 | --- | --- | --- |

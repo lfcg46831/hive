@@ -3,21 +3,33 @@ namespace Hive.Tests;
 public sealed class ComposeDemoConfigurationTests
 {
     [Fact]
-    public void Demo_compose_override_enables_reproducible_vertical_slice_defaults()
+    public void Demo_compose_override_enables_real_provider_without_committing_a_secret()
     {
         var singleNode = File.ReadAllText(Path.Combine(RepositoryRoot, "docker-compose.demo.yml"));
         var cluster = File.ReadAllText(Path.Combine(RepositoryRoot, "docker-compose.demo.cluster.yml"));
+        var environmentTemplate = File.ReadAllText(Path.Combine(RepositoryRoot, ".env.example"));
 
         Assert.Contains("HIVE__NODE__ROLES__0: \"api\"", singleNode, StringComparison.Ordinal);
         Assert.Contains("HIVE__NODE__ROLES__1: \"agents\"", singleNode, StringComparison.Ordinal);
         Assert.Contains("HIVE__NODE__ROLES__2: \"gateway\"", singleNode, StringComparison.Ordinal);
         Assert.Contains("HIVE__NODE__ROLES__3: \"connectors\"", singleNode, StringComparison.Ordinal);
-        Assert.Contains("HIVE__AIGATEWAY__PROVIDER: \"stub\"", singleNode, StringComparison.Ordinal);
-        Assert.Contains("HIVE__AIGATEWAY__STUB__SCENARIO: \"bug-triage-report\"", singleNode, StringComparison.Ordinal);
+        AssertRealProviderProfile(singleNode);
         Assert.Contains("api2:", cluster, StringComparison.Ordinal);
         Assert.Contains("api3:", cluster, StringComparison.Ordinal);
-        Assert.Contains("HIVE__AIGATEWAY__PROVIDER: \"stub\"", cluster, StringComparison.Ordinal);
-        Assert.Contains("HIVE__AIGATEWAY__STUB__SCENARIO: \"bug-triage-report\"", cluster, StringComparison.Ordinal);
+        AssertRealProviderProfile(cluster);
+        Assert.DoesNotContain("sk-", singleNode, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sk-", cluster, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("OPENAI_API_KEY=", environmentTemplate, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPENAI_API_KEY=sk-", environmentTemplate, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AssertRealProviderProfile(string text)
+    {
+        Assert.Contains("HIVE__AIGATEWAY__PROVIDER: \"real\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PROVIDERID: \"openai\"", text, StringComparison.Ordinal);
+        Assert.Contains("${OPENAI_MODEL_ID:-gpt-4o-mini}", text, StringComparison.Ordinal);
+        Assert.Contains("${OPENAI_API_KEY:?", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("HIVE__AIGATEWAY__STUB__SCENARIO", text, StringComparison.Ordinal);
     }
 
     [Fact]

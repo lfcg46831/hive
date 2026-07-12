@@ -1,10 +1,10 @@
-# One-node F0 bug-triage vertical slice demo override (US-F0-10-T12).
+# One-node F0 bug-triage vertical slice demo override (US-F0-13-T01).
 #
 # Layer on top of docker-compose.yml. It keeps the base service set intact and
 # turns the single api host into an all-in-one demo node: HTTP intake, position
-# actors, gateway provider, and connector role are all local. The AI gateway is
-# the deterministic stub scenario used by the F0 bug-triage slice, so no external
-# provider or secret is required.
+# actors, gateway provider, and connector role are all local. The demo selects
+# the real OpenAI adapter by configuration only. The API key is supplied from
+# the ignored local .env file and is never committed or baked into the image.
 
 services:
   api:
@@ -13,5 +13,7 @@ services:
       HIVE__NODE__ROLES__1: "agents"
       HIVE__NODE__ROLES__2: "gateway"
       HIVE__NODE__ROLES__3: "connectors"
-      HIVE__AIGATEWAY__PROVIDER: "stub"
-      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+      HIVE__AIGATEWAY__PROVIDER: "real"
+      HIVE__AIGATEWAY__REAL__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__MODELID: "${OPENAI_MODEL_ID:-gpt-4o-mini}"
+      HIVE__AIGATEWAY__REAL__APIKEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in the ignored .env file}"

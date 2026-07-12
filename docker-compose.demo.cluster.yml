@@ -1,23 +1,29 @@
-# Three-node F0 bug-triage vertical slice demo override (US-F0-10-T12).
+# Three-node F0 bug-triage vertical slice demo override (US-F0-13-T01).
 #
 # Layer after docker-compose.yml, docker-compose.cluster.yml, and
 # docker-compose.roles.yml. Role placement remains owned by the roles override;
-# this file only makes the deterministic AI gateway stub available on every node
-# so the agents node can process the demo directive without external network or
-# secrets.
+# this file selects the real OpenAI adapter on every node so the agents node can
+# process the demo directive. The API key comes from the ignored local .env file
+# and is never committed or baked into the image.
 
 services:
   api:
     environment:
-      HIVE__AIGATEWAY__PROVIDER: "stub"
-      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+      HIVE__AIGATEWAY__PROVIDER: "real"
+      HIVE__AIGATEWAY__REAL__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__MODELID: "${OPENAI_MODEL_ID:-gpt-4o-mini}"
+      HIVE__AIGATEWAY__REAL__APIKEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in the ignored .env file}"
 
   api2:
     environment:
-      HIVE__AIGATEWAY__PROVIDER: "stub"
-      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+      HIVE__AIGATEWAY__PROVIDER: "real"
+      HIVE__AIGATEWAY__REAL__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__MODELID: "${OPENAI_MODEL_ID:-gpt-4o-mini}"
+      HIVE__AIGATEWAY__REAL__APIKEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in the ignored .env file}"
 
   api3:
     environment:
-      HIVE__AIGATEWAY__PROVIDER: "stub"
-      HIVE__AIGATEWAY__STUB__SCENARIO: "bug-triage-report"
+      HIVE__AIGATEWAY__PROVIDER: "real"
+      HIVE__AIGATEWAY__REAL__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__MODELID: "${OPENAI_MODEL_ID:-gpt-4o-mini}"
+      HIVE__AIGATEWAY__REAL__APIKEY: "${OPENAI_API_KEY:?Set OPENAI_API_KEY in the ignored .env file}"

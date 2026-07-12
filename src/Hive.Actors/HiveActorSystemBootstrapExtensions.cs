@@ -114,6 +114,11 @@ public static class HiveActorSystemBootstrapExtensions
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>()));
+        builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
+            EscalatingRetainedActionPolicyEvaluator.Instance);
+        builder.Services.TryAddSingleton<IRetainedActionExecutor>(
+            UnavailableRetainedActionExecutor.Instance);
+        builder.Services.TryAddSingleton<RetainedActionResumeCoordinator>();
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.TryAddSingleton<ISchedulerPulseDispatcher>(
             AkkaClusterShardingSchedulerPulseDispatcher.Instance);

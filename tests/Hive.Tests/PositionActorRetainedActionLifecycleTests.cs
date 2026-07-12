@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Akka.Configuration;
 using Hive.Actors.Positions;
+using Hive.Domain.Auditing;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -84,24 +85,101 @@ public sealed class PositionActorRetainedActionLifecycleTests
         }
     }
 
+    [Fact]
+    public async Task Concurrent_resumes_execute_once_and_consume_only_after_effect_completes()
+    {
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From($"retained-resume-{Guid.NewGuid():N}"));
+        var system = ActorSystem.Create(
+            $"retained-resume-{Guid.NewGuid():N}",
+            ConfigurationFactory.ParseString("""
+                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                """));
+
+        try
+        {
+            var provider = new LoadedConfigurationProvider(entity);
+            var action = Action(entity);
+            var grant = Grant(action);
+            var executor = new BlockingExecutor();
+            var coordinator = new RetainedActionResumeCoordinator(
+                new FixedPolicy(ActionGateOutcome.EscalationRequired),
+                executor,
+                NoopJourneyAuditLog.Instance,
+                new FixedTimeProvider(At));
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    PositionOccupantFactory.Instance,
+                    null,
+                    () => At,
+                    coordinator)),
+                "position");
+
+            actor.Tell(new RetainAction(action));
+            actor.Tell(new AuthorizeRetainedAction(grant));
+            await WaitForStateAsync(
+                actor,
+                state => state.RetainedActions.GetValueOrDefault(action.Id)?.State
+                         == RetainedActionState.Authorized);
+
+            actor.Tell(new ResumeRetainedAction(action.Id, Guid.NewGuid()));
+            actor.Tell(new ResumeRetainedAction(action.Id, Guid.NewGuid()));
+            await executor.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(1, executor.Calls);
+
+            executor.Complete();
+            var consumed = await WaitForStateAsync(
+                actor,
+                state => state.RetainedActions.GetValueOrDefault(action.Id)?.State
+                         == RetainedActionState.Consumed);
+
+            Assert.Equal(RetainedActionState.Consumed, consumed.RetainedActions[action.Id].State);
+            Assert.Equal(1, executor.Calls);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static async Task<PositionState> WaitForStateAsync(
         IActorRef actor,
         Func<PositionState, bool> predicate)
     {
-        var timeoutAt = DateTime.UtcNow.AddSeconds(10);
+        var timeoutAt = DateTime.UtcNow.AddSeconds(15);
         PositionState? latest = null;
+        AskTimeoutException? lastAskTimeout = null;
         while (DateTime.UtcNow < timeoutAt)
         {
-            latest = await actor.Ask<PositionState>(GetPositionState.Instance, TimeSpan.FromSeconds(2));
-            if (predicate(latest))
+            try
             {
-                return latest;
+                latest = await actor.Ask<PositionState>(
+                    GetPositionState.Instance,
+                    TimeSpan.FromSeconds(2));
+                lastAskTimeout = null;
+                if (predicate(latest))
+                {
+                    return latest;
+                }
+            }
+            catch (AskTimeoutException exception)
+            {
+                // Recovery and persistence callbacks can temporarily delay queries when the
+                // complete suite is running in parallel. The overall convergence deadline,
+                // rather than one polling attempt, determines failure.
+                lastAskTimeout = exception;
             }
 
             await Task.Delay(25);
         }
 
-        throw new TimeoutException($"PositionActor lifecycle state did not converge. Last state: {latest}.");
+        throw new TimeoutException(
+            $"PositionActor lifecycle state did not converge. Last state: {latest}.",
+            lastAskTimeout);
     }
 
     private static PersistedRetainedAction Action(PositionEntityId entity) =>
@@ -172,5 +250,42 @@ public sealed class PositionActorRetainedActionLifecycleTests
                     new PositionAuthorityRuntimeConfiguration(),
                     [])));
         }
+    }
+
+    private sealed class FixedPolicy(ActionGateOutcome outcome) : IRetainedActionPolicyEvaluator
+    {
+        public ValueTask<ActionGateOutcome> EvaluateAsync(
+            PersistedRetainedAction action,
+            PositionRuntimeConfiguration runtimeConfiguration,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(outcome);
+    }
+
+    private sealed class BlockingExecutor : IRetainedActionExecutor
+    {
+        private readonly TaskCompletionSource _completion = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Started { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Calls { get; private set; }
+
+        public async ValueTask<RetainedActionExecutionResult> ExecuteAsync(
+            RetainedActionExecutionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            Started.TrySetResult();
+            await _completion.Task.WaitAsync(cancellationToken);
+            return RetainedActionExecutionResult.Success();
+        }
+
+        public void Complete() => _completion.TrySetResult();
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 }

@@ -3,6 +3,7 @@ using System.Text;
 using Akka.Actor;
 using Akka.Cluster.Sharding;
 using Akka.Persistence;
+using Akka.Pattern;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -24,8 +25,11 @@ internal sealed class PositionActor :
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IPositionOccupantFactory _occupantFactory;
     private readonly IPositionProjectionPublisher? _projectionPublisher;
+    private readonly RetainedActionResumeCoordinator _resumeCoordinator;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
+    private readonly HashSet<Guid> _handledResumeAttempts = [];
+    private readonly HashSet<RetainedActionId> _resumingActions = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -86,6 +90,23 @@ internal sealed class PositionActor :
         IPositionOccupantFactory occupantFactory,
         IPositionProjectionPublisher? projectionPublisher,
         Func<DateTimeOffset> clock)
+        : this(
+            entityId,
+            configurationProvider,
+            occupantFactory,
+            projectionPublisher,
+            clock,
+            resumeCoordinator: null)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock,
+        RetainedActionResumeCoordinator? resumeCoordinator)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
@@ -94,6 +115,10 @@ internal sealed class PositionActor :
             ?? throw new ArgumentNullException(nameof(occupantFactory));
         _projectionPublisher = projectionPublisher;
         _clock = clock ?? throw new ArgumentNullException(nameof(clock));
+        _resumeCoordinator = resumeCoordinator ?? new RetainedActionResumeCoordinator(
+            EscalatingRetainedActionPolicyEvaluator.Instance,
+            UnavailableRetainedActionExecutor.Instance,
+            Domain.Auditing.NoopJourneyAuditLog.Instance);
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -190,6 +215,11 @@ internal sealed class PositionActor :
                         command.GrantId,
                         command.ReEscalationCode,
                         _clock()))));
+        Command<ResumeRetainedAction>(command =>
+            WhenReady(() => BeginRetainedActionResume(command)));
+        Command<RetainedActionResumeCompleted>(HandleRetainedActionResumeCompleted);
+        Command<RetainedActionResumeFailed>(failed =>
+            _resumingActions.Remove(failed.ActionId));
         Command<RequestPassivation>(command =>
             WhenReady(() =>
                 PersistPassivationIfAllowed(command)));
@@ -348,6 +378,70 @@ internal sealed class PositionActor :
         }
 
         PersistAndApply(createEvent());
+    }
+
+    private void BeginRetainedActionResume(ResumeRetainedAction command)
+    {
+        if (!_handledResumeAttempts.Add(command.AttemptId)
+            || !_state.RetainedActions.TryGetValue(command.ActionId, out var action)
+            || !_resumingActions.Add(command.ActionId))
+        {
+            return;
+        }
+
+        var runtimeConfiguration = _runtimeConfiguration
+            ?? throw new InvalidOperationException(
+                $"PositionActor '{PersistenceId}' cannot resume an action before runtime configuration is loaded.");
+
+        _resumeCoordinator
+            .ResumeAsync(action, runtimeConfiguration, command.AttemptId)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: result => new RetainedActionResumeCompleted(
+                    command.ActionId,
+                    command.AttemptId,
+                    result),
+                failure: exception => new RetainedActionResumeFailed(
+                    command.ActionId,
+                    command.AttemptId,
+                    exception));
+    }
+
+    private void HandleRetainedActionResumeCompleted(RetainedActionResumeCompleted completed)
+    {
+        if (!_state.RetainedActions.TryGetValue(completed.ActionId, out var current)
+            || current.State != RetainedActionState.Authorized
+            || current.ActiveGrant?.Id != completed.Result.GrantId)
+        {
+            _resumingActions.Remove(completed.ActionId);
+            return;
+        }
+
+        var occurredAt = _clock();
+        var activeGrantId = current.ActiveGrant!.Id;
+        PositionEvent? transition = completed.Result.Outcome switch
+        {
+            RetainedActionResumeOutcome.Consumed =>
+                new RetainedActionConsumed(current.Id, activeGrantId, occurredAt),
+            RetainedActionResumeOutcome.Expired =>
+                new RetainedActionExpired(current.Id, activeGrantId, completed.Result.Code, occurredAt),
+            RetainedActionResumeOutcome.Returned =>
+                new RetainedActionReturned(current.Id, activeGrantId, completed.Result.Code, occurredAt),
+            _ => null,
+        };
+
+        if (transition is not null)
+        {
+            Persist(transition, persisted =>
+            {
+                ApplyPersisted(persisted);
+                _resumingActions.Remove(completed.ActionId);
+            });
+            return;
+        }
+
+        _resumingActions.Remove(completed.ActionId);
     }
 
     private bool TargetsAction(OrgMessage resolution, PersistedRetainedAction action) =>
@@ -578,7 +672,6 @@ internal sealed class PositionActor :
 
         Stash.Stash();
     }
-
     private void PersistPassivationIfAllowed(RequestPassivation command)
     {
         if (_passivationRequested)
@@ -697,6 +790,16 @@ internal sealed record PositionConfigurationLoadCompleted(
     PositionRuntimeConfigurationLoadResult Result);
 
 internal sealed record PositionConfigurationLoadFailed(Exception Cause);
+
+internal sealed record RetainedActionResumeCompleted(
+    RetainedActionId ActionId,
+    Guid AttemptId,
+    RetainedActionResumeResult Result);
+
+internal sealed record RetainedActionResumeFailed(
+    RetainedActionId ActionId,
+    Guid AttemptId,
+    Exception Cause);
 
 internal sealed record PositionRuntimeStatus(
     PositionOperationalState OperationalState,

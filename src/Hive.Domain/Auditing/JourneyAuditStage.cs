@@ -12,4 +12,5 @@ public enum JourneyAuditStage
     GatewayCostRecorded = 8,
     DuplicateSuppressed = 9,
     ActionGateEvaluated = 10,
+    RetainedActionResume = 11,
 }

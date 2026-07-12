@@ -15,11 +15,13 @@ internal sealed class PositionEntityProps : IPositionEntityProps
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IPositionOccupantFactory _occupantFactory;
     private readonly IPositionProjectionPublisher _projectionPublisher;
+    private readonly RetainedActionResumeCoordinator? _resumeCoordinator;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
         IPositionOccupantFactory occupantFactory,
-        IJourneyAuditLog? auditLog = null)
+        IJourneyAuditLog? auditLog = null,
+        RetainedActionResumeCoordinator? resumeCoordinator = null)
     {
         _configurationProvider = configurationProvider
             ?? throw new ArgumentNullException(nameof(configurationProvider));
@@ -28,6 +30,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
         _projectionPublisher = new JourneyAuditPositionProjectionPublisher(
             resolvedAuditLog);
+        _resumeCoordinator = resumeCoordinator;
     }
 
     public Props Create(string entityId) =>
@@ -36,5 +39,6 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             _configurationProvider,
             _occupantFactory,
             _projectionPublisher,
-            () => DateTimeOffset.UtcNow));
+            () => DateTimeOffset.UtcNow,
+            _resumeCoordinator));
 }

@@ -26,6 +26,7 @@ internal static class PositionProtocolManifests
         ("consume-retained-action", typeof(ConsumeRetainedAction)),
         ("expire-retained-action", typeof(ExpireRetainedAction)),
         ("return-retained-action", typeof(ReturnRetainedAction)),
+        ("resume-retained-action", typeof(ResumeRetainedAction)),
         ("message-received", typeof(MessageReceived)),
         ("task-created", typeof(TaskCreated)),
         ("task-updated", typeof(TaskUpdated)),

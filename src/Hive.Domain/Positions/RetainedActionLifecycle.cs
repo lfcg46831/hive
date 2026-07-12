@@ -59,6 +59,23 @@ public sealed record ReturnRetainedAction : PositionCommand
     public string ReEscalationCode { get; }
 }
 
+public sealed record ResumeRetainedAction : PositionCommand
+{
+    public ResumeRetainedAction(RetainedActionId actionId, Guid attemptId)
+    {
+        ActionId = actionId ?? throw new ArgumentNullException(nameof(actionId));
+        if (attemptId == Guid.Empty)
+        {
+            throw new ArgumentException("Resume attempt id cannot be empty.", nameof(attemptId));
+        }
+
+        AttemptId = attemptId;
+    }
+
+    public RetainedActionId ActionId { get; }
+    public Guid AttemptId { get; }
+}
+
 public sealed record RetainedActionAuthorized : PositionEvent
 {
     public RetainedActionAuthorized(AuthorizationGrant grant, DateTimeOffset occurredAt) : base(occurredAt) =>

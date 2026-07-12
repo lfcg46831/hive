@@ -158,6 +158,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(ConsumeRetainedAction);
         yield return typeof(ExpireRetainedAction);
         yield return typeof(ReturnRetainedAction);
+        yield return typeof(ResumeRetainedAction);
         yield return typeof(PositionEvent);
         yield return typeof(MessageReceived);
         yield return typeof(TaskCreated);
@@ -197,6 +198,9 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("consume-retained-action", new ConsumeRetainedAction(retained.Id, grant.Id));
         yield return ("expire-retained-action", new ExpireRetainedAction(retained.Id, grant.Id, "authorization-expired"));
         yield return ("return-retained-action", new ReturnRetainedAction(retained.Id, grant.Id, "policy-tightened"));
+        yield return ("resume-retained-action", new ResumeRetainedAction(
+            retained.Id,
+            new Guid("fc000000-0000-0000-0000-000000000001")));
         yield return ("message-received", new MessageReceived(SampleMessage(), At));
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));

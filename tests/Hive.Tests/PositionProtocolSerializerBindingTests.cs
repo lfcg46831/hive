@@ -153,6 +153,11 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(ChangeOccupant);
         yield return typeof(RequestPassivation);
         yield return typeof(RetainAction);
+        yield return typeof(AuthorizeRetainedAction);
+        yield return typeof(DenyRetainedAction);
+        yield return typeof(ConsumeRetainedAction);
+        yield return typeof(ExpireRetainedAction);
+        yield return typeof(ReturnRetainedAction);
         yield return typeof(PositionEvent);
         yield return typeof(MessageReceived);
         yield return typeof(TaskCreated);
@@ -165,11 +170,19 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(PositionPassivated);
         yield return typeof(PositionConfigurationApplied);
         yield return typeof(ActionRetained);
+        yield return typeof(RetainedActionAuthorized);
+        yield return typeof(RetainedActionDenied);
+        yield return typeof(RetainedActionConsumed);
+        yield return typeof(RetainedActionExpired);
+        yield return typeof(RetainedActionReturned);
         yield return typeof(PositionSnapshot);
     }
 
     private static IEnumerable<(string Manifest, object Value)> Samples()
     {
+        var retained = SampleRetainedAction();
+        var grant = SampleAuthorizationGrant(retained);
+        var denial = SampleAuthorizationDenial(retained);
         yield return ("position-envelope", SampleEnvelope());
         yield return ("accept-message", new AcceptMessage(SampleMessage()));
         yield return ("open-task", new OpenTask(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At.AddHours(2), MessageId()));
@@ -178,7 +191,12 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("update-short-memory", new UpdateShortMemory("current-thread", "customer-impact"));
         yield return ("change-occupant", new ChangeOccupant(OccupantId.From("agent-7"), OccupantType.AiAgent));
         yield return ("request-passivation", new RequestPassivation("idle"));
-        yield return ("retain-action", new RetainAction(SampleRetainedAction()));
+        yield return ("retain-action", new RetainAction(retained));
+        yield return ("authorize-retained-action", new AuthorizeRetainedAction(grant));
+        yield return ("deny-retained-action", new DenyRetainedAction(denial));
+        yield return ("consume-retained-action", new ConsumeRetainedAction(retained.Id, grant.Id));
+        yield return ("expire-retained-action", new ExpireRetainedAction(retained.Id, grant.Id, "authorization-expired"));
+        yield return ("return-retained-action", new ReturnRetainedAction(retained.Id, grant.Id, "policy-tightened"));
         yield return ("message-received", new MessageReceived(SampleMessage(), At));
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));
@@ -189,7 +207,12 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
         yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
-        yield return ("action-retained", new ActionRetained(SampleRetainedAction()));
+        yield return ("action-retained", new ActionRetained(retained));
+        yield return ("retained-action-authorized", new RetainedActionAuthorized(grant, At.AddMinutes(1)));
+        yield return ("retained-action-denied", new RetainedActionDenied(denial, At.AddMinutes(1)));
+        yield return ("retained-action-consumed", new RetainedActionConsumed(retained.Id, grant.Id, At.AddMinutes(2)));
+        yield return ("retained-action-expired", new RetainedActionExpired(retained.Id, grant.Id, "authorization-expired", At.AddMinutes(2)));
+        yield return ("retained-action-returned", new RetainedActionReturned(retained.Id, grant.Id, "policy-tightened", At.AddMinutes(2)));
         yield return ("position-snapshot", SampleSnapshot());
     }
 
@@ -198,8 +221,11 @@ public sealed class PositionProtocolSerializerBindingTests
             PositionEntityId.From(OrganizationId.From("acme"), PositionId.From("delivery-lead")),
             new AcceptMessage(SampleMessage()));
 
-    private static PositionSnapshot SampleSnapshot() =>
-        new(
+    private static PositionSnapshot SampleSnapshot()
+    {
+        var retained = SampleRetainedAction();
+        var authorized = retained.Authorize(SampleAuthorizationGrant(retained), At.AddMinutes(1));
+        return new PositionSnapshot(
             At,
             OccupantId.From("agent-7"),
             OccupantType.AiAgent,
@@ -212,7 +238,8 @@ public sealed class PositionProtocolSerializerBindingTests
             new[] { MessageId() },
             new[] { MessageId() },
             ConfigurationStamp(),
-            new[] { SampleRetainedAction() });
+            new[] { authorized });
+    }
 
     private static PersistedRetainedAction SampleRetainedAction() =>
         new(
@@ -232,6 +259,39 @@ public sealed class PositionProtocolSerializerBindingTests
             "action-gate-escalation-required",
             At,
             governanceMessages: new[] { SampleMessage() });
+
+    private static AuthorizationGrant SampleAuthorizationGrant(PersistedRetainedAction action) =>
+        new(
+            Hive.Domain.Identity.MessageId.From(new Guid("fa000000-0000-0000-0000-000000000001")),
+            action.OrganizationId,
+            new OrganizationOwnerEndpointRef(),
+            new PositionEndpointRef(action.PositionId),
+            action.ThreadId,
+            Priority.High,
+            1,
+            At.AddMinutes(1),
+            null,
+            Hive.Domain.Identity.MessageId.From(new Guid("fa000000-0000-0000-0000-000000000002")),
+            action.Id,
+            action.Fingerprint,
+            Hive.Domain.Governance.AuthorityKey.From("governance.authorize-retained-action"),
+            At.AddHours(1),
+            null);
+
+    private static AuthorizationDenial SampleAuthorizationDenial(PersistedRetainedAction action) =>
+        new(
+            Hive.Domain.Identity.MessageId.From(new Guid("fb000000-0000-0000-0000-000000000001")),
+            action.OrganizationId,
+            new OrganizationOwnerEndpointRef(),
+            new PositionEndpointRef(action.PositionId),
+            action.ThreadId,
+            Priority.High,
+            1,
+            At.AddMinutes(1),
+            null,
+            Hive.Domain.Identity.MessageId.From(new Guid("fb000000-0000-0000-0000-000000000002")),
+            action.Id,
+            "Denied by organization owner.");
 
     private static Memo SampleMessage() =>
         new(

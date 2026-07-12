@@ -1,0 +1,25 @@
+{
+  "Grant": {
+    "InReplyTo": "d3000000-0000-0000-0000-000000000001",
+    "RetainedActionId": "f9000000-0000-0000-0000-000000000001",
+    "Fingerprint": "sha256:0000000000000000000000000000000000000000000000000000000000000004",
+    "Key": "governance.authorize-retained-action",
+    "ExpiresAt": "2026-06-26T12:00:00\u002B00:00",
+    "Reason": "Approved for this retained action.",
+    "Id": "f9000000-0000-0000-0000-0000000000a1",
+    "OrganizationId": "acme",
+    "From": {
+      "kind": "organization-owner"
+    },
+    "To": {
+      "kind": "position",
+      "positionId": "delivery-lead"
+    },
+    "Thread": "d3000000-0000-0000-0000-0000000000a1",
+    "Priority": "high",
+    "SchemaVersion": 1,
+    "SentAt": "2026-06-26T10:41:00\u002B00:00",
+    "Deadline": null
+  },
+  "OccurredAt": "2026-06-26T10:41:00\u002B00:00"
+}

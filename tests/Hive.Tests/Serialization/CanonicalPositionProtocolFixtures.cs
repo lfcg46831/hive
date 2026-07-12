@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
@@ -27,6 +28,11 @@ internal static class CanonicalPositionProtocolFixtures
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("position-passivated", new PositionPassivated(OccurredAt.AddMinutes(45), "idle")),
         ("action-retained", new ActionRetained(RetainedAction())),
+        ("retained-action-authorized", new RetainedActionAuthorized(Grant(), OccurredAt.AddMinutes(41))),
+        ("retained-action-denied", new RetainedActionDenied(Denial(), OccurredAt.AddMinutes(41))),
+        ("retained-action-consumed", new RetainedActionConsumed(ActionId(), GrantMessageId(), OccurredAt.AddMinutes(42))),
+        ("retained-action-expired", new RetainedActionExpired(ActionId(), GrantMessageId(), "authorization-expired", OccurredAt.AddMinutes(42))),
+        ("retained-action-returned", new RetainedActionReturned(ActionId(), GrantMessageId(), "policy-tightened", OccurredAt.AddMinutes(42))),
         ("position-snapshot", Snapshot()),
     ];
 
@@ -80,4 +86,43 @@ internal static class CanonicalPositionProtocolFixtures
             "action-gate-escalation-required",
             OccurredAt.AddMinutes(40),
             governanceMessages: new[] { Message() });
+
+    private static RetainedActionId ActionId() =>
+        Hive.Domain.Identity.RetainedActionId.From(new Guid("f9000000-0000-0000-0000-000000000001"));
+
+    private static MessageId GrantMessageId() =>
+        Hive.Domain.Identity.MessageId.From(new Guid("f9000000-0000-0000-0000-0000000000a1"));
+
+    private static AuthorizationGrant Grant() =>
+        new(
+            GrantMessageId(),
+            OrganizationId.From("acme"),
+            new OrganizationOwnerEndpointRef(),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            ThreadId(),
+            Priority.High,
+            1,
+            OccurredAt.AddMinutes(41),
+            null,
+            MessageId(),
+            ActionId(),
+            ActionFingerprint.From("sha256:0000000000000000000000000000000000000000000000000000000000000004"),
+            AuthorityKey.From("governance.authorize-retained-action"),
+            OccurredAt.AddHours(2),
+            "Approved for this retained action.");
+
+    private static AuthorizationDenial Denial() =>
+        new(
+            Hive.Domain.Identity.MessageId.From(new Guid("f9000000-0000-0000-0000-0000000000b1")),
+            OrganizationId.From("acme"),
+            new OrganizationOwnerEndpointRef(),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            ThreadId(),
+            Priority.High,
+            1,
+            OccurredAt.AddMinutes(41),
+            null,
+            MessageId(),
+            ActionId(),
+            "Denied by organization owner.");
 }

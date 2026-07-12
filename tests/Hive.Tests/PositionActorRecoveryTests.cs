@@ -265,12 +265,22 @@ public sealed class PositionActorRecoveryTests
     private static async Task WaitForReadyAsync(IActorRef actor)
     {
         var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        PositionRuntimeStatus? latest = null;
         while (DateTimeOffset.UtcNow < deadline)
         {
-            var status = await actor.Ask<PositionRuntimeStatus>(
-                GetPositionRuntimeStatus.Instance,
-                TimeSpan.FromSeconds(1));
-            if (status.OperationalState == PositionOperationalState.Ready)
+            try
+            {
+                latest = await actor.Ask<PositionRuntimeStatus>(
+                    GetPositionRuntimeStatus.Instance,
+                    TimeSpan.FromSeconds(1));
+            }
+            catch (AskTimeoutException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(25);
+                continue;
+            }
+
+            if (latest.OperationalState == PositionOperationalState.Ready)
             {
                 return;
             }
@@ -278,7 +288,8 @@ public sealed class PositionActorRecoveryTests
             await Task.Delay(25);
         }
 
-        throw new TimeoutException("PositionActor did not reach Ready.");
+        throw new TimeoutException(
+            $"PositionActor did not reach Ready. Last observed state was {latest?.OperationalState}.");
     }
 
     private static async Task<PositionState> WaitForStateAsync(
@@ -289,9 +300,18 @@ public sealed class PositionActorRecoveryTests
         PositionState? latest = null;
         while (DateTimeOffset.UtcNow < deadline)
         {
-            latest = await actor.Ask<PositionState>(
-                GetPositionState.Instance,
-                TimeSpan.FromSeconds(1));
+            try
+            {
+                latest = await actor.Ask<PositionState>(
+                    GetPositionState.Instance,
+                    TimeSpan.FromSeconds(1));
+            }
+            catch (AskTimeoutException) when (DateTimeOffset.UtcNow < deadline)
+            {
+                await Task.Delay(25);
+                continue;
+            }
+
             if (predicate(latest))
             {
                 return latest;

@@ -158,6 +158,38 @@ internal sealed class PositionActor :
         Command<RetainAction>(command =>
             WhenReady(() =>
                 PersistRetainedAction(command)));
+        Command<AuthorizeRetainedAction>(command =>
+            WhenReady(() =>
+                PersistAuthorization(command)));
+        Command<DenyRetainedAction>(command =>
+            WhenReady(() =>
+                PersistDenial(command)));
+        Command<ConsumeRetainedAction>(command =>
+            WhenReady(() =>
+                PersistAuthorizedTransition(
+                    command.ActionId,
+                    command.GrantId,
+                    () => new RetainedActionConsumed(command.ActionId, command.GrantId, _clock()))));
+        Command<ExpireRetainedAction>(command =>
+            WhenReady(() =>
+                PersistAuthorizedTransition(
+                    command.ActionId,
+                    command.GrantId,
+                    () => new RetainedActionExpired(
+                        command.ActionId,
+                        command.GrantId,
+                        command.ReEscalationCode,
+                        _clock()))));
+        Command<ReturnRetainedAction>(command =>
+            WhenReady(() =>
+                PersistAuthorizedTransition(
+                    command.ActionId,
+                    command.GrantId,
+                    () => new RetainedActionReturned(
+                        command.ActionId,
+                        command.GrantId,
+                        command.ReEscalationCode,
+                        _clock()))));
         Command<RequestPassivation>(command =>
             WhenReady(() =>
                 PersistPassivationIfAllowed(command)));
@@ -275,6 +307,56 @@ internal sealed class PositionActor :
 
         PersistAndApply(new ActionRetained(command.Action));
     }
+
+    private void PersistAuthorization(AuthorizeRetainedAction command)
+    {
+        var grant = command.Grant;
+        if (!_state.RetainedActions.TryGetValue(grant.RetainedActionId, out var action)
+            || action.State != RetainedActionState.Retained
+            || action.AuthorizationGrant?.Id == grant.Id
+            || !TargetsAction(grant, action))
+        {
+            return;
+        }
+
+        PersistAndApply(new RetainedActionAuthorized(grant, _clock()));
+    }
+
+    private void PersistDenial(DenyRetainedAction command)
+    {
+        var denial = command.Denial;
+        if (!_state.RetainedActions.TryGetValue(denial.RetainedActionId, out var action)
+            || action.State != RetainedActionState.Retained
+            || !TargetsAction(denial, action))
+        {
+            return;
+        }
+
+        PersistAndApply(new RetainedActionDenied(denial, _clock()));
+    }
+
+    private void PersistAuthorizedTransition(
+        RetainedActionId actionId,
+        MessageId grantId,
+        Func<PositionEvent> createEvent)
+    {
+        if (!_state.RetainedActions.TryGetValue(actionId, out var action)
+            || action.State != RetainedActionState.Authorized
+            || action.ActiveGrant?.Id != grantId)
+        {
+            return;
+        }
+
+        PersistAndApply(createEvent());
+    }
+
+    private bool TargetsAction(OrgMessage resolution, PersistedRetainedAction action) =>
+        resolution.OrganizationId == EntityId.Organization
+        && resolution.OrganizationId == action.OrganizationId
+        && resolution.Thread == action.ThreadId
+        && resolution.To is PositionEndpointRef destination
+        && destination.PositionId == EntityId.Position
+        && destination.PositionId == action.PositionId;
 
     private void PersistPendingDispatches(Action? afterDispatch = null)
     {

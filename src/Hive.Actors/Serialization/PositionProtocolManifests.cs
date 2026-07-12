@@ -21,6 +21,11 @@ internal static class PositionProtocolManifests
         ("change-occupant", typeof(ChangeOccupant)),
         ("request-passivation", typeof(RequestPassivation)),
         ("retain-action", typeof(RetainAction)),
+        ("authorize-retained-action", typeof(AuthorizeRetainedAction)),
+        ("deny-retained-action", typeof(DenyRetainedAction)),
+        ("consume-retained-action", typeof(ConsumeRetainedAction)),
+        ("expire-retained-action", typeof(ExpireRetainedAction)),
+        ("return-retained-action", typeof(ReturnRetainedAction)),
         ("message-received", typeof(MessageReceived)),
         ("task-created", typeof(TaskCreated)),
         ("task-updated", typeof(TaskUpdated)),
@@ -32,6 +37,11 @@ internal static class PositionProtocolManifests
         ("position-passivated", typeof(PositionPassivated)),
         ("position-configuration-applied", typeof(PositionConfigurationApplied)),
         ("action-retained", typeof(ActionRetained)),
+        ("retained-action-authorized", typeof(RetainedActionAuthorized)),
+        ("retained-action-denied", typeof(RetainedActionDenied)),
+        ("retained-action-consumed", typeof(RetainedActionConsumed)),
+        ("retained-action-expired", typeof(RetainedActionExpired)),
+        ("retained-action-returned", typeof(RetainedActionReturned)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

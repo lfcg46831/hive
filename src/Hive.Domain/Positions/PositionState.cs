@@ -154,6 +154,11 @@ public sealed record PositionState
             PositionPassivated => this,
             PositionConfigurationApplied applied => Apply(applied),
             ActionRetained retained => Apply(retained),
+            RetainedActionAuthorized authorized => Apply(authorized),
+            RetainedActionDenied denied => Apply(denied),
+            RetainedActionConsumed consumed => Apply(consumed),
+            RetainedActionExpired expired => Apply(expired),
+            RetainedActionReturned returned => Apply(returned),
             _ => this,
         };
     }
@@ -309,4 +314,93 @@ public sealed record PositionState
             LastConfigurationStamp,
             RetainedActions.Add(@event.Action.Id, @event.Action));
     }
+
+    private PositionState Apply(RetainedActionAuthorized @event)
+    {
+        if (!RetainedActions.TryGetValue(@event.Grant.RetainedActionId, out var action)
+            || action.State != RetainedActionState.Retained
+            || action.AuthorizationGrant?.Id == @event.Grant.Id
+            || !TargetsAction(@event.Grant, action))
+        {
+            return this;
+        }
+
+        return WithAction(action.Authorize(@event.Grant, @event.OccurredAt));
+    }
+
+    private PositionState Apply(RetainedActionDenied @event)
+    {
+        if (!RetainedActions.TryGetValue(@event.Denial.RetainedActionId, out var action)
+            || action.State != RetainedActionState.Retained
+            || !TargetsAction(@event.Denial, action))
+        {
+            return this;
+        }
+
+        return WithAction(action.Deny(@event.Denial, @event.OccurredAt));
+    }
+
+    private PositionState Apply(RetainedActionConsumed @event)
+    {
+        if (!TryGetAuthorized(@event.ActionId, @event.GrantId, out var action))
+        {
+            return this;
+        }
+
+        return WithAction(action.Consume(@event.OccurredAt));
+    }
+
+    private PositionState Apply(RetainedActionExpired @event)
+    {
+        if (!TryGetAuthorized(@event.ActionId, @event.GrantId, out var action))
+        {
+            return this;
+        }
+
+        return WithAction(action.Expire(@event.OccurredAt, @event.ReEscalationCode));
+    }
+
+    private PositionState Apply(RetainedActionReturned @event)
+    {
+        if (!TryGetAuthorized(@event.ActionId, @event.GrantId, out var action))
+        {
+            return this;
+        }
+
+        return WithAction(action.ReturnToRetained(@event.OccurredAt, @event.ReEscalationCode));
+    }
+
+    private bool TryGetAuthorized(
+        RetainedActionId actionId,
+        MessageId grantId,
+        out PersistedRetainedAction action)
+    {
+        if (RetainedActions.TryGetValue(actionId, out var found)
+            && found.State == RetainedActionState.Authorized
+            && found.ActiveGrant?.Id == grantId)
+        {
+            action = found;
+            return true;
+        }
+
+        action = null!;
+        return false;
+    }
+
+    private static bool TargetsAction(OrgMessage resolution, PersistedRetainedAction action) =>
+        resolution.OrganizationId == action.OrganizationId
+        && resolution.Thread == action.ThreadId
+        && resolution.To is PositionEndpointRef destination
+        && destination.PositionId == action.PositionId;
+
+    private PositionState WithAction(PersistedRetainedAction action) => new(
+        Inbox,
+        OpenTasks,
+        ShortMemory,
+        RecentHistory,
+        ProcessedMessages,
+        Occupant,
+        OccupantType,
+        LastConfigurationStamp,
+        RetainedActions.SetItem(action.Id, action));
 }

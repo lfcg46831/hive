@@ -15,7 +15,7 @@ internal sealed class PersistedRetainedActionJsonConverter : JsonConverter<Persi
     {
         var dto = JsonSerializer.Deserialize<Data>(ref reader, options)
             ?? throw new JsonException("Persisted retained action payload deserialized to null.");
-        return new PersistedRetainedAction(
+        var retained = new PersistedRetainedAction(
             dto.Id!,
             dto.Fingerprint!,
             dto.Kind,
@@ -33,6 +33,13 @@ internal sealed class PersistedRetainedActionJsonConverter : JsonConverter<Persi
             dto.RetainedAt,
             dto.ApprovalPolicies,
             dto.GovernanceMessages);
+        return PersistedRetainedAction.Restore(
+            retained,
+            dto.State ?? RetainedActionState.Retained,
+            dto.AuthorizationGrant,
+            dto.AuthorizationDenial,
+            dto.StateChangedAt,
+            dto.ReEscalationCode);
     }
 
     public override void Write(
@@ -59,6 +66,14 @@ internal sealed class PersistedRetainedActionJsonConverter : JsonConverter<Persi
             RetainedAt = value.RetainedAt,
             ApprovalPolicies = value.ApprovalPolicies.ToList(),
             GovernanceMessages = value.GovernanceMessages.ToList(),
+            State = value.State == RetainedActionState.Retained
+                && value.AuthorizationGrant is null
+                ? null
+                : value.State,
+            AuthorizationGrant = value.AuthorizationGrant,
+            AuthorizationDenial = value.AuthorizationDenial,
+            StateChangedAt = value.StateChangedAt,
+            ReEscalationCode = value.ReEscalationCode,
         };
         JsonSerializer.Serialize(writer, dto, options);
     }
@@ -82,5 +97,15 @@ internal sealed class PersistedRetainedActionJsonConverter : JsonConverter<Persi
         public DateTimeOffset RetainedAt { get; set; }
         public List<ApprovalPolicyRef>? ApprovalPolicies { get; set; }
         public List<OrgMessage>? GovernanceMessages { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public RetainedActionState? State { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public AuthorizationGrant? AuthorizationGrant { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public AuthorizationDenial? AuthorizationDenial { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public DateTimeOffset? StateChangedAt { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public string? ReEscalationCode { get; set; }
     }
 }

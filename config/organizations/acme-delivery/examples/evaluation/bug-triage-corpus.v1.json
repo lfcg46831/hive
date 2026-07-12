@@ -1,0 +1,374 @@
+{
+  "corpus_version": 1,
+  "fixture_kind": "evaluation-example",
+  "provenance": "anonymized-historical-reconstructions",
+  "anonymization": {
+    "direct_identifiers_removed": true,
+    "organizations_generalized": true,
+    "timestamps_shifted": true,
+    "technical_values_generalized": true
+  },
+  "cases": [
+    {
+      "case_id": "triage-001",
+      "source_category": "support-summary",
+      "context": "Checkout confirmation fails after the payment provider accepts the charge. Support reproduced it in production with two different cards: the customer sees a generic error instead of an order number, while the order exists and the payment is captured. It started shortly after the latest web deployment. Reproduction: add an in-stock item, complete payment, then wait for the confirmation page. The confirmation endpoint returns status 500 and logs show a null order-summary view model.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "web-checkout",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-002",
+      "source_category": "incident-note",
+      "context": "Users who authenticate successfully are returned to the sign-in page until the browser reports too many redirects. The issue affects the production tenant but not the test tenant. Clearing cookies does not help. Authentication logs show a successful token exchange followed by a rejected session cookie because its secure attribute is missing behind the edge proxy. The behavior began after the proxy configuration rollout.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "identity-access",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-003",
+      "source_category": "operations-handoff",
+      "context": "The nightly customer-balance job is still running six hours after its normal completion time. Downstream statements have not been generated. The worker is alive and progressing very slowly; metrics show the input table is roughly three times its usual size and every page performs repeated lookups against the same reference table. No data loss has been observed. The previous run completed normally.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "data-platform",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-004",
+      "source_category": "crash-report",
+      "context": "Mobile application closes when a user opens an order containing a refunded line item. Reproduced on the current Android release after upgrading from the previous release. A clean install behaves the same. The crash trace points to formatting a nullable refund date in the order details screen. Orders without refunds open normally; the iOS application is not affected.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "mobile-apps",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-005",
+      "source_category": "chat-transcript",
+      "context": "Password reset messages are not arriving today. Several people tried more than once and checked junk folders. The application says the message was sent. We do not know whether this affects every account or only one email domain, and no delivery-provider status or application log excerpt was included.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [
+          "affected-recipient-scope",
+          "delivery-provider-status",
+          "notification-log-evidence"
+        ],
+        "expected_routing": "notifications",
+        "expected_decision": "escalation"
+      }
+    },
+    {
+      "case_id": "triage-006",
+      "source_category": "finance-review",
+      "context": "Invoices with a percentage discount and tax can differ from the order total by one cent. Finance supplied a reproducible basket with three quantities, a fractional unit price and a discount applied before tax. The order service rounds each line before summing, while the invoice service rounds only the final total. The discrepancy is visible to customers but does not prevent payment or posting.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "billing",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-007",
+      "source_category": "security-review",
+      "context": "A read-only project member can download an attachment from another project by changing the numeric attachment key in a request captured from their own project. The server verifies that the user is authenticated but does not verify project membership for the attachment lookup. The reviewer reproduced access to a harmless test document using two isolated test accounts. No evidence of exploitation was found.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "security",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-008",
+      "source_category": "product-feedback",
+      "context": "Newly published catalogue items do not appear in search for about forty minutes, although the item page is immediately available through navigation. The indexing queue has no backlog. A recent cache change increased the query-cache lifetime and removed the invalidation call from the publish workflow. Unpublishing an item has the same delay, so stale items remain discoverable.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "search-discovery",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-009",
+      "source_category": "partner-report",
+      "context": "A partner receives duplicate order-created callbacks during brief downstream timeouts. Both deliveries use different delivery identifiers but carry the same order event. The retry worker creates a new outbound record before checking whether the previous attempt has reached a terminal state. The partner processes callbacks at least once and reports duplicated fulfilment work.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "integrations",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-010",
+      "source_category": "support-summary",
+      "context": "Document uploads succeed for small files but fail near the configured size limit. The browser reaches one hundred percent and then displays a generic failure. Edge logs show the request body was accepted, while the application rejects it because the multipart limit is lower than the documented product limit. The issue affects all supported file types and is reproducible in production and staging.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "platform-api",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-011",
+      "source_category": "api-consumer-note",
+      "context": "Our integration started receiving many rate-limit responses this morning and now misses its synchronization window. No request volume, retry behavior, response headers, endpoint list or recent client change was provided. Other consumers have not reported the same problem.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [
+          "request-volume-and-concurrency",
+          "rate-limit-response-headers",
+          "affected-endpoints",
+          "client-retry-behavior"
+        ],
+        "expected_routing": "platform-api",
+        "expected_decision": "escalation"
+      }
+    },
+    {
+      "case_id": "triage-012",
+      "source_category": "internal-report",
+      "context": "Calendar exports display scheduled maintenance one hour late for users in a region that recently entered daylight-saving time. The stored instant is correct and the web view is correct. Only the calendar export formats the timestamp using a fixed offset captured when the subscription was created. Creating a new subscription fixes future entries but not existing subscriptions.",
+      "human_reference": {
+        "severity": "low",
+        "missing_information": [],
+        "expected_routing": "scheduling",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-013",
+      "source_category": "customer-report",
+      "context": "The monthly activity export downloads successfully but contains only the header row for accounts with more than one page of results. The on-screen report shows the expected records. The export worker sends a page size of zero after following the first continuation token, so the data query returns an empty second page and replaces the accumulated buffer.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "reporting",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-014",
+      "source_category": "incident-note",
+      "context": "A monitoring rule sent thousands of identical outage notifications in under ten minutes. The underlying service had one brief failure and recovered. Notification deduplication keys include the evaluation timestamp, making every evaluation unique, and the recovery path does not close prior alerts. The notification channel has been temporarily muted to stop further messages.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "observability",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-015",
+      "source_category": "operations-handoff",
+      "context": "Health checks fail intermittently after a deployment and instances are repeatedly replaced. The handoff contains no deployment version, environment or region, no failing probe response, and no comparison with the previous release. Application traffic appears mostly healthy between replacements.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [
+          "deployment-version",
+          "environment-and-region",
+          "probe-response",
+          "previous-release-comparison"
+        ],
+        "expected_routing": "runtime-platform",
+        "expected_decision": "escalation"
+      }
+    },
+    {
+      "case_id": "triage-016",
+      "source_category": "release-note",
+      "context": "A feature enabled for a pilot group appears disabled in the web client but enabled in the API. The flag service returns the enabled value. The web client reads an older bootstrap payload cached by the edge for a full day, and its cache key does not vary by pilot-group membership. A forced refresh with cache bypass shows the feature correctly.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "web-platform",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-017",
+      "source_category": "database-alert",
+      "context": "Primary database processor usage remained near saturation for twenty minutes and write latency increased sharply. The top query is a recently added dashboard query that scans the event table without the tenant and time-range index used by similar queries. Disabling automatic dashboard refresh returned usage to normal. No failed writes or replication lag were observed.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "data-platform",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-018",
+      "source_category": "performance-investigation",
+      "context": "Worker memory grows steadily while processing image jobs and is recovered only by restarting the process. Heap samples show completed job buffers retained by event-handler subscriptions. The handlers are added for every job and never removed. Reproduced with a controlled batch: memory growth is proportional to the number of completed jobs, not image size.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "media-processing",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-019",
+      "source_category": "product-feedback",
+      "context": "Changing a team member's display role is reflected on the settings page but the member list shows the old role until the next day. The update command succeeds and the database row is correct. The member-list cache is keyed by team and has no invalidation subscription for role changes. Adding or removing a member invalidates the same cache correctly.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "web-platform",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-020",
+      "source_category": "accessibility-audit",
+      "context": "Keyboard users cannot activate the overflow menu in the records table. Focus reaches the icon, but pressing Enter or Space has no effect. Pointer activation works. The element is rendered as a styled span with a click handler rather than a button and has no keyboard handler or expanded state. The issue is present in all tested browsers.",
+      "human_reference": {
+        "severity": "low",
+        "missing_information": [],
+        "expected_routing": "design-system",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-021",
+      "source_category": "payment-incident",
+      "context": "A retry after a gateway timeout can capture the same payment twice. The first gateway request may succeed while its response is lost; the retry uses a newly generated idempotency key. Two captures for the same order were reproduced in the payment sandbox using an injected timeout. Order creation remains single, but the customer balance contains both captures.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "payments",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-022",
+      "source_category": "customer-report",
+      "context": "Single sign-on stopped working after an administrator changed identity-provider settings. The report only says that sign-in is rejected. It does not include the protocol error, which settings changed, certificate validity, metadata comparison or whether local authentication still works. There is no safe basis to distinguish configuration error, expired credentials or an application regression.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [
+          "protocol-error",
+          "configuration-diff",
+          "certificate-validity",
+          "local-authentication-result"
+        ],
+        "expected_routing": "identity-access",
+        "expected_decision": "escalation"
+      }
+    },
+    {
+      "case_id": "triage-023",
+      "source_category": "data-import-report",
+      "context": "A comma-separated import replaces accented characters with placeholder symbols and rejects rows containing those names. The source file is encoded as a common legacy European code page, while the importer assumes UTF-8 without checking a byte-order marker or allowing an encoding selection. The same rows import after conversion to UTF-8. Numeric and date columns are unaffected.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "data-import",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-024",
+      "source_category": "compliance-review",
+      "context": "Administrative role changes made through the bulk-edit endpoint do not appear in the audit timeline. Single-user changes are audited. The bulk path updates records directly and bypasses the command service that appends the audit event. A controlled test changed two non-production accounts and confirmed that permissions changed without corresponding audit entries.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "security",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-025",
+      "source_category": "engineering-chat",
+      "context": "The end-to-end suite is flaky again. It failed twice this week but passed on rerun. No failing test name, run log, screenshot, environment, commit range or frequency was attached. The message mentions timeouts but does not say whether they occurred in setup, the browser or the service under test.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [
+          "failing-test-name",
+          "run-log",
+          "environment",
+          "commit-range",
+          "failure-frequency"
+        ],
+        "expected_routing": "quality-engineering",
+        "expected_decision": "escalation"
+      }
+    },
+    {
+      "case_id": "triage-026",
+      "source_category": "security-alert",
+      "context": "A build step printed a masked deployment credential in a diagnostic archive that is retained with the build artefacts. The live console masked the value, but the raw diagnostic file contains it. Access to the artefact is restricted to the engineering group. The credential has been revoked and replacement is in progress; older retained archives may contain the same value.",
+      "human_reference": {
+        "severity": "critical",
+        "missing_information": [],
+        "expected_routing": "security",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-027",
+      "source_category": "dependency-scan",
+      "context": "The dependency scanner reports a high-severity vulnerability in the archive extraction library used by the document-import worker. The vulnerable method is reachable when processing user-uploaded archives, and the installed version is inside the affected range. The patched release is API-compatible in a local build. Imports can be disabled independently while the upgrade is validated.",
+      "human_reference": {
+        "severity": "high",
+        "missing_information": [],
+        "expected_routing": "security",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-028",
+      "source_category": "localization-review",
+      "context": "The primary action label is clipped in the German translation of the account-deletion dialog at the supported narrow viewport. The full label is available to assistive technology and the action still works. The dialog uses a fixed-width footer designed around the shorter English labels. Other languages with long labels show the same layout issue.",
+      "human_reference": {
+        "severity": "low",
+        "missing_information": [],
+        "expected_routing": "design-system",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-029",
+      "source_category": "operations-handoff",
+      "context": "Cancelling a long report changes its status to cancelled, but the worker continues querying the database and eventually uploads the completed file. The cancellation command updates the job record; the worker only checks cancellation before starting and never between pages. Reproduced with a large report and a cancellation issued after the first page. The generated file is not linked to the user interface.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [],
+        "expected_routing": "reporting",
+        "expected_decision": "report"
+      }
+    },
+    {
+      "case_id": "triage-030",
+      "source_category": "support-summary",
+      "context": "A user says a long form draft disappeared after their browser refreshed. The report does not identify the form, browser, device, time spent idle, whether autosave indicated success, whether the user was signed in, or whether the draft appears on another device. Support could not reproduce the loss with a short form.",
+      "human_reference": {
+        "severity": "medium",
+        "missing_information": [
+          "form-identity",
+          "browser-and-device",
+          "idle-duration",
+          "autosave-status",
+          "authentication-state"
+        ],
+        "expected_routing": "web-platform",
+        "expected_decision": "escalation"
+      }
+    }
+  ]
+}

@@ -46,7 +46,7 @@ public sealed class EvaluationRunner
 
         double? corpusScore = _rubric is null
             ? null
-            : results.Average(item => item.Scoring!.CaseScore);
+            : _rubric.ScoreCorpus(results.Select(item => item.Scoring!).ToArray());
         return new EvaluationDataset(
             1,
             corpus.CorpusVersion,
@@ -121,7 +121,10 @@ public sealed class EvaluationRunner
         DemoDirectiveIds ids,
         int? httpStatus,
         EvaluationJourney journey,
-        EvaluationPrediction? prediction) => new(
+        EvaluationPrediction? prediction)
+    {
+        var normalizedPrediction = _rubric?.NormalizePrediction(prediction) ?? prediction;
+        return new EvaluationCaseResult(
             item.CaseId, ids.MessageId, ids.ThreadId, ids.DirectiveId,
             "accepted", httpStatus, journey.Outcome, journey.TerminalCode, journey.Decision,
             journey.ProviderId, journey.ModelId, journey.OutputConstraintMode,
@@ -131,8 +134,9 @@ public sealed class EvaluationRunner
             journey.JourneyDurationMilliseconds, journey.CostStatus, journey.PricingVersion,
             journey.PricingTokenUnit, journey.InputPricePerTokenUnit,
             journey.OutputPricePerTokenUnit,
-            prediction,
-            _rubric?.Score(item.HumanReference, prediction, journey.Decision));
+            normalizedPrediction,
+            _rubric?.Score(item.HumanReference, normalizedPrediction));
+    }
 
     private EvaluationCaseResult Empty(
         EvaluationCase item,
@@ -160,5 +164,5 @@ public sealed class EvaluationRunner
             InputPricePerTokenUnit: null,
             OutputPricePerTokenUnit: null,
             Prediction: null,
-            Scoring: _rubric?.Score(item.HumanReference, prediction: null, decision: null));
+            Scoring: _rubric?.Score(item.HumanReference, prediction: null));
 }

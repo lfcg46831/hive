@@ -108,6 +108,7 @@ public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjection
                 """
                 SELECT
                     projection.contract_version,
+                    projection.rubric_version,
                     dimension.dimension_id,
                     dimension.status,
                     dimension.labels
@@ -128,28 +129,30 @@ public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjection
             await using var reader = await command.ExecuteReaderAsync(cancellationToken)
                 .ConfigureAwait(false);
             int? contractVersion = null;
-            var dimensions = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            int? rubricVersion = null;
+            var dimensions = new List<EvaluationDimensionPrediction>();
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
                 contractVersion ??= reader.GetInt32(0);
-                if (!reader.IsDBNull(1)
-                    && reader.GetString(2) == "valid")
+                rubricVersion ??= reader.GetInt32(1);
+                if (!reader.IsDBNull(2))
                 {
-                    dimensions[reader.GetString(1)] = reader.GetFieldValue<string[]>(3);
+                    dimensions.Add(new EvaluationDimensionPrediction(
+                        reader.GetString(2),
+                        reader.GetString(3),
+                        reader.GetFieldValue<string[]>(4)));
                 }
             }
 
-            if (contractVersion is null)
+            if (contractVersion is null || rubricVersion is null)
             {
                 return null;
             }
 
-            dimensions.TryGetValue("severity", out var severity);
-            dimensions.TryGetValue("missing-information", out var missingInformation);
             return new EvaluationPrediction(
                 contractVersion.Value,
-                severity is { Length: 1 } ? severity[0] : null,
-                missingInformation);
+                rubricVersion.Value,
+                dimensions);
         }
         catch (PostgresException exception)
             when (exception.SqlState == PostgresErrorCodes.UndefinedTable)

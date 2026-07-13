@@ -171,7 +171,29 @@ public sealed class EvaluationRunnerTests
             "triage-001", Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), "accepted", 202,
             "succeeded", "completed", "report", "openai", "gpt-test", "json-schema", 10, 4, 14,
             false, 0.01m, "USD", true, 50, 75, "estimated", "pricing-v1", 1_000_000,
-            0.25m, 2m);
+            0.25m, 2m) with
+        {
+            Prediction = new EvaluationPrediction(
+                1,
+                1,
+                [
+                    new EvaluationDimensionPrediction(
+                        "opaque-dimension",
+                        EvaluationDimensionStatuses.Valid,
+                        ["admitted-label"]),
+                ]),
+            Scoring = new EvaluationCaseScoring(
+                "scored",
+                [],
+                [
+                    new EvaluationDimensionScoring(
+                        "opaque-dimension",
+                        EvaluationDimensionStatuses.Valid,
+                        ["admitted-label"],
+                        1d),
+                ],
+                1d),
+        };
         var dataset = new EvaluationDataset(1, 1, "run-safe", "http://localhost:8080", 120, 1000, [result]);
 
         var json = JsonSerializer.Serialize(dataset);
@@ -180,6 +202,10 @@ public sealed class EvaluationRunnerTests
         Assert.Contains("\"output_constraint_mode\":\"json-schema\"", json);
         Assert.Contains("\"cost_status\":\"estimated\"", json);
         Assert.Contains("\"pricing_version\":\"pricing-v1\"", json);
+        Assert.Contains("\"dimension_id\":\"opaque-dimension\"", json);
+        Assert.Contains("\"status\":\"valid\"", json);
+        Assert.Contains("\"labels\":[\"admitted-label\"]", json);
+        Assert.Contains("\"score\":1", json);
         Assert.DoesNotContain("context", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("human_reference", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("connection", json, StringComparison.OrdinalIgnoreCase);
@@ -239,7 +265,12 @@ public sealed class EvaluationRunnerTests
             item.Id,
             "test",
             item.Context,
-            new EvaluationHumanReference("medium", [], "test", "report"))).ToArray());
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["severity"] = ["medium"],
+                ["missing-information"] = [],
+                ["decision"] = ["report"],
+            })).ToArray());
 
     private static EvaluationRunOptions Options(string runId) => new(
         RepositoryRoot,

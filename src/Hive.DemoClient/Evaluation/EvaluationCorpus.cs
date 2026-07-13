@@ -30,9 +30,9 @@ public sealed partial record EvaluationCorpus(
             throw new InvalidDataException("Evaluation corpus has an unsupported fixture kind.");
         }
 
-        if (corpus.Cases is null || corpus.Cases.Count is < 30 or > 50)
+        if (corpus.Cases is null || corpus.Cases.Count == 0)
         {
-            throw new InvalidDataException("Evaluation corpus must contain between 30 and 50 cases.");
+            throw new InvalidDataException("Evaluation corpus must contain at least one case.");
         }
 
         var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -53,7 +53,8 @@ public sealed partial record EvaluationCorpus(
                 throw new InvalidDataException($"Duplicate evaluation case id '{item.CaseId}'.");
             }
 
-            item.HumanReference.Validate(item.CaseId);
+            ValidateReference(item.CaseId, item.HumanReference);
+            ValidateMetadata(item.CaseId, item.AnalysisMetadata);
         }
 
         return corpus with
@@ -62,7 +63,36 @@ public sealed partial record EvaluationCorpus(
         };
     }
 
-    [GeneratedRegex("^triage-[0-9]{3}$", RegexOptions.CultureInvariant)]
+    private static void ValidateReference(
+        string caseId,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> reference)
+    {
+        if (reference.Count == 0
+            || reference.Any(dimension =>
+                string.IsNullOrWhiteSpace(dimension.Key)
+                || dimension.Value is null
+                || dimension.Value.Any(string.IsNullOrWhiteSpace)))
+        {
+            throw new InvalidDataException(
+                $"Evaluation case '{caseId}' has an invalid human_reference dimension map.");
+        }
+    }
+
+    private static void ValidateMetadata(
+        string caseId,
+        IReadOnlyDictionary<string, string>? metadata)
+    {
+        if (metadata is not null
+            && metadata.Any(item =>
+                string.IsNullOrWhiteSpace(item.Key)
+                || string.IsNullOrWhiteSpace(item.Value)))
+        {
+            throw new InvalidDataException(
+                $"Evaluation case '{caseId}' has invalid analysis_metadata.");
+        }
+    }
+
+    [GeneratedRegex("^[a-z0-9]+(?:-[a-z0-9]+)*$", RegexOptions.CultureInvariant)]
     private static partial Regex CaseIdPattern();
 }
 
@@ -70,28 +100,7 @@ public sealed record EvaluationCase(
     [property: JsonPropertyName("case_id")] string CaseId,
     [property: JsonPropertyName("source_category")] string SourceCategory,
     [property: JsonPropertyName("context")] string Context,
-    [property: JsonPropertyName("human_reference")] EvaluationHumanReference HumanReference);
-
-public sealed record EvaluationHumanReference(
-    [property: JsonPropertyName("severity")] string Severity,
-    [property: JsonPropertyName("missing_information")] IReadOnlyList<string> MissingInformation,
-    [property: JsonPropertyName("expected_routing")] string ExpectedRouting,
-    [property: JsonPropertyName("expected_decision")] string ExpectedDecision)
-{
-    private static readonly HashSet<string> Severities =
-        ["low", "medium", "high", "critical"];
-    private static readonly HashSet<string> Decisions =
-        ["report", "escalation"];
-
-    public void Validate(string caseId)
-    {
-        if (!Severities.Contains(Severity)
-            || MissingInformation is null
-            || MissingInformation.Any(string.IsNullOrWhiteSpace)
-            || string.IsNullOrWhiteSpace(ExpectedRouting)
-            || !Decisions.Contains(ExpectedDecision))
-        {
-            throw new InvalidDataException($"Evaluation case '{caseId}' has an invalid human_reference.");
-        }
-    }
-}
+    [property: JsonPropertyName("human_reference")]
+    IReadOnlyDictionary<string, IReadOnlyList<string>> HumanReference,
+    [property: JsonPropertyName("analysis_metadata")]
+    IReadOnlyDictionary<string, string>? AnalysisMetadata = null);

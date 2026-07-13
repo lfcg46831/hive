@@ -46,16 +46,24 @@ public sealed record EvaluationCaseResult(
 
 public sealed record EvaluationPrediction(
     [property: JsonPropertyName("projection_version")] int ProjectionVersion,
-    [property: JsonPropertyName("severity")] string? Severity,
-    [property: JsonPropertyName("missing_information")] IReadOnlyList<string>? MissingInformation);
+    [property: JsonPropertyName("rubric_version")] int RubricVersion,
+    [property: JsonPropertyName("dimensions")]
+    IReadOnlyList<EvaluationDimensionPrediction> Dimensions);
+
+public sealed record EvaluationDimensionPrediction(
+    [property: JsonPropertyName("dimension_id")] string DimensionId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("labels")] IReadOnlyList<string> Labels);
 
 public sealed record EvaluationCaseScoring(
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("failure_codes")] IReadOnlyList<string> FailureCodes,
-    [property: JsonPropertyName("dimensions")] EvaluationDimensionScores Dimensions,
+    [property: JsonPropertyName("dimensions")]
+    IReadOnlyList<EvaluationDimensionScoring> Dimensions,
     [property: JsonPropertyName("case_score")] double CaseScore);
 
-public sealed record EvaluationDimensionScores(
-    [property: JsonPropertyName("severity")] double Severity,
-    [property: JsonPropertyName("missing_information")] double MissingInformation,
-    [property: JsonPropertyName("decision")] double Decision);
+public sealed record EvaluationDimensionScoring(
+    [property: JsonPropertyName("dimension_id")] string DimensionId,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("labels")] IReadOnlyList<string> Labels,
+    [property: JsonPropertyName("score")] double Score);

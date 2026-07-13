@@ -69,8 +69,8 @@ public sealed class EvaluationRubricFixtureTests
             aggregation.GetProperty("corpus_score").GetString());
         Assert.Equal("none-until-presentation", aggregation.GetProperty("rounding").GetString());
         Assert.Equal(
-            ["expected_routing"],
-            aggregation.GetProperty("unscored_reference_fields")
+            ["expected-routing"],
+            aggregation.GetProperty("unscored_analysis_metadata")
                 .EnumerateArray()
                 .Select(value => value.GetString()));
     }
@@ -82,6 +82,7 @@ public sealed class EvaluationRubricFixtureTests
         var severity = Dimension(document.RootElement, "severity");
 
         Assert.Equal("ordinal-distance", severity.GetProperty("scorer").GetString());
+        Assert.Equal(1, severity.GetProperty("scorer_version").GetInt32());
         Assert.Equal(
             ["low", "medium", "high", "critical"],
             severity.GetProperty("ordered_labels").EnumerateArray().Select(value => value.GetString()));
@@ -98,7 +99,8 @@ public sealed class EvaluationRubricFixtureTests
         var missing = Dimension(document.RootElement, "missing-information");
 
         Assert.Equal("set-f1", missing.GetProperty("scorer").GetString());
-        Assert.Equal("canonical-slug-exact", missing.GetProperty("label_matching").GetString());
+        Assert.Equal(1, missing.GetProperty("scorer_version").GetInt32());
+        Assert.Equal("exact", missing.GetProperty("label_matching").GetString());
         Assert.Equal("collapse", missing.GetProperty("duplicate_handling").GetString());
         var allowedLabels = missing.GetProperty("allowed_labels")
             .EnumerateArray()
@@ -133,6 +135,7 @@ public sealed class EvaluationRubricFixtureTests
         var decision = Dimension(root, "decision");
 
         Assert.Equal("exact-match", decision.GetProperty("scorer").GetString());
+        Assert.Equal(1, decision.GetProperty("scorer_version").GetInt32());
         Assert.Equal(["report", "escalation"], decision.GetProperty("allowed_labels")
             .EnumerateArray().Select(value => value.GetString()));
         Assert.Equal("report", decision.GetProperty("source_mapping").GetProperty("report").GetString());

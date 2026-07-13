@@ -66,6 +66,7 @@ public sealed class EvaluationProfileTests
     [InlineData("\"value_kind\": \"label-set\"", "\"value_kind\": \"ranked-list\"", "unknown value kind")]
     [InlineData("\"value_kind\": \"label-set\"", "\"value_kind\": \"single-label\"", "incompatible value kind")]
     [InlineData("\"scorer\": \"ordinal-distance\"", "\"scorer\": \"role-specific-score\"", "unknown scorer")]
+    [InlineData("\"scorer_version\": 1", "\"scorer_version\": 2", "unknown scorer")]
     [InlineData("\"report\": \"report\"", "\"report\": \"unknown-result\"", "source_mapping")]
     [InlineData("\"id\": \"missing-information\"", "\"id\": \"severity\"", "duplicated")]
     [InlineData("        \"critical\"", "        \"high\"", "unique label vocabulary")]

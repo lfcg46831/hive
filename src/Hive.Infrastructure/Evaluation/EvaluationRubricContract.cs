@@ -14,8 +14,13 @@ internal sealed record EvaluationRubricContract(
     private static readonly HashSet<string> SupportedValueKinds =
         ["single-label", "label-set"];
 
-    private static readonly HashSet<string> SupportedScorers =
-        ["ordinal-distance", "set-f1", "exact-match"];
+    private static readonly IReadOnlyDictionary<string, int> SupportedScorers =
+        new Dictionary<string, int>(StringComparer.Ordinal)
+        {
+            ["ordinal-distance"] = 1,
+            ["set-f1"] = 1,
+            ["exact-match"] = 1,
+        };
 
     public static EvaluationRubricContract Load(string path, int expectedVersion)
     {
@@ -152,6 +157,7 @@ internal sealed record EvaluationRubricContract(
         var source = RequiredString(dimension, "source");
         var valueKind = RequiredString(dimension, "value_kind");
         var scorer = RequiredString(dimension, "scorer");
+        var scorerVersion = dimension.GetProperty("scorer_version").GetInt32();
         var weight = dimension.GetProperty("weight").GetDecimal();
 
         if (!SupportedSources.Contains(source))
@@ -166,10 +172,11 @@ internal sealed record EvaluationRubricContract(
                 $"Evaluation rubric dimension '{id}' declares unknown value kind '{valueKind}'.");
         }
 
-        if (!SupportedScorers.Contains(scorer))
+        if (!SupportedScorers.TryGetValue(scorer, out var supportedScorerVersion)
+            || scorerVersion != supportedScorerVersion)
         {
             throw new InvalidDataException(
-                $"Evaluation rubric dimension '{id}' declares unknown scorer '{scorer}'.");
+                $"Evaluation rubric dimension '{id}' declares unknown scorer '{scorer}' version '{scorerVersion}'.");
         }
 
         if (weight <= 0m || weight > 1m)
@@ -202,6 +209,7 @@ internal sealed record EvaluationRubricContract(
             source,
             valueKind,
             scorer,
+            scorerVersion,
             weight,
             labels,
             sourceMapping);
@@ -297,6 +305,7 @@ internal sealed record EvaluationDimensionContract(
     string Source,
     string ValueKind,
     string Scorer,
+    int ScorerVersion,
     decimal Weight,
     ImmutableArray<string> Labels,
     ImmutableDictionary<string, string> SourceMapping);

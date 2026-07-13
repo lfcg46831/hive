@@ -89,12 +89,19 @@ public sealed partial class EvaluationCorpusFixtureTests
             Assert.True(context.Length >= 120, $"Case '{id}' has too little evaluation context.");
 
             var reference = item.GetProperty("human_reference");
-            Assert.Contains(RequiredString(reference, "severity"), AllowedSeverities);
-            Assert.Contains(RequiredString(reference, "expected_decision"), AllowedDecisions);
-            Assert.Matches(CanonicalSlug(), RequiredString(reference, "expected_routing"));
+            Assert.Equal(
+                ["decision", "missing-information", "severity"],
+                reference.EnumerateObject()
+                    .Select(property => property.Name)
+                    .OrderBy(value => value, StringComparer.Ordinal));
+            Assert.Contains(SingleLabel(reference, "severity"), AllowedSeverities);
+            Assert.Contains(SingleLabel(reference, "decision"), AllowedDecisions);
+            Assert.Matches(
+                CanonicalSlug(),
+                RequiredString(item.GetProperty("analysis_metadata"), "expected-routing"));
 
             var missingInformation = reference
-                .GetProperty("missing_information")
+                .GetProperty("missing-information")
                 .EnumerateArray()
                 .Select(value => value.GetString())
                 .ToArray();
@@ -118,16 +125,18 @@ public sealed partial class EvaluationCorpusFixtureTests
         var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
 
         var severities = cases
-            .Select(item => RequiredString(item.GetProperty("human_reference"), "severity"))
+            .Select(item => SingleLabel(item.GetProperty("human_reference"), "severity"))
             .ToHashSet(StringComparer.Ordinal);
         var decisions = cases
-            .Select(item => RequiredString(item.GetProperty("human_reference"), "expected_decision"))
+            .Select(item => SingleLabel(item.GetProperty("human_reference"), "decision"))
             .ToHashSet(StringComparer.Ordinal);
         var categories = cases
             .Select(item => RequiredString(item, "source_category"))
             .ToHashSet(StringComparer.Ordinal);
         var routes = cases
-            .Select(item => RequiredString(item.GetProperty("human_reference"), "expected_routing"))
+            .Select(item => RequiredString(
+                item.GetProperty("analysis_metadata"),
+                "expected-routing"))
             .ToHashSet(StringComparer.Ordinal);
 
         Assert.True(severities.SetEquals(AllowedSeverities));
@@ -137,12 +146,12 @@ public sealed partial class EvaluationCorpusFixtureTests
         Assert.Contains(
             cases,
             item => item.GetProperty("human_reference")
-                .GetProperty("missing_information")
+                .GetProperty("missing-information")
                 .GetArrayLength() == 0);
         Assert.Contains(
             cases,
             item => item.GetProperty("human_reference")
-                .GetProperty("missing_information")
+                .GetProperty("missing-information")
                 .GetArrayLength() > 0);
 
         Assert.All(cases, item =>
@@ -180,6 +189,15 @@ public sealed partial class EvaluationCorpusFixtureTests
     private static string RequiredString(JsonElement element, string propertyName)
     {
         var value = element.GetProperty(propertyName).GetString();
+        Assert.False(string.IsNullOrWhiteSpace(value));
+        return value!;
+    }
+
+    private static string SingleLabel(JsonElement element, string propertyName)
+    {
+        var labels = element.GetProperty(propertyName).EnumerateArray().ToArray();
+        Assert.Single(labels);
+        var value = labels[0].GetString();
         Assert.False(string.IsNullOrWhiteSpace(value));
         return value!;
     }

@@ -21,8 +21,8 @@ public sealed class EvaluationScoredRunnerTests
             client,
             new SuccessfulAuditReader(),
             projectionReader: new OrderedProjectionReader(
-                new EvaluationPrediction(1, "medium", []),
-                new EvaluationPrediction(1, "critical", ["run-log"])),
+                Prediction("medium", [], "report"),
+                Prediction("critical", ["run-log"], "report")),
             rubric: rubric);
         var corpus = new EvaluationCorpus(
             1,
@@ -41,8 +41,14 @@ public sealed class EvaluationScoredRunnerTests
         Assert.Equal("scored", dataset.Cases[1].Scoring?.Status);
         Assert.Equal(0.30d, dataset.Cases[1].Scoring?.CaseScore);
         Assert.Equal(0.65d, dataset.CorpusScore);
-        Assert.Equal("critical", dataset.Cases[1].Prediction?.Severity);
-        Assert.Equal(["run-log"], dataset.Cases[1].Prediction?.MissingInformation);
+        Assert.Equal(
+            ["run-log"],
+            dataset.Cases[1].Prediction?.Dimensions
+                .Single(item => item.DimensionId == "missing-information")
+                .Labels);
+        Assert.Equal(
+            ["decision", "missing-information", "severity"],
+            dataset.Cases[1].Prediction?.Dimensions.Select(item => item.DimensionId));
     }
 
     [Fact]
@@ -70,11 +76,13 @@ public sealed class EvaluationScoredRunnerTests
 
         Assert.Null(result.Prediction);
         Assert.Equal("failed", result.Scoring?.Status);
-        Assert.Contains("severity-prediction-missing", result.Scoring!.FailureCodes);
-        Assert.Contains("missing-information-prediction-missing", result.Scoring.FailureCodes);
-        Assert.Equal(0d, result.Scoring.Dimensions.Severity);
-        Assert.Equal(0d, result.Scoring.Dimensions.MissingInformation);
-        Assert.Equal(1d, result.Scoring.Dimensions.Decision);
+        Assert.Equal(["projection-missing"], result.Scoring!.FailureCodes);
+        Assert.All(result.Scoring.Dimensions, dimension =>
+        {
+            Assert.Equal(EvaluationDimensionStatuses.Missing, dimension.Status);
+            Assert.Empty(dimension.Labels);
+            Assert.Equal(0d, dimension.Score);
+        });
     }
 
     private static EvaluationCase Case(string id) =>
@@ -82,7 +90,29 @@ public sealed class EvaluationScoredRunnerTests
             id,
             "test",
             "Evaluation context.",
-            new EvaluationHumanReference("medium", [], "test", "report"));
+            Reference("medium", [], "report"));
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> Reference(
+        string severity,
+        IReadOnlyList<string> missingInformation,
+        string decision) => new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["severity"] = [severity],
+            ["missing-information"] = missingInformation,
+            ["decision"] = [decision],
+        };
+
+    private static EvaluationPrediction Prediction(
+        string severity,
+        IReadOnlyList<string> missingInformation,
+        string decision) => new(
+        1,
+        1,
+        [
+            new("severity", EvaluationDimensionStatuses.Valid, [severity]),
+            new("missing-information", EvaluationDimensionStatuses.Valid, missingInformation),
+            new("decision", EvaluationDimensionStatuses.Valid, [decision]),
+        ]);
 
     private static EvaluationRunOptions Options() =>
         new(

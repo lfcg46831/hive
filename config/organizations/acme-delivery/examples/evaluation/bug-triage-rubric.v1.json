@@ -24,9 +24,8 @@
       "weight": 0.35,
       "source": "evaluation-envelope",
       "value_kind": "single-label",
-      "prediction_field": "severity",
-      "reference_field": "severity",
       "scorer": "ordinal-distance",
+      "scorer_version": 1,
       "ordered_labels": [
         "low",
         "medium",
@@ -44,10 +43,9 @@
       "weight": 0.35,
       "source": "evaluation-envelope",
       "value_kind": "label-set",
-      "prediction_field": "missing_information",
-      "reference_field": "missing_information",
       "scorer": "set-f1",
-      "label_matching": "canonical-slug-exact",
+      "scorer_version": 1,
+      "label_matching": "exact",
       "duplicate_handling": "collapse",
       "allowed_labels": [
         "affected-endpoints",
@@ -92,9 +90,8 @@
       "weight": 0.30,
       "source": "result-message-kind",
       "value_kind": "single-label",
-      "prediction_field": "decision",
-      "reference_field": "expected_decision",
       "scorer": "exact-match",
+      "scorer_version": 1,
       "allowed_labels": [
         "report",
         "escalation"
@@ -111,8 +108,8 @@
     "case_score": "weighted-arithmetic-mean",
     "corpus_score": "unweighted-macro-mean-of-case-scores",
     "rounding": "none-until-presentation",
-    "unscored_reference_fields": [
-      "expected_routing"
+    "unscored_analysis_metadata": [
+      "expected-routing"
     ]
   }
 }

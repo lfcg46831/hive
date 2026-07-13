@@ -264,10 +264,10 @@ public sealed class AiDirectiveProviderStubUnitTests
     }
 
     [Fact]
-    public async Task Provider_stub_timeout_cancels_invocation_and_records_timeout_audit()
+    public async Task Provider_timeout_response_is_terminal_without_actor_owned_cancellation()
     {
         var request = Request(timeout: TimeSpan.FromMilliseconds(50));
-        var invoker = new WaitForCancellationInvoker();
+        var invoker = new TimeoutResponseInvoker();
         var system = ActorSystem.Create($"ai-agent-t13-timeout-{Guid.NewGuid():N}");
 
         try
@@ -278,7 +278,6 @@ public sealed class AiDirectiveProviderStubUnitTests
 
             actor.Tell(request);
 
-            await invoker.Started.Task.WaitAsync(Timeout());
             var audit = await WaitForAuditAsync(actor, request.CorrelationId);
             var iteration = await actor.Ask<AiDirectiveIterationAuditSnapshotQueryResult>(
                 new GetAiDirectiveIterationAuditSnapshot(request.CorrelationId),
@@ -288,13 +287,18 @@ public sealed class AiDirectiveProviderStubUnitTests
                 Timeout());
 
             Assert.Equal(1, invoker.CallCount);
-            Assert.True(invoker.CancellationToken.IsCancellationRequested);
+            Assert.False(invoker.CancellationToken.CanBeCanceled);
             Assert.Equal(AiDirectiveProcessingStatus.Failed, audit.Snapshot!.Status);
-            Assert.Equal("timeout", audit.Snapshot.TerminalCode);
+            Assert.Equal("ai-gateway-failure", audit.Snapshot.TerminalCode);
+            Assert.Equal("timeout", audit.Snapshot.Gateway.ErrorCode);
             Assert.True(iteration.Found);
             Assert.Equal(AiDirectiveIterationStopKind.Timeout, iteration.Snapshot!.TerminalStopKind);
             Assert.Equal("timeout", iteration.Snapshot.TerminalCode);
-            Assert.False(interpretation.Found);
+            Assert.True(interpretation.Found);
+            Assert.Equal(
+                AiDirectiveInterpretationOutcomeKind.StructuredError,
+                interpretation.Result!.Outcome);
+            Assert.Equal(AiGatewayErrorCode.Timeout, interpretation.Result.Failure!.GatewayError!.Code);
         }
         finally
         {
@@ -490,25 +494,30 @@ public sealed class AiDirectiveProviderStubUnitTests
         }
     }
 
-    private sealed class WaitForCancellationInvoker : IAiAgentGatewayInvoker
+    private sealed class TimeoutResponseInvoker : IAiAgentGatewayInvoker
     {
         public int CallCount { get; private set; }
 
         public CancellationToken CancellationToken { get; private set; }
 
-        public TaskCompletionSource Started { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<AiAgentGatewayInvocationResult> InvokeAsync(
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
             AiAgentGatewayInvocation invocation,
             CancellationToken cancellationToken = default)
         {
             CallCount++;
             CancellationToken = cancellationToken;
-            Started.TrySetResult();
 
-            await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan, cancellationToken);
-            throw new InvalidOperationException("The cancellation token should stop the wait.");
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Failed(new AiGatewayError(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    AiGatewayErrorCode.Timeout,
+                    "AI gateway provider reached its internal deadline.",
+                    isRetryable: true,
+                    invocation.Request.Provider))));
         }
     }
 

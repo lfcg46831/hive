@@ -317,7 +317,7 @@ public sealed class AiDirectivePromptTests
             Assert.Equal(TimeSpan.FromSeconds(15), gatewayRequest.Timeout);
             Assert.Equal(256, gatewayRequest.ModelParameters.MaxOutputTokens);
             Assert.Equal("3", gatewayRequest.Metadata["max_iterations"]);
-            Assert.True(invoker.CancellationToken.CanBeCanceled);
+            Assert.False(invoker.CancellationToken.CanBeCanceled);
 
             var policy = Assert.IsType<AiGatewayPolicy>(gatewayRequest.Policy);
             Assert.True(policy.HasAvailableBudget);
@@ -357,12 +357,12 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
-    public async Task AiAgentActor_fails_processing_when_gateway_timeout_cancels_invocation()
+    public async Task AiAgentActor_fails_processing_from_structured_gateway_timeout()
     {
         var processingRequest = Request(
             includeOptionalContext: true,
             timeout: TimeSpan.FromMilliseconds(50));
-        var invoker = new WaitForCancellationInvoker();
+        var invoker = new TimeoutResponseInvoker();
         var system = ActorSystem.Create($"ai-agent-gateway-timeout-{Guid.NewGuid():N}");
 
         try
@@ -373,12 +373,11 @@ public sealed class AiDirectivePromptTests
 
             actor.Tell(processingRequest);
 
-            await invoker.Started.Task.WaitAsync(Timeout());
             var snapshotResult = await WaitForSnapshotAsync(actor, processingRequest.CorrelationId);
 
             Assert.Equal(AiDirectiveProcessingStatus.Failed, snapshotResult.Snapshot!.Status);
             Assert.Contains("timeout", snapshotResult.Snapshot.TerminalReason, StringComparison.OrdinalIgnoreCase);
-            Assert.True(invoker.CancellationToken.IsCancellationRequested);
+            Assert.False(invoker.CancellationToken.CanBeCanceled);
         }
         finally
         {
@@ -712,22 +711,27 @@ public sealed class AiDirectivePromptTests
         }
     }
 
-    private sealed class WaitForCancellationInvoker : IAiAgentGatewayInvoker
+    private sealed class TimeoutResponseInvoker : IAiAgentGatewayInvoker
     {
         public CancellationToken CancellationToken { get; private set; }
 
-        public TaskCompletionSource Started { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public async Task<AiAgentGatewayInvocationResult> InvokeAsync(
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
             AiAgentGatewayInvocation invocation,
             CancellationToken cancellationToken = default)
         {
             CancellationToken = cancellationToken;
-            Started.TrySetResult();
 
-            await Task.Delay(System.Threading.Timeout.InfiniteTimeSpan, cancellationToken);
-            throw new InvalidOperationException("The cancellation token should stop the wait.");
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Failed(new AiGatewayError(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    AiGatewayErrorCode.Timeout,
+                    "AI gateway provider reached its internal deadline.",
+                    isRetryable: true,
+                    invocation.Request.Provider))));
         }
     }
 }

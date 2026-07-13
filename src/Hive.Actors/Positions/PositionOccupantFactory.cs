@@ -102,6 +102,8 @@ internal sealed class AiAgentActor : ReceiveActor
         "terminal-result-already-materialized";
     private const string GatewayCallAlreadyMaterializedReason =
         "gateway-call-already-materialized";
+    private const string TerminalDecisionAlreadyMaterializedReason =
+        "terminal-agent-decision-already-materialized";
 
     private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
         new(StringComparer.Ordinal);
@@ -333,13 +335,16 @@ internal sealed class AiAgentActor : ReceiveActor
         var iterationState = AiDirectiveIterationState.Start(context, iterationStartedAt);
         var iterationAudit = AiDirectiveIterationAuditTrail.Start(iterationState);
 
-        using var timeout = CreateGatewayTimeout(prompt.Timeout);
         try
         {
+            // The provider adapter owns the functional request deadline. Passing a
+            // second token scheduled for the same timeout would race that deadline
+            // and could bypass the gateway audit publishers by surfacing caller
+            // cancellation instead of the provider's structured timeout response.
             var result = await GatewayInvoker
                 .InvokeAsync(
                     new AiAgentGatewayInvocation(request.CorrelationId, prompt),
-                    timeout?.Token ?? CancellationToken.None)
+                    CancellationToken.None)
                 .ConfigureAwait(false);
             _directiveGatewayInvocations[request.CorrelationId] = result;
             var iterationAuditSnapshot = RecordInitialIterationAudit(
@@ -450,7 +455,6 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.Failed,
                     reason: interpretation.Failure!.AuditReason);
                 _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-                ReturnCompletion(parent, finalSnapshot, interpretation);
                 RecordAudit(
                     publishAudit,
                     context,
@@ -461,6 +465,7 @@ internal sealed class AiAgentActor : ReceiveActor
                     resultMessage: null,
                     iterationAudit: iterationAuditSnapshot,
                     positionEffects: null);
+                ReturnCompletion(parent, finalSnapshot, interpretation);
             }
             else if (interpretation.RequiresEscalation)
             {
@@ -480,32 +485,6 @@ internal sealed class AiAgentActor : ReceiveActor
                     iterationAudit: iterationAuditSnapshot,
                     positionEffects: null);
             }
-        }
-        catch (OperationCanceledException) when (timeout?.IsCancellationRequested == true)
-        {
-            var timeoutAudit = iterationAudit.RecordDecision(
-                iterationState,
-                AiDirectiveIterationDecision.Stop(new AiDirectiveIterationStopReason(
-                    AiDirectiveIterationStopKind.Timeout,
-                    "timeout",
-                    GatewayTimeoutReason(prompt.Timeout))),
-                DateTimeOffset.UtcNow);
-            _directiveIterationAudits[request.CorrelationId] = timeoutAudit;
-            var finalSnapshot = gatewayRequested.AdvanceTo(
-                AiDirectiveProcessingStatus.Failed,
-                reason: GatewayTimeoutReason(prompt.Timeout));
-            _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-            ReturnCompletion(parent, finalSnapshot, iterationAudit: timeoutAudit);
-            RecordAudit(
-                publishAudit,
-                context,
-                finalSnapshot,
-                prompt,
-                gatewayInvocation: null,
-                interpretation: null,
-                resultMessage: null,
-                iterationAudit: timeoutAudit,
-                positionEffects: null);
         }
         catch (OperationCanceledException)
         {
@@ -573,6 +552,26 @@ internal sealed class AiAgentActor : ReceiveActor
             return new AiDirectiveRecoveryDecision(snapshot);
         }
 
+        var terminalDecision = records
+            .LastOrDefault(record =>
+                record.Stage == JourneyAuditStage.AgentDecided
+                && record.Outcome is JourneyAuditOutcome.Failed or JourneyAuditOutcome.Rejected);
+        if (terminalDecision is not null)
+        {
+            RecordDuplicateSuppression(
+                context,
+                terminalDecision,
+                TerminalDecisionAlreadyMaterializedReason);
+
+            var failureCode = TerminalCode(terminalDecision);
+            var snapshot = RecoveredGatewayRequested(received)
+                .AdvanceTo(
+                    AiDirectiveProcessingStatus.Failed,
+                    reason: failureCode);
+
+            return new AiDirectiveRecoveryDecision(snapshot, failureCode);
+        }
+
         var gatewayCalled = records
             .LastOrDefault(record => record.Stage == JourneyAuditStage.GatewayCalled);
         var agentDecided = records.Any(record => record.Stage == JourneyAuditStage.AgentDecided);
@@ -595,6 +594,12 @@ internal sealed class AiAgentActor : ReceiveActor
 
         return null;
     }
+
+    private static string TerminalCode(JourneyAuditRecord terminalDecision) =>
+        terminalDecision.Payload.TryGetValue("terminalCode", out var terminalCode)
+        && !string.IsNullOrWhiteSpace(terminalCode)
+            ? terminalCode
+            : terminalDecision.ReasonCode ?? "processing-failed";
 
     private void RecordDuplicateSuppression(
         AiDirectiveExecutionContext context,
@@ -779,6 +784,17 @@ internal sealed class AiAgentActor : ReceiveActor
         }
 
         var failure = result.FailureReason;
+        if (failure?.Code == AiGatewayErrorCode.Timeout)
+        {
+            return audit.RecordDecision(
+                state,
+                AiDirectiveIterationDecision.Stop(new AiDirectiveIterationStopReason(
+                    AiDirectiveIterationStopKind.Timeout,
+                    "timeout",
+                    GatewayTimeoutReason(state.Deadline - state.StartedAt))),
+                observedAt);
+        }
+
         var reason = failure is null
             ? new AiDirectiveIterationExecutionFailure(
                 "ai-gateway-failure",
@@ -792,9 +808,6 @@ internal sealed class AiAgentActor : ReceiveActor
             AiDirectiveIterationExecutionResult.Failed(state.CorrelationId, reason),
             observedAt);
     }
-
-    private static CancellationTokenSource? CreateGatewayTimeout(TimeSpan? timeout) =>
-        timeout is { } value ? new CancellationTokenSource(value) : null;
 
     private static string GatewayTimeoutReason(TimeSpan? timeout) =>
         timeout is { } value

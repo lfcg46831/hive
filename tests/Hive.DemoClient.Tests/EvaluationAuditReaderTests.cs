@@ -122,6 +122,39 @@ public sealed class EvaluationAuditReaderTests
         Assert.Null(journey);
     }
 
+    [Fact]
+    public void Projects_provider_timeout_as_terminal_with_unavailable_cost()
+    {
+        var journey = EvaluationJourneyProjector.TryProject(
+        [
+            Row(0, "SubmissionReceived", "Accepted"),
+            Row(
+                1,
+                "GatewayCostRecorded",
+                "Failed",
+                reasonCode: "timeout",
+                providerId: "openai",
+                modelId: "gpt-test",
+                latencyMilliseconds: 15_000,
+                payload: "{\"costStatus\":\"cost-unavailable\",\"isRetryable\":\"True\"}"),
+            Row(
+                2,
+                "AgentDecided",
+                "Failed",
+                reasonCode: "ai-gateway-failure",
+                payload: "{\"terminalCode\":\"ai-gateway-failure\"}"),
+        ]);
+
+        Assert.NotNull(journey);
+        Assert.Equal("failed", journey.Outcome);
+        Assert.Equal("timeout", journey.TerminalCode);
+        Assert.Equal("cost-unavailable", journey.CostStatus);
+        Assert.Null(journey.InputTokens);
+        Assert.Null(journey.OutputTokens);
+        Assert.Null(journey.TotalTokens);
+        Assert.Null(journey.CostAmount);
+    }
+
     private static EvaluationAuditRow Row(
         int seconds,
         string stage,

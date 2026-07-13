@@ -88,7 +88,6 @@ public sealed class JourneyAuditAiGatewayPublisher :
         if (envelope.Error is { } error)
         {
             payload["errorCode"] = AiGatewayErrorCodeContract.ToWireValue(error.Code);
-            payload["errorMessage"] = error.Message;
             payload["isRetryable"] = error.IsRetryable.ToString();
         }
 

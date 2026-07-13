@@ -129,6 +129,29 @@ public sealed class EvaluationRunnerTests
     }
 
     [Fact]
+    public async Task Provider_timeout_terminal_finishes_on_first_poll_with_unavailable_cost()
+    {
+        using var client = new HttpClient(new RecordingHandler(HttpStatusCode.Accepted));
+        var audit = new RecordingAuditReader(new EvaluationJourney(
+            "failed", "timeout", null, "openai", "gpt-test", "json-schema",
+            null, null, null, null, null, null, null, 15_000, 15_100,
+            "cost-unavailable"));
+        var runner = new EvaluationRunner(client, audit);
+
+        var result = Assert.Single((await runner.RunAsync(
+            Corpus(("triage-001", "Provider timeout context")),
+            Options("run-provider-timeout"),
+            CancellationToken.None)).Cases);
+
+        Assert.Equal(1, audit.Calls);
+        Assert.Equal("failed", result.Outcome);
+        Assert.Equal("timeout", result.TerminalCode);
+        Assert.Equal("cost-unavailable", result.CostStatus);
+        Assert.Null(result.CostAmount);
+        Assert.Null(result.TotalTokens);
+    }
+
+    [Fact]
     public void Dataset_json_contains_only_safe_evaluation_fields()
     {
         var result = new EvaluationCaseResult(

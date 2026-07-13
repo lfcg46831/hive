@@ -502,7 +502,7 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
-    public async Task CompleteAsync_persists_redacted_provider_failure_diagnostics()
+    public async Task CompleteAsync_persists_minimized_provider_failure_diagnostics()
     {
         var startedAt = new DateTimeOffset(2026, 7, 13, 9, 0, 0, TimeSpan.Zero);
         var completedAt = startedAt.AddMilliseconds(90);
@@ -531,9 +531,11 @@ public sealed class AiGatewayServiceTests
         Assert.Equal("provider-rejected", record.ReasonCode);
         Assert.Equal("provider-rejected", record.Payload["errorCode"]);
         Assert.Equal("False", record.Payload["isRetryable"]);
-        Assert.Contains("status 400", record.Payload["errorMessage"], StringComparison.Ordinal);
-        Assert.DoesNotContain("jane@example.com", record.Payload["errorMessage"], StringComparison.Ordinal);
-        Assert.DoesNotContain("sk-error", record.Payload["errorMessage"], StringComparison.Ordinal);
+        Assert.DoesNotContain("errorMessage", record.Payload.Keys);
+        Assert.DoesNotContain(
+            "status 400",
+            string.Join(" ", record.Payload.Values),
+            StringComparison.Ordinal);
     }
 
     [Fact]

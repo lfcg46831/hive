@@ -137,6 +137,88 @@ public sealed class AiDirectiveRecoveryGuardTests
         }
     }
 
+    [Fact]
+    public async Task Terminal_failed_decision_suppresses_gateway_and_reuses_failure_completion()
+    {
+        var scenario = AiDirectiveIntegrationScenario.Create();
+        var auditLog = new RecordingJourneyAuditLog();
+        var provider = new AiProviderMetadata("openai", "gpt-timeout-test");
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.GatewayCalled,
+            JourneyAuditOutcome.Failed,
+            scenario.Entity.Organization,
+            scenario.Directive.Thread,
+            scenario.Directive.Id,
+            scenario.Directive.DirectiveId,
+            scenario.Entity.Position,
+            reasonCode: "timeout",
+            provider: provider));
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.GatewayCostRecorded,
+            JourneyAuditOutcome.Failed,
+            scenario.Entity.Organization,
+            scenario.Directive.Thread,
+            scenario.Directive.Id,
+            scenario.Directive.DirectiveId,
+            scenario.Entity.Position,
+            reasonCode: "timeout",
+            provider: provider,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["costStatus"] = "cost-unavailable",
+            }));
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.AgentDecided,
+            JourneyAuditOutcome.Failed,
+            scenario.Entity.Organization,
+            scenario.Directive.Thread,
+            scenario.Directive.Id,
+            scenario.Directive.DirectiveId,
+            scenario.Entity.Position,
+            reasonCode: "ai-gateway-failure",
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["terminalCode"] = "ai-gateway-failure",
+            }));
+        var invoker = new RecordingInvoker();
+        var completion = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var command = new TaskCompletionSource<PositionCommand>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var system = ActorSystem.Create($"ai-directive-recovery-{Guid.NewGuid():N}");
+
+        try
+        {
+            var parent = system.ActorOf(
+                Props.Create(() => new AgentParentProbe(invoker, auditLog, completion, command)),
+                "parent");
+            var request = AiDirectiveProcessingRequest.Create(
+                scenario.Entity,
+                scenario.RuntimeConfiguration(provider),
+                PositionState.Restore(scenario.InitialSnapshot()),
+                scenario.Occupant,
+                scenario.Directive);
+
+            parent.Tell(request);
+
+            var completed = await completion.Task.WaitAsync(Timeout());
+
+            Assert.Equal(PositionOccupantProcessingStatus.Failed, completed.Status);
+            Assert.Equal("ai-gateway-failure", completed.FailureCode);
+            Assert.Equal(0, invoker.InvocationCount);
+            Assert.False(command.Task.IsCompleted);
+            var suppression = Assert.Single(
+                auditLog.Records.Where(record => record.Stage == JourneyAuditStage.DuplicateSuppressed));
+            Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
+            Assert.Equal("terminal-agent-decision-already-materialized", suppression.ReasonCode);
+            Assert.Equal("AgentDecided", suppression.Payload["suppressedStage"]);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
 
     private sealed class AgentParentProbe : ReceiveActor

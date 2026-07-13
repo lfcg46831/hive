@@ -244,11 +244,15 @@ dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost
 
 The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
 
-To run the complete 30-case evaluation, expose PostgreSQL only on loopback with the existing local override when starting the demo:
+To run the complete 30-case evaluation, add the evaluation-only projection profile and expose PostgreSQL only on loopback:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.postgres-external.yml up --build
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml up --build
 ```
+
+`docker-compose.evaluation.yml` sets `Hive:EvaluationProjection:Enabled=true` and `Hive:EvaluationProjection:RubricPath=config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json`. The option is `false` by default and must remain disabled on normal demo and production hosts. `RubricPath` may be absolute or relative to the host content root and defaults to that tracked example rubric. When enabled, startup requires `ConnectionStrings:PostgreSql` and a readable, supported rubric, then migrates the isolated `evaluation` schema and activates the projector. Invalid or unavailable rubric configuration fails host startup. The projector stores only correlation ids, projection version, canonical severity, and canonical missing-information labels admitted by the rubric's closed vocabulary. A list containing `snake_case`, an unknown label, or a mixture of valid and invalid labels is stored as `null` for that dimension while a valid severity is preserved. Message text, prompts, source context, and human baselines are never stored in this schema.
+
+The override must be present when the `api` container is created; adding it only to a later runner command does not change an existing container. If the runner reports that evaluation projection storage is unavailable, recreate the API with the evaluation Compose file set above and wait for the health check before retrying. The runner performs this preflight before submitting the first corpus case.
 
 Set the runner's read-only connection in the current shell and choose a new canonical `run-id` for each independent measurement:
 
@@ -257,12 +261,13 @@ $env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;User
 dotnet run --project src/Hive.DemoClient -- evaluate --run-id model-a-001 --base-url http://localhost:8080
 ```
 
-The runner submits cases sequentially through the generic directive API and writes `artifacts/evaluation/model-a-001.json`. It polls the audit read model for at most two minutes per case by default. Override this with `--timeout-seconds` and `--poll-milliseconds`; use `--corpus` or `--output` only when evaluating a different fixture or output location. Reusing a `run-id` reuses the same deterministic message/thread/directive identities for safe retry; it does not create a second independent measurement. The output contains correlation, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, human baseline, model text, credentials, or the connection string. Do not commit populated result datasets until they have been reviewed as evaluation artefacts.
+The runner submits cases sequentially through the generic directive API and writes `artifacts/evaluation/model-a-001.json`. It polls the audit read model for at most two minutes per case by default, joins the safe evaluation projection by organization/thread/directive, validates the corpus references against the same tracked v1 rubric, and emits per-dimension scores plus the unrounded corpus macro-mean. The API and runner must use the same rubric file/version. Override polling with `--timeout-seconds` and `--poll-milliseconds`; use `--corpus`, `--rubric`, or `--output` only when evaluating different tracked inputs or output location. Reusing a `run-id` reuses the same deterministic message/thread/directive identities for safe retry; it does not create a second independent measurement. A missing, invalid, or version-incompatible projection is a structured scoring failure and receives zero in each affected dimension. The output contains correlation, canonical predicted labels, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, human baseline, model text, credentials, or the connection string. Do not commit populated result datasets until they have been reviewed as evaluation artefacts.
 
 Stop the demo with the same Compose file set used to start it:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.demo.yml down
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml down
 docker compose -f docker-compose.yml -f docker-compose.cluster.yml -f docker-compose.roles.yml -f docker-compose.demo.cluster.yml down
 ```
 

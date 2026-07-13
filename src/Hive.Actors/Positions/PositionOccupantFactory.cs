@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -21,6 +22,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
     private readonly IAiAgentActionGate _actionGate;
     private readonly IJourneyAuditLog _auditLog;
+    private readonly IEvaluationResultProjector _evaluationResultProjector;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -49,6 +51,21 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog)
+        : this(
+            aiGatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            NoopEvaluationResultProjector.Instance)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
@@ -56,6 +73,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
         _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
+        _evaluationResultProjector = evaluationResultProjector
+            ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
     }
 
     public PositionOccupantFactory(
@@ -84,7 +103,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _aiGatewayInvoker,
                 _resultMessageGate,
                 _actionGate,
-                _auditLog)),
+                _auditLog,
+                _evaluationResultProjector)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -126,6 +146,7 @@ internal sealed class AiAgentActor : ReceiveActor
     private readonly Dictionary<string, AiDirectiveAuditSnapshot> _directiveAudits =
         new(StringComparer.Ordinal);
     private readonly IJourneyAuditLog _auditLog;
+    private readonly IEvaluationResultProjector _evaluationResultProjector;
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -157,6 +178,23 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog)
+        : this(
+            occupant,
+            gatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            NoopEvaluationResultProjector.Instance)
+    {
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
@@ -165,6 +203,8 @@ internal sealed class AiAgentActor : ReceiveActor
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
         ActionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
+        _evaluationResultProjector = evaluationResultProjector
+            ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -402,6 +442,14 @@ internal sealed class AiAgentActor : ReceiveActor
                                 resultMessage.ActingUnder);
                         }
                     }
+                }
+
+                if (resultMessage.IsSuccess)
+                {
+                    await _evaluationResultProjector.ProjectAsync(
+                        context.Directive.DirectiveId,
+                        resultMessage.Message!,
+                        CancellationToken.None).ConfigureAwait(false);
                 }
 
                 _directiveResultMessages[request.CorrelationId] = resultMessage;

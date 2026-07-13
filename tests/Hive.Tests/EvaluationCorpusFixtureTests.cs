@@ -62,7 +62,16 @@ public sealed partial class EvaluationCorpusFixtureTests
     public void Corpus_has_30_to_50_unique_well_formed_cases()
     {
         using var document = LoadCorpus();
+        using var rubricDocument = JsonDocument.Parse(File.ReadAllText(RubricFile));
         var cases = document.RootElement.GetProperty("cases").EnumerateArray().ToArray();
+        var allowedMissingInformation = rubricDocument.RootElement
+            .GetProperty("dimensions")
+            .EnumerateArray()
+            .Single(item => item.GetProperty("id").GetString() == "missing-information")
+            .GetProperty("allowed_labels")
+            .EnumerateArray()
+            .Select(value => value.GetString()!)
+            .ToHashSet(StringComparer.Ordinal);
 
         Assert.InRange(cases.Length, 30, 50);
 
@@ -94,6 +103,7 @@ public sealed partial class EvaluationCorpusFixtureTests
             {
                 Assert.False(string.IsNullOrWhiteSpace(value));
                 Assert.Matches(CanonicalSlug(), value!);
+                Assert.Contains(value!, allowedMissingInformation);
             });
             Assert.Equal(
                 missingInformation.Length,
@@ -182,6 +192,15 @@ public sealed partial class EvaluationCorpusFixtureTests
         "examples",
         "evaluation",
         "bug-triage-corpus.v1.json");
+
+    private static string RubricFile => Path.Combine(
+        RepositoryRoot,
+        "config",
+        "organizations",
+        "acme-delivery",
+        "examples",
+        "evaluation",
+        "bug-triage-rubric.v1.json");
 
     private static string RepositoryRoot
     {

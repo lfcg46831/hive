@@ -8,6 +8,7 @@ using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Domain.Auditing;
+using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
@@ -115,7 +116,8 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
-                serviceProvider.GetRequiredService<IJourneyAuditLog>()));
+                serviceProvider.GetRequiredService<IJourneyAuditLog>(),
+                serviceProvider.GetRequiredService<IEvaluationResultProjector>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
         builder.Services.TryAddSingleton<IRetainedActionExecutor>(

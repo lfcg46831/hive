@@ -19,8 +19,19 @@ public static class EvaluationCommand
         {
             var options = EvaluationRunOptions.Parse(args, AppContext.BaseDirectory);
             var corpus = EvaluationCorpus.Load(options.CorpusPath);
+            var rubric = EvaluationRubric.Load(options.RubricPath!);
+            rubric.ValidateCorpus(corpus);
+
             await using var reader = new PostgreSqlEvaluationAuditReader(options.ConnectionString);
-            var runner = new EvaluationRunner(httpClient, reader);
+            await using var projectionReader = new PostgreSqlEvaluationProjectionReader(
+                options.ConnectionString);
+            await projectionReader.EnsureAvailableAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var runner = new EvaluationRunner(
+                httpClient,
+                reader,
+                projectionReader: projectionReader,
+                rubric: rubric);
             var dataset = await runner.RunAsync(corpus, options, cancellationToken).ConfigureAwait(false);
 
             var directory = Path.GetDirectoryName(options.OutputPath);
@@ -29,7 +40,11 @@ public static class EvaluationCommand
             await JsonSerializer.SerializeAsync(stream, dataset, OutputJson, cancellationToken).ConfigureAwait(false);
             await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(options.OutputPath).ConfigureAwait(false);
-            return dataset.Cases.All(item => item.Outcome is "succeeded" or "accepted") ? 0 : 1;
+            return dataset.Cases.All(item =>
+                (item.Outcome is "succeeded" or "accepted")
+                && item.Scoring?.Status == "scored")
+                ? 0
+                : 1;
         }
         catch (ArgumentException exception)
         {
@@ -46,6 +61,6 @@ public static class EvaluationCommand
 
     private static Task WriteUsageAsync(TextWriter output) => output.WriteLineAsync(
         "Usage: dotnet run --project src/Hive.DemoClient -- evaluate --run-id <id> " +
-        "[--base-url <url>] [--connection-string <postgres>] [--corpus <path>] " +
+        "[--base-url <url>] [--connection-string <postgres>] [--corpus <path>] [--rubric <path>] " +
         "[--output <path>] [--timeout-seconds <n>] [--poll-milliseconds <n>]");
 }

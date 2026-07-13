@@ -94,12 +94,28 @@ public sealed class EvaluationRubricFixtureTests
         Assert.Equal("set-f1", missing.GetProperty("scorer").GetString());
         Assert.Equal("canonical-slug-exact", missing.GetProperty("label_matching").GetString());
         Assert.Equal("collapse", missing.GetProperty("duplicate_handling").GetString());
+        var allowedLabels = missing.GetProperty("allowed_labels")
+            .EnumerateArray()
+            .Select(value => value.GetString()!)
+            .ToArray();
+        Assert.NotEmpty(allowedLabels);
+        Assert.Equal(
+            allowedLabels.OrderBy(label => label, StringComparer.Ordinal),
+            allowedLabels);
+        Assert.Equal(allowedLabels.Length, allowedLabels.Distinct(StringComparer.Ordinal).Count());
+        Assert.All(allowedLabels, label => Assert.DoesNotContain('_', label));
+        Assert.Contains("correlation-metadata", allowedLabels);
+        Assert.Contains("textual-attachments", allowedLabels);
+        Assert.DoesNotContain("correlation_metadata", allowedLabels);
 
         Assert.Equal(1.0, ScoreMissingInformation(missing, [], []));
-        Assert.Equal(0.0, ScoreMissingInformation(missing, ["logs"], []));
+        Assert.Equal(0.0, ScoreMissingInformation(missing, ["run-log"], []));
         Assert.Equal(
             2.0 / 3.0,
-            ScoreMissingInformation(missing, ["logs", "region", "logs"], ["logs"]),
+            ScoreMissingInformation(
+                missing,
+                ["run-log", "environment", "run-log"],
+                ["run-log"]),
             precision: 10);
     }
 

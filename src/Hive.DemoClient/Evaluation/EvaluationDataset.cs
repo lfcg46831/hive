@@ -9,7 +9,10 @@ public sealed record EvaluationDataset(
     [property: JsonPropertyName("api_base_url")] string ApiBaseUrl,
     [property: JsonPropertyName("timeout_seconds")] double TimeoutSeconds,
     [property: JsonPropertyName("poll_interval_milliseconds")] double PollIntervalMilliseconds,
-    [property: JsonPropertyName("cases")] IReadOnlyList<EvaluationCaseResult> Cases);
+    [property: JsonPropertyName("cases")] IReadOnlyList<EvaluationCaseResult> Cases,
+    [property: JsonPropertyName("projection_version")] int? ProjectionVersion = null,
+    [property: JsonPropertyName("rubric_version")] int? RubricVersion = null,
+    [property: JsonPropertyName("corpus_score")] double? CorpusScore = null);
 
 public sealed record EvaluationCaseResult(
     [property: JsonPropertyName("case_id")] string CaseId,
@@ -37,4 +40,22 @@ public sealed record EvaluationCaseResult(
     [property: JsonPropertyName("pricing_version")] string? PricingVersion = null,
     [property: JsonPropertyName("pricing_token_unit")] int? PricingTokenUnit = null,
     [property: JsonPropertyName("input_price_per_token_unit")] decimal? InputPricePerTokenUnit = null,
-    [property: JsonPropertyName("output_price_per_token_unit")] decimal? OutputPricePerTokenUnit = null);
+    [property: JsonPropertyName("output_price_per_token_unit")] decimal? OutputPricePerTokenUnit = null,
+    [property: JsonPropertyName("prediction")] EvaluationPrediction? Prediction = null,
+    [property: JsonPropertyName("scoring")] EvaluationCaseScoring? Scoring = null);
+
+public sealed record EvaluationPrediction(
+    [property: JsonPropertyName("projection_version")] int ProjectionVersion,
+    [property: JsonPropertyName("severity")] string? Severity,
+    [property: JsonPropertyName("missing_information")] IReadOnlyList<string>? MissingInformation);
+
+public sealed record EvaluationCaseScoring(
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("failure_codes")] IReadOnlyList<string> FailureCodes,
+    [property: JsonPropertyName("dimensions")] EvaluationDimensionScores Dimensions,
+    [property: JsonPropertyName("case_score")] double CaseScore);
+
+public sealed record EvaluationDimensionScores(
+    [property: JsonPropertyName("severity")] double Severity,
+    [property: JsonPropertyName("missing_information")] double MissingInformation,
+    [property: JsonPropertyName("decision")] double Decision);

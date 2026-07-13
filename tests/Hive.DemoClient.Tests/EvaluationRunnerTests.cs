@@ -199,6 +199,7 @@ public sealed class EvaluationRunnerTests
             RepositoryRoot);
         Assert.Equal("model-a-001", valid.RunId);
         Assert.EndsWith("model-a-001.json", valid.OutputPath, StringComparison.Ordinal);
+        Assert.EndsWith("bug-triage-rubric.v1.json", valid.RubricPath, StringComparison.Ordinal);
     }
 
     private static EvaluationCorpus Corpus(params (string Id, string Context)[] cases) =>

@@ -18,3 +18,9 @@ For the F0 demo only, a bug report is plain data carried in `Directive.Context`.
 - `correlation_metadata`: external ids, source urls, trace ids, timestamps, or other stable correlation data.
 
 Use the available facts to decide whether there is enough information to respond with `Report`, ask for missing facts through `Escalation`, or decompose permitted work through `Directive`. Do not introduce a bug-specific HIVE message, DTO, route, or API contract.
+
+For every `Report`, put exactly one standalone evaluation-label line in `report.body`. For every `Escalation`, put it in `escalation.context`. The line is part of the ordinary message text and must use this exact compact form:
+
+`hive-evaluation-v1:{"severity":"high","missing_information":["environment","reproduction-steps"]}`
+
+Use one severity label from `low`, `medium`, `high`, or `critical`. Missing-information labels use the closed evaluation vocabulary in lowercase `kebab-case`, must be sorted lexically, and use an empty array when no information is missing. The `snake_case` fact identifiers above are input names, not output labels: for example, emit `correlation-metadata`, `reproduction-steps`, and `textual-attachments`, never `correlation_metadata`, `reproduction_steps`, or `textual_attachments`. Do not invent aliases, place the line in another field, or emit it more than once.

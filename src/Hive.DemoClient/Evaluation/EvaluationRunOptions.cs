@@ -11,7 +11,8 @@ public sealed partial record EvaluationRunOptions(
     string OutputPath,
     TimeSpan Timeout,
     TimeSpan PollInterval,
-    DateTimeOffset SentAt)
+    DateTimeOffset SentAt,
+    string? RubricPath = null)
 {
     public static readonly DateTimeOffset DefaultSentAt =
         DateTimeOffset.Parse("2026-07-12T00:00:00Z", System.Globalization.CultureInfo.InvariantCulture);
@@ -24,6 +25,7 @@ public sealed partial record EvaluationRunOptions(
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__PostgreSql");
         string? corpusPath = null;
         string? outputPath = null;
+        string? rubricPath = null;
         var timeout = TimeSpan.FromMinutes(2);
         var pollInterval = TimeSpan.FromSeconds(1);
 
@@ -38,6 +40,7 @@ public sealed partial record EvaluationRunOptions(
                 case "--connection-string": connectionString = Read(args, ref index, argument); break;
                 case "--corpus": corpusPath = Path.GetFullPath(Read(args, ref index, argument)); break;
                 case "--output": outputPath = Path.GetFullPath(Read(args, ref index, argument)); break;
+                case "--rubric": rubricPath = Path.GetFullPath(Read(args, ref index, argument)); break;
                 case "--timeout-seconds": timeout = PositiveDuration(Read(args, ref index, argument), argument, 1000); break;
                 case "--poll-milliseconds": pollInterval = PositiveDuration(Read(args, ref index, argument), argument, 1); break;
                 default: throw new ArgumentException($"Unknown evaluation argument '{argument}'.");
@@ -55,8 +58,9 @@ public sealed partial record EvaluationRunOptions(
         }
 
         corpusPath ??= Path.Combine(repositoryRoot, "config", "organizations", "acme-delivery", "examples", "evaluation", "bug-triage-corpus.v1.json");
+        rubricPath ??= Path.Combine(repositoryRoot, "config", "organizations", "acme-delivery", "examples", "evaluation", "bug-triage-rubric.v1.json");
         outputPath ??= Path.Combine(repositoryRoot, "artifacts", "evaluation", $"{runId}.json");
-        return new EvaluationRunOptions(repositoryRoot, runId, baseUrl, connectionString, corpusPath, outputPath, timeout, pollInterval, DefaultSentAt);
+        return new EvaluationRunOptions(repositoryRoot, runId, baseUrl, connectionString, corpusPath, outputPath, timeout, pollInterval, DefaultSentAt, rubricPath);
     }
 
     private static string Read(IReadOnlyList<string> args, ref int index, string argument)

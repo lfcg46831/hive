@@ -1,0 +1,10 @@
+# Evaluation-only override for US-F0-13-T09d.
+#
+# Layer after docker-compose.demo.yml. It enables the optional safe label
+# projector only on the all-in-one node that owns the agents workload.
+
+services:
+  api:
+    environment:
+      HIVE__EVALUATIONPROJECTION__ENABLED: "true"
+      HIVE__EVALUATIONPROJECTION__RUBRICPATH: "config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json"

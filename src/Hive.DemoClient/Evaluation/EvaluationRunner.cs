@@ -10,16 +10,22 @@ public sealed class EvaluationRunner
 
     private readonly HttpClient _httpClient;
     private readonly IEvaluationAuditReader _auditReader;
+    private readonly IEvaluationProjectionReader _projectionReader;
+    private readonly EvaluationRubric? _rubric;
     private readonly TimeProvider _timeProvider;
 
     public EvaluationRunner(
         HttpClient httpClient,
         IEvaluationAuditReader auditReader,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IEvaluationProjectionReader? projectionReader = null,
+        EvaluationRubric? rubric = null)
     {
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _auditReader = auditReader ?? throw new ArgumentNullException(nameof(auditReader));
         _timeProvider = timeProvider ?? TimeProvider.System;
+        _projectionReader = projectionReader ?? NoopEvaluationProjectionReader.Instance;
+        _rubric = rubric;
     }
 
     public async Task<EvaluationDataset> RunAsync(
@@ -38,6 +44,9 @@ public sealed class EvaluationRunner
                 .ConfigureAwait(false));
         }
 
+        double? corpusScore = _rubric is null
+            ? null
+            : results.Average(item => item.Scoring!.CaseScore);
         return new EvaluationDataset(
             1,
             corpus.CorpusVersion,
@@ -45,7 +54,10 @@ public sealed class EvaluationRunner
             options.BaseUrl.AbsoluteUri.TrimEnd('/'),
             options.Timeout.TotalSeconds,
             options.PollInterval.TotalMilliseconds,
-            results);
+            results,
+            _rubric is null ? null : 1,
+            _rubric?.RubricVersion,
+            corpusScore);
     }
 
     private async Task<EvaluationCaseResult> RunCaseAsync(
@@ -72,12 +84,12 @@ public sealed class EvaluationRunner
             httpStatus = (int)response.StatusCode;
             if (!response.IsSuccessStatusCode)
             {
-                return Empty(item.CaseId, ids, "rejected", httpStatus, "submission-rejected");
+                return Empty(item, ids, "rejected", httpStatus, "submission-rejected");
             }
         }
         catch (HttpRequestException)
         {
-            return Empty(item.CaseId, ids, "failed", null, "submission-unavailable");
+            return Empty(item, ids, "failed", null, "submission-unavailable");
         }
 
         var deadline = _timeProvider.GetUtcNow() + options.Timeout;
@@ -90,21 +102,27 @@ public sealed class EvaluationRunner
                 cancellationToken).ConfigureAwait(false);
             if (journey is not null)
             {
-                return FromJourney(item.CaseId, ids, httpStatus, journey);
+                var prediction = await _projectionReader.ReadAsync(
+                    OrganizationId,
+                    ids.ThreadId,
+                    ids.DirectiveId,
+                    cancellationToken).ConfigureAwait(false);
+                return FromJourney(item, ids, httpStatus, journey, prediction);
             }
 
             await Task.Delay(options.PollInterval, _timeProvider, cancellationToken).ConfigureAwait(false);
         }
 
-        return Empty(item.CaseId, ids, "accepted", httpStatus, "timeout");
+        return Empty(item, ids, "accepted", httpStatus, "timeout");
     }
 
-    private static EvaluationCaseResult FromJourney(
-        string caseId,
+    private EvaluationCaseResult FromJourney(
+        EvaluationCase item,
         DemoDirectiveIds ids,
         int? httpStatus,
-        EvaluationJourney journey) => new(
-            caseId, ids.MessageId, ids.ThreadId, ids.DirectiveId,
+        EvaluationJourney journey,
+        EvaluationPrediction? prediction) => new(
+            item.CaseId, ids.MessageId, ids.ThreadId, ids.DirectiveId,
             "accepted", httpStatus, journey.Outcome, journey.TerminalCode, journey.Decision,
             journey.ProviderId, journey.ModelId, journey.OutputConstraintMode,
             journey.InputTokens, journey.OutputTokens,
@@ -112,15 +130,35 @@ public sealed class EvaluationRunner
             journey.CostCurrency, journey.CostEstimated, journey.GatewayLatencyMilliseconds,
             journey.JourneyDurationMilliseconds, journey.CostStatus, journey.PricingVersion,
             journey.PricingTokenUnit, journey.InputPricePerTokenUnit,
-            journey.OutputPricePerTokenUnit);
+            journey.OutputPricePerTokenUnit,
+            prediction,
+            _rubric?.Score(item.HumanReference, prediction, journey.Decision));
 
-    private static EvaluationCaseResult Empty(
-        string caseId,
+    private EvaluationCaseResult Empty(
+        EvaluationCase item,
         DemoDirectiveIds ids,
         string submissionStatus,
         int? httpStatus,
         string outcome) => new(
-            caseId, ids.MessageId, ids.ThreadId, ids.DirectiveId,
+            item.CaseId, ids.MessageId, ids.ThreadId, ids.DirectiveId,
             submissionStatus, httpStatus, outcome, outcome, null,
-            null, null, null, null, null, null, null, null, null, null, null, null);
+            ProviderId: null,
+            ModelId: null,
+            OutputConstraintMode: null,
+            InputTokens: null,
+            OutputTokens: null,
+            TotalTokens: null,
+            TokensEstimated: null,
+            CostAmount: null,
+            CostCurrency: null,
+            CostEstimated: null,
+            GatewayLatencyMilliseconds: null,
+            JourneyDurationMilliseconds: null,
+            CostStatus: null,
+            PricingVersion: null,
+            PricingTokenUnit: null,
+            InputPricePerTokenUnit: null,
+            OutputPricePerTokenUnit: null,
+            Prediction: null,
+            Scoring: _rubric?.Score(item.HumanReference, prediction: null, decision: null));
 }

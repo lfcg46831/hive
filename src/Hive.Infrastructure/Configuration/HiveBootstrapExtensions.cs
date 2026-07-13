@@ -1,11 +1,14 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Evaluation;
 using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Domain.Positions;
 using Hive.Domain.Organization;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
+using Hive.Infrastructure.Evaluation;
+using Hive.Infrastructure.Evaluation.PostgreSql;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Logging;
@@ -31,9 +34,16 @@ public static class HiveBootstrapExtensions
         builder.AddHiveStructuredLogging();
 
         builder.Services.AddSingleton<IValidateOptions<HiveOptions>, HiveOptionsValidator>();
+        builder.Services.AddSingleton<
+            IValidateOptions<EvaluationProjectionOptions>,
+            EvaluationProjectionOptionsValidator>();
         builder.Services
             .AddOptions<HiveOptions>()
             .Bind(builder.Configuration.GetSection(HiveOptions.SectionName))
+            .ValidateOnStart();
+        builder.Services
+            .AddOptions<EvaluationProjectionOptions>()
+            .Bind(builder.Configuration.GetSection(EvaluationProjectionOptions.SectionName))
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
@@ -58,6 +68,28 @@ public static class HiveBootstrapExtensions
             return string.IsNullOrWhiteSpace(connectionString)
                 ? NoopJourneyAuditReadModel.Instance
                 : new PostgreSqlJourneyAuditReadModel(connectionString);
+        });
+        builder.Services.TryAddSingleton<IEvaluationResultProjector>(serviceProvider =>
+        {
+            var options = serviceProvider
+                .GetRequiredService<IOptions<EvaluationProjectionOptions>>()
+                .Value;
+            if (!options.Enabled)
+            {
+                return NoopEvaluationResultProjector.Instance;
+            }
+
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+            var rubricPath = options.ResolveRubricPath(
+                serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath);
+            var vocabulary = BugTriageEvaluationVocabulary.Load(rubricPath);
+            return new PostgreSqlEvaluationResultProjector(
+                connectionString
+                ?? throw new InvalidOperationException(
+                    "Evaluation projection requires ConnectionStrings:PostgreSql when enabled."),
+                vocabulary);
         });
         builder.Services.Replace(ServiceDescriptor.Singleton<
             JourneyAuditAiGatewayPublisher,
@@ -118,6 +150,7 @@ public static class HiveBootstrapExtensions
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlSchedulerPulseDeliveryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlJourneyAuditLogMigrationHostedService>();
+        builder.Services.AddHostedService<PostgreSqlEvaluationProjectionMigrationHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

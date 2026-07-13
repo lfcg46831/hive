@@ -90,6 +90,11 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.Contains("environment", prompt, StringComparison.Ordinal);
         Assert.Contains("textual_attachments", prompt, StringComparison.Ordinal);
         Assert.Contains("correlation_metadata", prompt, StringComparison.Ordinal);
+        Assert.Contains("hive-evaluation-v1:", prompt, StringComparison.Ordinal);
+        Assert.Contains("missing_information", prompt, StringComparison.Ordinal);
+        Assert.Contains("input names, not output labels", prompt, StringComparison.Ordinal);
+        Assert.Contains("correlation-metadata", prompt, StringComparison.Ordinal);
+        Assert.Contains("never `correlation_metadata`", prompt, StringComparison.Ordinal);
         Assert.Contains(
             "Do not introduce a bug-specific HIVE message, DTO, route, or API contract.",
             prompt,

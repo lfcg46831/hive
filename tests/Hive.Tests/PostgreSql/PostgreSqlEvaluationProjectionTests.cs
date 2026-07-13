@@ -11,6 +11,7 @@ public sealed class PostgreSqlEvaluationProjectionTests(PostgreSqlFixture fixtur
 {
     private static readonly OrganizationId Acme = OrganizationId.From("acme-delivery");
     private static readonly PositionId BugTriage = PositionId.From("bug-triage");
+    private static readonly PositionId FollowUpCoordinator = PositionId.From("follow-up-coordinator");
     private static readonly DateTimeOffset SentAt =
         new(2026, 7, 13, 12, 0, 0, TimeSpan.Zero);
 
@@ -154,6 +155,61 @@ public sealed class PostgreSqlEvaluationProjectionTests(PostgreSqlFixture fixtur
     }
 
     [Fact]
+    public async Task Second_role_fixture_uses_the_same_storage_with_partial_failure_minimization()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await ResetAsync(dataSource);
+        await new PostgreSqlEvaluationProjectionMigrator(dataSource).MigrateAsync();
+        await using var projector = new PostgreSqlEvaluationResultProjector(
+            dataSource,
+            Acme,
+            FollowUpCoordinator,
+            EvaluationRubricContract.Load(FollowUpRubricFile, 1));
+        var thread = ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000002031"));
+        var directive = DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000002031"));
+
+        await projector.ProjectAsync(
+            directive,
+            ReportMessage(
+                Acme,
+                FollowUpCoordinator,
+                thread,
+                MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000002031")),
+                "Private coordination narrative.\n" +
+                "hive-evaluation-v1:{\"dimensions\":{\"response-window\":[\"same-day\"],\"pending-signals\":[\"attendee_reply\",\"private-rejected-value\"]}}"));
+
+        var rows = new Dictionary<string, (string Status, string[] Labels)>(StringComparer.Ordinal);
+        await using var command = dataSource.CreateCommand(
+            "SELECT dimension_id, status, labels FROM evaluation.result_projection_dimensions ORDER BY dimension_id;");
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            rows.Add(
+                reader.GetString(0),
+                (reader.GetString(1), reader.GetFieldValue<string[]>(2)));
+        }
+
+        Assert.Equal(
+            ["coordination-route", "pending-signals", "response-window"],
+            rows.Keys);
+        Assert.Equal("valid", rows["coordination-route"].Status);
+        Assert.Equal(["track"], rows["coordination-route"].Labels);
+        Assert.Equal("invalid", rows["pending-signals"].Status);
+        Assert.Empty(rows["pending-signals"].Labels);
+        Assert.Equal("valid", rows["response-window"].Status);
+        Assert.Equal(["same-day"], rows["response-window"].Labels);
+
+        await reader.CloseAsync();
+        await using var persisted = dataSource.CreateCommand(
+            "SELECT jsonb_agg(to_jsonb(row))::text FROM evaluation.result_projection_dimensions AS row;");
+        var persistedJson = (string)(await persisted.ExecuteScalarAsync())!;
+        Assert.DoesNotContain("Private coordination narrative", persistedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("private-rejected-value", persistedJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("severity", persistedJson, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("missing-information", persistedJson, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Invalid_dimension_is_redacted_without_discarding_valid_dimensions()
     {
         await using var dataSource = fixture.CreateDataSource();
@@ -274,6 +330,15 @@ public sealed class PostgreSqlEvaluationProjectionTests(PostgreSqlFixture fixtur
         "examples",
         "evaluation",
         "bug-triage-rubric.v1.json");
+
+    private static string FollowUpRubricFile => Path.Combine(
+        RepositoryRoot,
+        "config",
+        "organizations",
+        "acme-delivery",
+        "examples",
+        "evaluation",
+        "follow-up-coordination-rubric.v1.json");
 
     private static string RepositoryRoot
     {

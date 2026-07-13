@@ -1,0 +1,86 @@
+{
+  "rubric_version": 1,
+  "fixture_kind": "evaluation-example",
+  "applies_to": {
+    "corpus_version": 1,
+    "baseline_path": "cases[].human_reference"
+  },
+  "human_baseline": {
+    "method": "independent-review-with-consensus",
+    "reviewers_required": 2,
+    "independent_first_pass": true,
+    "resolution": "consensus-or-third-reviewer-adjudication",
+    "frozen_before_evaluation_runs": true,
+    "reviewer_identities_in_fixture": false
+  },
+  "score_scale": {
+    "minimum": 0.0,
+    "maximum": 1.0,
+    "higher_is_better": true
+  },
+  "dimensions": [
+    {
+      "id": "response-window",
+      "weight": 0.40,
+      "source": "evaluation-envelope",
+      "value_kind": "single-label",
+      "scorer": "ordinal-distance",
+      "scorer_version": 1,
+      "ordered_labels": [
+        "next-cycle",
+        "same-day",
+        "now"
+      ],
+      "distance_scores": {
+        "0": 1.0,
+        "1": 0.5,
+        "2_or_more": 0.0
+      }
+    },
+    {
+      "id": "pending-signals",
+      "weight": 0.35,
+      "source": "evaluation-envelope",
+      "value_kind": "label-set",
+      "scorer": "set-f1",
+      "scorer_version": 1,
+      "label_matching": "exact",
+      "duplicate_handling": "collapse",
+      "allowed_labels": [
+        "approval_note",
+        "attendee_reply",
+        "owner_ack",
+        "schedule_slot"
+      ],
+      "both_sets_empty_score": 1.0,
+      "one_set_empty_score": 0.0,
+      "formula": "2 * precision * recall / (precision + recall)"
+    },
+    {
+      "id": "coordination-route",
+      "weight": 0.25,
+      "source": "result-message-kind",
+      "value_kind": "single-label",
+      "scorer": "exact-match",
+      "scorer_version": 1,
+      "allowed_labels": [
+        "track",
+        "request-support"
+      ],
+      "source_mapping": {
+        "report": "track",
+        "escalation": "request-support"
+      },
+      "match_score": 1.0,
+      "mismatch_score": 0.0
+    }
+  ],
+  "aggregation": {
+    "case_score": "weighted-arithmetic-mean",
+    "corpus_score": "unweighted-macro-mean-of-case-scores",
+    "rounding": "none-until-presentation",
+    "unscored_analysis_metadata": [
+      "workstream"
+    ]
+  }
+}

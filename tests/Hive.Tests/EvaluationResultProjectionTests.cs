@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
@@ -18,10 +19,31 @@ public sealed class EvaluationResultProjectionTests
     public void Generic_evaluation_schema_migrations_are_embedded_in_infrastructure()
     {
         var assembly = typeof(PostgreSqlEvaluationProjectionMigrator).Assembly;
-        Assert.DoesNotContain(
-            assembly.GetTypes(),
-            type => type.Namespace == "Hive.Infrastructure.Evaluation"
-                && type.Name.Contains("BugTriage", StringComparison.Ordinal));
+        var evaluationSymbols = new[]
+            {
+                typeof(IEvaluationResultProjector).Assembly,
+                assembly,
+            }
+            .Distinct()
+            .SelectMany(item => item.GetTypes())
+            .Where(type => type.Namespace?.Contains(".Evaluation", StringComparison.Ordinal) is true)
+            .SelectMany(type => new[] { type.Name }.Concat(type
+                .GetMembers(
+                    BindingFlags.Public
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Instance
+                    | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly)
+                .Select(member => member.Name)))
+            .Select(NormalizeArchitectureName)
+            .ToArray();
+        foreach (var forbidden in new[] { "bugtriage", "severity", "missinginformation" })
+        {
+            Assert.DoesNotContain(
+                evaluationSymbols,
+                symbol => symbol.Contains(forbidden, StringComparison.Ordinal));
+        }
+
         var resources = assembly.GetManifestResourceNames()
             .Where(name => name.Contains(
                 ".Evaluation.PostgreSql.Migrations.",
@@ -40,6 +62,8 @@ public sealed class EvaluationResultProjectionTests
             using var stream = assembly.GetManifestResourceStream(resource)!;
             using var reader = new StreamReader(stream);
             var sql = reader.ReadToEnd();
+            Assert.DoesNotContain("bug-triage", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("bug_triage", sql, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("severity", sql, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("missing_information", sql, StringComparison.OrdinalIgnoreCase);
         }
@@ -178,6 +202,26 @@ public sealed class EvaluationResultProjectionTests
     }
 
     [Fact]
+    public void Parser_projects_the_second_role_fixture_without_role_specific_branches()
+    {
+        var rubric = EvaluationRubricContract.Load(FollowUpRubricFile, 1);
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "Coordination summary.\n" +
+            "hive-evaluation-v1:{\"dimensions\":{\"response-window\":[\"same-day\"],\"pending-signals\":[\"owner_ack\",\"schedule_slot\",\"owner_ack\"]}}",
+            "escalation",
+            rubric));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["response-window"].Status);
+        Assert.Equal(["same-day"], dimensions["response-window"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["pending-signals"].Status);
+        Assert.Equal(["owner_ack", "schedule_slot"], dimensions["pending-signals"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["coordination-route"].Status);
+        Assert.Equal(["request-support"], dimensions["coordination-route"].Labels);
+        Assert.DoesNotContain("severity", dimensions.Keys);
+        Assert.DoesNotContain("missing-information", dimensions.Keys);
+    }
+
+    [Fact]
     public async Task Ai_actor_projects_canonical_result_before_audit_redaction()
     {
         const string privateText = "Customer-private diagnostic detail.";
@@ -218,6 +262,9 @@ public sealed class EvaluationResultProjectionTests
         EvaluationProjection projection) => projection.Dimensions.ToDictionary(
             dimension => dimension.DimensionId,
             StringComparer.Ordinal);
+
+    private static string NormalizeArchitectureName(string value) =>
+        string.Concat(value.Where(char.IsLetterOrDigit)).ToLowerInvariant();
 
     private static EvaluationRubricContract Rubric() =>
         EvaluationRubricContract.Load(RubricFile, 1);
@@ -281,6 +328,15 @@ public sealed class EvaluationResultProjectionTests
         "examples",
         "evaluation",
         "bug-triage-rubric.v1.json");
+
+    private static string FollowUpRubricFile => Path.Combine(
+        RepositoryRoot,
+        "config",
+        "organizations",
+        "acme-delivery",
+        "examples",
+        "evaluation",
+        "follow-up-coordination-rubric.v1.json");
 
     private static string RepositoryRoot
     {

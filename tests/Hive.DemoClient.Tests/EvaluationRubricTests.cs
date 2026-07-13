@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json.Nodes;
 using Hive.DemoClient.Evaluation;
 
@@ -177,6 +178,26 @@ public sealed class EvaluationRubricTests
         Assert.DoesNotContain("ExpectedDecision", memberNames);
         Assert.Contains("Dimensions", memberNames);
         Assert.Contains("DimensionId", memberNames);
+
+        var evaluationSymbols = typeof(EvaluationRubric).Assembly
+            .GetTypes()
+            .Where(type => type.Namespace == "Hive.DemoClient.Evaluation")
+            .SelectMany(type => new[] { type.Name }.Concat(type
+                .GetMembers(
+                    BindingFlags.Public
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Instance
+                    | BindingFlags.Static
+                    | BindingFlags.DeclaredOnly)
+                .Select(member => member.Name)))
+            .Select(value => string.Concat(value.Where(char.IsLetterOrDigit)).ToLowerInvariant())
+            .ToArray();
+        foreach (var forbidden in new[] { "bugtriage", "severity", "missinginformation" })
+        {
+            Assert.DoesNotContain(
+                evaluationSymbols,
+                symbol => symbol.Contains(forbidden, StringComparison.Ordinal));
+        }
     }
 
     private static EvaluationDimensionScoring Dimension(

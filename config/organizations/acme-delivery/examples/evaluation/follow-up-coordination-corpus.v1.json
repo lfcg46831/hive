@@ -1,0 +1,63 @@
+{
+  "corpus_version": 1,
+  "fixture_kind": "evaluation-example",
+  "cases": [
+    {
+      "case_id": "follow-up-001",
+      "source_category": "routine-checkpoint",
+      "context": "The monthly partner review is on track. Every participant has replied, the owner confirmed the action list, and the next checkpoint is already booked for next week.",
+      "human_reference": {
+        "response-window": [
+          "next-cycle"
+        ],
+        "pending-signals": [],
+        "coordination-route": [
+          "track"
+        ]
+      },
+      "analysis_metadata": {
+        "workstream": "partner-review"
+      }
+    },
+    {
+      "case_id": "follow-up-002",
+      "source_category": "same-day-coordination",
+      "context": "A cross-team review should happen tomorrow, but one attendee has not replied and no calendar slot has been selected. The action owner remains available today.",
+      "human_reference": {
+        "response-window": [
+          "same-day"
+        ],
+        "pending-signals": [
+          "attendee_reply",
+          "schedule_slot"
+        ],
+        "coordination-route": [
+          "track"
+        ]
+      },
+      "analysis_metadata": {
+        "workstream": "cross-team-review"
+      }
+    },
+    {
+      "case_id": "follow-up-003",
+      "source_category": "blocked-commitment",
+      "context": "A customer workshop starts this afternoon. The assigned owner has not acknowledged the preparation action and the required approval note is still absent after two reminders.",
+      "human_reference": {
+        "response-window": [
+          "now"
+        ],
+        "pending-signals": [
+          "approval_note",
+          "owner_ack"
+        ],
+        "coordination-route": [
+          "request-support"
+        ]
+      },
+      "analysis_metadata": {
+        "workstream": "customer-workshop"
+      }
+    }
+  ]
+}

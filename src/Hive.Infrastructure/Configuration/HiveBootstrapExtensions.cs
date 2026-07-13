@@ -37,6 +37,9 @@ public static class HiveBootstrapExtensions
         builder.Services.AddSingleton<
             IValidateOptions<EvaluationProjectionOptions>,
             EvaluationProjectionOptionsValidator>();
+        builder.Services.AddSingleton<
+            IValidateOptions<EvaluationOptions>,
+            EvaluationOptionsValidator>();
         builder.Services
             .AddOptions<HiveOptions>()
             .Bind(builder.Configuration.GetSection(HiveOptions.SectionName))
@@ -44,6 +47,10 @@ public static class HiveBootstrapExtensions
         builder.Services
             .AddOptions<EvaluationProjectionOptions>()
             .Bind(builder.Configuration.GetSection(EvaluationProjectionOptions.SectionName))
+            .ValidateOnStart();
+        builder.Services
+            .AddOptions<EvaluationOptions>()
+            .Bind(builder.Configuration.GetSection(EvaluationOptions.SectionName))
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
@@ -91,6 +98,9 @@ public static class HiveBootstrapExtensions
                     "Evaluation projection requires ConnectionStrings:PostgreSql when enabled."),
                 vocabulary);
         });
+        builder.Services.TryAddSingleton<
+            IEvaluationInstructionProvider,
+            ConfiguredEvaluationInstructionProvider>();
         builder.Services.Replace(ServiceDescriptor.Singleton<
             JourneyAuditAiGatewayPublisher,
             JourneyAuditAiGatewayPublisher>());

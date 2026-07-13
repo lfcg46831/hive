@@ -6,6 +6,7 @@ using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Actors.Positions;
 
@@ -23,6 +24,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     private readonly IAiAgentActionGate _actionGate;
     private readonly IJourneyAuditLog _auditLog;
     private readonly IEvaluationResultProjector _evaluationResultProjector;
+    private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -56,7 +58,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             resultMessageGate,
             actionGate,
             auditLog,
-            NoopEvaluationResultProjector.Instance)
+            NoopEvaluationResultProjector.Instance,
+            NoopEvaluationInstructionProvider.Instance)
     {
     }
 
@@ -66,6 +69,23 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
         IEvaluationResultProjector evaluationResultProjector)
+        : this(
+            aiGatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            evaluationResultProjector,
+            NoopEvaluationInstructionProvider.Instance)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector,
+        IEvaluationInstructionProvider evaluationInstructionProvider)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
@@ -75,6 +95,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
         _evaluationResultProjector = evaluationResultProjector
             ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
+        _evaluationInstructionProvider = evaluationInstructionProvider
+            ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
     }
 
     public PositionOccupantFactory(
@@ -104,7 +126,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _resultMessageGate,
                 _actionGate,
                 _auditLog,
-                _evaluationResultProjector)),
+                _evaluationResultProjector,
+                _evaluationInstructionProvider)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -147,6 +170,7 @@ internal sealed class AiAgentActor : ReceiveActor
         new(StringComparer.Ordinal);
     private readonly IJourneyAuditLog _auditLog;
     private readonly IEvaluationResultProjector _evaluationResultProjector;
+    private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -184,7 +208,8 @@ internal sealed class AiAgentActor : ReceiveActor
             resultMessageGate,
             actionGate,
             auditLog,
-            NoopEvaluationResultProjector.Instance)
+            NoopEvaluationResultProjector.Instance,
+            NoopEvaluationInstructionProvider.Instance)
     {
     }
 
@@ -195,6 +220,25 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
         IEvaluationResultProjector evaluationResultProjector)
+        : this(
+            occupant,
+            gatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            evaluationResultProjector,
+            NoopEvaluationInstructionProvider.Instance)
+    {
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector,
+        IEvaluationInstructionProvider evaluationInstructionProvider)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
@@ -205,6 +249,8 @@ internal sealed class AiAgentActor : ReceiveActor
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
         _evaluationResultProjector = evaluationResultProjector
             ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
+        _evaluationInstructionProvider = evaluationInstructionProvider
+            ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -337,7 +383,11 @@ internal sealed class AiAgentActor : ReceiveActor
     {
         var parent = Context.Parent;
         Action<object> publishAudit = Context.System.EventStream.Publish;
-        var context = AiDirectiveExecutionContext.From(request);
+        var context = AiDirectiveExecutionContext.From(
+            request,
+            _evaluationInstructionProvider.Resolve(
+                request.OrganizationId,
+                request.PositionId));
         var received = AiDirectiveProcessingSnapshot.Received(request);
         if (TryRecoverJourney(context, received) is { } recovered)
         {

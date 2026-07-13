@@ -4,6 +4,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Actors.Positions;
 
@@ -28,7 +29,8 @@ internal sealed record AiDirectiveExecutionContext
         AiModelParameters modelParameters,
         AiProcessingMode? processingMode,
         AiDirectiveProcessingLimits limits,
-        PositionConfigurationStamp? lastConfigurationStamp)
+        PositionConfigurationStamp? lastConfigurationStamp,
+        EvaluationInstruction? evaluationInstruction)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         OrganizationId = organizationId ?? throw new ArgumentNullException(nameof(organizationId));
@@ -51,6 +53,7 @@ internal sealed record AiDirectiveExecutionContext
         ProcessingMode = processingMode;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
         LastConfigurationStamp = lastConfigurationStamp;
+        EvaluationInstruction = evaluationInstruction;
     }
 
     public string CorrelationId { get; }
@@ -91,7 +94,11 @@ internal sealed record AiDirectiveExecutionContext
 
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
 
-    public static AiDirectiveExecutionContext From(AiDirectiveProcessingRequest request)
+    public EvaluationInstruction? EvaluationInstruction { get; }
+
+    public static AiDirectiveExecutionContext From(
+        AiDirectiveProcessingRequest request,
+        EvaluationInstruction? evaluationInstruction = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -128,7 +135,8 @@ internal sealed record AiDirectiveExecutionContext
                 ?? AiModelParameters.Default,
             request.RuntimeContext.OccupantConfiguration.AiGateway?.ProcessingMode,
             request.Limits,
-            request.PersistedContext.LastConfigurationStamp);
+            request.PersistedContext.LastConfigurationStamp,
+            evaluationInstruction);
     }
 
     private static ImmutableArray<T> RequireItems<T>(

@@ -11,6 +11,7 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Evaluation;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Persistence.PostgreSql;
@@ -117,7 +118,8 @@ public static class HiveActorSystemBootstrapExtensions
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>(),
-                serviceProvider.GetRequiredService<IEvaluationResultProjector>()));
+                serviceProvider.GetRequiredService<IEvaluationResultProjector>(),
+                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
         builder.Services.TryAddSingleton<IRetainedActionExecutor>(

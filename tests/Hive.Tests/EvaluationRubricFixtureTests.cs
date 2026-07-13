@@ -50,6 +50,12 @@ public sealed class EvaluationRubricFixtureTests
         Assert.Equal(ExpectedDimensionIds, dimensions.Select(DimensionId));
         Assert.Equal(1.0, dimensions.Sum(DimensionWeight), precision: 10);
         Assert.All(dimensions, dimension => Assert.InRange(DimensionWeight(dimension), 0.0, 1.0));
+        Assert.Equal(
+            ["evaluation-envelope", "evaluation-envelope", "result-message-kind"],
+            dimensions.Select(dimension => dimension.GetProperty("source").GetString()));
+        Assert.Equal(
+            ["single-label", "label-set", "single-label"],
+            dimensions.Select(dimension => dimension.GetProperty("value_kind").GetString()));
 
         var scale = root.GetProperty("score_scale");
         Assert.Equal(0.0, scale.GetProperty("minimum").GetDouble());

@@ -22,6 +22,8 @@
     {
       "id": "severity",
       "weight": 0.35,
+      "source": "evaluation-envelope",
+      "value_kind": "single-label",
       "prediction_field": "severity",
       "reference_field": "severity",
       "scorer": "ordinal-distance",
@@ -40,6 +42,8 @@
     {
       "id": "missing-information",
       "weight": 0.35,
+      "source": "evaluation-envelope",
+      "value_kind": "label-set",
       "prediction_field": "missing_information",
       "reference_field": "missing_information",
       "scorer": "set-f1",
@@ -86,6 +90,8 @@
     {
       "id": "decision",
       "weight": 0.30,
+      "source": "result-message-kind",
+      "value_kind": "single-label",
       "prediction_field": "decision",
       "reference_field": "expected_decision",
       "scorer": "exact-match",

@@ -45,7 +45,7 @@ internal static class AiDirectivePrompt
             BuildHiveProtocolInstruction(),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context),
-            BuildEvaluationInstruction());
+            context.EvaluationInstruction?.Content);
     }
 
     private static string BuildHiveProtocolInstruction()
@@ -92,19 +92,6 @@ internal static class AiDirectivePrompt
                 "Use only the HIVE tool definitions supplied with this request.",
                 $"Authorized connector names: {JoinOrEmpty(context.AuthorizedTools.Select(tool => tool.Connector))}.",
                 "Tool availability never extends the position's authority or bypasses approval.",
-            ]);
-
-    private static string BuildEvaluationInstruction() =>
-        string.Join(
-            Environment.NewLine,
-            [
-                "For every Report, put exactly one standalone evaluation-label line in report.body.",
-                "For every Escalation, put it in escalation.context.",
-                "Use this exact compact form: hive-evaluation-v1:{\"severity\":\"high\",\"missing_information\":[\"environment\",\"reproduction-steps\"]}",
-                "Use one severity label from low, medium, high, or critical.",
-                "Missing-information labels use the closed evaluation vocabulary in lowercase kebab-case, must be sorted lexically, and use an empty array when no information is missing.",
-                "Input fact identifiers use snake_case but are not output labels: emit correlation-metadata, reproduction-steps, and textual-attachments, never correlation_metadata, reproduction_steps, or textual_attachments.",
-                "Do not invent aliases, place the line in another field, or emit it more than once.",
             ]);
 
     private static string BuildContent(
@@ -402,7 +389,7 @@ internal sealed record AiDirectiveSystemInstructionSections(
     string HiveProtocol,
     string RuntimeAuthority,
     string RuntimeTools,
-    string Evaluation)
+    string? Evaluation)
 {
     internal const string BusinessIdentityHeader =
         "## Business identity [owner: organization]";
@@ -415,14 +402,22 @@ internal sealed record AiDirectiveSystemInstructionSections(
     internal const string EvaluationHeader =
         "## Evaluation appendix [owner: runtime]";
 
-    public string Compose() =>
-        string.Join(
-            $"{Environment.NewLine}{Environment.NewLine}",
+    public string Compose()
+    {
+        var sections = new List<string>
+        {
             Section(BusinessIdentityHeader, BusinessIdentity),
             Section(HiveProtocolHeader, HiveProtocol),
             Section(RuntimeAuthorityHeader, RuntimeAuthority),
             Section(RuntimeToolsHeader, RuntimeTools),
-            Section(EvaluationHeader, Evaluation));
+        };
+        if (!string.IsNullOrWhiteSpace(Evaluation))
+        {
+            sections.Add(Section(EvaluationHeader, Evaluation));
+        }
+
+        return string.Join($"{Environment.NewLine}{Environment.NewLine}", sections);
+    }
 
     private static string Section(string header, string content) =>
         string.Join(Environment.NewLine, header, content.Trim());

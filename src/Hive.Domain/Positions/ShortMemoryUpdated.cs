@@ -8,12 +8,17 @@ namespace Hive.Domain.Positions;
 /// </summary>
 public sealed record ShortMemoryUpdated : PositionEvent
 {
-    public ShortMemoryUpdated(string key, string value, DateTimeOffset occurredAt)
+    public ShortMemoryUpdated(
+        string key,
+        string value,
+        DateTimeOffset occurredAt,
+        ShortMemoryContextScope? contextScope = null)
         : base(occurredAt)
     {
         Key = CommandText.RequireContent(key, nameof(key));
         ArgumentNullException.ThrowIfNull(value);
         Value = value;
+        ContextScope = contextScope;
     }
 
     /// <summary>The short-memory entry key.</summary>
@@ -21,4 +26,7 @@ public sealed record ShortMemoryUpdated : PositionEvent
 
     /// <summary>The new content for the entry; may be empty.</summary>
     public string Value { get; }
+
+    /// <summary>The optional durable scope used by bounded AI-context selection.</summary>
+    public ShortMemoryContextScope? ContextScope { get; }
 }

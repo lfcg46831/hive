@@ -128,12 +128,14 @@ public sealed class PositionProtocolSerializerBindingTests
                 system.Serialization.FindSerializerForType(typeof(PositionSnapshot)));
             var node = JsonNode.Parse(serializer.ToBinary(new PositionSnapshot(At)))!.AsObject();
             node.Remove("RetainedActions");
+            node.Remove("ShortMemoryContextScopes");
 
             var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
                 System.Text.Encoding.UTF8.GetBytes(node.ToJsonString()),
                 "position-snapshot"));
 
             Assert.Empty(restored.RetainedActions);
+            Assert.Empty(restored.ShortMemoryContextScopes);
         }
         finally
         {
@@ -189,7 +191,10 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("open-task", new OpenTask(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At.AddHours(2), MessageId()));
         yield return ("update-task", new UpdateTask(TaskId(), "reproduced locally", Priority.Critical, At.AddHours(1)));
         yield return ("complete-task", new CompleteTask(TaskId(), "fixed"));
-        yield return ("update-short-memory", new UpdateShortMemory("current-thread", "customer-impact"));
+        yield return ("update-short-memory", new UpdateShortMemory(
+            "current-thread",
+            "customer-impact",
+            ShortMemoryContextScope.ForThread(ThreadId())));
         yield return ("change-occupant", new ChangeOccupant(OccupantId.From("agent-7"), OccupantType.AiAgent));
         yield return ("request-passivation", new RequestPassivation("idle"));
         yield return ("retain-action", new RetainAction(retained));
@@ -205,7 +210,11 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));
         yield return ("task-completed", new TaskCompleted(TaskId(), At, "fixed"));
-        yield return ("short-memory-updated", new ShortMemoryUpdated("current-thread", "customer-impact", At));
+        yield return ("short-memory-updated", new ShortMemoryUpdated(
+            "current-thread",
+            "customer-impact",
+            At,
+            ShortMemoryContextScope.ForThread(ThreadId())));
         yield return ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, At));
@@ -242,7 +251,11 @@ public sealed class PositionProtocolSerializerBindingTests
             new[] { MessageId() },
             new[] { MessageId() },
             ConfigurationStamp(),
-            new[] { authorized });
+            new[] { authorized },
+            new Dictionary<string, ShortMemoryContextScope>
+            {
+                ["current-thread"] = ShortMemoryContextScope.ForThread(ThreadId()),
+            });
     }
 
     private static PersistedRetainedAction SampleRetainedAction() =>

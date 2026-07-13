@@ -176,7 +176,11 @@ internal sealed class PositionActor :
                 PersistAndApply(new TaskCompleted(command.TaskId, _clock(), command.Summary))));
         Command<UpdateShortMemory>(command =>
             WhenReady(() =>
-                PersistAndApply(new ShortMemoryUpdated(command.Key, command.Value, _clock()))));
+                PersistAndApply(new ShortMemoryUpdated(
+                    command.Key,
+                    command.Value,
+                    _clock(),
+                    command.ContextScope))));
         Command<ChangeOccupant>(command =>
             WhenReady(() =>
                 PersistOccupantChange(command)));

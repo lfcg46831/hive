@@ -157,6 +157,124 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
+    public void CreateInitialRequest_includes_only_related_scoped_context_before_gateway_request()
+    {
+        var currentTaskId = PositionTaskId.From(
+            Guid.Parse("00000000-0000-0000-0000-000000000020"));
+        var relatedTaskId = PositionTaskId.From(
+            Guid.Parse("00000000-0000-0000-0000-000000000010"));
+        var unrelatedTaskId = PositionTaskId.From(
+            Guid.Parse("00000000-0000-0000-0000-000000000030"));
+        var unrelatedThread = ThreadId.From(
+            Guid.Parse("bbbbbbbb-0000-0000-0000-000000009999"));
+        var unrelatedHistory = MessageId.From(
+            Guid.Parse("dddddddd-0000-0000-0000-000000009999"));
+
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            stateFactory: (directive, occupant, stamp) => PositionState.Restore(new PositionSnapshot(
+                At,
+                occupant,
+                OccupantType.AiAgent,
+                openTasks:
+                [
+                    new PersistedTask(
+                        currentTaskId,
+                        directive.Thread,
+                        "current-task-title",
+                        Priority.High,
+                        At,
+                        causedBy: directive.Id),
+                    new PersistedTask(
+                        relatedTaskId,
+                        directive.Thread,
+                        "related-task-title",
+                        Priority.Normal,
+                        At),
+                    new PersistedTask(
+                        unrelatedTaskId,
+                        unrelatedThread,
+                        "unrelated-task-title",
+                        Priority.Critical,
+                        At),
+                ],
+                shortMemory: new Dictionary<string, string>
+                {
+                    ["task-current"] = "eligible-task-memory",
+                    ["thread-current"] = "eligible-thread-memory",
+                    ["position-fact"] = "eligible-position-fact",
+                    ["legacy"] = "unscoped-memory-must-not-leak",
+                    ["thread-other"] = "other-thread-memory-must-not-leak",
+                    ["task-other"] = "other-task-memory-must-not-leak",
+                },
+                recentHistory: [unrelatedHistory, directive.Id],
+                lastConfigurationStamp: stamp,
+                shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
+                {
+                    ["task-current"] = ShortMemoryContextScope.ForTask(
+                        directive.Thread,
+                        currentTaskId),
+                    ["thread-current"] = ShortMemoryContextScope.ForThread(directive.Thread),
+                    ["position-fact"] = ShortMemoryContextScope.ForPositionFact(),
+                    ["thread-other"] = ShortMemoryContextScope.ForThread(unrelatedThread),
+                    ["task-other"] = ShortMemoryContextScope.ForTask(
+                        directive.Thread,
+                        unrelatedTaskId),
+                })));
+
+        var request = AiDirectivePrompt.CreateInitialRequest(
+            AiDirectiveExecutionContext.From(processingRequest));
+
+        Assert.Contains("eligible-task-memory", request.Content, StringComparison.Ordinal);
+        Assert.Contains("eligible-thread-memory", request.Content, StringComparison.Ordinal);
+        Assert.Contains("eligible-position-fact", request.Content, StringComparison.Ordinal);
+        Assert.Contains("current-task-title", request.Content, StringComparison.Ordinal);
+        Assert.Contains("related-task-title", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("unscoped-memory-must-not-leak", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("other-thread-memory-must-not-leak", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("other-task-memory-must-not-leak", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("unrelated-task-title", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain(unrelatedHistory.ToString(), request.Content, StringComparison.Ordinal);
+        AssertContainsInOrder(request.Content, "eligible-task-memory", "eligible-thread-memory");
+        AssertContainsInOrder(request.Content, "eligible-thread-memory", "eligible-position-fact");
+        AssertContainsInOrder(request.Content, "current-task-title", "related-task-title");
+    }
+
+    [Fact]
+    public void Context_selector_uses_utf8_budget_without_truncating_and_continues_after_oversized_entry()
+    {
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            stateFactory: (directive, occupant, stamp) => PositionState.Restore(new PositionSnapshot(
+                At,
+                occupant,
+                OccupantType.AiAgent,
+                shortMemory: new Dictionary<string, string>
+                {
+                    ["a-large"] = new string('é', 32),
+                    ["b-small"] = "ok",
+                },
+                lastConfigurationStamp: stamp,
+                shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
+                {
+                    ["a-large"] = ShortMemoryContextScope.ForThread(directive.Thread),
+                    ["b-small"] = ShortMemoryContextScope.ForThread(directive.Thread),
+                })));
+        var context = AiDirectiveExecutionContext.From(processingRequest);
+        var small = context.ShortMemory.Single(entry => entry.Key == "b-small");
+        var budget = AiDirectiveContextLines.Utf8Cost(
+            AiDirectiveContextLines.ShortMemory(small));
+
+        var selected = AiDirectiveContextSelector.Select(context, budget);
+
+        Assert.Equal(["b-small"], selected.ShortMemory.Select(entry => entry.Key).ToArray());
+        Assert.Equal(budget, selected.UsedUtf8Bytes);
+        Assert.True(
+            AiDirectiveContextLines.Utf8Cost(AiDirectiveContextLines.ShortMemory(
+                context.ShortMemory.Single(entry => entry.Key == "a-large"))) > budget);
+    }
+
+    [Fact]
     public void CreateInitialRequest_canonicalizes_and_isolates_acting_under_vocabularies()
     {
         var first = AiDirectivePrompt.CreateInitialRequest(
@@ -521,7 +639,8 @@ public sealed class AiDirectivePromptTests
         TimeSpan? timeout = null,
         int? maxIterations = null,
         IReadOnlyList<string>? canDecide = null,
-        IReadOnlyList<ToolConfiguration>? tools = null)
+        IReadOnlyList<ToolConfiguration>? tools = null,
+        Func<OrgDirective, OccupantId, PositionConfigurationStamp, PositionState>? stateFactory = null)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -588,7 +707,7 @@ public sealed class AiDirectivePromptTests
                     ]
                     : null));
 
-        var state = includeOptionalContext
+        var state = stateFactory?.Invoke(directive, occupant, stamp) ?? (includeOptionalContext
             ? PositionState.Restore(new PositionSnapshot(
                 At,
                 occupant,
@@ -618,8 +737,13 @@ public sealed class AiDirectivePromptTests
                     MessageId.From(Guid.Parse("dddddddd-0000-0000-0000-000000000002")),
                     MessageId.From(Guid.Parse("dddddddd-0000-0000-0000-000000000001")),
                 ],
-                lastConfigurationStamp: stamp))
-            : PositionState.Restore(new PositionSnapshot(At, lastConfigurationStamp: stamp));
+                lastConfigurationStamp: stamp,
+                shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
+                {
+                    ["zeta"] = ShortMemoryContextScope.ForThread(directive.Thread),
+                    ["alpha"] = ShortMemoryContextScope.ForThread(directive.Thread),
+                }))
+            : PositionState.Restore(new PositionSnapshot(At, lastConfigurationStamp: stamp)));
 
         return AiDirectiveProcessingRequest.Create(
             entity,

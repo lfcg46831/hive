@@ -114,7 +114,10 @@ internal sealed record AiDirectiveExecutionContext
                 .ToImmutableArray(),
             request.PersistedContext.ShortMemory
                 .OrderBy(entry => entry.Key, StringComparer.Ordinal)
-                .Select(entry => new AiDirectiveShortMemoryEntry(entry.Key, entry.Value))
+                .Select(entry => new AiDirectiveShortMemoryEntry(
+                    entry.Key,
+                    entry.Value,
+                    request.PersistedContext.ShortMemoryContextScopes.GetValueOrDefault(entry.Key)))
                 .ToImmutableArray(),
             request.PersistedContext.OpenTasks
                 .OrderBy(task => task.TaskId.Value)
@@ -417,15 +420,21 @@ internal sealed record AiDirectiveExecutionTool
 
 internal sealed record AiDirectiveShortMemoryEntry
 {
-    public AiDirectiveShortMemoryEntry(string key, string value)
+    public AiDirectiveShortMemoryEntry(
+        string key,
+        string value,
+        ShortMemoryContextScope? contextScope = null)
     {
         Key = AiAgentGatewayText.Require(key, nameof(key));
         Value = value ?? throw new ArgumentNullException(nameof(value));
+        ContextScope = contextScope;
     }
 
     public string Key { get; }
 
     public string Value { get; }
+
+    public ShortMemoryContextScope? ContextScope { get; }
 }
 
 internal sealed record GetAiDirectiveExecutionContext

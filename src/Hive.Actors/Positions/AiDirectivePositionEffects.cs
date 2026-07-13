@@ -117,7 +117,8 @@ internal static class AiDirectivePositionEffectFactory
         var commands = ImmutableArray.CreateBuilder<PositionCommand>();
         commands.Add(new UpdateShortMemory(
             ResultMemoryKey(context),
-            $"Report {ReportKindText(report.Kind)}: {report.Body}"));
+            $"Report {ReportKindText(report.Kind)}: {report.Body}",
+            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
 
         if (FindTaskCausedByDirective(context) is { } task)
         {
@@ -135,7 +136,10 @@ internal static class AiDirectivePositionEffectFactory
     {
         var commands = ImmutableArray.CreateBuilder<PositionCommand>();
         var note = $"Escalation: {escalation.Issue}. {escalation.Context}";
-        commands.Add(new UpdateShortMemory(ResultMemoryKey(context), note));
+        commands.Add(new UpdateShortMemory(
+            ResultMemoryKey(context),
+            note,
+            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
 
         if (FindTaskCausedByDirective(context) is { } task)
         {
@@ -154,7 +158,8 @@ internal static class AiDirectivePositionEffectFactory
         var target = TargetText(directive.To);
         commands.Add(new UpdateShortMemory(
             ResultMemoryKey(context),
-            $"Delegated directive to {target}: {directive.Objective}"));
+            $"Delegated directive to {target}: {directive.Objective}",
+            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
         commands.Add(new OpenTask(
             newTaskId(),
             context.Directive.ThreadId,

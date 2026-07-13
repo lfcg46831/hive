@@ -9,11 +9,15 @@ namespace Hive.Domain.Positions;
 /// </summary>
 public sealed record UpdateShortMemory : PositionCommand
 {
-    public UpdateShortMemory(string key, string value)
+    public UpdateShortMemory(
+        string key,
+        string value,
+        ShortMemoryContextScope? contextScope = null)
     {
         Key = CommandText.RequireContent(key, nameof(key));
         ArgumentNullException.ThrowIfNull(value);
         Value = value;
+        ContextScope = contextScope;
     }
 
     /// <summary>The short-memory entry key.</summary>
@@ -21,4 +25,9 @@ public sealed record UpdateShortMemory : PositionCommand
 
     /// <summary>The new content for the entry; may be empty.</summary>
     public string Value { get; }
+
+    /// <summary>
+    /// Optional durable scope that explicitly makes the entry eligible for related AI context.
+    /// </summary>
+    public ShortMemoryContextScope? ContextScope { get; }
 }

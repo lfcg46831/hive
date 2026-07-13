@@ -40,6 +40,7 @@ public sealed class PositionSnapshotTests
         Assert.Empty(snapshot.Inbox);
         Assert.Empty(snapshot.OpenTasks);
         Assert.Empty(snapshot.ShortMemory);
+        Assert.Empty(snapshot.ShortMemoryContextScopes);
         Assert.Empty(snapshot.RecentHistory);
         Assert.Empty(snapshot.ProcessedMessages);
         Assert.Null(snapshot.LastConfigurationStamp);
@@ -55,9 +56,22 @@ public sealed class PositionSnapshotTests
         var history = new[] { MessageId.New() };
         var processed = new[] { MessageId.New(), MessageId.New() };
         var stamp = new PositionConfigurationStamp(9, "sha256:v9");
+        var memoryScopes = new Dictionary<string, ShortMemoryContextScope>
+        {
+            ["thread"] = ShortMemoryContextScope.ForThread(tasks[0].Thread),
+        };
 
         var snapshot = new PositionSnapshot(
-            At, occupant, OccupantType.AiAgent, inbox, tasks, memory, history, processed, stamp);
+            At,
+            occupant,
+            OccupantType.AiAgent,
+            inbox,
+            tasks,
+            memory,
+            history,
+            processed,
+            stamp,
+            shortMemoryContextScopes: memoryScopes);
 
         Assert.Equal(occupant, snapshot.Occupant);
         Assert.Equal(OccupantType.AiAgent, snapshot.OccupantType);
@@ -65,6 +79,7 @@ public sealed class PositionSnapshotTests
         Assert.Single(snapshot.OpenTasks);
         Assert.Equal("context", snapshot.ShortMemory["thread"]);
         Assert.Equal(string.Empty, snapshot.ShortMemory["scratch"]);
+        Assert.Equal(memoryScopes["thread"], snapshot.ShortMemoryContextScopes["thread"]);
         Assert.Single(snapshot.RecentHistory);
         Assert.Equal(2, snapshot.ProcessedMessages.Length);
         Assert.Equal(stamp, snapshot.LastConfigurationStamp);
@@ -108,6 +123,36 @@ public sealed class PositionSnapshotTests
         var memory = new Dictionary<string, string> { ["  "] = "v" };
 
         Assert.Throws<ArgumentException>(() => new PositionSnapshot(At, shortMemory: memory));
+    }
+
+    [Fact]
+    public void Snapshot_rejects_scope_without_matching_memory_entry()
+    {
+        var scopes = new Dictionary<string, ShortMemoryContextScope>
+        {
+            ["missing"] = ShortMemoryContextScope.ForPositionFact(),
+        };
+
+        Assert.Throws<ArgumentException>(() => new PositionSnapshot(
+            At,
+            shortMemoryContextScopes: scopes));
+    }
+
+    [Fact]
+    public void Short_memory_context_scope_enforces_its_closed_shapes()
+    {
+        var thread = ThreadId.New();
+        var task = PositionTaskId.New();
+
+        Assert.Equal(ShortMemoryContextScope.ThreadKind, ShortMemoryContextScope.ForThread(thread).Kind);
+        Assert.Equal(ShortMemoryContextScope.TaskKind, ShortMemoryContextScope.ForTask(thread, task).Kind);
+        Assert.Equal(ShortMemoryContextScope.PositionFactKind, ShortMemoryContextScope.ForPositionFact().Kind);
+        Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope(
+            ShortMemoryContextScope.ThreadKind));
+        Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope(
+            ShortMemoryContextScope.TaskKind,
+            thread));
+        Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope("unknown"));
     }
 
     [Fact]

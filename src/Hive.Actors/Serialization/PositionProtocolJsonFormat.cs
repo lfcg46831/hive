@@ -38,6 +38,7 @@ internal static class PositionProtocolJsonFormat
         options.Converters.Add(new OccupantTypeJsonConverter());
         options.Converters.Add(new MessageProcessingCompletionStatusJsonConverter());
         options.Converters.Add(new PersistedRetainedActionJsonConverter());
+        options.Converters.Add(new ShortMemoryUpdatedJsonConverter());
         options.Converters.Add(new PositionSnapshotJsonConverter());
         options.Converters.Add(new ManifestedPayloadJsonConverter<OrgMessage>(
             OrgMessageManifests.ForType,

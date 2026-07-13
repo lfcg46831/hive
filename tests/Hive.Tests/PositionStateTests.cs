@@ -20,6 +20,7 @@ public sealed class PositionStateTests
         Assert.Empty(state.Inbox);
         Assert.Empty(state.OpenTasks);
         Assert.Empty(state.ShortMemory);
+        Assert.Empty(state.ShortMemoryContextScopes);
         Assert.Empty(state.RecentHistory);
         Assert.Empty(state.ProcessedMessages);
         Assert.Null(state.Occupant);
@@ -114,6 +115,32 @@ public sealed class PositionStateTests
             .Apply(new ShortMemoryUpdated("thread", string.Empty, At.AddMinutes(1)));
 
         Assert.False(state.ShortMemory.ContainsKey("thread"));
+        Assert.False(state.ShortMemoryContextScopes.ContainsKey("thread"));
+    }
+
+    [Fact]
+    public void Short_memory_scope_survives_snapshot_and_unscoped_update_revokes_eligibility()
+    {
+        var thread = ThreadId.New();
+        var scope = ShortMemoryContextScope.ForThread(thread);
+        var scoped = PositionState.Empty.Apply(new ShortMemoryUpdated(
+            "working-context",
+            "customer is blocked",
+            At,
+            scope));
+
+        var recovered = PositionState.Restore(scoped.ToSnapshot(At.AddMinutes(1)));
+
+        Assert.Equal("customer is blocked", recovered.ShortMemory["working-context"]);
+        Assert.Equal(scope, recovered.ShortMemoryContextScopes["working-context"]);
+
+        var revoked = recovered.Apply(new ShortMemoryUpdated(
+            "working-context",
+            "keep persisted but exclude from AI",
+            At.AddMinutes(2)));
+
+        Assert.Equal("keep persisted but exclude from AI", revoked.ShortMemory["working-context"]);
+        Assert.False(revoked.ShortMemoryContextScopes.ContainsKey("working-context"));
     }
 
     [Fact]
@@ -125,6 +152,7 @@ public sealed class PositionStateTests
         var history = new[] { MessageId.New() };
         var processed = new[] { message.Id };
         var stamp = new PositionConfigurationStamp(3, "sha256:v3");
+        var memoryScope = ShortMemoryContextScope.ForThread(message.Thread);
         var snapshot = new PositionSnapshot(
             At,
             occupant,
@@ -134,7 +162,11 @@ public sealed class PositionStateTests
             new Dictionary<string, string> { ["thread"] = "context" },
             history,
             processed,
-            stamp);
+            stamp,
+            shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
+            {
+                ["thread"] = memoryScope,
+            });
 
         var state = PositionState.Restore(snapshot);
         var exported = state.ToSnapshot(At.AddMinutes(10));
@@ -145,6 +177,7 @@ public sealed class PositionStateTests
         Assert.Equal(new[] { message }, exported.Inbox);
         Assert.Equal(new[] { task }, exported.OpenTasks);
         Assert.Equal("context", exported.ShortMemory["thread"]);
+        Assert.Equal(memoryScope, exported.ShortMemoryContextScopes["thread"]);
         Assert.Equal(history, exported.RecentHistory);
         Assert.Equal(processed, exported.ProcessedMessages);
         Assert.Equal(stamp, exported.LastConfigurationStamp);

@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Hive.Domain.Ai;
 using Hive.Domain.Governance;
+using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 
@@ -14,13 +15,14 @@ internal static class AiDirectivePrompt
     {
         ArgumentNullException.ThrowIfNull(context);
         var identityPrompt = RequireIdentityPrompt(context);
+        var selectedContext = AiDirectiveContextSelector.Select(context);
 
         return new AiGatewayRequest(
             context.OrganizationId,
             context.PositionId,
             context.Directive.ThreadId,
             context.Directive.MessageId,
-            BuildContent(context, identityPrompt),
+            BuildContent(context, identityPrompt, selectedContext),
             BuildSystemInstruction(context),
             tools: GatewayTools(context),
             modelParameters: EffectiveModelParameters(context),
@@ -63,7 +65,8 @@ internal static class AiDirectivePrompt
 
     private static string BuildContent(
         AiDirectiveExecutionContext context,
-        IdentityPromptRuntimeConfiguration identityPrompt)
+        IdentityPromptRuntimeConfiguration identityPrompt,
+        AiDirectiveSelectedContext selectedContext)
     {
         var builder = new StringBuilder();
 
@@ -81,9 +84,9 @@ internal static class AiDirectivePrompt
         AppendDirective(builder, context);
         AppendAuthority(builder, context);
         AppendTools(builder, context);
-        AppendShortMemory(builder, context);
-        AppendOpenTasks(builder, context);
-        AppendRecentHistory(builder, context);
+        AppendShortMemory(builder, selectedContext.ShortMemory);
+        AppendOpenTasks(builder, selectedContext.OpenTasks);
+        AppendRecentHistory(builder, selectedContext.RecentHistory);
         AppendRelation(builder, context);
         AppendLimits(builder, context);
 
@@ -166,9 +169,11 @@ internal static class AiDirectivePrompt
         builder.AppendLine();
     }
 
-    private static void AppendShortMemory(StringBuilder builder, AiDirectiveExecutionContext context)
+    private static void AppendShortMemory(
+        StringBuilder builder,
+        IReadOnlyList<AiDirectiveShortMemoryEntry> shortMemory)
     {
-        if (context.ShortMemory.IsEmpty)
+        if (shortMemory.Count == 0)
         {
             builder.AppendLine("ShortMemory: <empty>");
             builder.AppendLine();
@@ -176,17 +181,19 @@ internal static class AiDirectivePrompt
         }
 
         builder.AppendLine("ShortMemory:");
-        foreach (var entry in context.ShortMemory)
+        foreach (var entry in shortMemory)
         {
-            builder.AppendLine($"- {entry.Key}: {entry.Value}");
+            AppendCanonicalContextLine(builder, AiDirectiveContextLines.ShortMemory(entry));
         }
 
         builder.AppendLine();
     }
 
-    private static void AppendOpenTasks(StringBuilder builder, AiDirectiveExecutionContext context)
+    private static void AppendOpenTasks(
+        StringBuilder builder,
+        IReadOnlyList<PersistedTask> openTasks)
     {
-        if (context.OpenTasks.IsEmpty)
+        if (openTasks.Count == 0)
         {
             builder.AppendLine("OpenTasks: <empty>");
             builder.AppendLine();
@@ -194,18 +201,19 @@ internal static class AiDirectivePrompt
         }
 
         builder.AppendLine("OpenTasks:");
-        foreach (var task in context.OpenTasks)
+        foreach (var task in openTasks)
         {
-            builder.AppendLine(
-                $"- {task.TaskId}: {task.Title} | Thread: {task.Thread} | Priority: {task.Priority} | Deadline: {ValueOrNone(task.Deadline?.ToString("O"))}");
+            AppendCanonicalContextLine(builder, AiDirectiveContextLines.Task(task));
         }
 
         builder.AppendLine();
     }
 
-    private static void AppendRecentHistory(StringBuilder builder, AiDirectiveExecutionContext context)
+    private static void AppendRecentHistory(
+        StringBuilder builder,
+        IReadOnlyList<MessageId> recentHistory)
     {
-        if (context.RecentHistory.IsEmpty)
+        if (recentHistory.Count == 0)
         {
             builder.AppendLine("RecentHistory: <empty>");
             builder.AppendLine();
@@ -213,13 +221,16 @@ internal static class AiDirectivePrompt
         }
 
         builder.AppendLine("RecentHistory:");
-        foreach (var message in context.RecentHistory)
+        foreach (var message in recentHistory)
         {
-            builder.AppendLine($"- {message}");
+            AppendCanonicalContextLine(builder, AiDirectiveContextLines.RecentHistory(message));
         }
 
         builder.AppendLine();
     }
+
+    private static void AppendCanonicalContextLine(StringBuilder builder, string line) =>
+        builder.Append(line).Append('\n');
 
     private static void AppendRelation(StringBuilder builder, AiDirectiveExecutionContext context)
     {

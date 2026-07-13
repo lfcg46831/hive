@@ -35,7 +35,8 @@ public sealed record PositionSnapshot
         IEnumerable<MessageId>? recentHistory = null,
         IEnumerable<MessageId>? processedMessages = null,
         PositionConfigurationStamp? lastConfigurationStamp = null,
-        IEnumerable<PersistedRetainedAction>? retainedActions = null)
+        IEnumerable<PersistedRetainedAction>? retainedActions = null,
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -58,6 +59,10 @@ public sealed record PositionSnapshot
         Inbox = ToValidatedArray(inbox, nameof(inbox));
         OpenTasks = ToValidatedArray(openTasks, nameof(openTasks));
         ShortMemory = ToValidatedMemory(shortMemory, nameof(shortMemory));
+        ShortMemoryContextScopes = ToValidatedMemoryScopes(
+            shortMemoryContextScopes,
+            ShortMemory,
+            nameof(shortMemoryContextScopes));
         RecentHistory = ToValidatedArray(recentHistory, nameof(recentHistory));
         ProcessedMessages = ToValidatedArray(processedMessages, nameof(processedMessages));
         LastConfigurationStamp = lastConfigurationStamp;
@@ -91,6 +96,9 @@ public sealed record PositionSnapshot
 
     /// <summary>The short-term memory entries by key.</summary>
     public ImmutableDictionary<string, string> ShortMemory { get; }
+
+    /// <summary>The optional AI-context scope for explicitly eligible short-memory entries.</summary>
+    public ImmutableDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
 
     /// <summary>The recently handled message ids kept as history.</summary>
     public ImmutableArray<MessageId> RecentHistory { get; }
@@ -145,6 +153,35 @@ public sealed record PositionSnapshot
             }
 
             builder[key] = value;
+        }
+
+        return builder.ToImmutable();
+    }
+
+    private static ImmutableDictionary<string, ShortMemoryContextScope> ToValidatedMemoryScopes(
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? source,
+        IReadOnlyDictionary<string, string> shortMemory,
+        string parameterName)
+    {
+        if (source is null)
+        {
+            return ImmutableDictionary<string, ShortMemoryContextScope>.Empty;
+        }
+
+        var builder = ImmutableDictionary.CreateBuilder<string, ShortMemoryContextScope>(
+            StringComparer.Ordinal);
+        foreach (var (key, scope) in source)
+        {
+            CommandText.RequireContent(key, parameterName);
+            ArgumentNullException.ThrowIfNull(scope, parameterName);
+            if (!shortMemory.ContainsKey(key))
+            {
+                throw new ArgumentException(
+                    $"Short-memory context scope key '{key}' has no matching memory entry.",
+                    parameterName);
+            }
+
+            builder[key] = scope;
         }
 
         return builder.ToImmutable();

@@ -15,6 +15,7 @@ public sealed record PositionState
         ImmutableArray<OrgMessage> inbox,
         ImmutableDictionary<PositionTaskId, PersistedTask> openTasks,
         ImmutableDictionary<string, string> shortMemory,
+        ImmutableDictionary<string, ShortMemoryContextScope> shortMemoryContextScopes,
         ImmutableArray<MessageId> recentHistory,
         ImmutableHashSet<MessageId> processedMessages,
         OccupantId? occupant,
@@ -25,6 +26,7 @@ public sealed record PositionState
         Inbox = inbox;
         OpenTasks = openTasks;
         ShortMemory = shortMemory;
+        ShortMemoryContextScopes = shortMemoryContextScopes;
         RecentHistory = recentHistory;
         ProcessedMessages = processedMessages;
         Occupant = occupant;
@@ -38,6 +40,7 @@ public sealed record PositionState
         ImmutableArray<OrgMessage>.Empty,
         ImmutableDictionary<PositionTaskId, PersistedTask>.Empty,
         ImmutableDictionary.Create<string, string>(StringComparer.Ordinal),
+        ImmutableDictionary.Create<string, ShortMemoryContextScope>(StringComparer.Ordinal),
         ImmutableArray<MessageId>.Empty,
         ImmutableHashSet<MessageId>.Empty,
         occupant: null,
@@ -53,6 +56,9 @@ public sealed record PositionState
 
     /// <summary>The position's short-term memory entries.</summary>
     public ImmutableDictionary<string, string> ShortMemory { get; }
+
+    /// <summary>The optional AI-context scope attached to each explicitly eligible memory key.</summary>
+    public ImmutableDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
 
     /// <summary>The recently dispatched message ids, in replay order.</summary>
     public ImmutableArray<MessageId> RecentHistory { get; }
@@ -81,6 +87,7 @@ public sealed record PositionState
             snapshot.Inbox,
             snapshot.OpenTasks.ToImmutableDictionary(task => task.TaskId),
             snapshot.ShortMemory,
+            snapshot.ShortMemoryContextScopes,
             snapshot.RecentHistory,
             snapshot.ProcessedMessages.ToImmutableHashSet(),
             snapshot.Occupant,
@@ -100,7 +107,8 @@ public sealed record PositionState
         RecentHistory,
         ProcessedMessages.OrderBy(message => message.Value),
         LastConfigurationStamp,
-        RetainedActions.Values.OrderBy(action => action.Id.Value));
+        RetainedActions.Values.OrderBy(action => action.Id.Value),
+        ShortMemoryContextScopes);
 
     /// <summary>Evaluates whether the recovered state is currently safe to passivate.</summary>
     public PositionPassivationDecision EvaluatePassivation(PositionRuntimeConfiguration configuration)
@@ -167,6 +175,7 @@ public sealed record PositionState
         Inbox.Add(@event.Message),
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages.Add(@event.Message.Id),
         Occupant,
@@ -187,6 +196,7 @@ public sealed record PositionState
                 @event.Deadline,
                 @event.CausedBy)),
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         Occupant,
@@ -214,6 +224,7 @@ public sealed record PositionState
             Inbox,
             OpenTasks.SetItem(@event.TaskId, updated),
             ShortMemory,
+            ShortMemoryContextScopes,
             RecentHistory,
             ProcessedMessages,
             Occupant,
@@ -226,6 +237,7 @@ public sealed record PositionState
         Inbox,
         OpenTasks.Remove(@event.TaskId),
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         Occupant,
@@ -239,6 +251,9 @@ public sealed record PositionState
         @event.Value.Length == 0
             ? ShortMemory.Remove(@event.Key)
             : ShortMemory.SetItem(@event.Key, @event.Value),
+        @event.Value.Length == 0 || @event.ContextScope is null
+            ? ShortMemoryContextScopes.Remove(@event.Key)
+            : ShortMemoryContextScopes.SetItem(@event.Key, @event.ContextScope),
         RecentHistory,
         ProcessedMessages,
         Occupant,
@@ -250,6 +265,7 @@ public sealed record PositionState
         Inbox,
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         @event.Occupant,
@@ -261,6 +277,7 @@ public sealed record PositionState
         Inbox,
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory.Contains(@event.Message)
             ? RecentHistory
             : RecentHistory.Add(@event.Message),
@@ -274,6 +291,7 @@ public sealed record PositionState
         Inbox.RemoveAll(message => message.Id == @event.Message),
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         Occupant,
@@ -285,6 +303,7 @@ public sealed record PositionState
         Inbox,
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         Occupant,
@@ -307,6 +326,7 @@ public sealed record PositionState
             Inbox,
             OpenTasks,
             ShortMemory,
+            ShortMemoryContextScopes,
             RecentHistory,
             ProcessedMessages,
             Occupant,
@@ -397,6 +417,7 @@ public sealed record PositionState
         Inbox,
         OpenTasks,
         ShortMemory,
+        ShortMemoryContextScopes,
         RecentHistory,
         ProcessedMessages,
         Occupant,

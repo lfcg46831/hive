@@ -2,7 +2,6 @@ using Hive.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Options;
 using Npgsql;
 
 namespace Hive.Infrastructure.Evaluation.PostgreSql;
@@ -10,22 +9,22 @@ namespace Hive.Infrastructure.Evaluation.PostgreSql;
 internal sealed class PostgreSqlEvaluationProjectionMigrationHostedService : IHostedService
 {
     private readonly IConfiguration _configuration;
-    private readonly IOptions<EvaluationProjectionOptions> _options;
+    private readonly EvaluationProfileCatalog _catalog;
     private readonly ILogger<PostgreSqlEvaluationProjectionMigrationHostedService> _logger;
 
     public PostgreSqlEvaluationProjectionMigrationHostedService(
         IConfiguration configuration,
-        IOptions<EvaluationProjectionOptions> options,
+        EvaluationProfileCatalog catalog,
         ILogger<PostgreSqlEvaluationProjectionMigrationHostedService> logger)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
-        _options = options ?? throw new ArgumentNullException(nameof(options));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        if (!_options.Value.Enabled)
+        if (_catalog.Count == 0)
         {
             return;
         }
@@ -34,7 +33,7 @@ internal sealed class PostgreSqlEvaluationProjectionMigrationHostedService : IHo
         if (string.IsNullOrWhiteSpace(connectionString))
         {
             throw new InvalidOperationException(
-                "Evaluation projection requires ConnectionStrings:PostgreSql when enabled.");
+                "An enabled evaluation profile requires ConnectionStrings:PostgreSql for projection readiness.");
         }
 
         _logger.LogInformation("Applying evaluation projection PostgreSQL migrations.");

@@ -9,31 +9,48 @@ namespace Hive.Infrastructure.Evaluation.PostgreSql;
 public sealed class PostgreSqlEvaluationResultProjector : IEvaluationResultProjector, IAsyncDisposable
 {
     private readonly NpgsqlDataSource _dataSource;
-    private readonly BugTriageEvaluationVocabulary _vocabulary;
+    private readonly EvaluationProfileCatalog _catalog;
     private readonly bool _ownsDataSource;
 
-    public PostgreSqlEvaluationResultProjector(
+    internal PostgreSqlEvaluationResultProjector(
         string connectionString,
-        BugTriageEvaluationVocabulary vocabulary)
+        OrganizationId organizationId,
+        PositionId positionId,
+        EvaluationRubricContract rubric)
+        : this(
+            CreateDataSource(connectionString),
+            EvaluationProfileCatalog.Single(organizationId, positionId, rubric),
+            ownsDataSource: true)
     {
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            throw new ArgumentException(
-                "PostgreSQL connection string is required for evaluation projection.",
-                nameof(connectionString));
-        }
-
-        _dataSource = NpgsqlDataSource.Create(connectionString);
-        _vocabulary = vocabulary ?? throw new ArgumentNullException(nameof(vocabulary));
-        _ownsDataSource = true;
     }
 
-    public PostgreSqlEvaluationResultProjector(
+    internal PostgreSqlEvaluationResultProjector(
         NpgsqlDataSource dataSource,
-        BugTriageEvaluationVocabulary vocabulary)
+        OrganizationId organizationId,
+        PositionId positionId,
+        EvaluationRubricContract rubric)
+        : this(
+            dataSource,
+            EvaluationProfileCatalog.Single(organizationId, positionId, rubric),
+            ownsDataSource: false)
+    {
+    }
+
+    internal PostgreSqlEvaluationResultProjector(
+        string connectionString,
+        EvaluationProfileCatalog catalog)
+        : this(CreateDataSource(connectionString), catalog, ownsDataSource: true)
+    {
+    }
+
+    private PostgreSqlEvaluationResultProjector(
+        NpgsqlDataSource dataSource,
+        EvaluationProfileCatalog catalog,
+        bool ownsDataSource)
     {
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
-        _vocabulary = vocabulary ?? throw new ArgumentNullException(nameof(vocabulary));
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
+        _ownsDataSource = ownsDataSource;
     }
 
     public async ValueTask ProjectAsync(
@@ -44,58 +61,138 @@ public sealed class PostgreSqlEvaluationResultProjector : IEvaluationResultProje
         ArgumentNullException.ThrowIfNull(directiveId);
         ArgumentNullException.ThrowIfNull(resultMessage);
 
-        var content = resultMessage switch
-        {
-            Report report => report.Body,
-            Escalation escalation => escalation.Context,
-            _ => null,
-        };
-        if (content is null
-            || BugTriageEvaluationLabelParser.Parse(content, _vocabulary) is not { } labels)
+        if (resultMessage.From is not PositionEndpointRef sourcePosition
+            || _catalog.Resolve(resultMessage.OrganizationId, sourcePosition.PositionId)
+                is not { } profile)
         {
             return;
         }
 
-        await using var command = _dataSource.CreateCommand(
+        var (messageKind, content) = ReadResultFacts(resultMessage);
+        var projection = EvaluationProjectionParser.Parse(
+            content,
+            messageKind,
+            profile.Rubric);
+
+        await using var connection = await _dataSource
+            .OpenConnectionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var transaction = await connection
+            .BeginTransactionAsync(cancellationToken)
+            .ConfigureAwait(false);
+        await using var header = new NpgsqlCommand(
             """
             INSERT INTO evaluation.result_projections (
                 organization_id,
+                position_id,
                 thread_id,
                 directive_id,
                 message_id,
-                projection_version,
-                severity,
-                missing_information)
+                contract_version,
+                rubric_version)
             VALUES (
                 @organization_id,
+                @position_id,
                 @thread_id,
                 @directive_id,
                 @message_id,
-                @projection_version,
-                @severity,
-                @missing_information)
-            ON CONFLICT (organization_id, thread_id, directive_id) DO NOTHING;
-            """);
-        command.Parameters.Add("organization_id", NpgsqlDbType.Text).Value =
+                @contract_version,
+                @rubric_version)
+            ON CONFLICT DO NOTHING
+            RETURNING 1;
+            """,
+            connection,
+            transaction);
+        header.Parameters.Add("organization_id", NpgsqlDbType.Text).Value =
             resultMessage.OrganizationId.Value;
-        command.Parameters.Add("thread_id", NpgsqlDbType.Uuid).Value =
+        header.Parameters.Add("position_id", NpgsqlDbType.Text).Value =
+            sourcePosition.PositionId.Value;
+        header.Parameters.Add("thread_id", NpgsqlDbType.Uuid).Value =
             resultMessage.Thread.Value;
-        command.Parameters.Add("directive_id", NpgsqlDbType.Uuid).Value =
+        header.Parameters.Add("directive_id", NpgsqlDbType.Uuid).Value =
             directiveId.Value;
-        command.Parameters.Add("message_id", NpgsqlDbType.Uuid).Value =
+        header.Parameters.Add("message_id", NpgsqlDbType.Uuid).Value =
             resultMessage.Id.Value;
-        command.Parameters.Add("projection_version", NpgsqlDbType.Integer).Value =
-            BugTriageEvaluationLabelParser.ProjectionVersion;
-        command.Parameters.Add("severity", NpgsqlDbType.Text).Value =
-            labels.Severity is null ? DBNull.Value : labels.Severity;
-        command.Parameters.Add("missing_information", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
-            labels.MissingInformation is null
-                ? DBNull.Value
-                : labels.MissingInformation.ToArray();
+        header.Parameters.Add("contract_version", NpgsqlDbType.Integer).Value =
+            projection.ContractVersion;
+        header.Parameters.Add("rubric_version", NpgsqlDbType.Integer).Value =
+            projection.RubricVersion;
 
-        await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        var inserted = await header.ExecuteScalarAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (inserted is null)
+        {
+            await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            return;
+        }
+
+        foreach (var dimension in projection.Dimensions)
+        {
+            await using var line = new NpgsqlCommand(
+                """
+                INSERT INTO evaluation.result_projection_dimensions (
+                    organization_id,
+                    thread_id,
+                    directive_id,
+                    dimension_id,
+                    status,
+                    labels)
+                VALUES (
+                    @organization_id,
+                    @thread_id,
+                    @directive_id,
+                    @dimension_id,
+                    @status,
+                    @labels);
+                """,
+                connection,
+                transaction);
+            line.Parameters.Add("organization_id", NpgsqlDbType.Text).Value =
+                resultMessage.OrganizationId.Value;
+            line.Parameters.Add("thread_id", NpgsqlDbType.Uuid).Value =
+                resultMessage.Thread.Value;
+            line.Parameters.Add("directive_id", NpgsqlDbType.Uuid).Value =
+                directiveId.Value;
+            line.Parameters.Add("dimension_id", NpgsqlDbType.Text).Value =
+                dimension.DimensionId;
+            line.Parameters.Add("status", NpgsqlDbType.Text).Value =
+                StatusValue(dimension.Status);
+            line.Parameters.Add("labels", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
+                dimension.Labels.ToArray();
+            await line.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public ValueTask DisposeAsync() =>
         _ownsDataSource ? _dataSource.DisposeAsync() : ValueTask.CompletedTask;
+
+    private static NpgsqlDataSource CreateDataSource(string connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            throw new ArgumentException(
+                "PostgreSQL connection string is required for evaluation projection.",
+                nameof(connectionString));
+        }
+
+        return NpgsqlDataSource.Create(connectionString);
+    }
+
+    private static (string Kind, string? Content) ReadResultFacts(OrgMessage message) =>
+        message switch
+        {
+            Report report => ("report", report.Body),
+            Escalation escalation => ("escalation", escalation.Context),
+            _ => (message.GetType().Name, null),
+        };
+
+    private static string StatusValue(EvaluationDimensionStatus status) => status switch
+    {
+        EvaluationDimensionStatus.Valid => "valid",
+        EvaluationDimensionStatus.Missing => "missing",
+        EvaluationDimensionStatus.Invalid => "invalid",
+        _ => throw new ArgumentOutOfRangeException(nameof(status), status, null),
+    };
 }

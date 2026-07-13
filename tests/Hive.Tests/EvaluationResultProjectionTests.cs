@@ -2,9 +2,9 @@ using System.Text.Json;
 using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Evaluation;
 using Hive.Infrastructure.Evaluation.PostgreSql;
-using Hive.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -15,30 +15,45 @@ namespace Hive.Tests;
 public sealed class EvaluationResultProjectionTests
 {
     [Fact]
-    public void Evaluation_schema_migration_is_embedded_in_infrastructure()
+    public void Generic_evaluation_schema_migrations_are_embedded_in_infrastructure()
     {
-        Assert.Contains(
-            typeof(PostgreSqlEvaluationProjectionMigrator).Assembly.GetManifestResourceNames(),
-            name => name.EndsWith(
-                ".Evaluation.PostgreSql.Migrations.001_create_result_projections.sql",
-                StringComparison.Ordinal));
+        var assembly = typeof(PostgreSqlEvaluationProjectionMigrator).Assembly;
+        Assert.DoesNotContain(
+            assembly.GetTypes(),
+            type => type.Namespace == "Hive.Infrastructure.Evaluation"
+                && type.Name.Contains("BugTriage", StringComparison.Ordinal));
+        var resources = assembly.GetManifestResourceNames()
+            .Where(name => name.Contains(
+                ".Evaluation.PostgreSql.Migrations.",
+                StringComparison.Ordinal))
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.Contains(resources, name => name.EndsWith(
+            ".001_create_result_projections.sql",
+            StringComparison.Ordinal));
+        Assert.Contains(resources, name => name.EndsWith(
+            ".002_replace_legacy_result_projection.sql",
+            StringComparison.Ordinal));
+        foreach (var resource in resources)
+        {
+            using var stream = assembly.GetManifestResourceStream(resource)!;
+            using var reader = new StreamReader(stream);
+            var sql = reader.ReadToEnd();
+            Assert.DoesNotContain("severity", sql, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("missing_information", sql, StringComparison.OrdinalIgnoreCase);
+        }
     }
 
     [Fact]
-    public async Task Bootstrap_activates_projector_only_when_evaluation_profile_is_enabled()
+    public async Task Bootstrap_activates_projector_only_for_an_enabled_evaluation_profile()
     {
         var normalBuilder = Host.CreateApplicationBuilder();
         normalBuilder.AddHiveBootstrap();
         await using var normalServices = normalBuilder.Services.BuildServiceProvider();
 
         var evaluationBuilder = Host.CreateApplicationBuilder();
-        evaluationBuilder.Configuration.AddInMemoryCollection(
-            new Dictionary<string, string?>
-            {
-                ["Hive:EvaluationProjection:Enabled"] = "true",
-                ["Hive:EvaluationProjection:RubricPath"] = RubricFile,
-                ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive",
-            });
+        evaluationBuilder.Configuration.AddInMemoryCollection(ProfileConfiguration(RubricFile));
         evaluationBuilder.AddHiveBootstrap();
         await using var evaluationServices = evaluationBuilder.Services.BuildServiceProvider();
 
@@ -49,89 +64,117 @@ public sealed class EvaluationResultProjectionTests
     }
 
     [Fact]
-    public void Bootstrap_fails_fast_when_enabled_rubric_is_unavailable()
+    public void Bootstrap_fails_fast_when_an_enabled_profile_rubric_is_unavailable()
     {
+        var missing = Path.Combine(
+            Path.GetTempPath(),
+            $"missing-evaluation-rubric-{Guid.NewGuid():N}.json");
         var builder = Host.CreateApplicationBuilder();
-        builder.Configuration.AddInMemoryCollection(
-            new Dictionary<string, string?>
-            {
-                ["Hive:EvaluationProjection:Enabled"] = "true",
-                ["Hive:EvaluationProjection:RubricPath"] = Path.Combine(
-                    Path.GetTempPath(),
-                    $"missing-evaluation-rubric-{Guid.NewGuid():N}.json"),
-                ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive",
-            });
+        builder.Configuration.AddInMemoryCollection(ProfileConfiguration(missing));
         builder.AddHiveBootstrap();
         using var services = builder.Services.BuildServiceProvider();
 
         var exception = Assert.Throws<OptionsValidationException>(
             () => services.GetRequiredService<IEvaluationResultProjector>());
 
-        Assert.Contains("rubric configuration is invalid", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("profile configuration is invalid", exception.Message, StringComparison.Ordinal);
     }
 
     [Fact]
-    public void Parser_accepts_empty_and_multiple_missing_information_labels_canonically()
+    public void Parser_projects_declared_dimensions_and_ignores_undeclared_properties()
     {
-        var vocabulary = BugTriageEvaluationVocabulary.Load(RubricFile);
-        var empty = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"low\",\"missing_information\":[]}",
-            vocabulary);
-        var multiple = BugTriageEvaluationLabelParser.Parse(
+        var projection = EvaluationProjectionParser.Parse(
             "Summary.\n" +
-            "hive-evaluation-v1:{\"severity\":\"critical\",\"missing_information\":[\"run-log\",\"environment\",\"run-log\"]}",
-            vocabulary);
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[\"run-log\",\"environment\",\"run-log\"],\"not-declared\":[\"private\"]}}",
+            "report",
+            Rubric());
+        var dimensions = projection.Dimensions.ToDictionary(
+            dimension => dimension.DimensionId,
+            StringComparer.Ordinal);
 
-        Assert.NotNull(empty);
-        Assert.Equal("low", empty.Severity);
-        Assert.Empty(empty.MissingInformation!);
-        Assert.NotNull(multiple);
-        Assert.Equal("critical", multiple.Severity);
-        Assert.Equal(["environment", "run-log"], multiple.MissingInformation);
+        Assert.Equal(EvaluationProjectionParser.ContractVersion, projection.ContractVersion);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["severity"].Status);
+        Assert.Equal(["high"], dimensions["severity"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["missing-information"].Status);
+        Assert.Equal(["environment", "run-log"], dimensions["missing-information"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["decision"].Status);
+        Assert.Equal(["report"], dimensions["decision"].Labels);
+        Assert.DoesNotContain("not-declared", dimensions.Keys);
     }
 
     [Fact]
-    public void Parser_preserves_partial_validity_but_rejects_ambiguous_blocks()
+    public void Parser_validates_each_dimension_independently_without_persisting_rejected_values()
     {
-        var vocabulary = BugTriageEvaluationVocabulary.Load(RubricFile);
-        var partial = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"\",\"missing_information\":[\"correlation-metadata\"]}",
-            vocabulary);
-        var ambiguous = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"low\",\"missing_information\":[]}\n" +
-            "hive-evaluation-v1:{\"severity\":\"high\",\"missing_information\":[]}",
-            vocabulary);
-        var duplicateField = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"low\",\"severity\":\"high\",\"missing_information\":[]}",
-            vocabulary);
+        var projection = EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\",\"critical\"],\"missing-information\":[\"correlation-metadata\"]}}",
+            "escalation",
+            Rubric());
+        var dimensions = projection.Dimensions.ToDictionary(
+            dimension => dimension.DimensionId,
+            StringComparer.Ordinal);
 
-        Assert.NotNull(partial);
-        Assert.Null(partial.Severity);
-        Assert.Equal(["correlation-metadata"], partial.MissingInformation);
-        Assert.Null(ambiguous);
-        Assert.Null(duplicateField);
+        Assert.Equal(EvaluationDimensionStatus.Invalid, dimensions["severity"].Status);
+        Assert.Empty(dimensions["severity"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["missing-information"].Status);
+        Assert.Equal(["correlation-metadata"], dimensions["missing-information"].Labels);
+        Assert.Equal(["escalation"], dimensions["decision"].Labels);
     }
 
     [Fact]
-    public void Parser_rejects_snake_case_unknown_and_partially_invalid_lists_per_dimension()
+    public void Parser_distinguishes_missing_malformed_duplicated_and_partial_envelopes()
     {
-        var vocabulary = BugTriageEvaluationVocabulary.Load(RubricFile);
-        var snakeCase = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"high\",\"missing_information\":[\"correlation_metadata\"]}",
-            vocabulary);
-        var unknown = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"medium\",\"missing_information\":[\"unknown-label\"]}",
-            vocabulary);
-        var partiallyInvalid = BugTriageEvaluationLabelParser.Parse(
-            "hive-evaluation-v1:{\"severity\":\"critical\",\"missing_information\":[\"environment\",\"unknown-label\"]}",
-            vocabulary);
+        var rubric = Rubric();
+        var missing = ById(EvaluationProjectionParser.Parse("No envelope", "report", rubric));
+        var malformed = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{not-json}",
+            "report",
+            rubric));
+        var duplicated = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{}}\n" +
+            "hive-evaluation-v1:{\"dimensions\":{}}",
+            "report",
+            rubric));
+        var partialDuplicate = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"low\"],\"severity\":[\"high\"],\"missing-information\":[]}}",
+            "report",
+            rubric));
 
-        Assert.Equal("high", snakeCase!.Severity);
-        Assert.Null(snakeCase.MissingInformation);
-        Assert.Equal("medium", unknown!.Severity);
-        Assert.Null(unknown.MissingInformation);
-        Assert.Equal("critical", partiallyInvalid!.Severity);
-        Assert.Null(partiallyInvalid.MissingInformation);
+        Assert.All(
+            missing.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal(EvaluationDimensionStatus.Missing, dimension.Status));
+        Assert.All(
+            malformed.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal(EvaluationDimensionStatus.Invalid, dimension.Status));
+        Assert.All(
+            duplicated.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal(EvaluationDimensionStatus.Invalid, dimension.Status));
+        Assert.Equal(EvaluationDimensionStatus.Invalid, partialDuplicate["severity"].Status);
+        Assert.Equal(EvaluationDimensionStatus.Valid, partialDuplicate["missing-information"].Status);
+        Assert.All(
+            [missing, malformed, duplicated, partialDuplicate],
+            result => Assert.Equal(EvaluationDimensionStatus.Valid, result["decision"].Status));
+    }
+
+    [Fact]
+    public void Parser_treats_rubric_labels_as_opaque_exact_tokens()
+    {
+        using var rubric = TemporaryRubric.WithReplacement(
+            "\"correlation-metadata\"",
+            "\"correlation_metadata\"");
+        var contract = EvaluationRubricContract.Load(rubric.Path, 1);
+        var exact = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[\"correlation_metadata\"]}}",
+            "report",
+            contract));
+        var alias = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[\"correlation-metadata\"]}}",
+            "report",
+            contract));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, exact["missing-information"].Status);
+        Assert.Equal(["correlation_metadata"], exact["missing-information"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Invalid, alias["missing-information"].Status);
+        Assert.Empty(alias["missing-information"].Labels);
     }
 
     [Fact]
@@ -139,14 +182,14 @@ public sealed class EvaluationResultProjectionTests
     {
         const string privateText = "Customer-private diagnostic detail.";
         var projector = new RecordingEvaluationResultProjector();
-        var scenario = AiDirectiveIntegrationScenario.Create(options => options.Text = $$"""
+        var scenario = AiDirectiveIntegrationScenario.Create(options => options.Text = $$$"""
             {
               "schema_version": 1,
               "intent": "Report",
               "acting_under": "bug.triage",
               "report": {
                 "kind": "Done",
-                "body": "{{privateText}}\nhive-evaluation-v1:{\"severity\":\"high\",\"missing_information\":[\"logs\"]}"
+                "body": "{{{privateText}}}\nhive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[\"run-log\"]}}"
               },
               "escalation": null,
               "directive": null
@@ -160,7 +203,7 @@ public sealed class EvaluationResultProjectionTests
 
         var projected = Assert.IsType<Report>(Assert.Single(projector.Messages));
         Assert.Contains(privateText, projected.Body, StringComparison.Ordinal);
-        Assert.Contains(BugTriageEvaluationLabelParser.Marker, projected.Body, StringComparison.Ordinal);
+        Assert.Contains(EvaluationInstruction.EnvelopeMarker, projected.Body, StringComparison.Ordinal);
         Assert.Contains(
             run.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.report.body");
@@ -170,6 +213,25 @@ public sealed class EvaluationResultProjectionTests
             StringComparison.Ordinal);
         Assert.Equal(fixture.Directive.DirectiveId, Assert.Single(projector.DirectiveIds));
     }
+
+    private static Dictionary<string, EvaluationDimensionProjection> ById(
+        EvaluationProjection projection) => projection.Dimensions.ToDictionary(
+            dimension => dimension.DimensionId,
+            StringComparer.Ordinal);
+
+    private static EvaluationRubricContract Rubric() =>
+        EvaluationRubricContract.Load(RubricFile, 1);
+
+    private static Dictionary<string, string?> ProfileConfiguration(string rubricPath) =>
+        new(StringComparer.Ordinal)
+        {
+            ["Hive:Evaluation:Profiles:bug-triage:Enabled"] = "true",
+            ["Hive:Evaluation:Profiles:bug-triage:OrganizationId"] = "acme-delivery",
+            ["Hive:Evaluation:Profiles:bug-triage:PositionId"] = "bug-triage",
+            ["Hive:Evaluation:Profiles:bug-triage:RubricPath"] = rubricPath,
+            ["Hive:Evaluation:Profiles:bug-triage:RubricVersion"] = "1",
+            ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive",
+        };
 
     private sealed class RecordingEvaluationResultProjector : IEvaluationResultProjector
     {
@@ -185,6 +247,29 @@ public sealed class EvaluationResultProjectionTests
             DirectiveIds.Add(directiveId);
             Messages.Add(resultMessage);
             return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed class TemporaryRubric : IDisposable
+    {
+        private TemporaryRubric(string path) => Path = path;
+
+        public string Path { get; }
+
+        public static TemporaryRubric WithReplacement(string original, string replacement)
+        {
+            var path = System.IO.Path.Combine(
+                System.IO.Path.GetTempPath(),
+                $"hive-generic-evaluation-rubric-{Guid.NewGuid():N}.json");
+            File.WriteAllText(
+                path,
+                File.ReadAllText(RubricFile).Replace(original, replacement, StringComparison.Ordinal));
+            return new TemporaryRubric(path);
+        }
+
+        public void Dispose()
+        {
+            if (File.Exists(Path)) File.Delete(Path);
         }
     }
 

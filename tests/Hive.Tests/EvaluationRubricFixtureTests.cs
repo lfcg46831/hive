@@ -135,6 +135,8 @@ public sealed class EvaluationRubricFixtureTests
         Assert.Equal("exact-match", decision.GetProperty("scorer").GetString());
         Assert.Equal(["report", "escalation"], decision.GetProperty("allowed_labels")
             .EnumerateArray().Select(value => value.GetString()));
+        Assert.Equal("report", decision.GetProperty("source_mapping").GetProperty("report").GetString());
+        Assert.Equal("escalation", decision.GetProperty("source_mapping").GetProperty("escalation").GetString());
         Assert.Equal(1.0, ScoreDecision(decision, "report", "report"));
         Assert.Equal(0.0, ScoreDecision(decision, "report", "escalation"));
 

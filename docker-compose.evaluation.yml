@@ -1,7 +1,7 @@
-# Evaluation-only override for US-F0-13-T09d/T11b.
+# Evaluation-only override for US-F0-13-T09d/T11b/T11c.
 #
 # Layer after docker-compose.demo.yml. It enables the scoped prompt appendix
-# and the optional safe label projector only on the all-in-one agents node.
+# and its generic safe projection only on the all-in-one agents node.
 
 services:
   api:
@@ -11,5 +11,3 @@ services:
       HIVE__EVALUATION__PROFILES__BUGTRIAGE__POSITIONID: "bug-triage"
       HIVE__EVALUATION__PROFILES__BUGTRIAGE__RUBRICPATH: "config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json"
       HIVE__EVALUATION__PROFILES__BUGTRIAGE__RUBRICVERSION: "1"
-      HIVE__EVALUATIONPROJECTION__ENABLED: "true"
-      HIVE__EVALUATIONPROJECTION__RUBRICPATH: "config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json"

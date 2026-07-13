@@ -1,14 +1,24 @@
 CREATE TABLE evaluation.result_projections (
     organization_id text NOT NULL,
+    position_id text NOT NULL,
     thread_id uuid NOT NULL,
     directive_id uuid NOT NULL,
     message_id uuid NOT NULL,
-    projection_version integer NOT NULL CHECK (projection_version > 0),
-    severity text NULL CHECK (severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')),
-    missing_information text[] NULL,
+    contract_version integer NOT NULL CHECK (contract_version > 0),
+    rubric_version integer NOT NULL CHECK (rubric_version > 0),
     PRIMARY KEY (organization_id, thread_id, directive_id),
     UNIQUE (organization_id, message_id)
 );
 
-CREATE INDEX result_projections_thread_directive_idx
-    ON evaluation.result_projections (thread_id, directive_id);
+CREATE TABLE evaluation.result_projection_dimensions (
+    organization_id text NOT NULL,
+    thread_id uuid NOT NULL,
+    directive_id uuid NOT NULL,
+    dimension_id text NOT NULL CHECK (length(dimension_id) > 0),
+    status text NOT NULL CHECK (status IN ('valid', 'missing', 'invalid')),
+    labels text[] NOT NULL,
+    PRIMARY KEY (organization_id, thread_id, directive_id, dimension_id),
+    FOREIGN KEY (organization_id, thread_id, directive_id)
+        REFERENCES evaluation.result_projections (organization_id, thread_id, directive_id)
+        ON DELETE CASCADE
+);

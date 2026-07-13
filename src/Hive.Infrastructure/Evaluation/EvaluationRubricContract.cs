@@ -193,7 +193,18 @@ internal sealed record EvaluationRubricContract(
                 $"Evaluation rubric dimension '{id}' has incompatible value kind '{valueKind}' and scorer '{scorer}'.");
         }
 
-        return new EvaluationDimensionContract(id, source, valueKind, scorer, weight, labels);
+        var sourceMapping = source == "result-message-kind"
+            ? RequiredSourceMapping(dimension, id, labels)
+            : ImmutableDictionary<string, string>.Empty;
+
+        return new EvaluationDimensionContract(
+            id,
+            source,
+            valueKind,
+            scorer,
+            weight,
+            labels,
+            sourceMapping);
     }
 
     private static string RequiredString(JsonElement element, string property)
@@ -238,6 +249,47 @@ internal sealed record EvaluationRubricContract(
 
         return labels;
     }
+
+    private static ImmutableDictionary<string, string> RequiredSourceMapping(
+        JsonElement dimension,
+        string dimensionId,
+        ImmutableArray<string> labels)
+    {
+        var element = dimension.GetProperty("source_mapping");
+        if (element.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidDataException(
+                $"Evaluation rubric dimension '{dimensionId}' source_mapping must be an object.");
+        }
+
+        var properties = element.EnumerateObject().ToArray();
+        if (properties.Length == 0
+            || properties.GroupBy(property => property.Name, StringComparer.Ordinal)
+                .Any(group => group.Count() > 1))
+        {
+            throw new InvalidDataException(
+                $"Evaluation rubric dimension '{dimensionId}' source_mapping must be non-empty and unique.");
+        }
+
+        var builder = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
+        foreach (var property in properties)
+        {
+            var label = property.Value.ValueKind == JsonValueKind.String
+                ? property.Value.GetString()
+                : null;
+            if (string.IsNullOrWhiteSpace(property.Name)
+                || label is null
+                || !labels.Contains(label, StringComparer.Ordinal))
+            {
+                throw new InvalidDataException(
+                    $"Evaluation rubric dimension '{dimensionId}' source_mapping contains an invalid fact or label.");
+            }
+
+            builder.Add(property.Name, label);
+        }
+
+        return builder.ToImmutable();
+    }
 }
 
 internal sealed record EvaluationDimensionContract(
@@ -246,4 +298,5 @@ internal sealed record EvaluationDimensionContract(
     string ValueKind,
     string Scorer,
     decimal Weight,
-    ImmutableArray<string> Labels);
+    ImmutableArray<string> Labels,
+    ImmutableDictionary<string, string> SourceMapping);

@@ -202,6 +202,38 @@ public sealed class EvaluationRunnerTests
         Assert.EndsWith("bug-triage-rubric.v1.json", valid.RubricPath, StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(false, true, true, true)]
+    [InlineData(true, false, true, true)]
+    [InlineData(true, true, false, true)]
+    [InlineData(true, true, true, false)]
+    public void Projection_preflight_reports_missing_or_incompatible_schema_as_configuration_error(
+        bool migrationTableAvailable,
+        bool headerTableAvailable,
+        bool dimensionTableAvailable,
+        bool currentVersionAvailable)
+    {
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            PostgreSqlEvaluationProjectionReader.RequireAvailable(
+                migrationTableAvailable,
+                headerTableAvailable,
+                dimensionTableAvailable,
+                currentVersionAvailable));
+
+        Assert.Contains("schema version 2", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("docker-compose.evaluation.yml", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Projection_preflight_accepts_the_current_generic_schema()
+    {
+        PostgreSqlEvaluationProjectionReader.RequireAvailable(
+            migrationTableAvailable: true,
+            headerTableAvailable: true,
+            dimensionTableAvailable: true,
+            currentVersionAvailable: true);
+    }
+
     private static EvaluationCorpus Corpus(params (string Id, string Context)[] cases) =>
         new(1, "evaluation-example", cases.Select(item => new EvaluationCase(
             item.Id,

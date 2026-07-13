@@ -1,21 +1,15 @@
 using System.Collections.Immutable;
 using Hive.Domain.Identity;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Options;
 
 namespace Hive.Infrastructure.Evaluation;
 
 internal sealed class ConfiguredEvaluationInstructionProvider : IEvaluationInstructionProvider
 {
-    private readonly ImmutableDictionary<EvaluationScope, EvaluationInstruction> _instructions;
+    private readonly EvaluationProfileCatalog _catalog;
 
-    public ConfiguredEvaluationInstructionProvider(
-        IOptions<EvaluationOptions> options,
-        IHostEnvironment environment)
+    public ConfiguredEvaluationInstructionProvider(EvaluationProfileCatalog catalog)
     {
-        ArgumentNullException.ThrowIfNull(options);
-        ArgumentNullException.ThrowIfNull(environment);
-        _instructions = EvaluationProfileCatalog.Load(options.Value, environment.ContentRootPath);
+        _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
     }
 
     public EvaluationInstruction? Resolve(
@@ -25,21 +19,30 @@ internal sealed class ConfiguredEvaluationInstructionProvider : IEvaluationInstr
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
 
-        return _instructions.GetValueOrDefault(
-            new EvaluationScope(organizationId.Value, positionId.Value));
+        return _catalog.Resolve(organizationId, positionId)?.Instruction;
     }
 }
 
-internal static class EvaluationProfileCatalog
+internal sealed class EvaluationProfileCatalog
 {
-    public static ImmutableDictionary<EvaluationScope, EvaluationInstruction> Load(
+    private readonly ImmutableDictionary<EvaluationScope, EvaluationProfile> _profiles;
+
+    private EvaluationProfileCatalog(
+        ImmutableDictionary<EvaluationScope, EvaluationProfile> profiles)
+    {
+        _profiles = profiles;
+    }
+
+    public int Count => _profiles.Count;
+
+    public static EvaluationProfileCatalog Load(
         EvaluationOptions options,
         string contentRootPath)
     {
         ArgumentNullException.ThrowIfNull(options);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentRootPath);
 
-        var builder = ImmutableDictionary.CreateBuilder<EvaluationScope, EvaluationInstruction>();
+        var builder = ImmutableDictionary.CreateBuilder<EvaluationScope, EvaluationProfile>();
         var profiles = options.Profiles
             ?? throw new InvalidDataException("Evaluation profiles collection cannot be null.");
         foreach (var (profileName, profile) in profiles
@@ -72,11 +75,40 @@ internal static class EvaluationProfileCatalog
 
             var rubricPath = profile.ResolveRubricPath(contentRootPath, profileName);
             var rubric = EvaluationRubricContract.Load(rubricPath, profile.RubricVersion);
-            builder.Add(scope, rubric.BuildInstruction());
+            builder.Add(scope, new EvaluationProfile(rubric, rubric.BuildInstruction()));
         }
 
-        return builder.ToImmutable();
+        return new EvaluationProfileCatalog(builder.ToImmutable());
+    }
+
+    public static EvaluationProfileCatalog Single(
+        OrganizationId organizationId,
+        PositionId positionId,
+        EvaluationRubricContract rubric)
+    {
+        ArgumentNullException.ThrowIfNull(organizationId);
+        ArgumentNullException.ThrowIfNull(positionId);
+        ArgumentNullException.ThrowIfNull(rubric);
+
+        var scope = new EvaluationScope(organizationId.Value, positionId.Value);
+        var profile = new EvaluationProfile(rubric, rubric.BuildInstruction());
+        return new EvaluationProfileCatalog(
+            ImmutableDictionary<EvaluationScope, EvaluationProfile>.Empty.Add(scope, profile));
+    }
+
+    public EvaluationProfile? Resolve(
+        OrganizationId organizationId,
+        PositionId positionId)
+    {
+        ArgumentNullException.ThrowIfNull(organizationId);
+        ArgumentNullException.ThrowIfNull(positionId);
+        return _profiles.GetValueOrDefault(
+            new EvaluationScope(organizationId.Value, positionId.Value));
     }
 }
 
 internal readonly record struct EvaluationScope(string OrganizationId, string PositionId);
+
+internal sealed record EvaluationProfile(
+    EvaluationRubricContract Rubric,
+    EvaluationInstruction Instruction);

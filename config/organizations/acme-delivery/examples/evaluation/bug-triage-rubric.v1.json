@@ -99,6 +99,10 @@
         "report",
         "escalation"
       ],
+      "source_mapping": {
+        "report": "report",
+        "escalation": "escalation"
+      },
       "match_score": 1.0,
       "mismatch_score": 0.0
     }

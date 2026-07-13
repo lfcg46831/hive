@@ -35,9 +35,6 @@ public static class HiveBootstrapExtensions
 
         builder.Services.AddSingleton<IValidateOptions<HiveOptions>, HiveOptionsValidator>();
         builder.Services.AddSingleton<
-            IValidateOptions<EvaluationProjectionOptions>,
-            EvaluationProjectionOptionsValidator>();
-        builder.Services.AddSingleton<
             IValidateOptions<EvaluationOptions>,
             EvaluationOptionsValidator>();
         builder.Services
@@ -45,13 +42,14 @@ public static class HiveBootstrapExtensions
             .Bind(builder.Configuration.GetSection(HiveOptions.SectionName))
             .ValidateOnStart();
         builder.Services
-            .AddOptions<EvaluationProjectionOptions>()
-            .Bind(builder.Configuration.GetSection(EvaluationProjectionOptions.SectionName))
-            .ValidateOnStart();
-        builder.Services
             .AddOptions<EvaluationOptions>()
             .Bind(builder.Configuration.GetSection(EvaluationOptions.SectionName))
             .ValidateOnStart();
+
+        builder.Services.TryAddSingleton(serviceProvider =>
+            EvaluationProfileCatalog.Load(
+                serviceProvider.GetRequiredService<IOptions<EvaluationOptions>>().Value,
+                serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath));
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
         builder.Services.AddHiveActionDomainContracts();
@@ -78,10 +76,8 @@ public static class HiveBootstrapExtensions
         });
         builder.Services.TryAddSingleton<IEvaluationResultProjector>(serviceProvider =>
         {
-            var options = serviceProvider
-                .GetRequiredService<IOptions<EvaluationProjectionOptions>>()
-                .Value;
-            if (!options.Enabled)
+            var catalog = serviceProvider.GetRequiredService<EvaluationProfileCatalog>();
+            if (catalog.Count == 0)
             {
                 return NoopEvaluationResultProjector.Instance;
             }
@@ -89,14 +85,11 @@ public static class HiveBootstrapExtensions
             var connectionString = serviceProvider
                 .GetRequiredService<IConfiguration>()
                 .GetConnectionString(ConnectionStringNames.PostgreSql);
-            var rubricPath = options.ResolveRubricPath(
-                serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath);
-            var vocabulary = BugTriageEvaluationVocabulary.Load(rubricPath);
             return new PostgreSqlEvaluationResultProjector(
                 connectionString
                 ?? throw new InvalidOperationException(
-                    "Evaluation projection requires ConnectionStrings:PostgreSql when enabled."),
-                vocabulary);
+                    "An enabled evaluation profile requires ConnectionStrings:PostgreSql for projection readiness."),
+                catalog);
         });
         builder.Services.TryAddSingleton<
             IEvaluationInstructionProvider,

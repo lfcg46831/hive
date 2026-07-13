@@ -27,10 +27,13 @@ public sealed class EvaluationRunner
         EvaluationRunOptions options,
         CancellationToken cancellationToken)
     {
-        var results = new List<EvaluationCaseResult>(corpus.Cases.Count);
-        for (var index = 0; index < corpus.Cases.Count; index++)
+        var orderedCases = corpus.Cases
+            .OrderBy(item => item.CaseId, StringComparer.Ordinal)
+            .ToArray();
+        var results = new List<EvaluationCaseResult>(orderedCases.Length);
+        for (var index = 0; index < orderedCases.Length; index++)
         {
-            var item = corpus.Cases[index];
+            var item = orderedCases[index];
             results.Add(await RunCaseAsync(corpus.CorpusVersion, item, index, options, cancellationToken)
                 .ConfigureAwait(false));
         }

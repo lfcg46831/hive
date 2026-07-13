@@ -111,27 +111,41 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         }
     }
 
-    public async Task<AiDirectiveIntegrationRun> ProcessDirectiveAsync()
+    public async Task<AiDirectiveIntegrationRun> ProcessDirectiveAsync(
+        OrgDirective? directive = null)
     {
-        _position.Tell(new AcceptMessage(_scenario.Directive));
+        var resolvedDirective = directive ?? _scenario.Directive;
+        var correlationId = AiDirectiveIntegrationScenario.CorrelationIdFor(
+            resolvedDirective);
+        _position.Tell(new AcceptMessage(resolvedDirective));
 
         var agent = await ResolveAgentAsync().ConfigureAwait(false);
-        var audit = await WaitForAuditAsync(agent, _scenario.CorrelationId).ConfigureAwait(false);
+        var audit = await WaitForAuditAsync(agent, correlationId).ConfigureAwait(false);
+        var prompt = await agent.Ask<AiDirectiveInitialPromptQueryResult>(
+            new GetAiDirectiveInitialPrompt(correlationId),
+            Timeout()).ConfigureAwait(false);
+        if (!prompt.Found)
+        {
+            throw new TimeoutException("AI directive initial prompt was not recorded.");
+        }
+
         var gateway = await agent.Ask<AiDirectiveGatewayInvocationQueryResult>(
-            new GetAiDirectiveGatewayInvocation(_scenario.CorrelationId),
+            new GetAiDirectiveGatewayInvocation(correlationId),
             Timeout()).ConfigureAwait(false);
         if (!gateway.Found)
         {
             throw new TimeoutException("AI directive gateway invocation was not recorded.");
         }
 
-        var state = await WaitForPositionStateAsync(audit).ConfigureAwait(false);
+        var state = await WaitForPositionStateAsync(audit, resolvedDirective)
+            .ConfigureAwait(false);
 
         return new AiDirectiveIntegrationRun(
-            _scenario.Directive,
+            resolvedDirective,
             _position,
             agent,
             audit,
+            prompt.Request!,
             gateway.Result!,
             state);
     }
@@ -272,9 +286,10 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     }
 
     private async Task<PositionState> WaitForPositionStateAsync(
-        AiDirectiveAuditSnapshot audit)
+        AiDirectiveAuditSnapshot audit,
+        OrgDirective directive)
     {
-        var memoryKey = _scenario.ResultMemoryKey;
+        var memoryKey = AiDirectiveIntegrationScenario.ResultMemoryKeyFor(directive);
         var waitForMemory = audit.PositionEffects?.CommandTypes.Contains(
             nameof(UpdateShortMemory),
             StringComparer.Ordinal) == true;
@@ -285,7 +300,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             var state = await _position.Ask<PositionState>(
                 GetPositionState.Instance,
                 TimeSpan.FromSeconds(1)).ConfigureAwait(false);
-            if (state.ProcessedMessages.Contains(_scenario.Directive.Id)
+            if (state.ProcessedMessages.Contains(directive.Id)
                 && (!waitForMemory || state.ShortMemory.ContainsKey(memoryKey)))
             {
                 return state;
@@ -488,7 +503,8 @@ internal sealed class AiDirectiveIntegrationScenario
         IEnumerable<PositionId> directSubordinates,
         IEnumerable<PersistedTask> openTasks,
         IReadOnlyDictionary<string, string> shortMemory,
-        IEnumerable<MessageId> recentHistory)
+        IEnumerable<MessageId> recentHistory,
+        IReadOnlyDictionary<string, ShortMemoryContextScope> shortMemoryContextScopes)
     {
         ConfigureStub = configureStub;
         Entity = entity;
@@ -512,6 +528,9 @@ internal sealed class AiDirectiveIntegrationScenario
         OpenTasks = openTasks.ToArray();
         ShortMemory = new Dictionary<string, string>(shortMemory, StringComparer.Ordinal);
         RecentHistory = recentHistory.ToArray();
+        ShortMemoryContextScopes = new Dictionary<string, ShortMemoryContextScope>(
+            shortMemoryContextScopes,
+            StringComparer.Ordinal);
     }
 
     public PositionEntityId Entity { get; }
@@ -532,11 +551,13 @@ internal sealed class AiDirectiveIntegrationScenario
 
     public IReadOnlyList<MessageId> RecentHistory { get; }
 
+    public IReadOnlyDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
+
     public string CorrelationId =>
-        $"directive:{Directive.DirectiveId.Value:N}:message:{Directive.Id.Value:N}";
+        CorrelationIdFor(Directive);
 
     public string ResultMemoryKey =>
-        $"directive:{Directive.DirectiveId.Value:N}:result";
+        ResultMemoryKeyFor(Directive);
 
     private Action<StubAiGatewayProviderOptions>? ConfigureStub { get; }
 
@@ -548,7 +569,8 @@ internal sealed class AiDirectiveIntegrationScenario
         IEnumerable<PositionId>? directSubordinates = null,
         IEnumerable<PersistedTask>? openTasks = null,
         IReadOnlyDictionary<string, string>? shortMemory = null,
-        IEnumerable<MessageId>? recentHistory = null)
+        IEnumerable<MessageId>? recentHistory = null,
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null)
     {
         var directiveMessage = MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001401"));
 
@@ -575,7 +597,21 @@ internal sealed class AiDirectiveIntegrationScenario
             },
             recentHistory ?? [
                 MessageId.From(Guid.Parse("eeeeeeee-0000-0000-0000-000000001401")),
-            ]);
+            ],
+            shortMemoryContextScopes
+                ?? new Dictionary<string, ShortMemoryContextScope>(StringComparer.Ordinal));
+    }
+
+    public static string CorrelationIdFor(OrgDirective directive)
+    {
+        ArgumentNullException.ThrowIfNull(directive);
+        return $"directive:{directive.DirectiveId.Value:N}:message:{directive.Id.Value:N}";
+    }
+
+    public static string ResultMemoryKeyFor(OrgDirective directive)
+    {
+        ArgumentNullException.ThrowIfNull(directive);
+        return $"directive:{directive.DirectiveId.Value:N}:result";
     }
 
     public StubAiGatewayProviderOptions CreateStubOptions()
@@ -611,7 +647,8 @@ internal sealed class AiDirectiveIntegrationScenario
             openTasks: OpenTasks,
             shortMemory: ShortMemory,
             recentHistory: RecentHistory,
-            lastConfigurationStamp: Stamp());
+            lastConfigurationStamp: Stamp(),
+            shortMemoryContextScopes: ShortMemoryContextScopes);
 
     public PositionRuntimeConfiguration RuntimeConfiguration(
         AiProviderMetadata provider) =>
@@ -652,5 +689,6 @@ internal sealed record AiDirectiveIntegrationRun(
     IActorRef Position,
     IActorRef Agent,
     AiDirectiveAuditSnapshot Audit,
+    AiGatewayRequest GatewayRequest,
     AiAgentGatewayInvocationResult GatewayInvocation,
     PositionState PositionState);

@@ -1,5 +1,3 @@
-using System.Net;
-using System.Net.Http.Json;
 using Hive.Api.Diagnostics;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Diagnostics;
@@ -7,7 +5,8 @@ using Hive.Tests.PostgreSql;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
+using System.Net;
+using System.Net.Http.Json;
 
 namespace Hive.Tests;
 

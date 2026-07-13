@@ -37,12 +37,14 @@ public sealed class EvaluationRunnerTests
         var runner = new EvaluationRunner(client, audit);
 
         var dataset = await runner.RunAsync(
-            Corpus(("triage-001", "First context"), ("triage-002", "Second context")),
+            Corpus(("triage-002", "Second context"), ("triage-001", "First context")),
             Options("run-one"),
             CancellationToken.None);
 
         Assert.Equal(["triage-001", "triage-002"], dataset.Cases.Select(item => item.CaseId));
         Assert.Equal(2, handler.Requests.Count);
+        Assert.Contains("First context", handler.Requests[0], StringComparison.Ordinal);
+        Assert.Contains("Second context", handler.Requests[1], StringComparison.Ordinal);
         Assert.Equal(3, audit.Calls);
         Assert.Equal("report", dataset.Cases[0].Decision);
         Assert.Equal("escalation", dataset.Cases[1].Decision);
@@ -56,6 +58,17 @@ public sealed class EvaluationRunnerTests
             .RunAsync(Corpus(("triage-001", "First context"), ("triage-002", "Second context")), Options("run-one"), CancellationToken.None);
 
         Assert.Equal(dataset.Cases.Select(item => item.MessageId), repeated.Cases.Select(item => item.MessageId));
+
+        var nextRun = await new EvaluationRunner(
+            new HttpClient(new RecordingHandler(HttpStatusCode.Accepted)),
+            new RecordingAuditReader(Journey("report", "openai", "gpt-test"), Journey("report", "openai", "gpt-test")))
+            .RunAsync(Corpus(("triage-002", "Second context"), ("triage-001", "First context")), Options("run-two"), CancellationToken.None);
+
+        Assert.All(dataset.Cases, previous =>
+            Assert.DoesNotContain(nextRun.Cases, current =>
+                current.MessageId == previous.MessageId
+                || current.ThreadId == previous.ThreadId
+                || current.DirectiveId == previous.DirectiveId));
     }
 
     [Fact]

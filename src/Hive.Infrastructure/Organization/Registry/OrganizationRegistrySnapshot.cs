@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Organization;
 
 namespace Hive.Infrastructure.Organization.Registry;
@@ -16,7 +17,8 @@ public sealed class OrganizationRegistrySnapshot
         IReadOnlyDictionary<PositionId, RegistryEntry<RegistryOccupant>> occupants,
         IReadOnlyDictionary<PositionId, RegistryEntry<RegistryAuthority>> authorities,
         IReadOnlyDictionary<RegistryScheduleKey, RegistryEntry<RegistrySchedule>> schedules,
-        RegistryEntry<OrganizationRelationsSnapshot> relations)
+        RegistryEntry<OrganizationRelationsSnapshot> relations,
+        RegistryEntry<ActionDomainCatalog> actionDomainCatalog)
     {
         OrganizationId = organizationId;
         Version = version;
@@ -29,6 +31,7 @@ public sealed class OrganizationRegistrySnapshot
         Authorities = authorities;
         Schedules = schedules;
         Relations = relations;
+        ActionDomainCatalog = actionDomainCatalog;
     }
 
     public OrganizationId OrganizationId { get; }
@@ -52,4 +55,6 @@ public sealed class OrganizationRegistrySnapshot
     public IReadOnlyDictionary<RegistryScheduleKey, RegistryEntry<RegistrySchedule>> Schedules { get; }
 
     public RegistryEntry<OrganizationRelationsSnapshot> Relations { get; }
+
+    public RegistryEntry<ActionDomainCatalog> ActionDomainCatalog { get; }
 }

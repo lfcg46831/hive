@@ -676,8 +676,30 @@ internal sealed class PositionActor :
     private void MarkReady(PositionRuntimeConfiguration configuration)
     {
         _runtimeConfiguration = configuration;
-        _operationalState = PositionOperationalState.Ready;
         _configurationBlockReason = null;
+
+        if (_state.Occupant is null
+            && configuration.Occupant.ConfiguredIdentity is { } configuredIdentity)
+        {
+            Persist(
+                new OccupantChanged(
+                    configuredIdentity,
+                    configuration.Occupant.Type,
+                    _clock()),
+                persisted =>
+                {
+                    ApplyPersisted(persisted);
+                    CompleteReadyTransition();
+                });
+            return;
+        }
+
+        CompleteReadyTransition();
+    }
+
+    private void CompleteReadyTransition()
+    {
+        _operationalState = PositionOperationalState.Ready;
         PersistPendingDispatches(() =>
         {
             PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));

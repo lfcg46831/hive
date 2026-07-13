@@ -20,7 +20,9 @@ public sealed class RealAiGatewayProviderSettings
         AiProviderMetadata defaultProvider,
         AiModelParameters defaultParameters,
         Uri? endpoint = null,
-        TimeSpan? timeout = null)
+        TimeSpan? timeout = null,
+        AiOutputProviderCapabilities? outputCapabilities = null,
+        AiPricingCatalog? pricingCatalog = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
         {
@@ -45,6 +47,9 @@ public sealed class RealAiGatewayProviderSettings
         DefaultParameters = defaultParameters;
         Endpoint = endpoint;
         Timeout = timeout;
+        OutputCapabilities = outputCapabilities ?? new AiOutputProviderCapabilities(
+            [AiOutputConstraintMode.Text]);
+        PricingCatalog = pricingCatalog;
     }
 
     /// <summary>Secret credential. Infrastructure-only; never logged or returned to the domain.</summary>
@@ -61,6 +66,18 @@ public sealed class RealAiGatewayProviderSettings
 
     /// <summary>Optional default request timeout.</summary>
     public TimeSpan? Timeout { get; }
+
+    /// <summary>
+    /// Effective response-format capabilities declared for this concrete
+    /// provider adapter. They are never inferred from provider or model names.
+    /// </summary>
+    public AiOutputProviderCapabilities OutputCapabilities { get; }
+
+    /// <summary>
+    /// Optional validated catalog used only when the provider does not declare
+    /// cost and complete input/output usage is available.
+    /// </summary>
+    public AiPricingCatalog? PricingCatalog { get; }
 
     /// <summary>
     /// Resolves the effective, non-secret provider/model, parameters and timeout
@@ -90,6 +107,8 @@ public sealed class RealAiGatewayProviderSettings
         $"Provider = {DefaultProvider.ProviderId}/{DefaultProvider.ModelId}, " +
         $"Endpoint = {(Endpoint is null ? "(none)" : Endpoint.ToString())}, " +
         $"Timeout = {(Timeout?.ToString() ?? "(none)")}, " +
+        $"OutputCapabilities = {string.Join(",", OutputCapabilities.SupportedModes.Select(AiOutputConstraintModeContract.ToWireValue))}, " +
+        $"PricingVersion = {(PricingCatalog?.Version ?? "(none)")}, " +
         "ApiKey = ***redacted*** }";
 
     private static AiModelParameters MergeParameters(

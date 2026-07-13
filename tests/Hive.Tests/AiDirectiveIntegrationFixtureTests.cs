@@ -10,6 +10,34 @@ namespace Hive.Tests;
 public sealed class AiDirectiveIntegrationFixtureTests
 {
     [Fact]
+    public async Task Empty_journal_bootstraps_configured_occupant_and_reaches_terminal_result()
+    {
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = "t07c-empty-journal";
+            options.Scenario = "bug-triage-report";
+        });
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            seedInitialSnapshot: false);
+
+        var result = await fixture.ProcessDirectiveAsync();
+        var events = await fixture.ReadPersistedEventsAsync();
+        var occupantIndex = Array.FindIndex(
+            events.ToArray(),
+            @event => @event is OccupantChanged);
+        var dispatchIndex = Array.FindIndex(
+            events.ToArray(),
+            @event => @event is MessageDispatched);
+
+        Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, result.Audit.Status);
+        Assert.True(result.Audit.Gateway.WasRequested);
+        Assert.Equal(scenario.Occupant, Assert.Single(events.OfType<OccupantChanged>()).Occupant);
+        Assert.InRange(occupantIndex, 0, dispatchIndex - 1);
+        Assert.Contains(scenario.Directive.Id, result.PositionState.ProcessedMessages);
+    }
+
+    [Fact]
     public async Task Fixture_dispatches_directive_through_position_actor_ai_agent_and_configured_gateway_stub()
     {
         await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(

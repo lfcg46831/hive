@@ -55,6 +55,7 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Equal(11, (int)AiGatewayErrorCode.ProviderRejected);
         Assert.Equal(12, (int)AiGatewayErrorCode.InvalidProviderResponse);
         Assert.Equal(13, (int)AiGatewayErrorCode.Unknown);
+        Assert.Equal(14, (int)AiGatewayErrorCode.OutputConstraintUnsupported);
         Assert.Equal(
             [
                 AiGatewayErrorCode.ConfigurationInvalid,
@@ -70,6 +71,7 @@ public sealed class AiGatewayProtocolEnumTests
                 AiGatewayErrorCode.ProviderRejected,
                 AiGatewayErrorCode.InvalidProviderResponse,
                 AiGatewayErrorCode.Unknown,
+                AiGatewayErrorCode.OutputConstraintUnsupported,
             ],
             Enum.GetValues<AiGatewayErrorCode>());
     }
@@ -100,6 +102,49 @@ public sealed class AiGatewayProtocolEnumTests
             Enum.GetValues<AiProcessingMode>());
     }
 
+    [Fact]
+    public void Output_constraint_modes_have_stable_values()
+    {
+        Assert.Equal(1, (int)AiOutputConstraintMode.JsonSchema);
+        Assert.Equal(2, (int)AiOutputConstraintMode.JsonObject);
+        Assert.Equal(3, (int)AiOutputConstraintMode.Text);
+        Assert.Equal(
+            [
+                AiOutputConstraintMode.JsonSchema,
+                AiOutputConstraintMode.JsonObject,
+                AiOutputConstraintMode.Text,
+            ],
+            Enum.GetValues<AiOutputConstraintMode>());
+    }
+
+    [Theory]
+    [InlineData(AiCostStatus.ProviderReported, "provider-reported")]
+    [InlineData(AiCostStatus.Estimated, "estimated")]
+    [InlineData(AiCostStatus.Unavailable, "cost-unavailable")]
+    public void Cost_status_wire_values_round_trip_canonically(
+        AiCostStatus value,
+        string wireValue)
+    {
+        Assert.Equal(wireValue, AiCostStatusContract.ToWireValue(value));
+        Assert.Equal(value, AiCostStatusContract.ParseWireValue(wireValue));
+        Assert.True(AiCostStatusContract.TryParseWireValue(wireValue, out var parsed));
+        Assert.Equal(value, parsed);
+    }
+
+    [Theory]
+    [InlineData(AiOutputConstraintMode.JsonSchema, "json-schema")]
+    [InlineData(AiOutputConstraintMode.JsonObject, "json-object")]
+    [InlineData(AiOutputConstraintMode.Text, "text")]
+    public void Output_constraint_mode_wire_values_round_trip_canonically(
+        AiOutputConstraintMode value,
+        string wireValue)
+    {
+        Assert.Equal(wireValue, AiOutputConstraintModeContract.ToWireValue(value));
+        Assert.Equal(value, AiOutputConstraintModeContract.ParseWireValue(wireValue));
+        Assert.True(AiOutputConstraintModeContract.TryParseWireValue(wireValue, out var parsed));
+        Assert.Equal(value, parsed);
+    }
+
     [Theory]
     [InlineData(AiProcessingMode.Interactive, "interactive")]
     [InlineData(AiProcessingMode.Batch, "batch")]
@@ -127,6 +172,7 @@ public sealed class AiGatewayProtocolEnumTests
     [InlineData(AiGatewayErrorCode.ProviderRejected, "provider-rejected")]
     [InlineData(AiGatewayErrorCode.InvalidProviderResponse, "invalid-provider-response")]
     [InlineData(AiGatewayErrorCode.Unknown, "unknown")]
+    [InlineData(AiGatewayErrorCode.OutputConstraintUnsupported, "output-constraint-unsupported")]
     public void Error_code_wire_values_round_trip_canonically(
         AiGatewayErrorCode value,
         string wireValue)
@@ -174,6 +220,14 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Throws<ArgumentException>(() => AiGatewayCallResultContract.ParseWireValue(value));
         Assert.False(AiGatewayCallResultContract.TryParseWireValue(value, out var result));
         Assert.Equal(default, result);
+
+        Assert.Throws<ArgumentException>(() => AiOutputConstraintModeContract.ParseWireValue(value));
+        Assert.False(AiOutputConstraintModeContract.TryParseWireValue(value, out var outputMode));
+        Assert.Equal(default, outputMode);
+
+        Assert.Throws<ArgumentException>(() => AiCostStatusContract.ParseWireValue(value));
+        Assert.False(AiCostStatusContract.TryParseWireValue(value, out var costStatus));
+        Assert.Equal(default, costStatus);
     }
 
     [Fact]
@@ -198,5 +252,15 @@ public sealed class AiGatewayProtocolEnumTests
             () => AiGatewayCallResultContract.RequireDefined((AiGatewayCallResult)0, "result"));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AiGatewayCallResultContract.ToWireValue((AiGatewayCallResult)0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiOutputConstraintModeContract.RequireDefined((AiOutputConstraintMode)0, "mode"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiOutputConstraintModeContract.ToWireValue((AiOutputConstraintMode)0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiCostStatusContract.RequireDefined((AiCostStatus)0, "status"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiCostStatusContract.ToWireValue((AiCostStatus)0));
     }
 }

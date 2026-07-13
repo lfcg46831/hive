@@ -284,7 +284,8 @@ internal static class AiDirectiveDecisionParser
         AiDirectiveDecisionIntent intent,
         ICollection<DecisionPayload> payloads)
     {
-        if (root.TryGetProperty(propertyName, out var payload))
+        if (root.TryGetProperty(propertyName, out var payload) &&
+            payload.ValueKind is not JsonValueKind.Null)
         {
             payloads.Add(new DecisionPayload(intent, propertyName, payload));
         }

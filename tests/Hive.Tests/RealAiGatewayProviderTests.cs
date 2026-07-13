@@ -7,6 +7,7 @@ using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Net;
+using System.Text.Json;
 
 namespace Hive.Tests;
 
@@ -104,7 +105,7 @@ public sealed class RealAiGatewayProviderTests
         Assert.Equal(11, response.Usage.InputTokens);
         Assert.Equal(7, response.Usage.OutputTokens);
         Assert.Equal(18, response.Usage.TotalTokens);
-        // Cost computation is US-F0-07-T10, not this adapter.
+        // Without a matching configured price, cost remains unavailable.
         Assert.Null(response.Cost);
         Assert.Empty(response.ToolCalls);
     }
@@ -116,7 +117,7 @@ public sealed class RealAiGatewayProviderTests
             new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
         {
             ResponseId = "response-123",
-            ModelId = "gpt-4o-mini-2024",
+            ModelId = "gpt-5-mini-2025-08-07",
             FinishReason = ChatFinishReason.Stop,
             Usage = new UsageDetails
             {
@@ -133,7 +134,7 @@ public sealed class RealAiGatewayProviderTests
         };
         var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
 
-        var response = await Gateway(chatClient).CompleteAsync(Request());
+        var response = await Gateway(chatClient, ConfigurePricing).CompleteAsync(Request());
 
         Assert.True(response.IsSuccess);
         Assert.NotNull(response.Provider);
@@ -146,6 +147,103 @@ public sealed class RealAiGatewayProviderTests
         Assert.Equal(0.0142m, response.Cost.Amount);
         Assert.Equal("EUR", response.Cost.Currency);
         Assert.True(response.Cost.IsEstimated);
+        Assert.Null(response.AppliedPricing);
+    }
+
+    [Fact]
+    public async Task Estimates_cost_from_complete_usage_and_matching_model_alias()
+    {
+        var chatResponse = new ChatResponse(
+            new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+        {
+            ModelId = "gpt-5-mini-2025-08-07",
+            FinishReason = ChatFinishReason.Stop,
+            Usage = new UsageDetails
+            {
+                InputTokenCount = 1_000,
+                OutputTokenCount = 500,
+                TotalTokenCount = 1_500,
+            },
+        };
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
+
+        var response = await Gateway(chatClient, ConfigurePricing).CompleteAsync(Request());
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal(0.00125m, response.Cost?.Amount);
+        Assert.Equal("USD", response.Cost?.Currency);
+        Assert.True(response.Cost?.IsEstimated);
+        Assert.Equal("openai-2026-07-13", response.AppliedPricing?.Version);
+        Assert.Equal(1_000_000, response.AppliedPricing?.TokenUnit);
+        Assert.Equal(0.25m, response.AppliedPricing?.InputPrice);
+        Assert.Equal(2m, response.AppliedPricing?.OutputPrice);
+    }
+
+    [Fact]
+    public async Task Missing_usage_with_matching_price_keeps_cost_unavailable()
+    {
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+            {
+                ModelId = "gpt-5-mini",
+            }));
+
+        var response = await Gateway(chatClient, ConfigurePricing).CompleteAsync(Request());
+
+        Assert.True(response.IsSuccess);
+        Assert.Null(response.Usage);
+        Assert.Null(response.Cost);
+        Assert.Null(response.AppliedPricing);
+    }
+
+    [Fact]
+    public async Task Real_zero_usage_is_preserved_and_can_produce_zero_cost()
+    {
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+            {
+                ModelId = "gpt-5-mini",
+                Usage = new UsageDetails
+                {
+                    InputTokenCount = 0,
+                    OutputTokenCount = 0,
+                    TotalTokenCount = 0,
+                },
+            }));
+
+        var response = await Gateway(chatClient, ConfigurePricing).CompleteAsync(Request());
+
+        Assert.NotNull(response.Usage);
+        Assert.Equal(0, response.Usage.InputTokens);
+        Assert.Equal(0, response.Usage.OutputTokens);
+        Assert.Equal(0, response.Usage.TotalTokens);
+        Assert.Equal(0m, response.Cost?.Amount);
+        Assert.NotNull(response.AppliedPricing);
+    }
+
+    [Fact]
+    public async Task Out_of_range_provider_usage_is_not_clamped_or_costed()
+    {
+        var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(
+            new ChatResponse(new ChatMessage(ChatRole.Assistant, "Triaged the bug."))
+            {
+                ModelId = "gpt-5-mini",
+                Usage = new UsageDetails
+                {
+                    InputTokenCount = (long)int.MaxValue + 1,
+                    OutputTokenCount = 1,
+                    TotalTokenCount = (long)int.MaxValue + 2,
+                },
+            }));
+
+        var response = await Gateway(chatClient, ConfigurePricing).CompleteAsync(Request());
+
+        Assert.NotNull(response.Usage);
+        Assert.Null(response.Usage.InputTokens);
+        Assert.Equal(1, response.Usage.OutputTokens);
+        Assert.Null(response.Usage.TotalTokens);
+        Assert.Null(response.Cost);
+        Assert.Null(response.AppliedPricing);
     }
 
     [Fact]
@@ -287,6 +385,100 @@ public sealed class RealAiGatewayProviderTests
         Assert.NotNull(capturedOptions);
         Assert.Equal(0.4f, capturedOptions!.Temperature);
         Assert.Equal(128, capturedOptions.MaxOutputTokens);
+    }
+
+    [Theory]
+    [InlineData(AiOutputConstraintMode.JsonSchema)]
+    [InlineData(AiOutputConstraintMode.JsonObject)]
+    [InlineData(AiOutputConstraintMode.Text)]
+    public async Task Negotiates_supported_output_mode_and_maps_response_format(
+        AiOutputConstraintMode supportedMode)
+    {
+        ChatOptions? capturedOptions = null;
+        var chatClient = new FakeChatClient((_, options, _) =>
+        {
+            capturedOptions = options;
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var gateway = Gateway(chatClient, options =>
+            options.OutputCapabilities =
+            [
+                AiOutputConstraintModeContract.ToWireValue(supportedMode),
+            ]);
+
+        var response = await gateway.CompleteAsync(Request(
+            outputConstraint: OutputConstraint(
+                AiOutputConstraintMode.JsonObject,
+                AiOutputConstraintMode.Text)));
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal(supportedMode, response.OutputConstraintMode);
+        Assert.NotNull(capturedOptions);
+        switch (supportedMode)
+        {
+            case AiOutputConstraintMode.JsonSchema:
+                var jsonSchema = Assert.IsType<ChatResponseFormatJson>(
+                    capturedOptions!.ResponseFormat);
+                Assert.Equal("decision_v1", jsonSchema.SchemaName);
+                Assert.Equal(
+                    "object",
+                    jsonSchema.Schema!.Value.GetProperty("type").GetString());
+                break;
+            case AiOutputConstraintMode.JsonObject:
+                Assert.Same(ChatResponseFormat.Json, capturedOptions!.ResponseFormat);
+                break;
+            case AiOutputConstraintMode.Text:
+                Assert.Same(ChatResponseFormat.Text, capturedOptions!.ResponseFormat);
+                break;
+        }
+    }
+
+    [Fact]
+    public async Task Negotiation_prefers_json_object_over_text_when_schema_is_unavailable()
+    {
+        ChatOptions? capturedOptions = null;
+        var chatClient = new FakeChatClient((_, options, _) =>
+        {
+            capturedOptions = options;
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var gateway = Gateway(chatClient, options => options.OutputCapabilities =
+        [
+            "text",
+            "json-object",
+        ]);
+
+        var response = await gateway.CompleteAsync(Request(
+            outputConstraint: OutputConstraint(
+                AiOutputConstraintMode.JsonObject,
+                AiOutputConstraintMode.Text)));
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal(AiOutputConstraintMode.JsonObject, response.OutputConstraintMode);
+        Assert.Same(ChatResponseFormat.Json, capturedOptions!.ResponseFormat);
+    }
+
+    [Fact]
+    public async Task Incompatible_capabilities_fail_before_client_call_when_downgrade_is_forbidden()
+    {
+        var calls = 0;
+        var chatClient = new FakeChatClient((_, _, _) =>
+        {
+            calls++;
+            return Task.FromResult(SuccessChatResponse());
+        });
+        var gateway = Gateway(chatClient, options =>
+            options.OutputCapabilities = ["text"]);
+
+        var response = await gateway.CompleteAsync(Request(
+            outputConstraint: OutputConstraint()));
+
+        Assert.True(response.IsFailure);
+        Assert.Equal(0, calls);
+        var error = Assert.IsType<AiGatewayError>(response.Error);
+        Assert.Equal(AiGatewayErrorCode.OutputConstraintUnsupported, error.Code);
+        Assert.False(error.IsRetryable);
+        Assert.Null(response.OutputConstraintMode);
     }
 
     [Fact]
@@ -468,23 +660,44 @@ public sealed class RealAiGatewayProviderTests
     }
 
     [Fact]
-    public async Task Internal_timeout_maps_to_retryable_timeout()
+    public async Task Internal_timeout_is_coercive_when_provider_ignores_cancellation()
     {
-        var chatClient = new FakeChatClient(async (_, _, cancellationToken) =>
+        var clock = new TriggerableTimeProvider();
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var providerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var providerCompletion = new TaskCompletionSource<ChatResponse>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var providerToken = CancellationToken.None;
+        var chatClient = new FakeChatClient((_, _, cancellationToken) =>
         {
-            await Task.Delay(Timeout.Infinite, cancellationToken);
-            return new ChatResponse(new ChatMessage(ChatRole.Assistant, "unreachable"));
+            providerToken = cancellationToken;
+            providerStarted.SetResult();
+            return providerCompletion.Task;
         });
 
-        var gateway = Gateway(chatClient, options => options.TimeoutSeconds = 1);
+        var gateway = Gateway(chatClient, timeProvider: clock, auditPublisher: audit);
+        var completion = gateway.CompleteAsync(Request(
+            timeout: TimeSpan.FromSeconds(30)));
 
-        var response = await gateway.CompleteAsync(Request());
+        await providerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        Assert.False(completion.IsCompleted);
+        clock.ExpireDeadline();
+        var response = await completion.WaitAsync(TimeSpan.FromSeconds(1));
 
         Assert.True(response.IsFailure);
         var error = Assert.IsType<AiGatewayError>(response.Error);
         Assert.Equal(AiGatewayErrorCode.Timeout, error.Code);
         Assert.True(error.IsRetryable);
         Assert.NotNull(error.Provider);
+        Assert.True(providerToken.IsCancellationRequested);
+        var auditEvent = Assert.Single(audit.Events);
+        Assert.Equal(AiGatewayCallResult.Failed, auditEvent.Result);
+        Assert.Equal(AiGatewayErrorCode.Timeout, auditEvent.ErrorCode);
+        Assert.True(auditEvent.IsRetryable);
+
+        providerCompletion.SetException(new InvalidOperationException("late failure"));
+        Assert.Single(audit.Events);
     }
 
     [Fact]
@@ -499,6 +712,36 @@ public sealed class RealAiGatewayProviderTests
 
         await Assert.ThrowsAsync<OperationCanceledException>(
             async () => await gateway.CompleteAsync(Request(), cancellation.Token));
+    }
+
+    [Fact]
+    public async Task Caller_cancellation_interrupts_non_cooperative_provider_without_timeout_result()
+    {
+        var audit = new CapturingAiGatewayAuditPublisher();
+        var providerStarted = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var providerCompletion = new TaskCompletionSource<ChatResponse>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var chatClient = new FakeChatClient((_, _, _) =>
+        {
+            providerStarted.SetResult();
+            return providerCompletion.Task;
+        });
+        var gateway = Gateway(chatClient, auditPublisher: audit);
+        using var cancellation = new CancellationTokenSource();
+
+        var completion = gateway.CompleteAsync(
+            Request(timeout: TimeSpan.FromMinutes(1)),
+            cancellation.Token);
+        await providerStarted.Task.WaitAsync(TimeSpan.FromSeconds(1));
+        await cancellation.CancelAsync();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            async () => await completion.WaitAsync(TimeSpan.FromSeconds(1)));
+        Assert.Empty(audit.Events);
+
+        providerCompletion.SetResult(SuccessChatResponse());
+        Assert.Empty(audit.Events);
     }
 
     [Fact]
@@ -567,10 +810,22 @@ public sealed class RealAiGatewayProviderTests
 
     private static IAiGateway Gateway(
         IChatClient chatClient,
-        Action<RealAiGatewayProviderOptions>? configure = null)
+        Action<RealAiGatewayProviderOptions>? configure = null,
+        TimeProvider? timeProvider = null,
+        IAiGatewayAuditPublisher? auditPublisher = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(chatClient);
+        if (timeProvider is not null)
+        {
+            services.AddSingleton(timeProvider);
+        }
+
+        if (auditPublisher is not null)
+        {
+            services.AddSingleton(auditPublisher);
+        }
+
         services.AddHiveAiGatewayReal(options =>
         {
             options.ProviderId = "openai";
@@ -590,11 +845,35 @@ public sealed class RealAiGatewayProviderTests
             new AiProviderMetadata("openai", "gpt-4o-mini"),
             new AiModelParameters());
 
+    private static void ConfigurePricing(RealAiGatewayProviderOptions options)
+    {
+        options.ModelId = "gpt-5-mini";
+        options.Pricing = new AiPricingCatalogOptions
+        {
+            Version = "openai-2026-07-13",
+            TokenUnit = 1_000_000,
+            Models =
+            [
+                new AiModelPricingOptions
+                {
+                    ProviderId = "openai",
+                    ModelId = "gpt-5-mini",
+                    Aliases = ["gpt-5-mini-2025-08-07"],
+                    InputPrice = 0.25m,
+                    OutputPrice = 2m,
+                    Currency = "USD",
+                },
+            ],
+        };
+    }
+
     private static AiGatewayRequest Request(
         string? systemInstruction = null,
         IEnumerable<AiGatewayMessage>? contextMessages = null,
         IEnumerable<AiToolDefinition>? tools = null,
-        AiModelParameters? modelParameters = null) =>
+        AiModelParameters? modelParameters = null,
+        AiOutputConstraint? outputConstraint = null,
+        TimeSpan? timeout = null) =>
         new(
             Organization,
             Position,
@@ -604,7 +883,21 @@ public sealed class RealAiGatewayProviderTests
             systemInstruction,
             contextMessages,
             tools,
-            modelParameters);
+            modelParameters,
+            timeout: timeout,
+            outputConstraint: outputConstraint);
+
+    private static AiOutputConstraint OutputConstraint(
+        params AiOutputConstraintMode[] allowedFallbackModes)
+    {
+        using var document = JsonDocument.Parse(
+            """{"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}""");
+        return new AiOutputConstraint(
+            "decision_v1",
+            1,
+            document.RootElement,
+            allowedFallbackModes);
+    }
 
     private sealed class FakeChatClient : IChatClient
     {
@@ -636,6 +929,98 @@ public sealed class RealAiGatewayProviderTests
 
         public void Dispose()
         {
+        }
+    }
+
+    private sealed class CapturingAiGatewayAuditPublisher : IAiGatewayAuditPublisher
+    {
+        private readonly List<AiGatewayCostAuditEvent> _events = new();
+
+        public IReadOnlyList<AiGatewayCostAuditEvent> Events => _events;
+
+        public void Publish(AiGatewayCostAuditEvent @event) => _events.Add(@event);
+    }
+
+    private sealed class TriggerableTimeProvider : TimeProvider
+    {
+        private TriggerableTimer? _timer;
+
+        public override ITimer CreateTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period)
+        {
+            var timer = new TriggerableTimer(callback, state, dueTime, period);
+            if (Interlocked.CompareExchange(ref _timer, timer, null) is not null)
+            {
+                throw new InvalidOperationException("Only one deadline timer was expected.");
+            }
+
+            return timer;
+        }
+
+        public void ExpireDeadline()
+        {
+            var timer = Volatile.Read(ref _timer)
+                ?? throw new InvalidOperationException("No deadline timer was scheduled.");
+            timer.Fire();
+        }
+
+        private sealed class TriggerableTimer(
+            TimerCallback callback,
+            object? state,
+            TimeSpan dueTime,
+            TimeSpan period) : ITimer
+        {
+            private readonly object _sync = new();
+            private TimeSpan _dueTime = dueTime;
+            private TimeSpan _period = period;
+            private bool _disposed;
+
+            public bool Change(TimeSpan dueTime, TimeSpan period)
+            {
+                lock (_sync)
+                {
+                    if (_disposed)
+                    {
+                        return false;
+                    }
+
+                    _dueTime = dueTime;
+                    _period = period;
+                    return true;
+                }
+            }
+
+            public void Dispose()
+            {
+                lock (_sync)
+                {
+                    _disposed = true;
+                }
+            }
+
+            public ValueTask DisposeAsync()
+            {
+                Dispose();
+                return ValueTask.CompletedTask;
+            }
+
+            public void Fire()
+            {
+                lock (_sync)
+                {
+                    if (_disposed || _dueTime == Timeout.InfiniteTimeSpan)
+                    {
+                        return;
+                    }
+
+                    _dueTime = _period;
+                }
+
+                callback(state);
+            }
         }
     }
 }

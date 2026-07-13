@@ -1,6 +1,8 @@
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Governance;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Hive.Tests;
 
@@ -51,7 +53,8 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry));
+            new OrganizationConfigurationImporter(registry),
+            ContractRegistry());
 
         var results = await importer.ImportAsync(
             Path.Combine(RepositoryRoot, "config", "organizations"));
@@ -62,6 +65,9 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         Assert.Equal(2, result.Snapshot.Units.Count);
         Assert.Equal(3, result.Snapshot.Positions.Count);
         Assert.Single(result.Snapshot.Schedules);
+        Assert.Contains(
+            result.Snapshot.ActionDomainCatalog.Value.Domains,
+            domain => domain.Key.Value == "delivery.bug-triage");
     }
 
     [Fact]
@@ -73,7 +79,8 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry));
+            new OrganizationConfigurationImporter(registry),
+            ContractRegistry());
         var expectedPath = Path.GetFullPath(
             Path.Combine(root, "acme-delivery", "prompts", "missing.md"));
 
@@ -97,7 +104,8 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry));
+            new OrganizationConfigurationImporter(registry),
+            ContractRegistry());
         var expectedPath = Path.GetFullPath(
             Path.Combine(root, "engineer-v1.md"));
 
@@ -124,7 +132,8 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var registry = new InMemoryOrganizationRegistry();
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry));
+            new OrganizationConfigurationImporter(registry),
+            ContractRegistry());
 
         var exception = await Assert.ThrowsAsync<InvalidDataException>(
             () => importer.ImportAsync(root));
@@ -134,6 +143,25 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
             absolutePromptPath.Replace('/', Path.DirectorySeparatorChar),
             exception.Message,
             StringComparison.Ordinal);
+        Assert.False(registry.TryGetSnapshot(OrganizationId.From("acme-delivery"), out _));
+    }
+
+    [Fact]
+    public async Task Directory_importer_rejects_missing_action_domain_catalog_before_writing()
+    {
+        var root = CreateOrganizationTree(
+            ValidOrganizationYaml,
+            ["prompts/ceo-v1.md", "prompts/engineer-v1.md"]);
+        var registry = new InMemoryOrganizationRegistry();
+        var importer = new OrganizationConfigurationDirectoryImporter(
+            new OrganizationConfigurationParser(),
+            new OrganizationConfigurationImporter(registry),
+            ContractRegistry());
+
+        var exception = await Assert.ThrowsAsync<FileNotFoundException>(
+            () => importer.ImportAsync(root));
+
+        Assert.Contains("action-domains.yaml", exception.Message, StringComparison.Ordinal);
         Assert.False(registry.TryGetSnapshot(OrganizationId.From("acme-delivery"), out _));
     }
 
@@ -154,6 +182,13 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         }
 
         return root;
+    }
+
+    private static IActionDomainContractRegistry ContractRegistry()
+    {
+        var services = new ServiceCollection();
+        services.AddHiveActionDomainContracts();
+        return services.BuildServiceProvider().GetRequiredService<IActionDomainContractRegistry>();
     }
 
     private static string Mutate(string yaml, string token, string replacement)

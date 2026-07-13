@@ -39,8 +39,15 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.Equal(OccupantType.AiAgent, bugTriage.Occupant.Type);
         Assert.Equal("triage-v1", bugTriage.Occupant.IdentityPromptRef);
         Assert.NotNull(bugTriage.Occupant.Ai);
-        Assert.Equal("stub", bugTriage.Occupant.Ai.Provider);
-        Assert.Equal("deterministic", bugTriage.Occupant.Ai.Model);
+        Assert.Equal("openai", bugTriage.Occupant.Ai.Provider);
+        Assert.Equal("gpt-5-mini", bugTriage.Occupant.Ai.Model);
+        Assert.Empty(bugTriage.Occupant.Ai.Fallback);
+        Assert.All(configuration.Positions, position =>
+        {
+            Assert.Equal("openai", position.Occupant.Ai!.Provider);
+            Assert.Equal("gpt-5-mini", position.Occupant.Ai.Model);
+            Assert.Empty(position.Occupant.Ai.Fallback);
+        });
         Assert.NotNull(bugTriage.Occupant.Authority);
         Assert.Equal(
             ["delivery.bug-triage"],

@@ -81,6 +81,20 @@ public sealed class PositionRuntimeConfigurationTests
     }
 
     [Fact]
+    public void Occupant_runtime_configuration_preserves_optional_configured_identity()
+    {
+        var identity = OccupantId.From("configured-ai:acme/bug-triage");
+
+        var configured = new OccupantRuntimeConfiguration(
+            OccupantType.AiAgent,
+            configuredIdentity: identity);
+        var unconfigured = new OccupantRuntimeConfiguration(OccupantType.Human);
+
+        Assert.Same(identity, configured.ConfiguredIdentity);
+        Assert.Null(unconfigured.ConfiguredIdentity);
+    }
+
+    [Fact]
     public void Load_result_distinguishes_loaded_blocking_and_technical_outcomes()
     {
         var configuration = RuntimeConfiguration("acme", "bug-triage", new PositionConfigurationStamp(2, "sha256:v2"));

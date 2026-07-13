@@ -22,6 +22,12 @@ public sealed class AiGatewayCostAuditEventTests
     {
         var usage = new AiTokenUsage(11, 7, 18, isEstimated: false);
         var cost = new AiCostMetadata(0.014m, "EUR", isEstimated: true);
+        var appliedPricing = new AiAppliedPricing(
+            "price-v1",
+            1_000_000,
+            1m,
+            2m,
+            "EUR");
         var response = AiGatewayResponse.Succeeded(
             Organization,
             Position,
@@ -31,7 +37,8 @@ public sealed class AiGatewayCostAuditEventTests
             AiFinishReason.Stop,
             Provider,
             usage: usage,
-            cost: cost);
+            cost: cost,
+            appliedPricing: appliedPricing);
 
         var audit = AiGatewayCostAuditEvent.FromResponse(
             Request(),
@@ -50,6 +57,8 @@ public sealed class AiGatewayCostAuditEventTests
         Assert.Equal(Provider, audit.Provider);
         Assert.Equal(usage, audit.Usage);
         Assert.Equal(cost, audit.Cost);
+        Assert.Equal(appliedPricing, audit.AppliedPricing);
+        Assert.Equal(AiCostStatus.Estimated, audit.CostStatus);
         Assert.Null(audit.ErrorCode);
         Assert.Null(audit.IsRetryable);
     }
@@ -80,6 +89,33 @@ public sealed class AiGatewayCostAuditEventTests
         Assert.True(audit.IsRetryable);
         Assert.Null(audit.Usage);
         Assert.Null(audit.Cost);
+        Assert.Null(audit.AppliedPricing);
+        Assert.Equal(AiCostStatus.Unavailable, audit.CostStatus);
+    }
+
+    [Fact]
+    public void Provider_declared_cost_is_reported_even_when_provider_marks_it_estimated()
+    {
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "The bug is reproducible.",
+            AiFinishReason.Stop,
+            Provider,
+            usage: new AiTokenUsage(11, 7, 18),
+            cost: new AiCostMetadata(0.014m, "EUR", isEstimated: true));
+
+        var audit = AiGatewayCostAuditEvent.FromResponse(
+            Request(),
+            response,
+            StartedAt,
+            CompletedAt);
+
+        Assert.Equal(AiCostStatus.ProviderReported, audit.CostStatus);
+        Assert.True(audit.Cost?.IsEstimated);
+        Assert.Null(audit.AppliedPricing);
     }
 
     [Fact]

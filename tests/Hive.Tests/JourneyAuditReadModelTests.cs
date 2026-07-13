@@ -117,6 +117,39 @@ public sealed class JourneyAuditReadModelTests
         Assert.Empty(timeline.Entries);
     }
 
+    [Fact]
+    public void ReadTimeline_preserves_safe_applied_pricing_payload()
+    {
+        var readModel = new JourneyAuditReadModel(new RecordingJourneyAuditLog(
+            Record(
+                1,
+                Organization,
+                Thread,
+                Directive,
+                JourneyAuditStage.GatewayCostRecorded,
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["costStatus"] = "estimated",
+                    ["pricingVersion"] = "pricing-v1",
+                    ["pricingTokenUnit"] = "1000000",
+                    ["inputPricePerTokenUnit"] = "0.25",
+                    ["outputPricePerTokenUnit"] = "2",
+                    ["pricingCurrency"] = "USD",
+                },
+                provider: new AiProviderMetadata("openai", "gpt-5-mini"))));
+
+        var entry = Assert.Single(
+            readModel.ReadTimeline(Organization, Thread, Directive).Entries);
+
+        Assert.Equal(JourneyAuditStage.GatewayCostRecorded, entry.Stage);
+        Assert.Equal("estimated", entry.RedactedPayload["costStatus"]);
+        Assert.Equal("pricing-v1", entry.RedactedPayload["pricingVersion"]);
+        Assert.Equal("1000000", entry.RedactedPayload["pricingTokenUnit"]);
+        Assert.Equal("0.25", entry.RedactedPayload["inputPricePerTokenUnit"]);
+        Assert.Equal("2", entry.RedactedPayload["outputPricePerTokenUnit"]);
+        Assert.Equal("USD", entry.RedactedPayload["pricingCurrency"]);
+    }
+
     private static JourneyAuditRecord Record(
         int id,
         OrganizationId organization,

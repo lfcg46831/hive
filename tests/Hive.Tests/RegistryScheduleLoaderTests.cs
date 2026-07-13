@@ -243,6 +243,7 @@ public sealed class RegistryScheduleLoaderTests
             snapshot.Authorities,
             schedules ?? snapshot.Schedules,
             snapshot.Relations,
+            snapshot.ActionDomainCatalog,
         ]);
     }
 

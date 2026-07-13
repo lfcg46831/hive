@@ -9,4 +9,5 @@ public enum RegistryEntityKind
     Authority,
     Schedule,
     CommandRelations,
+    ActionDomainCatalog,
 }

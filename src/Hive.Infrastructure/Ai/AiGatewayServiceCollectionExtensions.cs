@@ -146,7 +146,8 @@ public static class AiGatewayServiceCollectionExtensions
             {
                 var settings = ResolveRealProviderSettings(provider);
                 var chatClient = provider.GetRequiredService<IChatClient>();
-                return new RealAiGatewayProvider(chatClient, settings);
+                var timeProvider = provider.GetRequiredService<TimeProvider>();
+                return new RealAiGatewayProvider(chatClient, settings, timeProvider);
             }));
 
         return services;
@@ -174,7 +175,8 @@ public static class AiGatewayServiceCollectionExtensions
             {
                 var settings = ResolveRealProviderSettings(provider);
                 var chatClient = provider.GetRequiredService<IChatClient>();
-                return new RealAiGatewayProvider(chatClient, settings);
+                var timeProvider = provider.GetRequiredService<TimeProvider>();
+                return new RealAiGatewayProvider(chatClient, settings, timeProvider);
             }));
 
         return services;

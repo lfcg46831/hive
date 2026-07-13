@@ -31,4 +31,16 @@ public sealed class RealAiGatewayProviderOptions
 
     /// <summary>Optional default request timeout, in seconds.</summary>
     public int? TimeoutSeconds { get; set; }
+
+    /// <summary>
+    /// Provider/model output modes declared by the configured adapter. Defaults
+    /// to text only; structured modes must be opted into explicitly.
+    /// </summary>
+    public string[]? OutputCapabilities { get; set; }
+
+    /// <summary>
+    /// Optional versioned provider/model token pricing. When absent or without
+    /// an entry for the effective response model, estimated cost is unavailable.
+    /// </summary>
+    public AiPricingCatalogOptions? Pricing { get; set; }
 }

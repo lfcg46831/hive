@@ -141,6 +141,9 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 owner_type,
                 owner_ref,
                 prompts,
+                action_domain_catalog,
+                action_domain_catalog_fingerprint,
+                action_domain_catalog_updated_at,
                 entry_fingerprint,
                 updated_at)
             VALUES (
@@ -153,6 +156,9 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 @owner_type,
                 @owner_ref,
                 @prompts,
+                @action_domain_catalog,
+                @action_domain_catalog_fingerprint,
+                @action_domain_catalog_updated_at,
                 @entry_fingerprint,
                 @updated_at)
             ON CONFLICT (organization_id) DO UPDATE SET
@@ -164,6 +170,9 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 owner_type = EXCLUDED.owner_type,
                 owner_ref = EXCLUDED.owner_ref,
                 prompts = EXCLUDED.prompts,
+                action_domain_catalog = EXCLUDED.action_domain_catalog,
+                action_domain_catalog_fingerprint = EXCLUDED.action_domain_catalog_fingerprint,
+                action_domain_catalog_updated_at = EXCLUDED.action_domain_catalog_updated_at,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
             """,
@@ -178,6 +187,9 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddText(command, "owner_type", value.Owner.Type.ToString());
         AddText(command, "owner_ref", value.Owner.Ref);
         AddJson(command, "prompts", value.Prompts);
+        AddJson(command, "action_domain_catalog", snapshot.ActionDomainCatalog.Value);
+        AddText(command, "action_domain_catalog_fingerprint", snapshot.ActionDomainCatalog.Fingerprint);
+        AddTimestamp(command, "action_domain_catalog_updated_at", snapshot.ActionDomainCatalog.UpdatedAt);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

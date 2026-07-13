@@ -76,6 +76,12 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
             {
                 ["redactions"] = "gateway.request.content,gateway.response.text",
                 ["summary"] = "provider metadata only",
+                ["costStatus"] = "estimated",
+                ["pricingVersion"] = "pricing-v1",
+                ["pricingTokenUnit"] = "1000000",
+                ["inputPricePerTokenUnit"] = "0.25",
+                ["outputPricePerTokenUnit"] = "2",
+                ["pricingCurrency"] = "USD",
             },
             provider: new AiProviderMetadata("stub", "bug-triage"),
             usage: new AiTokenUsage(12, 18, 30, isEstimated: true),
@@ -101,6 +107,8 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
         Assert.Equal(30, reloaded.Usage?.TotalTokens);
         Assert.Equal(0.00042m, reloaded.Cost?.Amount);
         Assert.Equal(TimeSpan.FromMilliseconds(312), reloaded.Latency);
+        Assert.Equal("estimated", reloaded.Payload["costStatus"]);
+        Assert.Equal("pricing-v1", reloaded.Payload["pricingVersion"]);
         Assert.Contains("gateway.request.content", payloadJson, StringComparison.Ordinal);
         Assert.DoesNotContain("Customer reports checkout failures", payloadJson, StringComparison.Ordinal);
     }

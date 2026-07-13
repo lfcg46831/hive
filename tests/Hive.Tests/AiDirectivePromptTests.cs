@@ -91,6 +91,39 @@ public sealed class AiDirectivePromptTests
         AssertContainsInOrder(request.Content, "First task", "Second task");
         Assert.DoesNotContain("```", request.SystemInstruction + request.Content, StringComparison.Ordinal);
         Assert.DoesNotContain("Bug triage directive context", request.Content, StringComparison.Ordinal);
+        var outputConstraint = Assert.IsType<AiOutputConstraint>(request.OutputConstraint);
+        Assert.Equal("hive_ai_directive_decision_v1", outputConstraint.SchemaName);
+        Assert.Equal(1, outputConstraint.SchemaVersion);
+        var schema = outputConstraint.JsonSchema;
+        Assert.Equal("object", schema.GetProperty("type").GetString());
+        Assert.False(schema.TryGetProperty("oneOf", out _));
+        Assert.False(schema.TryGetProperty("anyOf", out _));
+        Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+        Assert.Equal(
+            ["schema_version", "intent", "acting_under", "report", "escalation", "directive"],
+            schema.GetProperty("required")
+                .EnumerateArray()
+                .Select(item => item.GetString())
+                .ToArray());
+        var properties = schema.GetProperty("properties");
+        foreach (var payloadName in new[] { "report", "escalation", "directive" })
+        {
+            var alternatives = properties.GetProperty(payloadName)
+                .GetProperty("anyOf")
+                .EnumerateArray()
+                .ToArray();
+            Assert.Equal(2, alternatives.Length);
+            Assert.Contains(
+                alternatives,
+                alternative => alternative.GetProperty("type").GetString() == "null");
+        }
+        Assert.Equal(
+            [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text],
+            outputConstraint.AllowedFallbackModes);
+        Assert.Contains(
+            "set the two payloads that do not match \"intent\" to null",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
     }
 
     [Fact]

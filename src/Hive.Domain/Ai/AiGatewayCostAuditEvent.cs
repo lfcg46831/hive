@@ -19,7 +19,9 @@ public sealed record AiGatewayCostAuditEvent
         AiCostMetadata? cost = null,
         AiGatewayErrorCode? errorCode = null,
         bool? isRetryable = null,
-        DirectiveId? directiveId = null)
+        DirectiveId? directiveId = null,
+        AiOutputConstraintMode? outputConstraintMode = null,
+        AiAppliedPricing? appliedPricing = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -52,6 +54,16 @@ public sealed record AiGatewayCostAuditEvent
                 nameof(errorCode));
         }
 
+        if (appliedPricing is not null &&
+            (cost is null ||
+             !cost.IsEstimated ||
+             !string.Equals(cost.Currency, appliedPricing.Currency, StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "Applied pricing requires estimated cost metadata in the same currency.",
+                nameof(appliedPricing));
+        }
+
         OrganizationId = organizationId;
         PositionId = positionId;
         ThreadId = threadId;
@@ -61,11 +73,22 @@ public sealed record AiGatewayCostAuditEvent
         Provider = provider;
         Usage = usage;
         Cost = cost;
+        AppliedPricing = appliedPricing;
+        CostStatus = cost is null
+            ? AiCostStatus.Unavailable
+            : appliedPricing is not null
+                ? AiCostStatus.Estimated
+                : AiCostStatus.ProviderReported;
         DirectiveId = directiveId;
         ErrorCode = errorCode is null
             ? null
             : AiGatewayErrorCodeContract.RequireDefined(errorCode.Value, nameof(errorCode));
         IsRetryable = isRetryable;
+        OutputConstraintMode = outputConstraintMode is null
+            ? null
+            : AiOutputConstraintModeContract.RequireDefined(
+                outputConstraintMode.Value,
+                nameof(outputConstraintMode));
     }
 
     public OrganizationId OrganizationId { get; }
@@ -92,9 +115,15 @@ public sealed record AiGatewayCostAuditEvent
 
     public AiCostMetadata? Cost { get; }
 
+    public AiAppliedPricing? AppliedPricing { get; }
+
+    public AiCostStatus CostStatus { get; }
+
     public AiGatewayErrorCode? ErrorCode { get; }
 
     public bool? IsRetryable { get; }
+
+    public AiOutputConstraintMode? OutputConstraintMode { get; }
 
     public static AiGatewayCostAuditEvent FromResponse(
         AiGatewayRequest request,
@@ -118,7 +147,9 @@ public sealed record AiGatewayCostAuditEvent
                 response.Provider ?? request.Provider,
                 response.Usage,
                 response.Cost,
-                directiveId: DirectiveIdFrom(request));
+                directiveId: DirectiveIdFrom(request),
+                outputConstraintMode: response.OutputConstraintMode,
+                appliedPricing: response.AppliedPricing);
         }
 
         var error = response.Error!;
@@ -133,7 +164,8 @@ public sealed record AiGatewayCostAuditEvent
             error.Provider ?? request.Provider,
             errorCode: error.Code,
             isRetryable: error.IsRetryable,
-            directiveId: DirectiveIdFrom(request));
+            directiveId: DirectiveIdFrom(request),
+            outputConstraintMode: response.OutputConstraintMode);
     }
 
     private static DirectiveId? DirectiveIdFrom(AiGatewayRequest request)

@@ -8,14 +8,15 @@ internal sealed class RealAiGatewayRequestNormalizer
 {
     public NormalizedAiGatewayProviderRequest Normalize(
         AiGatewayRequest request,
-        RealAiGatewayProviderSettings settings)
+        RealAiGatewayProviderSettings settings,
+        AiOutputConstraintMode? outputConstraintMode = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(settings);
 
         return new NormalizedAiGatewayProviderRequest(
             BuildMessages(request),
-            BuildOptions(request, settings));
+            BuildOptions(request, settings, outputConstraintMode));
     }
 
     private static List<ChatMessage> BuildMessages(AiGatewayRequest request)
@@ -41,7 +42,8 @@ internal sealed class RealAiGatewayRequestNormalizer
 
     private static ChatOptions BuildOptions(
         AiGatewayRequest request,
-        RealAiGatewayProviderSettings settings)
+        RealAiGatewayProviderSettings settings,
+        AiOutputConstraintMode? outputConstraintMode)
     {
         var parameters = MergeParameters(
             settings.DefaultParameters,
@@ -54,6 +56,7 @@ internal sealed class RealAiGatewayRequestNormalizer
                 ? (float)temperature
                 : null,
             MaxOutputTokens = parameters.MaxOutputTokens,
+            ResponseFormat = MapResponseFormat(request.OutputConstraint, outputConstraintMode),
         };
 
         if (request.Tools.Count > 0)
@@ -62,6 +65,29 @@ internal sealed class RealAiGatewayRequestNormalizer
         }
 
         return options;
+    }
+
+    private static ChatResponseFormat? MapResponseFormat(
+        AiOutputConstraint? constraint,
+        AiOutputConstraintMode? mode)
+    {
+        if (constraint is null || mode is null)
+        {
+            return null;
+        }
+
+        return mode.Value switch
+        {
+            AiOutputConstraintMode.JsonSchema => ChatResponseFormat.ForJsonSchema(
+                constraint.JsonSchema,
+                constraint.SchemaName),
+            AiOutputConstraintMode.JsonObject => ChatResponseFormat.Json,
+            AiOutputConstraintMode.Text => ChatResponseFormat.Text,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(mode),
+                mode,
+                "AI output constraint mode is undefined."),
+        };
     }
 
     private static AiModelParameters MergeParameters(

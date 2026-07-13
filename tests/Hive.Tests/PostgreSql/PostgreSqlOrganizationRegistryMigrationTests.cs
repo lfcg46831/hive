@@ -92,7 +92,7 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
                 "units",
             ],
             tableNames);
-        Assert.Equal([1, 2, 3], appliedVersions);
+        Assert.Equal([1, 2, 3, 4], appliedVersions);
         Assert.Equal(
             [
                 "organization_id",

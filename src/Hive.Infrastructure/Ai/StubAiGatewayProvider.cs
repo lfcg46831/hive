@@ -153,7 +153,8 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
             AiFinishReasonContract.ParseWireValue(options.FinishReason),
             provider,
             usage: CreateUsage(options.Usage),
-            cost: CreateCost(options.Cost));
+            cost: CreateCost(options.Cost),
+            outputConstraintMode: StubOutputConstraintMode(request));
 
     private static AiGatewayResponse CreateScenarioSuccess(
         AiGatewayRequest request,
@@ -169,7 +170,8 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
             AiFinishReason.Stop,
             provider,
             usage: CreateUsage(options.Usage),
-            cost: CreateCost(options.Cost));
+            cost: CreateCost(options.Cost),
+            outputConstraintMode: StubOutputConstraintMode(request));
 
     private static AiGatewayResponse CreateProviderControlledFailure(
         AiGatewayRequest request,
@@ -246,7 +248,8 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
             provider,
             [toolCall],
             CreateUsage(options.Usage),
-            CreateCost(options.Cost));
+            CreateCost(options.Cost),
+            StubOutputConstraintMode(request));
     }
 
     private static AiToolCall CreateToolCall(
@@ -284,6 +287,12 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
                 options.Amount,
                 options.Currency,
                 options.IsEstimated);
+
+    private static AiOutputConstraintMode? StubOutputConstraintMode(
+        AiGatewayRequest request) =>
+        request.OutputConstraint is null
+            ? null
+            : AiOutputConstraintMode.JsonSchema;
 
     private static string? OptionalConfiguredText(string? value) =>
         value == string.Empty ? null : value;

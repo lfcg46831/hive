@@ -11,6 +11,7 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Persistence.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -106,7 +107,8 @@ public static class HiveActorSystemBootstrapExtensions
         // decision can leave the boundary (US-F0-11-T10).
         builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
         builder.Services.TryAddSingleton<IAiAgentActionGate>(serviceProvider =>
-            AiAgentActionGate.CreateFailClosed(
+            AiAgentActionGate.CreateRuntime(
+                serviceProvider.GetRequiredService<IOrganizationActionGateRuntimeProvider>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>()));
         builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
             new PositionOccupantFactory(

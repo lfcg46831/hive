@@ -19,7 +19,8 @@ public sealed record AiGatewayAuditEnvelope
         AiTokenUsage? usage = null,
         AiCostMetadata? cost = null,
         string? rejectionReason = null,
-        IEnumerable<AiGatewayAuditRedaction>? redactions = null)
+        IEnumerable<AiGatewayAuditRedaction>? redactions = null,
+        AiOutputConstraintMode? outputConstraintMode = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -70,6 +71,11 @@ public sealed record AiGatewayAuditEnvelope
         Cost = cost;
         RejectionReason = sanitizedRejectionReason;
         Redactions = AiContractGuards.Snapshot(redactions, nameof(redactions));
+        OutputConstraintMode = outputConstraintMode is null
+            ? null
+            : AiOutputConstraintModeContract.RequireDefined(
+                outputConstraintMode.Value,
+                nameof(outputConstraintMode));
     }
 
     public OrganizationId OrganizationId { get; }
@@ -103,6 +109,8 @@ public sealed record AiGatewayAuditEnvelope
     public string? RejectionReason { get; }
 
     public IReadOnlyList<AiGatewayAuditRedaction> Redactions { get; }
+
+    public AiOutputConstraintMode? OutputConstraintMode { get; }
 }
 
 public sealed record AiGatewayAuditRequestSnapshot

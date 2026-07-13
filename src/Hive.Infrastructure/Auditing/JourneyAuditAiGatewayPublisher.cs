@@ -1,6 +1,7 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
+using System.Globalization;
 
 namespace Hive.Infrastructure.Auditing;
 
@@ -84,9 +85,17 @@ public sealed class JourneyAuditAiGatewayPublisher :
             payload["finishReason"] = finishReason.ToString();
         }
 
-        if (envelope.Error?.Code is { } errorCode)
+        if (envelope.Error is { } error)
         {
-            payload["errorCode"] = AiGatewayErrorCodeContract.ToWireValue(errorCode);
+            payload["errorCode"] = AiGatewayErrorCodeContract.ToWireValue(error.Code);
+            payload["errorMessage"] = error.Message;
+            payload["isRetryable"] = error.IsRetryable.ToString();
+        }
+
+        if (envelope.OutputConstraintMode is { } outputConstraintMode)
+        {
+            payload["outputConstraintMode"] =
+                AiOutputConstraintModeContract.ToWireValue(outputConstraintMode);
         }
 
         return payload;
@@ -97,11 +106,27 @@ public sealed class JourneyAuditAiGatewayPublisher :
         var payload = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["result"] = @event.Result.ToString(),
+            ["costStatus"] = AiCostStatusContract.ToWireValue(@event.CostStatus),
         };
 
         if (@event.IsRetryable is { } isRetryable)
         {
             payload["isRetryable"] = isRetryable.ToString();
+        }
+
+        if (@event.OutputConstraintMode is { } outputConstraintMode)
+        {
+            payload["outputConstraintMode"] =
+                AiOutputConstraintModeContract.ToWireValue(outputConstraintMode);
+        }
+
+        if (@event.AppliedPricing is { } pricing)
+        {
+            payload["pricingVersion"] = pricing.Version;
+            payload["pricingTokenUnit"] = pricing.TokenUnit.ToString(CultureInfo.InvariantCulture);
+            payload["inputPricePerTokenUnit"] = pricing.InputPrice.ToString(CultureInfo.InvariantCulture);
+            payload["outputPricePerTokenUnit"] = pricing.OutputPrice.ToString(CultureInfo.InvariantCulture);
+            payload["pricingCurrency"] = pricing.Currency;
         }
 
         return payload;

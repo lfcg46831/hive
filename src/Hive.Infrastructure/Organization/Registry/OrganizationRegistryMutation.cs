@@ -42,7 +42,8 @@ internal static class OrganizationRegistryMutation
             Materialize(current?.Occupants, target.Occupants, importedAt),
             Materialize(current?.Authorities, target.Authorities, importedAt),
             Materialize(current?.Schedules, target.Schedules, importedAt),
-            Materialize(current?.Relations, target.Relations, importedAt));
+            Materialize(current?.Relations, target.Relations, importedAt),
+            Materialize(current?.ActionDomainCatalog, target.ActionDomainCatalog, importedAt));
 
         return new OrganizationImportResult(OrganizationImportStatus.Applied, plan, snapshot);
     }
@@ -94,6 +95,12 @@ internal static class OrganizationRegistryMutation
             target.OrganizationId.Value,
             current?.Relations,
             target.Relations);
+        AddSingleChange(
+            changes,
+            RegistryEntityKind.ActionDomainCatalog,
+            target.OrganizationId.Value,
+            current?.ActionDomainCatalog,
+            target.ActionDomainCatalog);
 
         return changes
             .OrderBy(change => change.EntityKind)

@@ -5,6 +5,7 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Infrastructure.Governance;
 
 namespace Hive.Actors.Positions;
 
@@ -55,6 +56,9 @@ internal static class AiAgentActionGateCodes
         "action-gate-approver-mismatch",
         "action-gate-approval-resolver-unavailable",
         "action-gate-policy-not-found",
+        "action-gate-catalog-unavailable",
+        "action-gate-snapshot-divergent",
+        "action-gate-binding-invalid",
     };
 
     public static string Normalize(string code)
@@ -331,8 +335,9 @@ internal interface IAiActionApprovalResolver
 
 internal sealed class AiAgentActionGate : AiAgentActionGateBase
 {
-    private readonly ActionDomainCatalog _catalog;
-    private readonly ActionDomainCatalogBinding _binding;
+    private readonly ActionDomainCatalog? _catalog;
+    private readonly ActionDomainCatalogBinding? _binding;
+    private readonly IOrganizationActionGateRuntimeProvider? _runtimeProvider;
     private readonly IAiActionApprovalResolver _approvalResolver;
     private readonly Func<DateTimeOffset> _clock;
 
@@ -361,7 +366,23 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
     {
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _binding = binding ?? throw new ArgumentNullException(nameof(binding));
+        _runtimeProvider = null;
         _approvalResolver = approvalResolver ?? throw new ArgumentNullException(nameof(approvalResolver));
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
+    }
+
+    public AiAgentActionGate(
+        IOrganizationActionGateRuntimeProvider runtimeProvider,
+        IAiActionApprovalResolver approvalResolver,
+        IJourneyAuditLog auditLog,
+        Func<DateTimeOffset>? clock = null,
+        Func<DateTimeOffset>? auditClock = null)
+        : base(auditLog, auditClock)
+    {
+        _runtimeProvider = runtimeProvider
+            ?? throw new ArgumentNullException(nameof(runtimeProvider));
+        _approvalResolver = approvalResolver
+            ?? throw new ArgumentNullException(nameof(approvalResolver));
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -380,6 +401,18 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
             clock,
             auditClock);
 
+    internal static AiAgentActionGate CreateRuntime(
+        IOrganizationActionGateRuntimeProvider runtimeProvider,
+        IJourneyAuditLog auditLog,
+        Func<DateTimeOffset>? clock = null,
+        Func<DateTimeOffset>? auditClock = null) =>
+        new(
+            runtimeProvider,
+            RejectingApprovalResolver.Instance,
+            auditLog,
+            clock,
+            auditClock);
+
     protected override async ValueTask<AiAgentActionGateResult> EvaluateCoreAsync(
         AiDirectiveExecutionContext context,
         AiAgentActionCandidate candidate,
@@ -391,7 +424,60 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
 
         try
         {
-            var contracts = _binding.ActionContracts
+            ActionDomainCatalog catalog;
+            ActionDomainCatalogBinding binding;
+            ActionDomainAuthorityBinding authority;
+            if (_runtimeProvider is null)
+            {
+                catalog = _catalog!;
+                binding = _binding!;
+                authority = Authority(context);
+            }
+            else
+            {
+                OrganizationActionGateRuntimeSnapshot? runtime;
+                try
+                {
+                    runtime = await _runtimeProvider
+                        .FindAsync(context.OrganizationId, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception)
+                {
+                    return RetainFailure(context, candidate, "action-gate-catalog-unavailable");
+                }
+
+                if (runtime is null)
+                {
+                    return RetainFailure(context, candidate, "action-gate-catalog-unavailable");
+                }
+
+                if (context.LastConfigurationStamp is not { } stamp
+                    || stamp.Version != runtime.Version
+                    || !string.Equals(stamp.Fingerprint, runtime.Fingerprint, StringComparison.Ordinal))
+                {
+                    return RetainFailure(context, candidate, "action-gate-snapshot-divergent");
+                }
+
+                catalog = runtime.Catalog;
+                binding = runtime.Binding;
+                var authorityPath = $"positions[{context.PositionId.Value}].authority";
+                var authorities = binding.Authorities
+                    .Where(item => string.Equals(item.Path, authorityPath, StringComparison.Ordinal))
+                    .ToArray();
+                if (authorities.Length != 1 || !AuthorityMatches(authorities[0], context.Authority))
+                {
+                    return RetainFailure(context, candidate, "action-gate-binding-invalid");
+                }
+
+                authority = authorities[0];
+            }
+
+            var contracts = binding.ActionContracts
                 .Where(contract => contract.Action == candidate.Kind
                                    && string.Equals(
                                        contract.SelectorValue,
@@ -407,7 +493,7 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
             }
 
             var contract = contracts[0];
-            var registrations = _binding.ActionExtractors
+            var registrations = binding.ActionExtractors
                 .Where(registration => registration.Action == candidate.Kind
                                        && string.Equals(
                                            registration.SelectorValue,
@@ -448,8 +534,8 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
 
             var facts = extraction.Facts!;
             var resolution = ActionGateResolver.Resolve(
-                _catalog,
-                Authority(context),
+                catalog,
+                authority,
                 facts,
                 candidate.ActingUnder);
 
@@ -671,6 +757,18 @@ internal sealed class AiAgentActionGate : AiAgentActionGateBase
                     item.Gate,
                     item.Approver))
                 .ToArray());
+
+    private static bool AuthorityMatches(
+        ActionDomainAuthorityBinding binding,
+        AiDirectiveExecutionAuthority authority) =>
+        binding.CanDecide.Select(key => key.Value).OrderBy(value => value, StringComparer.Ordinal)
+            .SequenceEqual(authority.CanDecide.Select(key => key.Value).OrderBy(value => value, StringComparer.Ordinal))
+        && binding.Overrides
+            .Select(item => $"{item.Key.Value}|{item.Gate}|{item.Approver}")
+            .OrderBy(value => value, StringComparer.Ordinal)
+            .SequenceEqual(authority.Overrides
+                .Select(item => $"{item.Key.Value}|{item.Gate}|{item.Approver}")
+                .OrderBy(value => value, StringComparer.Ordinal));
 
     private static AiAgentActionRetentionIntent Retention(
         AiDirectiveExecutionContext context,

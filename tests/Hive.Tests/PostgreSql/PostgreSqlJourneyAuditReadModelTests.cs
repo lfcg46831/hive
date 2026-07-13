@@ -44,6 +44,12 @@ public sealed class PostgreSqlJourneyAuditReadModelTests(PostgreSqlFixture fixtu
                 ["decisionKind"] = "Report",
                 ["redactions"] = "directive.objective,directive.context,gateway.response.text",
                 ["safeSummary"] = "ids and codes only",
+                ["costStatus"] = "estimated",
+                ["pricingVersion"] = "pricing-v1",
+                ["pricingTokenUnit"] = "1000000",
+                ["inputPricePerTokenUnit"] = "0.25",
+                ["outputPricePerTokenUnit"] = "2",
+                ["pricingCurrency"] = "USD",
             },
             provider: new AiProviderMetadata("stub", "bug-triage"),
             usage: new AiTokenUsage(14, 21, 35, isEstimated: true),
@@ -70,6 +76,9 @@ public sealed class PostgreSqlJourneyAuditReadModelTests(PostgreSqlFixture fixtu
         Assert.Equal(
             "directive.objective,directive.context,gateway.response.text",
             agentDecision.RedactedPayload["redactions"]);
+        Assert.Equal("estimated", agentDecision.RedactedPayload["costStatus"]);
+        Assert.Equal("pricing-v1", agentDecision.RedactedPayload["pricingVersion"]);
+        Assert.Equal("1000000", agentDecision.RedactedPayload["pricingTokenUnit"]);
         Assert.DoesNotContain(
             "Customer reports checkout failure",
             JsonSerializer.Serialize(timeline),

@@ -40,6 +40,9 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("Delivery Lead", configuration.Position.Name);
         Assert.Equal("Europe/Lisbon", configuration.Position.Timezone);
         Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
+        Assert.Equal(
+            OccupantId.From("configured-ai:acme-delivery/delivery-lead"),
+            configuration.Occupant.ConfiguredIdentity);
         Assert.Equal("engineer-v1", configuration.Occupant.IdentityPromptRef);
         Assert.NotNull(configuration.Occupant.IdentityPrompt);
         Assert.Equal("engineer-v1", configuration.Occupant.IdentityPrompt.Id);
@@ -48,16 +51,14 @@ public sealed class PositionConfigurationProviderTests
         Assert.NotNull(configuration.Occupant.Ai);
         var aiGateway = configuration.Occupant.AiGateway;
         Assert.NotNull(aiGateway);
-        Assert.Equal("stub", aiGateway.Primary.ProviderId);
-        Assert.Equal("deterministic", aiGateway.Primary.ModelId);
-        Assert.Equal(0.2m, aiGateway.Parameters.Temperature);
-        Assert.Equal(1024, aiGateway.Parameters.MaxOutputTokens);
+        Assert.Equal("openai", aiGateway.Primary.ProviderId);
+        Assert.Equal("gpt-5-mini", aiGateway.Primary.ModelId);
+        Assert.Null(aiGateway.Parameters.Temperature);
+        Assert.Equal(4096, aiGateway.Parameters.MaxOutputTokens);
         Assert.Equal(4, aiGateway.MaxIterations);
         Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.Timeout);
         Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
-        var fallback = Assert.Single(aiGateway.Fallback);
-        Assert.Equal("stub", fallback.ProviderId);
-        Assert.Equal("deterministic-backup", fallback.ModelId);
+        Assert.Empty(aiGateway.Fallback);
         var limits = aiGateway.CostLimits;
         Assert.NotNull(limits);
         Assert.Equal(5.00m, limits.ReactiveMaxEurPerDay);
@@ -100,6 +101,9 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("Bug Triage", configuration.Position.Name);
         Assert.Equal("Europe/Lisbon", configuration.Position.Timezone);
         Assert.Equal(OccupantType.AiAgent, configuration.Occupant.Type);
+        Assert.Equal(
+            OccupantId.From("configured-ai:acme-delivery/bug-triage"),
+            configuration.Occupant.ConfiguredIdentity);
         Assert.Equal("triage-v1", configuration.Occupant.IdentityPromptRef);
         Assert.NotNull(configuration.Occupant.IdentityPrompt);
         Assert.Equal("triage-v1", configuration.Occupant.IdentityPrompt.Id);
@@ -107,8 +111,9 @@ public sealed class PositionConfigurationProviderTests
         Assert.Contains("Example bug triage facts", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
         var aiGateway = configuration.Occupant.AiGateway;
         Assert.NotNull(aiGateway);
-        Assert.Equal("stub", aiGateway.Primary.ProviderId);
-        Assert.Equal("deterministic", aiGateway.Primary.ModelId);
+        Assert.Equal("openai", aiGateway.Primary.ProviderId);
+        Assert.Equal("gpt-5-mini", aiGateway.Primary.ModelId);
+        Assert.Empty(aiGateway.Fallback);
         Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
         Assert.Equal(["delivery.bug-triage"], configuration.Authority.CanDecide.Select(key => key.Value));
         Assert.Empty(configuration.Authority.Overrides);
@@ -384,6 +389,7 @@ public sealed class PositionConfigurationProviderTests
             authorities ?? snapshot.Authorities,
             schedules ?? snapshot.Schedules,
             snapshot.Relations,
+            snapshot.ActionDomainCatalog,
         ]);
     }
 

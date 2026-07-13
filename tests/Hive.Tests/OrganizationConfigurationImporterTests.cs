@@ -60,6 +60,7 @@ public sealed class OrganizationConfigurationImporterTests
                 (RegistryEntityKind.Authority, "delivery-lead"),
                 (RegistryEntityKind.Schedule, "delivery-lead/relatorio-diario"),
                 (RegistryEntityKind.CommandRelations, "acme-delivery"),
+                (RegistryEntityKind.ActionDomainCatalog, "acme-delivery"),
             ],
             result.Plan!.Changes.Select(change => (change.EntityKind, change.Key)));
         Assert.All(

@@ -173,7 +173,10 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         occupant.Subscriptions,
                         occupant.Tools,
                         aiGateway,
-                        identityPrompt),
+                        identityPrompt,
+                        configuredIdentity: occupant.Type == OccupantType.AiAgent
+                            ? ConfiguredAiOccupantIdentity.For(entityId)
+                            : null),
                     new PositionAuthorityRuntimeConfiguration(
                         authority.CanDecide,
                         authority.Overrides.Select(item =>

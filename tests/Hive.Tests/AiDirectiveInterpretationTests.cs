@@ -50,6 +50,34 @@ public sealed class AiDirectiveInterpretationTests
         Assert.False(typeof(OrgMessage).IsAssignableFrom(result.GetType()));
     }
 
+    [Theory]
+    [InlineData(AiOutputConstraintMode.JsonSchema)]
+    [InlineData(AiOutputConstraintMode.JsonObject)]
+    [InlineData(AiOutputConstraintMode.Text)]
+    public void Interpret_always_applies_local_contract_validation(
+        AiOutputConstraintMode outputConstraintMode)
+    {
+        var invocation = AiAgentGatewayInvocationResult.FromResponse(
+            "directive:invalid-local-shape",
+            AiGatewayResponse.Succeeded(
+                Organization,
+                Position,
+                Thread,
+                Message,
+                """{"schema_version":1,"intent":"Report","acting_under":"bug.triage","report":{"kind":"Done","body":"Complete","unexpected":true}}""",
+                AiFinishReason.Stop,
+                outputConstraintMode: outputConstraintMode));
+
+        var result = AiDirectiveDecisionInterpreter.Interpret(invocation);
+
+        Assert.Equal(AiDirectiveInterpretationOutcomeKind.EscalationRequired, result.Outcome);
+        var failure = Assert.IsType<AiDirectiveInterpretationFailure>(result.Failure);
+        Assert.Equal("ai-output-invalid", failure.Code);
+        Assert.Contains(
+            failure.ParseErrors,
+            error => error.Code == "unknown-field" && error.Path == "report.unexpected");
+    }
+
     [Fact]
     public async Task AiAgentActor_stores_accepted_interpretation_and_advances_to_result_emitted()
     {

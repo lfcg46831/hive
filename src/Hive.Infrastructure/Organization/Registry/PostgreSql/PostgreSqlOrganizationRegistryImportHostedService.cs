@@ -1,5 +1,6 @@
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
+using Hive.Infrastructure.Governance;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -13,15 +14,18 @@ internal sealed class PostgreSqlOrganizationRegistryImportHostedService : IHoste
     private readonly IConfiguration _configuration;
     private readonly IOptions<HiveOptions> _options;
     private readonly ILogger<PostgreSqlOrganizationRegistryImportHostedService> _logger;
+    private readonly IActionDomainContractRegistry _contractRegistry;
 
     public PostgreSqlOrganizationRegistryImportHostedService(
         IConfiguration configuration,
         IOptions<HiveOptions> options,
-        ILogger<PostgreSqlOrganizationRegistryImportHostedService> logger)
+        ILogger<PostgreSqlOrganizationRegistryImportHostedService> logger,
+        IActionDomainContractRegistry contractRegistry)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _contractRegistry = contractRegistry ?? throw new ArgumentNullException(nameof(contractRegistry));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -44,7 +48,8 @@ internal sealed class PostgreSqlOrganizationRegistryImportHostedService : IHoste
         var registry = new PostgreSqlOrganizationRegistry(dataSource);
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry));
+            new OrganizationConfigurationImporter(registry),
+            _contractRegistry);
 
         var results = await importer
             .ImportAsync(organizationsRoot, cancellationToken)

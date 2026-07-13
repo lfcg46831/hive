@@ -15,7 +15,9 @@ public sealed record AiGatewayResponse
         IEnumerable<AiToolCall>? toolCalls,
         AiTokenUsage? usage,
         AiCostMetadata? cost,
-        AiGatewayError? error)
+        AiGatewayError? error,
+        AiOutputConstraintMode? outputConstraintMode,
+        AiAppliedPricing? appliedPricing)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -45,12 +47,15 @@ public sealed record AiGatewayResponse
             provider is not null ||
             usage is not null ||
             cost is not null ||
-            toolCalls is not null))
+            toolCalls is not null ||
+            appliedPricing is not null))
         {
             throw new ArgumentException(
                 "Failed AI gateway response cannot carry success payload.",
                 nameof(error));
         }
+
+        ValidateAppliedPricing(cost, appliedPricing);
 
         OrganizationId = organizationId;
         PositionId = positionId;
@@ -65,6 +70,12 @@ public sealed record AiGatewayResponse
         Usage = usage;
         Cost = cost;
         Error = error;
+        AppliedPricing = appliedPricing;
+        OutputConstraintMode = outputConstraintMode is null
+            ? null
+            : AiOutputConstraintModeContract.RequireDefined(
+                outputConstraintMode.Value,
+                nameof(outputConstraintMode));
     }
 
     public OrganizationId OrganizationId { get; }
@@ -91,7 +102,11 @@ public sealed record AiGatewayResponse
 
     public AiCostMetadata? Cost { get; }
 
+    public AiAppliedPricing? AppliedPricing { get; }
+
     public AiGatewayError? Error { get; }
+
+    public AiOutputConstraintMode? OutputConstraintMode { get; }
 
     public static AiGatewayResponse Succeeded(
         OrganizationId organizationId,
@@ -103,7 +118,9 @@ public sealed record AiGatewayResponse
         AiProviderMetadata? provider = null,
         IEnumerable<AiToolCall>? toolCalls = null,
         AiTokenUsage? usage = null,
-        AiCostMetadata? cost = null) =>
+        AiCostMetadata? cost = null,
+        AiOutputConstraintMode? outputConstraintMode = null,
+        AiAppliedPricing? appliedPricing = null) =>
         new(
             organizationId,
             positionId,
@@ -115,9 +132,13 @@ public sealed record AiGatewayResponse
             toolCalls,
             usage,
             cost,
-            error: null);
+            error: null,
+            outputConstraintMode: outputConstraintMode,
+            appliedPricing: appliedPricing);
 
-    public static AiGatewayResponse Failed(AiGatewayError error)
+    public static AiGatewayResponse Failed(
+        AiGatewayError error,
+        AiOutputConstraintMode? outputConstraintMode = null)
     {
         ArgumentNullException.ThrowIfNull(error);
 
@@ -132,6 +153,35 @@ public sealed record AiGatewayResponse
             toolCalls: null,
             usage: null,
             cost: null,
-            error);
+            error,
+            outputConstraintMode: outputConstraintMode,
+            appliedPricing: null);
+    }
+
+    private static void ValidateAppliedPricing(
+        AiCostMetadata? cost,
+        AiAppliedPricing? appliedPricing)
+    {
+        if (appliedPricing is null)
+        {
+            return;
+        }
+
+        if (cost is null || !cost.IsEstimated)
+        {
+            throw new ArgumentException(
+                "Applied pricing requires estimated cost metadata.",
+                nameof(appliedPricing));
+        }
+
+        if (!string.Equals(
+            cost.Currency,
+            appliedPricing.Currency,
+            StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Applied pricing currency must match cost currency.",
+                nameof(appliedPricing));
+        }
     }
 }

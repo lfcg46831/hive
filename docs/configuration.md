@@ -222,7 +222,7 @@ The command exits `0` only when every check passes and exits non-zero with the f
 
 The F0 demo uses the tracked ACME Delivery organization, the real OpenAI gateway adapter, and the reproducible demo seed `us-f0-10-t12-demo`. The demo profile selects the real provider by configuration only; the base hosts and the default test suite remain offline and use no external credentials.
 
-Copy `.env.example` to the ignored `.env` file, then set `OPENAI_API_KEY` there. `OPENAI_MODEL_ID` is optional and defaults to `gpt-4o-mini` when it is empty or absent. Never commit the populated `.env` file. Compose stops during configuration resolution when the key is missing, before starting a misconfigured demo.
+Copy `.env.example` to the ignored `.env` file, then set `OPENAI_API_KEY` there. `OPENAI_MODEL_ID` is optional and defaults to `gpt-5-mini` when it is empty or absent. Never commit the populated `.env` file. Compose stops during configuration resolution when the key is missing, before starting a misconfigured demo.
 
 Start the one-node demo topology:
 
@@ -243,6 +243,21 @@ dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost
 ```
 
 The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
+
+To run the complete 30-case evaluation, expose PostgreSQL only on loopback with the existing local override when starting the demo:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.postgres-external.yml up --build
+```
+
+Set the runner's read-only connection in the current shell and choose a new canonical `run-id` for each independent measurement:
+
+```powershell
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id model-a-001 --base-url http://localhost:8080
+```
+
+The runner submits cases sequentially through the generic directive API and writes `artifacts/evaluation/model-a-001.json`. It polls the audit read model for at most two minutes per case by default. Override this with `--timeout-seconds` and `--poll-milliseconds`; use `--corpus` or `--output` only when evaluating a different fixture or output location. Reusing a `run-id` reuses the same deterministic message/thread/directive identities for safe retry; it does not create a second independent measurement. The output contains correlation, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, human baseline, model text, credentials, or the connection string. Do not commit populated result datasets until they have been reviewed as evaluation artefacts.
 
 Stop the demo with the same Compose file set used to start it:
 
@@ -377,21 +392,43 @@ The real provider reads its secure configuration from `Hive:AiGateway:Real` and 
 | `Hive:AiGateway:Real:Temperature` | no | Default sampling temperature (0–2). Out-of-range values fail with `configuration-invalid`. |
 | `Hive:AiGateway:Real:MaxOutputTokens` | no | Default maximum output tokens (> 0). Non-positive values fail with `configuration-invalid`. |
 | `Hive:AiGateway:Real:TimeoutSeconds` | no | Default request timeout in seconds (> 0). Non-positive values fail with `configuration-invalid`. |
+| `Hive:AiGateway:Real:OutputCapabilities` | no | Collection of response-format capabilities declared for the configured provider/model: `json-schema`, `json-object`, and/or `text`. The default is `text` only. Declare structured modes only when the concrete provider/model supports them; invalid or empty collections fail with `configuration-invalid`. HIVE never infers capabilities from a model name. |
+| `Hive:AiGateway:Real:Pricing:Version` | when `Pricing` exists | Canonical version of the operational price catalog. Change it whenever any price or model mapping changes. |
+| `Hive:AiGateway:Real:Pricing:TokenUnit` | when `Pricing` exists | Positive token unit used by every catalog rate, normally `1000000` for prices per million tokens. |
+| `Hive:AiGateway:Real:Pricing:Models:{n}:ProviderId` / `ModelId` | per price entry | Exact canonical provider/model key for the price. |
+| `Hive:AiGateway:Real:Pricing:Models:{n}:Aliases` | no | Exact response-model aliases or snapshots that use the same price. Aliases cannot be ambiguous within a provider. |
+| `Hive:AiGateway:Real:Pricing:Models:{n}:InputPrice` / `OutputPrice` | per price entry | Non-negative decimal input/output prices per `TokenUnit`. |
+| `Hive:AiGateway:Real:Pricing:Models:{n}:Currency` | per price entry | Three-letter uppercase currency code shared by the entry's input/output prices. |
 
 Example (secret supplied as an environment variable):
 
 ```text
 HIVE__AIGATEWAY__PROVIDER=real
 HIVE__AIGATEWAY__REAL__PROVIDERID=openai
-HIVE__AIGATEWAY__REAL__MODELID=gpt-4o-mini
+HIVE__AIGATEWAY__REAL__MODELID=gpt-5-mini
 HIVE__AIGATEWAY__REAL__ENDPOINT=https://api.example.com/v1
 HIVE__AIGATEWAY__REAL__APIKEY=<secret>
 HIVE__AIGATEWAY__REAL__TEMPERATURE=0.5
 HIVE__AIGATEWAY__REAL__MAXOUTPUTTOKENS=256
 HIVE__AIGATEWAY__REAL__TIMEOUTSECONDS=30
+HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__0=json-schema
+HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__1=json-object
+HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__2=text
+HIVE__AIGATEWAY__REAL__PRICING__VERSION=openai-2026-07-13
+HIVE__AIGATEWAY__REAL__PRICING__TOKENUNIT=1000000
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__PROVIDERID=openai
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__MODELID=gpt-5-mini
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__ALIASES__0=gpt-5-mini-2025-08-07
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__INPUTPRICE=0.25
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__OUTPUTPRICE=2.00
+HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__CURRENCY=USD
 ```
 
-When a position's runtime configuration specifies provider/model, parameters, timeout, or max iterations, those values override these defaults; absent position values fall back to the defaults above without inventing new values.
+When a position's runtime configuration specifies provider/model, parameters, timeout, or max iterations, those values override these defaults; absent position values fall back to the defaults above without inventing new values. `OutputCapabilities` must describe the effective provider/model served by the adapter, including any model selected by position configuration. For a constrained request, HIVE prefers `json-schema`; it uses `json-object` or `text` only when the request explicitly allows that fallback, and rejects the request before network access when no acceptable mode remains. Local HIVE contract validation still runs for every negotiated mode.
+
+`Pricing` is optional, but a configured catalog is validated as a complete unit when the real provider starts. Partial entries, non-positive units, negative rates, invalid currencies, and duplicate canonical/alias keys fail with `configuration-invalid`. Provider-declared cost takes precedence. Otherwise HIVE estimates cost only when both input and output usage exist and the effective response provider/model has an exact canonical or alias match. Missing usage or price is emitted as `cost-unavailable`; HIVE never substitutes zero. The audit cost event and evaluation dataset retain the cost status, catalog version, token unit, input/output rates, currency, and estimation flag.
+
+The demo catalog version `openai-2026-07-13` records the standard GPT-5 mini text-token rates observed on 2026-07-13: USD 0.25 input and USD 2.00 output per one million tokens, including the published `gpt-5-mini-2025-08-07` snapshot alias. Verify the [official GPT-5 mini model pricing](https://developers.openai.com/api/docs/models/gpt-5-mini) and update the catalog version and rates before relying on it after a provider pricing change. If `OPENAI_MODEL_ID` selects another model, add a matching price entry or expect `cost-unavailable`.
 
 ### Optional real-provider integration smoke test
 

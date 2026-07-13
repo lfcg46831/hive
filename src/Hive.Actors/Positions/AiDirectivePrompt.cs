@@ -28,7 +28,8 @@ internal static class AiDirectivePrompt
             provider: context.Provider,
             processingMode: context.ProcessingMode,
             timeout: context.Limits.Timeout,
-            policy: Policy(context));
+            policy: Policy(context),
+            outputConstraint: AiDirectiveDecisionSchema.OutputConstraint);
     }
 
     private static string BuildSystemInstruction(AiDirectiveExecutionContext context)
@@ -51,6 +52,7 @@ internal static class AiDirectivePrompt
                 $"Use exactly one top-level \"{AiDirectiveDecisionSchema.IntentProperty}\" value: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
                 $"Include required top-level \"{AiToolActingUnderSchema.PropertyName}\" alongside \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" and \"{AiDirectiveDecisionSchema.IntentProperty}\" for every organizational message output.",
                 $"Allowed \"{AiToolActingUnderSchema.PropertyName}\" values for this position: {ActingUnderVocabulary(context)}.",
+                $"Always include top-level \"{AiDirectiveDecisionSchema.ReportPayloadProperty}\", \"{AiDirectiveDecisionSchema.EscalationPayloadProperty}\", and \"{AiDirectiveDecisionSchema.DirectivePayloadProperty}\"; set the two payloads that do not match \"{AiDirectiveDecisionSchema.IntentProperty}\" to null.",
                 $"For {reportIntent}, include {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
                 $"For {escalationIntent}, include {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
                 $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",

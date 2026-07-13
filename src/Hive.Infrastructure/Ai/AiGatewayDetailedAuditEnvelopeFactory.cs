@@ -48,7 +48,8 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
                 auditResponse,
                 usage: response.Usage,
                 cost: response.Cost,
-                redactions: redactions);
+                redactions: redactions,
+                outputConstraintMode: response.OutputConstraintMode);
         }
 
         var error = response.Error!;
@@ -71,7 +72,8 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
             error.Provider ?? request.Provider,
             error: auditError,
             rejectionReason: rejectionReason,
-            redactions: redactions);
+            redactions: redactions,
+            outputConstraintMode: response.OutputConstraintMode);
     }
 
     private static AiGatewayAuditRequestSnapshot CreateRequestSnapshot(

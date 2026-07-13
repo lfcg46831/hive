@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
 using Hive.Domain.Organization.Configuration;
@@ -48,7 +49,8 @@ internal static class PostgreSqlOrganizationRegistryReader
             occupants,
             authorities,
             schedules,
-            relations);
+            relations,
+            header.ActionDomainCatalog);
     }
 
     private static async Task<Header?> LoadHeaderAsync(
@@ -67,6 +69,9 @@ internal static class PostgreSqlOrganizationRegistryReader
                    owner_type,
                    owner_ref,
                    prompts::text,
+                   action_domain_catalog::text,
+                   action_domain_catalog_fingerprint,
+                   action_domain_catalog_updated_at,
                    entry_fingerprint,
                    updated_at
             FROM registry.organizations
@@ -89,14 +94,28 @@ internal static class PostgreSqlOrganizationRegistryReader
             new OwnerConfiguration(ownerType, reader.GetString(6)),
             Array.AsReadOnly(RegistryJson.Deserialize<PromptConfiguration[]>(reader.GetString(7))));
 
+        var actionDomainCatalog = reader.IsDBNull(8) || reader.IsDBNull(9) || reader.IsDBNull(10)
+            ? new RegistryEntry<ActionDomainCatalog>(
+                new ActionDomainCatalog(
+                    1,
+                    new ActionDomainCatalogDefaults(ActionDomainGate.Escalate),
+                    []),
+                "missing",
+                reader.GetFieldValue<DateTimeOffset>(2))
+            : new RegistryEntry<ActionDomainCatalog>(
+                RegistryJson.DeserializeActionDomainCatalog(reader.GetString(8)),
+                reader.GetString(9),
+                reader.GetFieldValue<DateTimeOffset>(10));
+
         return new Header(
             reader.GetInt64(0),
             reader.GetString(1),
             reader.GetFieldValue<DateTimeOffset>(2),
             new RegistryEntry<RegistryOrganization>(
                 value,
-                reader.GetString(8),
-                reader.GetFieldValue<DateTimeOffset>(9)));
+                reader.GetString(11),
+                reader.GetFieldValue<DateTimeOffset>(12)),
+            actionDomainCatalog);
     }
 
     private static async Task<IReadOnlyDictionary<UnitId, RegistryEntry<RegistryUnit>>> LoadUnitsAsync(
@@ -376,5 +395,6 @@ internal static class PostgreSqlOrganizationRegistryReader
         long Version,
         string ConfigurationFingerprint,
         DateTimeOffset ImportedAt,
-        RegistryEntry<RegistryOrganization> Organization);
+        RegistryEntry<RegistryOrganization> Organization,
+        RegistryEntry<ActionDomainCatalog> ActionDomainCatalog);
 }

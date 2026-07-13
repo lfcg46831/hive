@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
 using Hive.Domain.Organization.Configuration;
@@ -20,6 +21,7 @@ internal sealed class OrganizationRegistryProjection
         IReadOnlyDictionary<PositionId, ProjectedEntry<RegistryAuthority>> authorities,
         IReadOnlyDictionary<RegistryScheduleKey, ProjectedEntry<RegistrySchedule>> schedules,
         ProjectedEntry<OrganizationRelationsSnapshot> relations,
+        ProjectedEntry<ActionDomainCatalog> actionDomainCatalog,
         string fingerprint)
     {
         OrganizationId = organizationId;
@@ -30,6 +32,7 @@ internal sealed class OrganizationRegistryProjection
         Authorities = authorities;
         Schedules = schedules;
         Relations = relations;
+        ActionDomainCatalog = actionDomainCatalog;
         Fingerprint = fingerprint;
     }
 
@@ -49,11 +52,16 @@ internal sealed class OrganizationRegistryProjection
 
     public ProjectedEntry<OrganizationRelationsSnapshot> Relations { get; }
 
+    public ProjectedEntry<ActionDomainCatalog> ActionDomainCatalog { get; }
+
     public string Fingerprint { get; }
 
-    public static OrganizationRegistryProjection Create(OrganizationConfiguration configuration)
+    public static OrganizationRegistryProjection Create(
+        OrganizationConfiguration configuration,
+        ActionDomainCatalog actionDomainCatalog)
     {
         ArgumentNullException.ThrowIfNull(configuration);
+        ArgumentNullException.ThrowIfNull(actionDomainCatalog);
 
         var organization = Project(new RegistryOrganization(
             configuration.Organization.Id,
@@ -124,11 +132,13 @@ internal sealed class OrganizationRegistryProjection
         var relations = new ProjectedEntry<OrganizationRelationsSnapshot>(
             relationsSnapshot,
             ComputeFingerprint(relationDescriptor));
+        var projectedActionDomainCatalog = Project(actionDomainCatalog);
 
         var entityFingerprints = new List<(RegistryEntityKind Kind, string Key, string Fingerprint)>
         {
             (RegistryEntityKind.Organization, configuration.Organization.Id.Value, organization.Fingerprint),
             (RegistryEntityKind.CommandRelations, configuration.Organization.Id.Value, relations.Fingerprint),
+            (RegistryEntityKind.ActionDomainCatalog, configuration.Organization.Id.Value, projectedActionDomainCatalog.Fingerprint),
         };
         entityFingerprints.AddRange(units.Select(pair =>
             (RegistryEntityKind.Unit, pair.Key.Value, pair.Value.Fingerprint)));
@@ -157,6 +167,7 @@ internal sealed class OrganizationRegistryProjection
             new ReadOnlyDictionary<PositionId, ProjectedEntry<RegistryAuthority>>(authorities),
             new ReadOnlyDictionary<RegistryScheduleKey, ProjectedEntry<RegistrySchedule>>(schedules),
             relations,
+            projectedActionDomainCatalog,
             ComputeFingerprint(canonical));
     }
 

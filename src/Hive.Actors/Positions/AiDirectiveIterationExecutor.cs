@@ -436,7 +436,8 @@ internal sealed class AiDirectiveIterationExecutor
             request.Provider,
             request.ProcessingMode,
             request.Timeout,
-            request.Policy);
+            request.Policy,
+            request.OutputConstraint);
     }
 
     private static bool IsToolAuthorized(

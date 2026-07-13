@@ -34,16 +34,12 @@ positions:
       type: ai-agent
       identity_prompt_ref: ceo-v1
       ai:
-        provider: stub
-        model: deterministic
-        temperature: 0.2
-        max_tokens: 1024
+        provider: openai
+        model: gpt-5-mini
+        max_tokens: 4096
         max_iterations: 4
         timeout: PT30S
         processing: interactive
-        fallback:
-          - provider: stub
-            model: deterministic-backup
         budget:
           reactive_max_eur_per_day: 5.00
           proactive_max_eur_per_day: 1.00
@@ -60,16 +56,12 @@ positions:
       type: ai-agent
       identity_prompt_ref: engineer-v1
       ai:
-        provider: stub
-        model: deterministic
-        temperature: 0.2
-        max_tokens: 1024
+        provider: openai
+        model: gpt-5-mini
+        max_tokens: 4096
         max_iterations: 4
         timeout: PT30S
         processing: interactive
-        fallback:
-          - provider: stub
-            model: deterministic-backup
         budget:
           reactive_max_eur_per_day: 5.00
           proactive_max_eur_per_day: 1.00
@@ -101,16 +93,12 @@ positions:
       type: ai-agent
       identity_prompt_ref: triage-v1
       ai:
-        provider: stub
-        model: deterministic
-        temperature: 0.2
-        max_tokens: 1024
+        provider: openai
+        model: gpt-5-mini
+        max_tokens: 4096
         max_iterations: 4
         timeout: PT30S
         processing: interactive
-        fallback:
-          - provider: stub
-            model: deterministic-backup
         budget:
           reactive_max_eur_per_day: 5.00
           proactive_max_eur_per_day: 1.00

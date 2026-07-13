@@ -20,6 +20,7 @@ public sealed class AiDirectiveDecisionParserTests
         { "{\"schema_version\":1,\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}", "required-field", "intent" },
         { "{\"schema_version\":1,\"intent\":\"Memo\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}", "invalid-intent", "intent" },
         { "{\"schema_version\":1,\"intent\":\"Report\"}", "payload-required", "$" },
+        { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":null,\"escalation\":null,\"directive\":null}", "payload-required", "$" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"},\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\"]}}", "payload-ambiguous", "$" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\"]}}", "payload-intent-mismatch", "$" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"message_id\":\"model-made-id\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}", "unknown-field", "message_id" },
@@ -56,6 +57,34 @@ public sealed class AiDirectiveDecisionParserTests
         Assert.Equal(ActingUnderDeclarationState.Missing, decision.ActingUnder.State);
         Assert.Equal(ActingUnderDeclaration.MissingCode, decision.ActingUnder.Code);
         Assert.Null(decision.ActingUnder.Key);
+    }
+
+    [Fact]
+    public void Structured_output_with_null_inactive_payloads_parses_into_selected_decision()
+    {
+        const string output = """
+            {
+              "schema_version": 1,
+              "intent": "Report",
+              "acting_under": "delivery.bug-triage",
+              "report": {
+                "kind": "Done",
+                "body": "Triage completed."
+              },
+              "escalation": null,
+              "directive": null
+            }
+            """;
+
+        var result = AiDirectiveDecisionParser.Parse(
+            output,
+            [AuthorityKey.From("delivery.bug-triage")]);
+
+        AssertSuccess(result);
+        var decision = Assert.IsType<AiDirectiveReportDecision>(result.Decision);
+        Assert.Equal(ReportKind.Done, decision.Kind);
+        Assert.Equal("Triage completed.", decision.Body);
+        Assert.Equal(ActingUnderDeclarationState.Declared, decision.ActingUnder.State);
     }
 
     [Fact]

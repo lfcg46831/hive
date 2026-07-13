@@ -3,6 +3,7 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Ai;
+using System.Text.Json;
 
 namespace Hive.Tests;
 
@@ -71,7 +72,8 @@ public sealed class AiGatewayServiceTests
             AiFinishReason.Stop,
             providerMetadata,
             usage: usage,
-            cost: cost);
+            cost: cost,
+            outputConstraintMode: AiOutputConstraintMode.JsonSchema);
         var audit = new CapturingAiGatewayAuditPublisher();
         var timeProvider = new SequenceTimeProvider(startedAt, completedAt);
         var provider = new RecordingAiGatewayProvider(response);
@@ -93,6 +95,7 @@ public sealed class AiGatewayServiceTests
         Assert.Equal(usage, published.Usage);
         Assert.Equal(cost, published.Cost);
         Assert.Null(published.ErrorCode);
+        Assert.Equal(AiOutputConstraintMode.JsonSchema, published.OutputConstraintMode);
     }
 
     [Fact]
@@ -103,6 +106,12 @@ public sealed class AiGatewayServiceTests
         var providerMetadata = new AiProviderMetadata("stub", "bug-triage");
         var usage = new AiTokenUsage(11, 13, 24, isEstimated: true);
         var cost = new AiCostMetadata(0.00032m, "USD", isEstimated: true);
+        var appliedPricing = new AiAppliedPricing(
+            "pricing-v1",
+            1_000_000,
+            0.25m,
+            2m,
+            "USD");
         var request = new AiGatewayRequest(
             Organization,
             Position,
@@ -110,7 +119,8 @@ public sealed class AiGatewayServiceTests
             Message,
             "Classify checkout bug reported by user@example.com with token=sk-secret123456.",
             metadata: DirectiveMetadata(),
-            provider: providerMetadata);
+            provider: providerMetadata,
+            outputConstraint: OutputConstraint());
         var response = AiGatewayResponse.Succeeded(
             Organization,
             Position,
@@ -120,7 +130,9 @@ public sealed class AiGatewayServiceTests
             AiFinishReason.Stop,
             providerMetadata,
             usage: usage,
-            cost: cost);
+            cost: cost,
+            outputConstraintMode: AiOutputConstraintMode.JsonSchema,
+            appliedPricing: appliedPricing);
         var auditLog = new RecordingJourneyAuditLog();
         var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
         var gateway = new AiGateway(
@@ -147,11 +159,21 @@ public sealed class AiGatewayServiceTests
         });
         Assert.Equal(24, auditLog.Records[1].Usage!.TotalTokens);
         Assert.Equal(0.00032m, auditLog.Records[1].Cost!.Amount);
+        Assert.Equal("estimated", auditLog.Records[1].Payload["costStatus"]);
+        Assert.Equal("pricing-v1", auditLog.Records[1].Payload["pricingVersion"]);
+        Assert.Equal("1000000", auditLog.Records[1].Payload["pricingTokenUnit"]);
+        Assert.Equal("0.25", auditLog.Records[1].Payload["inputPricePerTokenUnit"]);
+        Assert.Equal("2", auditLog.Records[1].Payload["outputPricePerTokenUnit"]);
+        Assert.Equal("USD", auditLog.Records[1].Payload["pricingCurrency"]);
         var payloadText = string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values));
         Assert.Contains("request.content", payloadText, StringComparison.Ordinal);
         Assert.DoesNotContain("sk-secret", payloadText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("user@example.com", payloadText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("checkout bug is reproducible", payloadText, StringComparison.Ordinal);
+        Assert.All(
+            auditLog.Records,
+            record => Assert.Equal("json-schema", record.Payload["outputConstraintMode"]));
+        Assert.DoesNotContain("decision_v1", payloadText, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -480,6 +502,41 @@ public sealed class AiGatewayServiceTests
     }
 
     [Fact]
+    public async Task CompleteAsync_persists_redacted_provider_failure_diagnostics()
+    {
+        var startedAt = new DateTimeOffset(2026, 7, 13, 9, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddMilliseconds(90);
+        var providerMetadata = new AiProviderMetadata("openai", "gpt-5-mini");
+        var response = AiGatewayResponse.Failed(new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            AiGatewayErrorCode.ProviderRejected,
+            "AI gateway real provider failed (provider-rejected, status 400) for jane@example.com token=sk-error123456789.",
+            isRetryable: false,
+            providerMetadata));
+        var auditLog = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(response),
+            auditPublisher: null,
+            new SequenceTimeProvider(startedAt, completedAt),
+            publisher);
+
+        await gateway.CompleteAsync(Request(provider: providerMetadata));
+
+        var record = Assert.Single(auditLog.Records);
+        Assert.Equal(JourneyAuditStage.GatewayCalled, record.Stage);
+        Assert.Equal("provider-rejected", record.ReasonCode);
+        Assert.Equal("provider-rejected", record.Payload["errorCode"]);
+        Assert.Equal("False", record.Payload["isRetryable"]);
+        Assert.Contains("status 400", record.Payload["errorMessage"], StringComparison.Ordinal);
+        Assert.DoesNotContain("jane@example.com", record.Payload["errorMessage"], StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-error", record.Payload["errorMessage"], StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task CompleteAsync_publishes_policy_failure_without_calling_provider()
     {
         var startedAt = new DateTimeOffset(2026, 6, 30, 11, 0, 0, TimeSpan.Zero);
@@ -579,6 +636,7 @@ public sealed class AiGatewayServiceTests
             ],
             modelParameters: new AiModelParameters(maxOutputTokens: 512),
             timeout: TimeSpan.FromSeconds(20),
+            outputConstraint: OutputConstraint(),
             policy: Policy(
                 authorizedModels: [requestedProvider],
                 maxOutputTokens: 128,
@@ -599,6 +657,7 @@ public sealed class AiGatewayServiceTests
         Assert.Equal(128, provider.Request.ModelParameters.MaxOutputTokens);
         Assert.Equal(TimeSpan.FromSeconds(5), provider.Request.Timeout);
         Assert.Single(provider.Request.Tools);
+        Assert.Same(request.OutputConstraint, provider.Request.OutputConstraint);
     }
 
     [Fact]
@@ -711,7 +770,8 @@ public sealed class AiGatewayServiceTests
         IEnumerable<AiToolDefinition>? tools = null,
         AiModelParameters? modelParameters = null,
         TimeSpan? timeout = null,
-        AiGatewayPolicy? policy = null) =>
+        AiGatewayPolicy? policy = null,
+        AiOutputConstraint? outputConstraint = null) =>
         new(
             Organization,
             Position,
@@ -723,7 +783,15 @@ public sealed class AiGatewayServiceTests
             provider: provider,
             processingMode: processingMode,
             timeout: timeout,
-            policy: policy);
+            policy: policy,
+            outputConstraint: outputConstraint);
+
+    private static AiOutputConstraint OutputConstraint() =>
+        new(
+            "decision_v1",
+            1,
+            JsonSerializer.SerializeToElement(new { type = "object" }),
+            [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
 
     private static AiGatewayPolicy Policy(
         IEnumerable<AiProviderMetadata> authorizedModels,

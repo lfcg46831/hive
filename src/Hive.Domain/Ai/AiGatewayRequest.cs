@@ -18,7 +18,8 @@ public sealed record AiGatewayRequest
         AiProviderMetadata? provider = null,
         AiProcessingMode? processingMode = null,
         TimeSpan? timeout = null,
-        AiGatewayPolicy? policy = null)
+        AiGatewayPolicy? policy = null,
+        AiOutputConstraint? outputConstraint = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -55,6 +56,7 @@ public sealed record AiGatewayRequest
         ProcessingMode = processingMode;
         Timeout = timeout;
         Policy = policy;
+        OutputConstraint = outputConstraint;
     }
 
     public OrganizationId OrganizationId { get; }
@@ -84,4 +86,6 @@ public sealed record AiGatewayRequest
     public TimeSpan? Timeout { get; }
 
     public AiGatewayPolicy? Policy { get; }
+
+    public AiOutputConstraint? OutputConstraint { get; }
 }

@@ -38,6 +38,17 @@ public sealed class RealAiGatewayProviderConfigurationTests
                 ["Hive:AiGateway:Real:Temperature"] = "0.5",
                 ["Hive:AiGateway:Real:MaxOutputTokens"] = "256",
                 ["Hive:AiGateway:Real:TimeoutSeconds"] = "30",
+                ["Hive:AiGateway:Real:OutputCapabilities:0"] = "json-schema",
+                ["Hive:AiGateway:Real:OutputCapabilities:1"] = "json-object",
+                ["Hive:AiGateway:Real:OutputCapabilities:2"] = "text",
+                ["Hive:AiGateway:Real:Pricing:Version"] = "openai-2026-07-13",
+                ["Hive:AiGateway:Real:Pricing:TokenUnit"] = "1000000",
+                ["Hive:AiGateway:Real:Pricing:Models:0:ProviderId"] = "openai",
+                ["Hive:AiGateway:Real:Pricing:Models:0:ModelId"] = "gpt-4o-mini",
+                ["Hive:AiGateway:Real:Pricing:Models:0:Aliases:0"] = "gpt-4o-mini-2024",
+                ["Hive:AiGateway:Real:Pricing:Models:0:InputPrice"] = "0.15",
+                ["Hive:AiGateway:Real:Pricing:Models:0:OutputPrice"] = "0.60",
+                ["Hive:AiGateway:Real:Pricing:Models:0:Currency"] = "USD",
             })
             .Build();
 
@@ -58,6 +69,16 @@ public sealed class RealAiGatewayProviderConfigurationTests
         Assert.Equal(0.5m, settings.DefaultParameters.Temperature);
         Assert.Equal(256, settings.DefaultParameters.MaxOutputTokens);
         Assert.Equal(TimeSpan.FromSeconds(30), settings.Timeout);
+        Assert.Equal(
+            [
+                AiOutputConstraintMode.JsonSchema,
+                AiOutputConstraintMode.JsonObject,
+                AiOutputConstraintMode.Text,
+            ],
+            settings.OutputCapabilities.SupportedModes);
+        Assert.NotNull(settings.PricingCatalog);
+        Assert.Equal("openai-2026-07-13", settings.PricingCatalog.Version);
+        Assert.Equal(1_000_000, settings.PricingCatalog.TokenUnit);
     }
 
     [Fact]
@@ -153,6 +174,107 @@ public sealed class RealAiGatewayProviderConfigurationTests
 
         Assert.True(result.IsFailure);
         Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void Invalid_output_capability_fails_with_configuration_invalid()
+    {
+        var result = Factory(options =>
+        {
+            options.ProviderId = "openai";
+            options.ModelId = "gpt-4o-mini";
+            options.ApiKey = "secret-key";
+            options.OutputCapabilities = ["structured-output"];
+        }).ResolveSettings();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, result.ErrorCode);
+        Assert.Contains("output capability", result.FailureReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Empty_output_capabilities_fail_with_configuration_invalid()
+    {
+        var result = Factory(options =>
+        {
+            options.ProviderId = "openai";
+            options.ModelId = "gpt-4o-mini";
+            options.ApiKey = "secret-key";
+            options.OutputCapabilities = [];
+        }).ResolveSettings();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, result.ErrorCode);
+    }
+
+    [Fact]
+    public void Default_output_capability_is_text_only()
+    {
+        var result = Factory(options =>
+        {
+            options.ProviderId = "openai";
+            options.ModelId = "gpt-4o-mini";
+            options.ApiKey = "secret-key";
+        }).ResolveSettings();
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(
+            [AiOutputConstraintMode.Text],
+            result.Settings!.OutputCapabilities.SupportedModes);
+    }
+
+    [Fact]
+    public void Partial_pricing_configuration_fails_with_configuration_invalid()
+    {
+        var result = Factory(options =>
+        {
+            options.ProviderId = "openai";
+            options.ModelId = "gpt-5-mini";
+            options.ApiKey = "secret-key";
+            options.Pricing = new AiPricingCatalogOptions
+            {
+                TokenUnit = 1_000_000,
+            };
+        }).ResolveSettings();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, result.ErrorCode);
+        Assert.Contains("pricing", result.FailureReason, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Ambiguous_pricing_alias_fails_with_configuration_invalid()
+    {
+        var result = Factory(options =>
+        {
+            options.ProviderId = "openai";
+            options.ModelId = "gpt-5-mini";
+            options.ApiKey = "secret-key";
+            options.Pricing = new AiPricingCatalogOptions
+            {
+                Version = "test-v1",
+                TokenUnit = 1_000_000,
+                Models =
+                [
+                    Price("model-a", "shared-alias"),
+                    Price("model-b", "shared-alias"),
+                ],
+            };
+        }).ResolveSettings();
+
+        Assert.True(result.IsFailure);
+        Assert.Equal(AiGatewayErrorCode.ConfigurationInvalid, result.ErrorCode);
+        Assert.Contains("ambiguous", result.FailureReason, StringComparison.OrdinalIgnoreCase);
+
+        static AiModelPricingOptions Price(string modelId, string alias) => new()
+        {
+            ProviderId = "openai",
+            ModelId = modelId,
+            Aliases = [alias],
+            InputPrice = 1m,
+            OutputPrice = 2m,
+            Currency = "USD",
+        };
     }
 
     [Fact]

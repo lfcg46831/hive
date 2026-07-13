@@ -1,21 +1,28 @@
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Organization.Configuration.Validation;
 using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Governance;
 
 namespace Hive.Infrastructure.Organization.Configuration;
 
 public sealed class OrganizationConfigurationDirectoryImporter
 {
     private const string OrganizationFileName = "organization.yaml";
+    private const string ActionDomainsFileName = "action-domains.yaml";
     private readonly OrganizationConfigurationParser _parser;
+    private readonly ActionDomainCatalogParser _actionDomainParser;
     private readonly OrganizationConfigurationImporter _importer;
+    private readonly IActionDomainContractRegistry _contractRegistry;
 
     public OrganizationConfigurationDirectoryImporter(
         OrganizationConfigurationParser parser,
-        OrganizationConfigurationImporter importer)
+        OrganizationConfigurationImporter importer,
+        IActionDomainContractRegistry contractRegistry)
     {
         _parser = parser ?? throw new ArgumentNullException(nameof(parser));
+        _actionDomainParser = new ActionDomainCatalogParser();
         _importer = importer ?? throw new ArgumentNullException(nameof(importer));
+        _contractRegistry = contractRegistry ?? throw new ArgumentNullException(nameof(contractRegistry));
     }
 
     public async Task<IReadOnlyList<OrganizationImportResult>> ImportAsync(
@@ -81,8 +88,28 @@ public sealed class OrganizationConfigurationDirectoryImporter
                     + string.Join(Environment.NewLine, promptPathValidation));
             }
 
+            var actionDomainsPath = Path.Combine(directory, ActionDomainsFileName);
+            if (!File.Exists(actionDomainsPath))
+            {
+                throw new FileNotFoundException(
+                    $"Organization directory '{directory}' does not contain '{ActionDomainsFileName}'.",
+                    actionDomainsPath);
+            }
+
+            var actionDomainResult = _actionDomainParser.ParseFile(actionDomainsPath);
+            if (!actionDomainResult.IsSuccess)
+            {
+                throw new InvalidDataException(
+                    $"Action-domain catalog '{actionDomainsPath}' is invalid:{Environment.NewLine}"
+                    + string.Join(Environment.NewLine, actionDomainResult.Errors));
+            }
+
             var result = await _importer
-                .ImportAsync(configuration, cancellationToken)
+                .ImportAsync(
+                    configuration,
+                    actionDomainResult.Catalog!,
+                    OrganizationActionDomainBinding.Create(configuration, _contractRegistry),
+                    cancellationToken)
                 .ConfigureAwait(false);
             if (result.Status == OrganizationImportStatus.Invalid)
             {

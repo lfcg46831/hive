@@ -6,6 +6,7 @@ using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Governance;
 using OrgDirective = Hive.Domain.Messaging.Directive;
 
 namespace Hive.Tests;
@@ -14,6 +15,59 @@ public sealed class AiAgentActionGateTests
 {
     private static readonly DateTimeOffset At =
         new(2026, 7, 11, 12, 0, 0, TimeSpan.Zero);
+
+    [Fact]
+    public async Task Runtime_gate_resolves_the_candidate_organization_snapshot()
+    {
+        var key = AuthorityKey.From("delivery.triage");
+        var runtime = new OrganizationActionGateRuntimeSnapshot(
+            18,
+            "sha256:t08-action-gate",
+            Catalog(Trust(key)),
+            new ActionDomainCatalogBinding(
+                authorities:
+                [
+                    new ActionDomainAuthorityBinding(
+                        $"positions[{Position.Value}].authority",
+                        [key]),
+                ],
+                declaredApprovers: [Position.Value],
+                actionContracts: [ActionDomainActionContract.ForTool("jira")]));
+        var provider = new RecordingRuntimeProvider(runtime);
+        var gate = new AiAgentActionGate(
+            provider,
+            new RecordingApprovalResolver(_ =>
+                AiActionApprovalResolution.Failed("approval-not-expected")),
+            NoopJourneyAuditLog.Instance);
+
+        var result = await gate.EvaluateAsync(
+            Context(canDecide: [key.Value], applyConfigurationStamp: true),
+            AiAgentActionCandidate.ForTool(
+                new AiToolCall("call-runtime", "jira"),
+                ActingUnderDeclaration.Declared(key)));
+
+        Assert.Equal(AiAgentActionGateOutcome.Allowed, result.Outcome);
+        Assert.Equal(Organization, provider.RequestedOrganization);
+    }
+
+    [Fact]
+    public async Task Runtime_gate_retains_when_the_organization_catalog_is_absent()
+    {
+        var gate = new AiAgentActionGate(
+            new RecordingRuntimeProvider(snapshot: null),
+            new RecordingApprovalResolver(_ =>
+                AiActionApprovalResolution.Failed("approval-not-expected")),
+            NoopJourneyAuditLog.Instance);
+
+        var result = await gate.EvaluateAsync(
+            Context(applyConfigurationStamp: true),
+            AiAgentActionCandidate.ForTool(
+                new AiToolCall("call-missing", "jira"),
+                ActingUnderDeclaration.Missing()));
+
+        Assert.Equal(AiAgentActionGateOutcome.RetainedForEscalation, result.Outcome);
+        Assert.Equal("action-gate-catalog-unavailable", result.Code);
+    }
     private static readonly OrganizationId Organization = OrganizationId.From("acme");
     private static readonly PositionId Position = PositionId.From("triage-agent");
     private static readonly PositionId Superior = PositionId.From("delivery-lead");
@@ -417,7 +471,8 @@ public sealed class AiAgentActionGateTests
         bool hasSuperior = true,
         IEnumerable<string>? canDecide = null,
         IEnumerable<PositionAuthorityOverrideRuntimeConfiguration>? overrides = null,
-        IEnumerable<ToolConfiguration>? tools = null)
+        IEnumerable<ToolConfiguration>? tools = null,
+        bool applyConfigurationStamp = false)
     {
         var effectiveReportsTo = hasSuperior ? Superior : null;
         var entity = PositionEntityId.From(Organization, Position);
@@ -461,7 +516,9 @@ public sealed class AiAgentActionGateTests
         var request = AiDirectiveProcessingRequest.Create(
             entity,
             configuration,
-            PositionState.Restore(new PositionSnapshot(At)),
+            PositionState.Restore(new PositionSnapshot(
+                At,
+                lastConfigurationStamp: applyConfigurationStamp ? configuration.Stamp : null)),
             OccupantId.From("agent-8"),
             directive);
 
@@ -519,6 +576,22 @@ public sealed class AiAgentActionGateTests
             cancellationToken.ThrowIfCancellationRequested();
             Queries.Add(query);
             return ValueTask.FromResult(resolve(query));
+        }
+    }
+
+    private sealed class RecordingRuntimeProvider(
+        OrganizationActionGateRuntimeSnapshot? snapshot)
+        : IOrganizationActionGateRuntimeProvider
+    {
+        public OrganizationId? RequestedOrganization { get; private set; }
+
+        public ValueTask<OrganizationActionGateRuntimeSnapshot?> FindAsync(
+            OrganizationId organizationId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequestedOrganization = organizationId;
+            return ValueTask.FromResult(snapshot);
         }
     }
 

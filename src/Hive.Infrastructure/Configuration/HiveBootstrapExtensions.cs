@@ -7,6 +7,7 @@ using Hive.Domain.Organization;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Logging;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
@@ -36,6 +37,7 @@ public static class HiveBootstrapExtensions
             .ValidateOnStart();
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHiveActionDomainContracts();
         builder.Services.AddHiveAiGateway(builder.Configuration);
         builder.Services.TryAddSingleton<IJourneyAuditLog>(serviceProvider =>
         {
@@ -88,6 +90,18 @@ public static class HiveBootstrapExtensions
             return string.IsNullOrWhiteSpace(connectionString)
                 ? new UnavailableOrganizationRelations(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlOrganizationRelations(connectionString);
+        });
+        builder.Services.TryAddSingleton<IOrganizationActionGateRuntimeProvider>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? UnavailableOrganizationActionGateRuntimeProvider.Instance
+                : new PostgreSqlOrganizationActionGateRuntimeProvider(
+                    connectionString,
+                    serviceProvider.GetRequiredService<IActionDomainContractRegistry>());
         });
         builder.Services.TryAddSingleton<ISchedulerPulseDeliveryStore>(serviceProvider =>
         {

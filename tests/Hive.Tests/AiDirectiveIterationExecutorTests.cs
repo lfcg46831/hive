@@ -49,6 +49,7 @@ public sealed class AiDirectiveIterationExecutorTests
         Assert.Equal(context.OrganizationId, invoker.Invocation.Request.OrganizationId);
         Assert.Equal(context.PositionId, invoker.Invocation.Request.PositionId);
         Assert.Equal("2", invoker.Invocation.Request.Metadata["iteration"]);
+        Assert.NotNull(invoker.Invocation.Request.OutputConstraint);
         Assert.Equal(0, toolExecutor.CallCount);
     }
 

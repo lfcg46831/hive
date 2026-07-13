@@ -226,8 +226,11 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
             "ai-agent",
             json.GetProperty("occupant").GetProperty("type").GetString());
         Assert.Equal(
-            "stub",
+            "openai",
             json.GetProperty("occupant").GetProperty("ai").GetProperty("provider").GetString());
+        Assert.Equal(
+            "gpt-5-mini",
+            json.GetProperty("occupant").GetProperty("ai").GetProperty("model").GetString());
         Assert.Equal(
             "delivery.bug-triage",
             Assert.Single(

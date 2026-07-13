@@ -134,7 +134,8 @@ public sealed class AiGateway : IAiGateway
             effectiveProvider,
             request.ProcessingMode,
             effectiveTimeout,
-            request.Policy));
+            request.Policy,
+            request.OutputConstraint));
     }
 
     private static AiGatewayPolicyProviderResult ResolveProvider(
@@ -232,7 +233,8 @@ public sealed class AiGateway : IAiGateway
             provider,
             request.ProcessingMode,
             request.Timeout,
-            request.Policy);
+            request.Policy,
+            request.OutputConstraint);
     }
 
     private static bool SameProvider(

@@ -25,7 +25,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private readonly AiDirectiveIntegrationScenario _scenario;
     private readonly PositionEntityId _entity;
     private readonly IAiGateway _gateway;
-    private readonly PositionRuntimeConfiguration _runtimeConfiguration;
+    private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IJourneyAuditLog _auditLog;
     private IActorRef _position;
     private int _positionGeneration;
@@ -36,7 +36,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         AiDirectiveIntegrationScenario scenario,
         PositionEntityId entity,
         IAiGateway gateway,
-        PositionRuntimeConfiguration runtimeConfiguration,
+        IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
         IActorRef position)
     {
@@ -45,7 +45,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         _scenario = scenario;
         _entity = entity;
         _gateway = gateway;
-        _runtimeConfiguration = runtimeConfiguration;
+        _configurationProvider = configurationProvider;
         _auditLog = auditLog;
         _position = position;
     }
@@ -56,7 +56,9 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
     public static async Task<AiDirectiveIntegrationFixture> StartAsync(
         AiDirectiveIntegrationScenario? scenario = null,
-        IJourneyAuditLog? auditLog = null)
+        IJourneyAuditLog? auditLog = null,
+        IPositionConfigurationProvider? configurationProvider = null,
+        bool seedInitialSnapshot = true)
     {
         var resolvedScenario = scenario ?? AiDirectiveIntegrationScenario.Create();
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
@@ -66,19 +68,25 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
         try
         {
-            await SeedSnapshotAsync(
-                system,
-                resolvedScenario.Entity,
-                resolvedScenario.InitialSnapshot()).ConfigureAwait(false);
+            if (seedInitialSnapshot)
+            {
+                await SeedSnapshotAsync(
+                    system,
+                    resolvedScenario.Entity,
+                    resolvedScenario.InitialSnapshot()).ConfigureAwait(false);
+            }
 
             var gateway = services.GetRequiredService<IAiGateway>();
             var runtimeConfiguration = resolvedScenario.RuntimeConfiguration(
                 new AiProviderMetadata(stubOptions.ProviderId, stubOptions.ModelId));
+            var resolvedConfigurationProvider = configurationProvider
+                ?? new StaticConfigurationProvider(
+                    PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration));
             var position = CreatePositionActor(
                 system,
                 resolvedScenario,
                 gateway,
-                runtimeConfiguration,
+                resolvedConfigurationProvider,
                 resolvedAuditLog,
                 generation: 0);
 
@@ -88,7 +96,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 resolvedScenario,
                 resolvedScenario.Entity,
                 gateway,
-                runtimeConfiguration,
+                resolvedConfigurationProvider,
                 resolvedAuditLog,
                 position);
             await readyFixture.WaitForReadyAsync().ConfigureAwait(false);
@@ -173,7 +181,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             _system,
             _scenario,
             _gateway,
-            _runtimeConfiguration,
+            _configurationProvider,
             _auditLog,
             _positionGeneration);
 
@@ -293,14 +301,13 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         ActorSystem system,
         AiDirectiveIntegrationScenario scenario,
         IAiGateway gateway,
-        PositionRuntimeConfiguration runtimeConfiguration,
+        IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
         int generation) =>
         system.ActorOf(
             Props.Create(() => new PositionActor(
                 scenario.Entity.Value,
-                new StaticConfigurationProvider(
-                    PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration)),
+                configurationProvider,
                 new PositionOccupantFactory(
                     new AiAgentGatewayInvoker(gateway),
                     AiDirectiveResultMessageEmissionGate.Instance,
@@ -475,6 +482,8 @@ internal sealed class AiDirectiveIntegrationScenario
 
     private AiDirectiveIntegrationScenario(
         Action<StubAiGatewayProviderOptions>? configureStub,
+        PositionEntityId entity,
+        OccupantId occupant,
         IEnumerable<ToolConfiguration> tools,
         IEnumerable<PositionId> directSubordinates,
         IEnumerable<PersistedTask> openTasks,
@@ -482,6 +491,22 @@ internal sealed class AiDirectiveIntegrationScenario
         IEnumerable<MessageId> recentHistory)
     {
         ConfigureStub = configureStub;
+        Entity = entity;
+        Occupant = occupant;
+        Directive = new OrgDirective(
+            MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001401")),
+            Entity.Organization,
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            new PositionEndpointRef(Entity.Position),
+            ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000001401")),
+            Priority.High,
+            schemaVersion: 1,
+            sentAt: DefaultNow,
+            deadline: DefaultNow.AddHours(2),
+            DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000001401")),
+            parentDirectiveId: null,
+            objective: "Triage checkout regression",
+            context: "Customer reports checkout failures.");
         Tools = tools.ToArray();
         DirectSubordinates = directSubordinates.ToArray();
         OpenTasks = openTasks.ToArray();
@@ -489,25 +514,11 @@ internal sealed class AiDirectiveIntegrationScenario
         RecentHistory = recentHistory.ToArray();
     }
 
-    public PositionEntityId Entity { get; } =
-        PositionEntityId.From(OrganizationId.From("acme"), PositionId.From("triage-agent"));
+    public PositionEntityId Entity { get; }
 
-    public OccupantId Occupant { get; } = OccupantId.From("agent-14a");
+    public OccupantId Occupant { get; }
 
-    public OrgDirective Directive { get; } = new(
-        MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001401")),
-        OrganizationId.From("acme"),
-        new PositionEndpointRef(PositionId.From("delivery-lead")),
-        new PositionEndpointRef(PositionId.From("triage-agent")),
-        ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000001401")),
-        Priority.High,
-        schemaVersion: 1,
-        sentAt: DefaultNow,
-        deadline: DefaultNow.AddHours(2),
-        DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000001401")),
-        parentDirectiveId: null,
-        objective: "Triage checkout regression",
-        context: "Customer reports checkout failures.");
+    public OrgDirective Directive { get; }
 
     public Func<DateTimeOffset> Clock { get; } = () => DefaultNow.AddMinutes(1);
 
@@ -531,6 +542,8 @@ internal sealed class AiDirectiveIntegrationScenario
 
     public static AiDirectiveIntegrationScenario Create(
         Action<StubAiGatewayProviderOptions>? configureStub = null,
+        PositionEntityId? entity = null,
+        OccupantId? occupant = null,
         IEnumerable<ToolConfiguration>? tools = null,
         IEnumerable<PositionId>? directSubordinates = null,
         IEnumerable<PersistedTask>? openTasks = null,
@@ -541,6 +554,10 @@ internal sealed class AiDirectiveIntegrationScenario
 
         return new AiDirectiveIntegrationScenario(
             configureStub,
+            entity ?? PositionEntityId.From(
+                OrganizationId.From("acme"),
+                PositionId.From("triage-agent")),
+            occupant ?? OccupantId.From("agent-14a"),
             tools ?? [new ToolConfiguration("jira", ["issues/read", "issues/comment"])],
             directSubordinates ?? [PositionId.From("engineer")],
             openTasks ?? [
@@ -621,7 +638,8 @@ internal sealed class AiDirectiveIntegrationScenario
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",
-                    "You are responsible for triaging incoming bugs.")),
+                    "You are responsible for triaging incoming bugs."),
+                configuredIdentity: Occupant),
             new PositionAuthorityRuntimeConfiguration(
                 canDecide: ["bug.triage"]));
 

@@ -27,8 +27,17 @@ public sealed class ComposeDemoConfigurationTests
     {
         Assert.Contains("HIVE__AIGATEWAY__PROVIDER: \"real\"", text, StringComparison.Ordinal);
         Assert.Contains("HIVE__AIGATEWAY__REAL__PROVIDERID: \"openai\"", text, StringComparison.Ordinal);
-        Assert.Contains("${OPENAI_MODEL_ID:-gpt-4o-mini}", text, StringComparison.Ordinal);
+        Assert.Contains("${OPENAI_MODEL_ID:-gpt-5-mini}", text, StringComparison.Ordinal);
         Assert.Contains("${OPENAI_API_KEY:?", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__0: \"json-schema\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__1: \"json-object\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__OUTPUTCAPABILITIES__2: \"text\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__VERSION: \"openai-2026-07-13\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__TOKENUNIT: \"1000000\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__MODELID: \"gpt-5-mini\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__INPUTPRICE: \"0.25\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__OUTPUTPRICE: \"2.00\"", text, StringComparison.Ordinal);
+        Assert.Contains("HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__CURRENCY: \"USD\"", text, StringComparison.Ordinal);
         Assert.DoesNotContain("HIVE__AIGATEWAY__STUB__SCENARIO", text, StringComparison.Ordinal);
     }
 

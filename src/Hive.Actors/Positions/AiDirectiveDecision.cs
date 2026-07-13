@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using Hive.Domain.Ai;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -76,6 +78,7 @@ internal static class AiDirectiveDecisionIntentContract
 internal static class AiDirectiveDecisionSchema
 {
     public const int SchemaVersion = 1;
+    public const string SchemaName = "hive_ai_directive_decision_v1";
     public const string SchemaVersionProperty = "schema_version";
     public const string IntentProperty = "intent";
     public const string ActingUnderProperty = "acting_under";
@@ -90,6 +93,14 @@ internal static class AiDirectiveDecisionSchema
     public const string DirectiveTargetPositionIdField = "target_position_id";
     public const string DirectiveObjectiveField = "objective";
     public const string DirectiveContextField = "context";
+
+    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema();
+
+    public static AiOutputConstraint OutputConstraint { get; } = new(
+        SchemaName,
+        SchemaVersion,
+        CanonicalJsonSchema,
+        [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
 
     public static ImmutableArray<string> AllowedIntents { get; } =
     [
@@ -117,6 +128,82 @@ internal static class AiDirectiveDecisionSchema
         DirectiveObjectiveField,
         DirectiveContextField,
     ];
+
+    private static JsonElement CreateJsonSchema()
+    {
+        using var document = JsonDocument.Parse(
+            """
+            {
+              "type": "object",
+              "properties": {
+                "schema_version": { "type": "integer", "const": 1 },
+                "intent": {
+                  "type": "string",
+                  "enum": ["Report", "Escalation", "Directive"]
+                },
+                "acting_under": { "type": "string" },
+                "report": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": { "type": "string", "enum": ["Progress", "Done"] },
+                        "body": { "type": "string" }
+                      },
+                      "required": ["kind", "body"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "escalation": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "issue": { "type": "string" },
+                        "context": { "type": "string" },
+                        "options_considered": {
+                          "type": "array",
+                          "items": { "type": "string" }
+                        }
+                      },
+                      "required": ["issue", "context", "options_considered"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                },
+                "directive": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "target_position_id": { "type": "string" },
+                        "objective": { "type": "string" },
+                        "context": { "type": "string" }
+                      },
+                      "required": ["target_position_id", "objective", "context"],
+                      "additionalProperties": false
+                    },
+                    { "type": "null" }
+                  ]
+                }
+              },
+              "required": [
+                "schema_version",
+                "intent",
+                "acting_under",
+                "report",
+                "escalation",
+                "directive"
+              ],
+              "additionalProperties": false
+            }
+            """);
+
+        return document.RootElement.Clone();
+    }
 }
 
 internal abstract record AiDirectiveDecision

@@ -14,7 +14,8 @@ internal sealed class RealAiGatewayResponseNormalizer
     public NormalizedAiGatewayProviderResponse Normalize(
         AiGatewayRequest request,
         ChatResponse response,
-        RealAiGatewayProviderSettings settings)
+        RealAiGatewayProviderSettings settings,
+        AiOutputConstraintMode? outputConstraintMode = null)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(response);
@@ -34,7 +35,11 @@ internal sealed class RealAiGatewayResponseNormalizer
         catch (ArgumentException ex)
         {
             return new(
-                InvalidProviderResponse(request, settings, ex.Message),
+                InvalidProviderResponse(
+                    request,
+                    settings,
+                    ex.Message,
+                    outputConstraintMode),
                 rawResponse);
         }
 
@@ -46,15 +51,32 @@ internal sealed class RealAiGatewayResponseNormalizer
                 InvalidProviderResponse(
                     request,
                     settings,
-                    "AI gateway real provider returned neither text nor a tool call."),
+                    "AI gateway real provider returned neither text nor a tool call.",
+                    outputConstraintMode),
                 rawResponse);
         }
 
         if (!TryMapCost(response.AdditionalProperties, out var cost, out var costError))
         {
             return new(
-                InvalidProviderResponse(request, settings, costError!),
+                InvalidProviderResponse(
+                    request,
+                    settings,
+                    costError!,
+                    outputConstraintMode),
                 rawResponse);
+        }
+
+        var provider = ResolveProviderMetadata(response, settings, request.Provider);
+        var usage = MapUsage(response.Usage);
+        AiAppliedPricing? appliedPricing = null;
+        if (cost is null && settings.PricingCatalog is { } pricingCatalog)
+        {
+            pricingCatalog.TryCalculate(
+                provider,
+                usage,
+                out cost,
+                out appliedPricing);
         }
 
         return new(
@@ -65,10 +87,12 @@ internal sealed class RealAiGatewayResponseNormalizer
                 request.MessageId,
                 text,
                 MapFinishReason(response.FinishReason, toolCalls.Count > 0),
-                ResolveProviderMetadata(response, settings, request.Provider),
+                provider,
                 toolCalls.Count == 0 ? null : toolCalls,
-                MapUsage(response.Usage),
-                cost),
+                usage,
+                cost,
+                outputConstraintMode,
+                appliedPricing),
             rawResponse);
     }
 
@@ -162,7 +186,7 @@ internal sealed class RealAiGatewayResponseNormalizer
             return null;
         }
 
-        return count > int.MaxValue ? int.MaxValue : (int)count;
+        return count > int.MaxValue ? null : (int)count;
     }
 
     private static bool TryMapCost(
@@ -286,18 +310,21 @@ internal sealed class RealAiGatewayResponseNormalizer
     private static AiGatewayResponse InvalidProviderResponse(
         AiGatewayRequest request,
         RealAiGatewayProviderSettings settings,
-        string message) =>
-        AiGatewayResponse.Failed(new AiGatewayError(
-            request.OrganizationId,
-            request.PositionId,
-            request.ThreadId,
-            request.MessageId,
-            AiGatewayErrorCode.InvalidProviderResponse,
-            message,
-            isRetryable: false,
-            new AiProviderMetadata(
-                request.Provider?.ProviderId ?? settings.DefaultProvider.ProviderId,
-                request.Provider?.ModelId ?? settings.DefaultProvider.ModelId)));
+        string message,
+        AiOutputConstraintMode? outputConstraintMode) =>
+        AiGatewayResponse.Failed(
+            new AiGatewayError(
+                request.OrganizationId,
+                request.PositionId,
+                request.ThreadId,
+                request.MessageId,
+                AiGatewayErrorCode.InvalidProviderResponse,
+                message,
+                isRetryable: false,
+                new AiProviderMetadata(
+                    request.Provider?.ProviderId ?? settings.DefaultProvider.ProviderId,
+                    request.Provider?.ModelId ?? settings.DefaultProvider.ModelId)),
+            outputConstraintMode);
 
     private static RedactableAiGatewayProviderResponse CaptureRawResponse(
         ChatResponse response,

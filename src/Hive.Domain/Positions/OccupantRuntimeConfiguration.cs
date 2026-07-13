@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 
 namespace Hive.Domain.Positions;
@@ -18,7 +19,8 @@ public sealed record OccupantRuntimeConfiguration
         IEnumerable<SubscriptionConfiguration>? subscriptions = null,
         IEnumerable<ToolConfiguration>? tools = null,
         AiPositionRuntimeConfiguration? aiGateway = null,
-        IdentityPromptRuntimeConfiguration? identityPrompt = null)
+        IdentityPromptRuntimeConfiguration? identityPrompt = null,
+        OccupantId? configuredIdentity = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -43,6 +45,7 @@ public sealed record OccupantRuntimeConfiguration
         Ai = ai;
         AiGateway = aiGateway;
         IdentityPrompt = identityPrompt;
+        ConfiguredIdentity = configuredIdentity;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -62,6 +65,12 @@ public sealed record OccupantRuntimeConfiguration
 
     /// <summary>The gateway-facing AI runtime projection, when declared for this occupant.</summary>
     public AiPositionRuntimeConfiguration? AiGateway { get; }
+
+    /// <summary>
+    /// Stable occupant identity supplied by the configuration provider for initial
+    /// materialization. A missing value means the position must remain unoccupied.
+    /// </summary>
+    public OccupantId? ConfiguredIdentity { get; }
 
     /// <summary>The configured working-hours window, when declared.</summary>
     public WorkingHoursConfiguration? WorkingHours { get; }

@@ -9,9 +9,13 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
+using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Auditing.PostgreSql;
+using Hive.Infrastructure.Organization.Configuration;
+using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -22,6 +26,67 @@ namespace Hive.Tests.PostgreSql;
 [Collection(PostgreSqlCollection.Name)]
 public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture postgres)
 {
+    [Fact]
+    public async Task Empty_position_journal_bootstraps_from_postgresql_registry_and_completes_demo_journey()
+    {
+        await postgres.ResetRegistryAsync();
+        await using var dataSource = postgres.CreateDataSource();
+        await new PostgreSqlOrganizationRegistryMigrator(dataSource).MigrateAsync();
+        var registry = new PostgreSqlOrganizationRegistry(dataSource);
+        await new OrganizationConfigurationImporter(registry).ImportAsync(ExampleConfiguration());
+
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme-delivery"),
+            PositionId.From("bug-triage"));
+        var scenario = AiDirectiveIntegrationScenario.Create(
+            entity: entity,
+            occupant: ConfiguredAiOccupantIdentity.For(entity),
+            configureStub: options =>
+            {
+                options.ModelId = "t07c-empty-journal";
+                options.Scenario = "bug-triage-report";
+            });
+        var provider = new RegistryPositionConfigurationProvider(
+            registry,
+            Path.Combine(RepositoryRoot, "config", "organizations"));
+
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            auditLog,
+            provider,
+            seedInitialSnapshot: false);
+        await using var app = BuildSubmissionApp(fixture, registry, auditLog);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            RequestFrom(scenario.Directive));
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var timeline = await WaitForTimelineAsync(
+            dataSource,
+            scenario,
+            current => current.Entries.Any(entry =>
+                entry.Stage == JourneyAuditStage.ResultMessageCreated));
+        var events = await fixture.ReadPersistedEventsAsync();
+        var occupant = Assert.Single(events.OfType<OccupantChanged>());
+
+        Assert.Equal(ConfiguredAiOccupantIdentity.For(entity), occupant.Occupant);
+        Assert.Equal(OccupantType.AiAgent, occupant.Type);
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.PositionDispatched);
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.GatewayCalled);
+        Assert.Contains(timeline.Entries, entry =>
+            entry.Stage == JourneyAuditStage.ResultMessageCreated);
+        Assert.All(timeline.Entries, entry =>
+            Assert.NotEqual(JourneyAuditOutcome.Rejected, entry.Outcome));
+    }
+
     [Fact]
     public async Task Local_happy_path_submits_bug_persists_directive_emits_report_and_reads_audit_after_restart()
     {
@@ -705,6 +770,39 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
     {
         await using var command = dataSource.CreateCommand("DROP SCHEMA IF EXISTS audit CASCADE;");
         await command.ExecuteNonQueryAsync();
+    }
+
+    private static OrganizationConfiguration ExampleConfiguration()
+    {
+        var result = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "organizations",
+                "acme-delivery",
+                "organization.yaml"));
+
+        Assert.True(result.IsSuccess, string.Join(Environment.NewLine, result.Errors));
+        return result.Configuration!;
+    }
+
+    private static string RepositoryRoot
+    {
+        get
+        {
+            var current = new DirectoryInfo(AppContext.BaseDirectory);
+            while (current is not null)
+            {
+                if (File.Exists(Path.Combine(current.FullName, "Hive.sln")))
+                {
+                    return current.FullName;
+                }
+
+                current = current.Parent;
+            }
+
+            throw new InvalidOperationException("Could not locate the Hive repository root.");
+        }
     }
 
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);

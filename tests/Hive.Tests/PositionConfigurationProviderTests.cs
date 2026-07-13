@@ -108,7 +108,8 @@ public sealed class PositionConfigurationProviderTests
         Assert.NotNull(configuration.Occupant.IdentityPrompt);
         Assert.Equal("triage-v1", configuration.Occupant.IdentityPrompt.Id);
         Assert.Equal("prompts/triage-v1.md", configuration.Occupant.IdentityPrompt.Path);
-        Assert.Contains("Example bug triage facts", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
+        Assert.Contains("## Responsibilities", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("hive-evaluation-v1", configuration.Occupant.IdentityPrompt.Content, StringComparison.Ordinal);
         var aiGateway = configuration.Occupant.AiGateway;
         Assert.NotNull(aiGateway);
         Assert.Equal("openai", aiGateway.Primary.ProviderId);

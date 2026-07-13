@@ -47,6 +47,26 @@ public sealed class AiDirectivePromptTests
         AssertActingUnderSchema(requestTool, "bug.triage");
 
         Assert.NotNull(request.SystemInstruction);
+        Assert.Contains(
+            AiDirectiveSystemInstructionSections.BusinessIdentityHeader,
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            AiDirectiveSystemInstructionSections.HiveProtocolHeader,
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            AiDirectiveSystemInstructionSections.RuntimeAuthorityHeader,
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            AiDirectiveSystemInstructionSections.RuntimeToolsHeader,
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            AiDirectiveSystemInstructionSections.EvaluationHeader,
+            request.SystemInstruction,
+            StringComparison.Ordinal);
         Assert.Contains("current position", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Escalate work outside this position's authority", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Return JSON only", request.SystemInstruction, StringComparison.Ordinal);
@@ -68,12 +88,14 @@ public sealed class AiDirectivePromptTests
             request.SystemInstruction,
             StringComparison.Ordinal);
         Assert.DoesNotContain("bug triage agent", request.SystemInstruction, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("You are responsible for triaging incoming bugs.", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("hive-evaluation-v1:", request.SystemInstruction, StringComparison.Ordinal);
 
         Assert.Contains($"CorrelationId: {processingRequest.CorrelationId}", request.Content, StringComparison.Ordinal);
         Assert.Contains("IdentityPromptRef: triage-v1", request.Content, StringComparison.Ordinal);
-        Assert.Contains("IdentityPrompt:", request.Content, StringComparison.Ordinal);
-        Assert.Contains("Path: prompts/triage-v1.md", request.Content, StringComparison.Ordinal);
-        Assert.Contains("You are responsible for triaging incoming bugs.", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("IdentityPrompt:", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("You are responsible for triaging incoming bugs.", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("hive-evaluation-v1:", request.Content, StringComparison.Ordinal);
         Assert.Contains("Objective: Triage checkout regression", request.Content, StringComparison.Ordinal);
         Assert.Contains("Context: Customer reports checkout failures.", request.Content, StringComparison.Ordinal);
         Assert.Contains("DirectiveId: cccccccc-0000-0000-0000-000000000904", request.Content, StringComparison.Ordinal);
@@ -127,6 +149,52 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
+    public void CreateInitialRequest_keeps_instruction_ownership_sections_separate()
+    {
+        var context = AiDirectiveExecutionContext.From(Request(includeOptionalContext: true));
+
+        var sections = AiDirectivePrompt.BuildSystemInstructionSections(context);
+
+        Assert.Equal(
+            "You are responsible for triaging incoming bugs.",
+            sections.BusinessIdentity);
+        Assert.DoesNotContain("HIVE", sections.BusinessIdentity, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("hive-evaluation-v1", sections.BusinessIdentity, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Contains("Return JSON only", sections.HiveProtocol, StringComparison.Ordinal);
+        Assert.DoesNotContain("triaging incoming bugs", sections.HiveProtocol, StringComparison.Ordinal);
+        Assert.DoesNotContain("hive-evaluation-v1", sections.HiveProtocol, StringComparison.Ordinal);
+
+        Assert.Contains("Allowed \"acting_under\" values", sections.RuntimeAuthority, StringComparison.Ordinal);
+        Assert.DoesNotContain("hive-evaluation-v1", sections.RuntimeAuthority, StringComparison.Ordinal);
+
+        Assert.Contains("Authorized connector names: jira", sections.RuntimeTools, StringComparison.Ordinal);
+        Assert.DoesNotContain("triaging incoming bugs", sections.RuntimeTools, StringComparison.Ordinal);
+
+        Assert.Contains("hive-evaluation-v1:", sections.Evaluation, StringComparison.Ordinal);
+        Assert.Contains("missing_information", sections.Evaluation, StringComparison.Ordinal);
+        Assert.DoesNotContain("acting_under", sections.Evaluation, StringComparison.Ordinal);
+
+        var composed = sections.Compose();
+        AssertContainsInOrder(
+            composed,
+            AiDirectiveSystemInstructionSections.BusinessIdentityHeader,
+            AiDirectiveSystemInstructionSections.HiveProtocolHeader);
+        AssertContainsInOrder(
+            composed,
+            AiDirectiveSystemInstructionSections.HiveProtocolHeader,
+            AiDirectiveSystemInstructionSections.RuntimeAuthorityHeader);
+        AssertContainsInOrder(
+            composed,
+            AiDirectiveSystemInstructionSections.RuntimeAuthorityHeader,
+            AiDirectiveSystemInstructionSections.RuntimeToolsHeader);
+        AssertContainsInOrder(
+            composed,
+            AiDirectiveSystemInstructionSections.RuntimeToolsHeader,
+            AiDirectiveSystemInstructionSections.EvaluationHeader);
+    }
+
+    [Fact]
     public void CreateInitialRequest_represents_missing_optional_context_explicitly()
     {
         var processingRequest = Request(includeOptionalContext: false);
@@ -135,7 +203,7 @@ public sealed class AiDirectivePromptTests
         var request = AiDirectivePrompt.CreateInitialRequest(context);
 
         Assert.Contains("IdentityPromptRef: triage-v1", request.Content, StringComparison.Ordinal);
-        Assert.Contains("You are responsible for triaging incoming bugs.", request.Content, StringComparison.Ordinal);
+        Assert.Contains("You are responsible for triaging incoming bugs.", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("ParentDirectiveId: <none>", request.Content, StringComparison.Ordinal);
         Assert.Contains("Deadline: <none>", request.Content, StringComparison.Ordinal);
         Assert.Contains("ReportsTo: <none>", request.Content, StringComparison.Ordinal);

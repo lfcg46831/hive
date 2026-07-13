@@ -71,35 +71,42 @@ public sealed class ExampleOrganizationConfigurationTests
     }
 
     [Fact]
-    public void Example_triage_prompt_accepts_freeform_bug_context_and_lists_triage_facts()
+    public void Example_triage_identity_contains_only_business_authored_content()
     {
         var prompt = File.ReadAllText(Path.Combine(
             OrganizationDirectory,
             "prompts",
             "triage-v1.md"));
 
-        Assert.Contains("Example bug triage facts", prompt, StringComparison.Ordinal);
-        Assert.Contains("Directive.Context", prompt, StringComparison.Ordinal);
-        Assert.Contains("free-form or partial", prompt, StringComparison.Ordinal);
-        Assert.Contains("Do not require callers to use these exact field names", prompt, StringComparison.Ordinal);
-        Assert.Contains("title", prompt, StringComparison.Ordinal);
-        Assert.Contains("description", prompt, StringComparison.Ordinal);
-        Assert.Contains("reported_severity", prompt, StringComparison.Ordinal);
-        Assert.Contains("origin", prompt, StringComparison.Ordinal);
-        Assert.Contains("reproduction_steps", prompt, StringComparison.Ordinal);
-        Assert.Contains("environment", prompt, StringComparison.Ordinal);
-        Assert.Contains("textual_attachments", prompt, StringComparison.Ordinal);
-        Assert.Contains("correlation_metadata", prompt, StringComparison.Ordinal);
-        Assert.Contains("hive-evaluation-v1:", prompt, StringComparison.Ordinal);
-        Assert.Contains("missing_information", prompt, StringComparison.Ordinal);
-        Assert.Contains("input names, not output labels", prompt, StringComparison.Ordinal);
-        Assert.Contains("correlation-metadata", prompt, StringComparison.Ordinal);
-        Assert.Contains("never `correlation_metadata`", prompt, StringComparison.Ordinal);
-        Assert.Contains(
-            "Do not introduce a bug-specific HIVE message, DTO, route, or API contract.",
-            prompt,
-            StringComparison.Ordinal);
-        Assert.DoesNotContain("expected content convention", prompt, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("## Role", prompt, StringComparison.Ordinal);
+        Assert.Contains("## Responsibilities", prompt, StringComparison.Ordinal);
+        Assert.Contains("## Outcomes and quality criteria", prompt, StringComparison.Ordinal);
+        Assert.Contains("## Functional boundaries", prompt, StringComparison.Ordinal);
+        Assert.Contains("Assess the reported severity and user impact", prompt, StringComparison.Ordinal);
+        Assert.Contains("Assumptions and uncertainty", prompt, StringComparison.Ordinal);
+
+        var forbiddenContractTerms = new[]
+        {
+            "`Report`",
+            "`Escalation`",
+            "`Directive`",
+            "Directive.Context",
+            "acting_under",
+            "schema_version",
+            "report.body",
+            "escalation.context",
+            "hive-evaluation-v1",
+            "missing_information",
+            "HIVE message",
+            "DTO",
+            "API contract",
+            "routing",
+            "tool",
+        };
+
+        Assert.All(
+            forbiddenContractTerms,
+            term => Assert.DoesNotContain(term, prompt, StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

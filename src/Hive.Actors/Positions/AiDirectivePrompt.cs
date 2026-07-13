@@ -14,7 +14,7 @@ internal static class AiDirectivePrompt
     public static AiGatewayRequest CreateInitialRequest(AiDirectiveExecutionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
-        var identityPrompt = RequireIdentityPrompt(context);
+        var systemInstruction = BuildSystemInstructionSections(context);
         var selectedContext = AiDirectiveContextSelector.Select(context);
 
         return new AiGatewayRequest(
@@ -22,8 +22,8 @@ internal static class AiDirectivePrompt
             context.PositionId,
             context.Directive.ThreadId,
             context.Directive.MessageId,
-            BuildContent(context, identityPrompt, selectedContext),
-            BuildSystemInstruction(context),
+            BuildContent(context, selectedContext),
+            systemInstruction.Compose(),
             tools: GatewayTools(context),
             modelParameters: EffectiveModelParameters(context),
             metadata: Metadata(context),
@@ -34,7 +34,21 @@ internal static class AiDirectivePrompt
             outputConstraint: AiDirectiveDecisionSchema.OutputConstraint);
     }
 
-    private static string BuildSystemInstruction(AiDirectiveExecutionContext context)
+    internal static AiDirectiveSystemInstructionSections BuildSystemInstructionSections(
+        AiDirectiveExecutionContext context)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        var identityPrompt = RequireIdentityPrompt(context);
+
+        return new AiDirectiveSystemInstructionSections(
+            identityPrompt.Content.Trim(),
+            BuildHiveProtocolInstruction(),
+            BuildRuntimeAuthorityInstruction(context),
+            BuildRuntimeToolsInstruction(context),
+            BuildEvaluationInstruction());
+    }
+
+    private static string BuildHiveProtocolInstruction()
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -48,24 +62,53 @@ internal static class AiDirectivePrompt
             [
                 "You are the HIVE AI occupant for the current position.",
                 "Classify the directive using only the provided context.",
-                "Escalate work outside this position's authority instead of handling it directly.",
                 "Return JSON only with no Markdown fences or explanatory prose.",
                 $"Set \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" to {AiDirectiveDecisionSchema.SchemaVersion}.",
                 $"Use exactly one top-level \"{AiDirectiveDecisionSchema.IntentProperty}\" value: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
                 $"Include required top-level \"{AiToolActingUnderSchema.PropertyName}\" alongside \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" and \"{AiDirectiveDecisionSchema.IntentProperty}\" for every organizational message output.",
-                $"Allowed \"{AiToolActingUnderSchema.PropertyName}\" values for this position: {ActingUnderVocabulary(context)}.",
                 $"Always include top-level \"{AiDirectiveDecisionSchema.ReportPayloadProperty}\", \"{AiDirectiveDecisionSchema.EscalationPayloadProperty}\", and \"{AiDirectiveDecisionSchema.DirectivePayloadProperty}\"; set the two payloads that do not match \"{AiDirectiveDecisionSchema.IntentProperty}\" to null.",
                 $"For {reportIntent}, include {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
                 $"For {escalationIntent}, include {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
                 $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
-                "Directive only when a permitted downward target is explicit in the provided context.",
-                "Do not invent routing, approval, facts, authority, tools, or subordinate positions.",
             ]);
     }
 
+    private static string BuildRuntimeAuthorityInstruction(
+        AiDirectiveExecutionContext context) =>
+        string.Join(
+            Environment.NewLine,
+            [
+                "Escalate work outside this position's authority instead of handling it directly.",
+                $"Allowed \"{AiToolActingUnderSchema.PropertyName}\" values for this position: {ActingUnderVocabulary(context)}.",
+                "Directive only when a permitted downward target is explicit in the provided context.",
+                "Do not invent routing, approval, facts, authority, or subordinate positions.",
+            ]);
+
+    private static string BuildRuntimeToolsInstruction(
+        AiDirectiveExecutionContext context) =>
+        string.Join(
+            Environment.NewLine,
+            [
+                "Use only the HIVE tool definitions supplied with this request.",
+                $"Authorized connector names: {JoinOrEmpty(context.AuthorizedTools.Select(tool => tool.Connector))}.",
+                "Tool availability never extends the position's authority or bypasses approval.",
+            ]);
+
+    private static string BuildEvaluationInstruction() =>
+        string.Join(
+            Environment.NewLine,
+            [
+                "For every Report, put exactly one standalone evaluation-label line in report.body.",
+                "For every Escalation, put it in escalation.context.",
+                "Use this exact compact form: hive-evaluation-v1:{\"severity\":\"high\",\"missing_information\":[\"environment\",\"reproduction-steps\"]}",
+                "Use one severity label from low, medium, high, or critical.",
+                "Missing-information labels use the closed evaluation vocabulary in lowercase kebab-case, must be sorted lexically, and use an empty array when no information is missing.",
+                "Input fact identifiers use snake_case but are not output labels: emit correlation-metadata, reproduction-steps, and textual-attachments, never correlation_metadata, reproduction_steps, or textual_attachments.",
+                "Do not invent aliases, place the line in another field, or emit it more than once.",
+            ]);
+
     private static string BuildContent(
         AiDirectiveExecutionContext context,
-        IdentityPromptRuntimeConfiguration identityPrompt,
         AiDirectiveSelectedContext selectedContext)
     {
         var builder = new StringBuilder();
@@ -80,7 +123,6 @@ internal static class AiDirectivePrompt
         builder.AppendLine($"ProcessingMode: {ProcessingMode(context)}");
         builder.AppendLine();
 
-        AppendIdentityPrompt(builder, identityPrompt);
         AppendDirective(builder, context);
         AppendAuthority(builder, context);
         AppendTools(builder, context);
@@ -91,18 +133,6 @@ internal static class AiDirectivePrompt
         AppendLimits(builder, context);
 
         return builder.ToString().TrimEnd();
-    }
-
-    private static void AppendIdentityPrompt(
-        StringBuilder builder,
-        IdentityPromptRuntimeConfiguration identityPrompt)
-    {
-        builder.AppendLine("IdentityPrompt:");
-        builder.AppendLine($"Ref: {identityPrompt.Id}");
-        builder.AppendLine($"Path: {identityPrompt.Path}");
-        builder.AppendLine("Content:");
-        builder.AppendLine(identityPrompt.Content.TrimEnd());
-        builder.AppendLine();
     }
 
     private static IdentityPromptRuntimeConfiguration RequireIdentityPrompt(
@@ -365,6 +395,37 @@ internal static class AiDirectivePrompt
     }
 
     private static string ValueOrNone(string? value) => value ?? "<none>";
+}
+
+internal sealed record AiDirectiveSystemInstructionSections(
+    string BusinessIdentity,
+    string HiveProtocol,
+    string RuntimeAuthority,
+    string RuntimeTools,
+    string Evaluation)
+{
+    internal const string BusinessIdentityHeader =
+        "## Business identity [owner: organization]";
+    internal const string HiveProtocolHeader =
+        "## HIVE protocol [owner: runtime]";
+    internal const string RuntimeAuthorityHeader =
+        "## Runtime authority [owner: runtime]";
+    internal const string RuntimeToolsHeader =
+        "## Runtime tools [owner: runtime]";
+    internal const string EvaluationHeader =
+        "## Evaluation appendix [owner: runtime]";
+
+    public string Compose() =>
+        string.Join(
+            $"{Environment.NewLine}{Environment.NewLine}",
+            Section(BusinessIdentityHeader, BusinessIdentity),
+            Section(HiveProtocolHeader, HiveProtocol),
+            Section(RuntimeAuthorityHeader, RuntimeAuthority),
+            Section(RuntimeToolsHeader, RuntimeTools),
+            Section(EvaluationHeader, Evaluation));
+
+    private static string Section(string header, string content) =>
+        string.Join(Environment.NewLine, header, content.Trim());
 }
 
 internal sealed record GetAiDirectiveInitialPrompt

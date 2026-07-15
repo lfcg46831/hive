@@ -1,0 +1,22 @@
+# Calibration-only model recovery override for US-F0-13-T13.
+#
+# Layer last after docker-compose.evaluation.yml. The bind-mounted organization
+# file changes only the bug-triage position model; the base organization source
+# and all historical freeze inputs remain untouched. The pricing entry records
+# the official OpenAI text-token rates accessed on 2026-07-15.
+
+services:
+  api:
+    environment:
+      HIVE__AIGATEWAY__REAL__MODELID: "gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__VERSION: "openai-2026-07-15-gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__MODELID: "gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__INPUTPRICE: "1.00"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__OUTPUTPRICE: "6.00"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__CURRENCY: "USD"
+    volumes:
+      - type: bind
+        source: ./config/experiments/gpt-5.6-luna/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

@@ -1,0 +1,2790 @@
+{
+  "schema_version": 1,
+  "corpus_version": 1,
+  "run_id": "luna-prompt-calibration-003",
+  "api_base_url": "http://localhost:8080",
+  "timeout_seconds": 120,
+  "poll_interval_milliseconds": 1000,
+  "cases": [
+    {
+      "case_id": "triage-001",
+      "message_id": "9f8d7516-1dba-7d4d-46ea-e400388046bf",
+      "thread_id": "57f08a46-6221-352e-60ff-ed6ea53bb91c",
+      "directive_id": "c68849f2-935b-db4b-69e3-58437cf4ff06",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2667,
+      "output_tokens": 741,
+      "total_tokens": 3408,
+      "tokens_estimated": false,
+      "cost_amount": 0.007113,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6828,
+      "journey_duration_ms": 6853,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "client-retry-behavior",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "client-retry-behavior",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-002",
+      "message_id": "e575861b-c16c-884b-fb51-852089ee623e",
+      "thread_id": "653a485f-0bf0-a833-fa1f-e30a747baa93",
+      "directive_id": "65a67ef2-2e29-7205-a4a6-4e89cb1ce6d7",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2640,
+      "output_tokens": 587,
+      "total_tokens": 3227,
+      "tokens_estimated": false,
+      "cost_amount": 0.006162,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5573,
+      "journey_duration_ms": 5606,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-003",
+      "message_id": "3cca2ac0-d842-2807-1a06-e9a5d8810519",
+      "thread_id": "165561f9-b044-41a5-cbaa-6336376766bb",
+      "directive_id": "15b7a794-bb32-9537-d79b-7ec1ed337773",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2646,
+      "output_tokens": 571,
+      "total_tokens": 3217,
+      "tokens_estimated": false,
+      "cost_amount": 0.006072,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5578,
+      "journey_duration_ms": 5601,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "client-retry-behavior",
+              "commit-range",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "request-volume-and-concurrency",
+              "run-log"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "client-retry-behavior",
+              "commit-range",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "request-volume-and-concurrency",
+              "run-log"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-004",
+      "message_id": "014284a3-9cc0-9184-90ba-8db2b1ae02e1",
+      "thread_id": "86d391be-ce44-789e-8aa8-45a36bb35fdb",
+      "directive_id": "6b2810df-79da-af28-127a-c34e50335dac",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 404,
+      "journey_duration_ms": 423,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-005",
+      "message_id": "78de05ea-f6ef-8896-a50b-bf3ee9d06c2d",
+      "thread_id": "80a68b2c-85ad-6130-980e-9be0676e8ca2",
+      "directive_id": "86008d01-efdc-0890-9b92-d9f53338b731",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 329,
+      "journey_duration_ms": 348,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-006",
+      "message_id": "0e7ffce2-c225-4baf-c10f-6f9db136f811",
+      "thread_id": "c784f047-a796-a8d1-1afc-ca5d9b8e402a",
+      "directive_id": "670aae6c-5d06-4007-e743-450de6c4f4e7",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2659,
+      "output_tokens": 572,
+      "total_tokens": 3231,
+      "tokens_estimated": false,
+      "cost_amount": 0.006091,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5748,
+      "journey_duration_ms": 5774,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "previous-release-comparison",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "previous-release-comparison",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-007",
+      "message_id": "ebdc9161-7b30-b445-5fb4-46a1a470f672",
+      "thread_id": "27525bea-c560-8df6-fd55-c659d9e9ebac",
+      "directive_id": "ab78844f-3b83-110c-029e-3db993392ca7",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2641,
+      "output_tokens": 557,
+      "total_tokens": 3198,
+      "tokens_estimated": false,
+      "cost_amount": 0.005983,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6033,
+      "journey_duration_ms": 6068,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-008",
+      "message_id": "1f7b4828-badc-ac5e-30e2-3af3fd55aa70",
+      "thread_id": "44a5d4b6-d2c4-62b1-8991-463305d86836",
+      "directive_id": "09846726-5a0e-4df1-d72a-98bd7af32c84",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 384,
+      "journey_duration_ms": 415,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-009",
+      "message_id": "7589f91b-b247-e851-deed-7edf18f84fc4",
+      "thread_id": "8e9194b4-58e6-649c-02b1-856e0148ee90",
+      "directive_id": "02ce51d6-f58a-9844-1fe8-11ab436c0bbb",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2633,
+      "output_tokens": 509,
+      "total_tokens": 3142,
+      "tokens_estimated": false,
+      "cost_amount": 0.005687,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5929,
+      "journey_duration_ms": 5958,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "client-retry-behavior",
+              "commit-range",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "failing-test-name",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "client-retry-behavior",
+              "commit-range",
+              "configuration-diff",
+              "correlation-metadata",
+              "deployment-version",
+              "failing-test-name",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-010",
+      "message_id": "708295ee-8083-eee1-a61d-6b6a1c6691c5",
+      "thread_id": "1e3d845a-3b69-294e-2341-20e063dad742",
+      "directive_id": "5a1932c5-b248-40eb-f4b4-e50eb0879c05",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 409,
+      "journey_duration_ms": 430,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-011",
+      "message_id": "be1cc63b-6159-c965-ce27-1e86938f279f",
+      "thread_id": "cab0992b-e312-4dcf-b5ed-3e5f429f1433",
+      "directive_id": "ba5cad4e-0153-9306-b291-dcedb9281b8e",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2614,
+      "output_tokens": 609,
+      "total_tokens": 3223,
+      "tokens_estimated": false,
+      "cost_amount": 0.006268,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5774,
+      "journey_duration_ms": 5806,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "client-retry-behavior",
+              "commit-range",
+              "correlation-metadata",
+              "environment-and-region",
+              "failure-frequency",
+              "protocol-error",
+              "rate-limit-response-headers",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "client-retry-behavior",
+              "commit-range",
+              "correlation-metadata",
+              "environment-and-region",
+              "failure-frequency",
+              "protocol-error",
+              "rate-limit-response-headers",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0.6153846153846153
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.39038461538461533
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-012",
+      "message_id": "35ccba39-a674-f634-6500-54b0db96a45e",
+      "thread_id": "82c4d210-f56b-97e6-dbd4-dd3600451c6d",
+      "directive_id": "e67a1af5-d9cd-6ddf-2df3-abbf3972164a",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2639,
+      "output_tokens": 762,
+      "total_tokens": 3401,
+      "tokens_estimated": false,
+      "cost_amount": 0.007211,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 8573,
+      "journey_duration_ms": 8597,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-013",
+      "message_id": "514bbeec-078e-0824-5549-d7861404b501",
+      "thread_id": "e69fe2a4-429f-6206-6cd1-1ea11b0d08d4",
+      "directive_id": "ddf4ef9f-5ba0-f561-6fed-a7ac94976a1d",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2635,
+      "output_tokens": 670,
+      "total_tokens": 3305,
+      "tokens_estimated": false,
+      "cost_amount": 0.006655,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 7726,
+      "journey_duration_ms": 7763,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-014",
+      "message_id": "66131526-8665-499f-b6e1-03a6b3422a1c",
+      "thread_id": "96898c65-1d87-640d-e016-91980e442001",
+      "directive_id": "6f9e45fe-9b8d-927f-98c7-caa0f7c20bee",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2647,
+      "output_tokens": 718,
+      "total_tokens": 3365,
+      "tokens_estimated": false,
+      "cost_amount": 0.006955,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 7868,
+      "journey_duration_ms": 7894,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "configuration-diff",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "notification-log-evidence",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "configuration-diff",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "notification-log-evidence",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-015",
+      "message_id": "975f0bdd-2889-af5f-231e-c4873d615987",
+      "thread_id": "d8259075-cf7c-d473-246c-3650028a0bc3",
+      "directive_id": "d05dcea4-a3ff-ac22-ba3b-ba2c8a2bfd17",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2616,
+      "output_tokens": 475,
+      "total_tokens": 3091,
+      "tokens_estimated": false,
+      "cost_amount": 0.005466,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 4761,
+      "journey_duration_ms": 4805,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "probe-response"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "probe-response"
+            ],
+            "score": 0.8
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6299999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-016",
+      "message_id": "42d549ea-0297-2612-95a9-ebbafb168bc5",
+      "thread_id": "4df5f7c2-dc9d-6921-3bdb-1b6660c61ace",
+      "directive_id": "be7785ad-7d85-5f49-c659-082ca3ef2a8e",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2644,
+      "output_tokens": 640,
+      "total_tokens": 3284,
+      "tokens_estimated": false,
+      "cost_amount": 0.006484,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6484,
+      "journey_duration_ms": 6507,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "correlation-metadata",
+              "environment-and-region",
+              "failure-frequency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "correlation-metadata",
+              "environment-and-region",
+              "failure-frequency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-017",
+      "message_id": "35df0594-f49e-63ed-47fe-0b7c72e523e9",
+      "thread_id": "ba1ae9ff-02ab-c664-c686-aa196c910af7",
+      "directive_id": "39c8ecba-8009-6436-6c40-059b963c6641",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2637,
+      "output_tokens": 767,
+      "total_tokens": 3404,
+      "tokens_estimated": false,
+      "cost_amount": 0.007239,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 7682,
+      "journey_duration_ms": 7712,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "probe-response",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "probe-response",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0.3
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-018",
+      "message_id": "0a4cb0ff-7969-630b-145a-9c7e1dcd2bbe",
+      "thread_id": "b9fa4c21-d7b0-5689-1501-05d393ea47e2",
+      "directive_id": "bdc40f96-3701-76e9-7f7a-a24e26511e79",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 462,
+      "journey_duration_ms": 480,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-019",
+      "message_id": "00fd2384-f8d9-5410-9c00-426a4c43ad7b",
+      "thread_id": "88af1cd0-a2df-52a9-abc6-ace750d5d5d8",
+      "directive_id": "98166f38-59ee-635f-78eb-7005e3697d56",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2651,
+      "output_tokens": 654,
+      "total_tokens": 3305,
+      "tokens_estimated": false,
+      "cost_amount": 0.006575,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 7151,
+      "journey_duration_ms": 7184,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-020",
+      "message_id": "3fe10d9d-8e99-f64e-5424-c67736dac8a6",
+      "thread_id": "c70b2f9b-81da-6ff5-e2ab-3c69d8401ac5",
+      "directive_id": "daf35bb3-b799-e12e-26b8-cb548eaa8b61",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2650,
+      "output_tokens": 561,
+      "total_tokens": 3211,
+      "tokens_estimated": false,
+      "cost_amount": 0.006016,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5959,
+      "journey_duration_ms": 6016,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "previous-release-comparison",
+              "textual-attachments"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "browser-and-device",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "previous-release-comparison",
+              "textual-attachments"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-021",
+      "message_id": "4f2f6c0b-337b-ae25-0091-8f80ecaa5dac",
+      "thread_id": "ae97b0d6-7a8e-90b1-c556-c9ff856621d9",
+      "directive_id": "3556aaeb-b9c4-5060-0c3b-1fb8f2bec995",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 358,
+      "journey_duration_ms": 382,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-022",
+      "message_id": "03978c0c-1b98-c55b-0fc2-12e72f86f810",
+      "thread_id": "7993bf0e-8f61-aa8a-7473-d1c3dac02924",
+      "directive_id": "4dcd9df1-a5bd-b48a-74d9-4c9d8b15b2d1",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2662,
+      "output_tokens": 535,
+      "total_tokens": 3197,
+      "tokens_estimated": false,
+      "cost_amount": 0.005872,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5265,
+      "journey_duration_ms": 5304,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "authentication-state",
+              "certificate-validity",
+              "configuration-diff",
+              "correlation-metadata",
+              "environment",
+              "local-authentication-result",
+              "protocol-error",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "authentication-state",
+              "certificate-validity",
+              "configuration-diff",
+              "correlation-metadata",
+              "environment",
+              "local-authentication-result",
+              "protocol-error",
+              "reproduction-steps"
+            ],
+            "score": 0.6153846153846153
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.39038461538461533
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-023",
+      "message_id": "b42d0a1b-fce1-13f6-2397-aae54914f4f4",
+      "thread_id": "ae454be9-3af9-5fa1-9379-b64de3cf4cc5",
+      "directive_id": "e2becbec-e9bc-a53f-2fd3-5e4bed344f11",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2649,
+      "output_tokens": 553,
+      "total_tokens": 3202,
+      "tokens_estimated": false,
+      "cost_amount": 0.005967,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5520,
+      "journey_duration_ms": 5554,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-024",
+      "message_id": "12b5545a-cdc6-592c-7d13-6025b1143fa1",
+      "thread_id": "ad0d920c-660f-cba3-f297-da217f2dd6f0",
+      "directive_id": "620f76c5-7d65-bb80-8046-76bee260241d",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2635,
+      "output_tokens": 713,
+      "total_tokens": 3348,
+      "tokens_estimated": false,
+      "cost_amount": 0.006913,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6888,
+      "journey_duration_ms": 6912,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment",
+              "environment-and-region",
+              "failure-frequency",
+              "form-identity",
+              "notification-log-evidence",
+              "origin",
+              "previous-release-comparison",
+              "reproduction-steps",
+              "run-log",
+              "title"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment",
+              "environment-and-region",
+              "failure-frequency",
+              "form-identity",
+              "notification-log-evidence",
+              "origin",
+              "previous-release-comparison",
+              "reproduction-steps",
+              "run-log",
+              "title"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0.3
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-025",
+      "message_id": "c0eb47f6-4de8-173a-7b2a-87363d1d726d",
+      "thread_id": "da49532f-e6a3-7ddf-d845-276a7d517254",
+      "directive_id": "961f1c0c-6ed1-b832-c0cf-67c0528f7ad0",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "failed",
+      "terminal_code": "credentials-missing",
+      "decision": null,
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "tokens_estimated": null,
+      "cost_amount": null,
+      "cost_currency": null,
+      "cost_estimated": null,
+      "gateway_latency_ms": 363,
+      "journey_duration_ms": 381,
+      "cost_status": "cost-unavailable",
+      "pricing_version": null,
+      "pricing_token_unit": null,
+      "input_price_per_token_unit": null,
+      "output_price_per_token_unit": null,
+      "prediction": null,
+      "scoring": {
+        "status": "failed",
+        "failure_codes": [
+          "projection-missing"
+        ],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "missing",
+            "labels": [],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-026",
+      "message_id": "84f036f3-63a3-830f-76d4-990480595722",
+      "thread_id": "6b8d744e-af99-23ea-1e79-387ff22742ad",
+      "directive_id": "cc8120b2-4b6c-0fd1-0b11-ea6f75af66bd",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2647,
+      "output_tokens": 840,
+      "total_tokens": 3487,
+      "tokens_estimated": false,
+      "cost_amount": 0.007687,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 7630,
+      "journey_duration_ms": 7653,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-027",
+      "message_id": "76cfa14e-9230-2d26-796f-4476caf7fc98",
+      "thread_id": "72360da6-68cf-a77d-2137-ce10fa39e164",
+      "directive_id": "39ab1656-6d64-f7c4-e842-2bf29aa41864",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2639,
+      "output_tokens": 656,
+      "total_tokens": 3295,
+      "tokens_estimated": false,
+      "cost_amount": 0.006575,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6243,
+      "journey_duration_ms": 6267,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "authentication-state",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "authentication-state",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-028",
+      "message_id": "f813e62d-9291-27dc-3714-0962c4786ab6",
+      "thread_id": "f64c01c6-4591-3a7f-fbc8-620523800996",
+      "directive_id": "b81fec11-a753-3474-d00f-0317e5011bda",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2631,
+      "output_tokens": 559,
+      "total_tokens": 3190,
+      "tokens_estimated": false,
+      "cost_amount": 0.005985,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5459,
+      "journey_duration_ms": 5482,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "browser-and-device",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "textual-attachments"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "browser-and-device",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "textual-attachments"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-029",
+      "message_id": "63985b84-1e38-690c-2f1c-07060ee33f61",
+      "thread_id": "4b970811-c7e1-19ac-54ee-691f971785d0",
+      "directive_id": "3c3a4769-6d91-42b0-cdfb-6ee92c523072",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2655,
+      "output_tokens": 502,
+      "total_tokens": 3157,
+      "tokens_estimated": false,
+      "cost_amount": 0.005667,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 5428,
+      "journey_duration_ms": 5452,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "commit-range",
+              "correlation-metadata",
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "reported-severity",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null
+    },
+    {
+      "case_id": "triage-030",
+      "message_id": "580babc5-6d44-873e-5997-6eb3a5a929fb",
+      "thread_id": "6835a320-dac4-67f4-4e97-48d85fec7dbe",
+      "directive_id": "216d8ea7-c327-8686-6926-20998a5e02b5",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5.6-luna",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 2643,
+      "output_tokens": 686,
+      "total_tokens": 3329,
+      "tokens_estimated": false,
+      "cost_amount": 0.006759,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 6324,
+      "journey_duration_ms": 6349,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-15-gpt-5.6-luna",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 1.00,
+      "output_price_per_token_unit": 6.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "authentication-state",
+              "autosave-status",
+              "browser-and-device",
+              "correlation-metadata",
+              "failure-frequency",
+              "form-identity",
+              "idle-duration",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "authentication-state",
+              "autosave-status",
+              "browser-and-device",
+              "correlation-metadata",
+              "failure-frequency",
+              "form-identity",
+              "idle-duration",
+              "reproduction-steps"
+            ],
+            "score": 0.7692307692307693
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6192307692307693
+      },
+      "invalid_output_diagnostics": null
+    }
+  ],
+  "projection_version": 1,
+  "rubric_version": 1,
+  "corpus_score": 0.41516666666666663,
+  "evaluation_plan_version": null,
+  "freeze_id": null,
+  "evaluation_partition": null,
+  "code_version": null,
+  "configuration_version": null,
+  "run_analysis": null
+}

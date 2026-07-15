@@ -1,0 +1,21 @@
+# Calibration-only model comparison override for US-F0-13-T16.
+#
+# Layer last after docker-compose.evaluation.yml. The bind-mounted organization
+# keeps the T14 triage-v2 identity and selects gpt-5.6-terra only for bug triage.
+# Historical experiment inputs and the normal organization source stay untouched.
+
+services:
+  api:
+    environment:
+      HIVE__AIGATEWAY__REAL__MODELID: "gpt-5.6-terra"
+      HIVE__AIGATEWAY__REAL__PRICING__VERSION: "openai-2026-07-15-gpt-5.6-terra"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__MODELID: "gpt-5.6-terra"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__INPUTPRICE: "2.50"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__OUTPUTPRICE: "15.00"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__CURRENCY: "USD"
+    volumes:
+      - type: bind
+        source: ./config/experiments/gpt-5.6-terra/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

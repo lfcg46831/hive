@@ -1,0 +1,22 @@
+# Calibration-only prompt recovery override for US-F0-13-T14.
+#
+# Layer last after docker-compose.evaluation.yml. The bind-mounted organization
+# file selects the versioned triage-v2 identity and gpt-5.6-luna only for the
+# bug-triage position. Historical T13 inputs and normal organization source stay
+# untouched.
+
+services:
+  api:
+    environment:
+      HIVE__AIGATEWAY__REAL__MODELID: "gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__VERSION: "openai-2026-07-15-gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__PROVIDERID: "openai"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__MODELID: "gpt-5.6-luna"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__INPUTPRICE: "1.00"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__OUTPUTPRICE: "6.00"
+      HIVE__AIGATEWAY__REAL__PRICING__MODELS__1__CURRENCY: "USD"
+    volumes:
+      - type: bind
+        source: ./config/experiments/gpt-5.6-luna-prompt-recovery/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

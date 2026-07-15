@@ -286,6 +286,110 @@ dotnet run --project src/Hive.DemoClient -- evaluate --run-id holdout-v1 --base-
 
 The holdout command fails before network access when readiness evidence is missing/drifted, any frozen input changed, or an exact case id/normalized context overlaps calibration. Never inspect holdout results and then tune prompt, model, labels, or timeout against them; a changed frozen input requires a new freeze and a new unseen holdout. T05 reports only holdout evidence and marks incomplete coverage explicitly; only a `gate-eligible` complete holdout is valid input to the T06 decision. Reusing a `run-id` reuses deterministic message/thread/directive identities for safe retry and does not create an independent measurement. A missing, invalid, or version-incompatible projection remains a structured scoring failure. Output contains correlations, canonical predicted labels, aggregate matrix/recall, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, per-case human baseline, model text, credentials, or the connection string. Review populated result datasets before committing them as evaluation artefacts. Generic `--corpus`/`--rubric` runs without `--plan` remain available for non-gate fixture development, including the follow-up example.
 
+For the calibration-only GPT-5.6 Luna recovery experiment, layer the dedicated override last. It bind-mounts an experimental copy of `organization.yaml` that changes only the `bug-triage` position model, sets the gateway default to the same model, and adds the official USD 1.00 input / USD 6.00 output text-token rates per one million tokens ([official GPT-5.6 Luna model page](https://developers.openai.com/api/docs/models/gpt-5.6-luna), accessed 2026-07-15). It does not alter the tracked organization source, the historical evaluation plan, or either burned holdout:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-luna.yml up --build -d
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+$corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
+$rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+```
+
+These are exploratory generic runs, not gate-bearing plan partitions. Keep the prompt, corpus, rubric, 45-second provider timeout, output schema, and code unchanged between runs. The public `gpt-5.6-luna` alias is acceptable for this calibration, but a later freeze requires an immutable snapshot or a documented provider-resolved version. After the experiment, recreate the normal evaluation stack without `docker-compose.evaluation.gpt-5.6-luna.yml` to restore the tracked organization model in the PostgreSQL registry.
+
+For the T14 prompt-recovery calibration, use the separate override below. It preserves the T13 profile and datasets, selects the versioned `triage-v2` identity plus the generic HIVE intent boundary compiled into the current image, and keeps the same Luna pricing, corpus, rubric, output schema and timeouts. Confirm that `gpt-5.6-luna` is allowed by the same OpenAI project/key before starting; do not inspect or tune between the three runs:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-luna-prompt-recovery.yml up --build -d
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+$corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
+$rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
+$evidence='evidence/evaluation/bug-triage-luna-prompt-recovery-v1'
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-001.json" --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-002.json" --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-003.json" --timeout-seconds 120 --poll-milliseconds 1000
+```
+
+Each run must independently have 30/30 terminal, explicit-cost-state and scoreable coverage and meet the T14 thresholds recorded in the bible. Any authorization, invalid-output or projection failure rejects that run. This remains calibration-only: do not use `--plan`, do not execute a holdout, and restore the normal evaluation stack without this override when the experiment is complete.
+
+For the T15 `gpt-5.4-mini` model-only comparison, enable both the alias and its official `gpt-5.4-mini-2026-03-17` snapshot in the OpenAI project's **Model usage** allowlist. A pre-corpus smoke request to the alias showed that the provider returns this snapshot id, so the profile fixes it directly for reproducibility. It keeps `triage-v2` and every T14 runtime/evaluation input unchanged, changes only the effective bug-triage model, and records the official standard USD 0.75 input / USD 4.50 output text-token rates per one million tokens ([official GPT-5.4 mini model page](https://developers.openai.com/api/docs/models/gpt-5.4-mini), accessed 2026-07-15). Run the same-key snapshot smoke test before starting the corpus:
+
+```powershell
+$keyLine=Get-Content .env | Where-Object { $_ -match '^OPENAI_API_KEY=' } | Select-Object -First 1
+if ($null -eq $keyLine) { throw 'OPENAI_API_KEY is missing from .env.' }
+$env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY=$keyLine.Substring($keyLine.IndexOf('=') + 1).Trim().Trim('"')
+$env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID='gpt-5.4-mini-2026-03-17'
+try {
+  dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-restore --filter "FullyQualifiedName~AiGatewayIntegrationTests.Optional_real_provider_smoke_test_runs_only_with_local_secret_and_model" -v minimal
+} finally {
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID -ErrorAction SilentlyContinue
+}
+```
+
+Only after the smoke test passes, start and verify the isolated evaluation profile:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.4-mini-prompt-recovery.yml up --build -d
+Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
+```
+
+The configuration response must show `identityPromptRef` equal to `triage-v2` and `model` equal to `gpt-5.4-mini-2026-03-17`. Then execute all three runs in one block; do not inspect or tune between them:
+
+```powershell
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+$corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
+$rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
+$evidence='evidence/evaluation/bug-triage-gpt-5.4-mini-recovery-v1'
+$runIds=@('gpt-5-4-mini-calibration-001','gpt-5-4-mini-calibration-002','gpt-5-4-mini-calibration-003')
+$statuses=@()
+foreach ($runId in $runIds) {
+  dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
+  $statuses += "$runId=$LASTEXITCODE"
+}
+$statuses
+```
+
+The three runs contain 90 cases in total. Preserve all three datasets even when a runner exit code is `1`: that code means at least one case was not both successful and scoreable, not that the dataset was lost. Do not run a holdout. Restore the normal profile after the datasets have been written:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml up -d
+```
+
+For the one-run T16 `gpt-5.6-terra` exception, enable `gpt-5.6-terra` in the OpenAI project's **Model usage** allowlist. The isolated profile keeps every T15 input unchanged except the model and the official standard USD 2.50 input / USD 15.00 output text-token rates per one million tokens ([official GPT-5.6 Terra model page](https://developers.openai.com/api/docs/models/gpt-5.6-terra), accessed 2026-07-15). Run the same-key smoke test before consuming the corpus:
+
+```powershell
+$keyLine=Get-Content .env | Where-Object { $_ -match '^OPENAI_API_KEY=' } | Select-Object -First 1
+if ($null -eq $keyLine) { throw 'OPENAI_API_KEY is missing from .env.' }
+$env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY=$keyLine.Substring($keyLine.IndexOf('=') + 1).Trim().Trim('"')
+$env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID='gpt-5.6-terra'
+try {
+  dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-restore --filter "FullyQualifiedName~AiGatewayIntegrationTests.Optional_real_provider_smoke_test_runs_only_with_local_secret_and_model" -v minimal
+} finally {
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID -ErrorAction SilentlyContinue
+}
+```
+
+Only after the smoke succeeds, start and verify the T16 profile, then execute its single 30-case calibration:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-terra.yml up --build -d
+Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+$corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
+$rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
+$output='evidence/evaluation/bug-triage-terra-v1/terra-calibration-001.json'
+dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id terra-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output $output --timeout-seconds 120 --poll-milliseconds 1000
+```
+
+The registry response must show `identityPromptRef=triage-v2`, `model=gpt-5.6-terra`, and `maxTokens=4096`. Preserve the dataset even when the runner exits with code `1`; do not run a holdout. Restore the normal profile afterwards with the same command shown above without the Terra override.
+
 Generate the versioned T05 report from the holdout dataset and the tracked reporting profile:
 
 ```powershell

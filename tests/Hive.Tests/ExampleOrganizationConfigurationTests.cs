@@ -70,13 +70,15 @@ public sealed class ExampleOrganizationConfigurationTests
         }
     }
 
-    [Fact]
-    public void Example_triage_identity_contains_only_business_authored_content()
+    [Theory]
+    [InlineData("triage-v1.md")]
+    [InlineData("triage-v2.md")]
+    public void Example_triage_identities_contain_only_business_authored_content(string fileName)
     {
         var prompt = File.ReadAllText(Path.Combine(
             OrganizationDirectory,
             "prompts",
-            "triage-v1.md"));
+            fileName));
 
         Assert.Contains("## Role", prompt, StringComparison.Ordinal);
         Assert.Contains("## Responsibilities", prompt, StringComparison.Ordinal);
@@ -107,6 +109,142 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.All(
             forbiddenContractTerms,
             term => Assert.DoesNotContain(term, prompt, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Example_triage_v2_makes_the_business_decision_boundary_explicit()
+    {
+        var prompt = File.ReadAllText(Path.Combine(
+            OrganizationDirectory,
+            "prompts",
+            "triage-v2.md"));
+
+        Assert.Contains("## Decision procedure", prompt, StringComparison.Ordinal);
+        Assert.Contains(
+            "Does the available evidence support the severity assessment?",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Does the available evidence support a safe, actionable next step?",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "only when both answers are yes",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "If either answer is no",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Missing facts are non-blocking only when the available evidence still supports both conclusions.",
+            prompt,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Prompt_recovery_experiment_versions_only_the_triage_prompt_and_luna_model()
+    {
+        var source = new OrganizationConfigurationParser().ParseFile(OrganizationFile);
+        var experiment = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "gpt-5.6-luna-prompt-recovery",
+                "organization.yaml"));
+
+        Assert.True(source.IsSuccess, string.Join(Environment.NewLine, source.Errors));
+        Assert.True(experiment.IsSuccess, string.Join(Environment.NewLine, experiment.Errors));
+
+        var sourceTriage = source.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+        var experimentTriage = experiment.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+
+        Assert.Equal("triage-v1", sourceTriage.Occupant.IdentityPromptRef);
+        Assert.Equal("gpt-5-mini", sourceTriage.Occupant.Ai!.Model);
+        Assert.Equal("triage-v2", experimentTriage.Occupant.IdentityPromptRef);
+        Assert.Equal("gpt-5.6-luna", experimentTriage.Occupant.Ai!.Model);
+        Assert.Contains(
+            experiment.Configuration.Prompts,
+            prompt => prompt.Id == "triage-v2" && prompt.Path == "prompts/triage-v2.md");
+        Assert.DoesNotContain(
+            experiment.Configuration.Prompts,
+            prompt => prompt.Id == "triage-v1");
+    }
+
+    [Fact]
+    public void Gpt_5_4_mini_experiment_preserves_triage_v2_and_changes_only_the_model_profile()
+    {
+        var t14 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "gpt-5.6-luna-prompt-recovery",
+                "organization.yaml"));
+        var t15 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "gpt-5.4-mini-prompt-recovery",
+                "organization.yaml"));
+
+        Assert.True(t14.IsSuccess, string.Join(Environment.NewLine, t14.Errors));
+        Assert.True(t15.IsSuccess, string.Join(Environment.NewLine, t15.Errors));
+
+        var t14Triage = t14.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+        var t15Triage = t15.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+
+        Assert.Equal("triage-v2", t14Triage.Occupant.IdentityPromptRef);
+        Assert.Equal("triage-v2", t15Triage.Occupant.IdentityPromptRef);
+        Assert.Equal("gpt-5.6-luna", t14Triage.Occupant.Ai!.Model);
+        Assert.Equal("gpt-5.4-mini-2026-03-17", t15Triage.Occupant.Ai!.Model);
+        Assert.Equal(t14Triage.Occupant.Ai.MaxTokens, t15Triage.Occupant.Ai.MaxTokens);
+        Assert.Equal(t14Triage.Occupant.Ai.Timeout, t15Triage.Occupant.Ai.Timeout);
+        Assert.Equal(
+            t14Triage.Occupant.Authority!.CanDecide.Select(key => key.Value),
+            t15Triage.Occupant.Authority!.CanDecide.Select(key => key.Value));
+        Assert.Equal(
+            t14Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value),
+            t15Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value));
+    }
+
+    [Fact]
+    public void Gpt_5_6_terra_experiment_preserves_t15_inputs_and_changes_only_the_model_profile()
+    {
+        var t15 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "gpt-5.4-mini-prompt-recovery",
+                "organization.yaml"));
+        var t16 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "gpt-5.6-terra",
+                "organization.yaml"));
+
+        Assert.True(t15.IsSuccess, string.Join(Environment.NewLine, t15.Errors));
+        Assert.True(t16.IsSuccess, string.Join(Environment.NewLine, t16.Errors));
+
+        var t15Triage = t15.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+        var t16Triage = t16.Configuration!.Positions.Single(position => position.Id.Value == "bug-triage");
+
+        Assert.Equal("triage-v2", t16Triage.Occupant.IdentityPromptRef);
+        Assert.Equal("gpt-5.4-mini-2026-03-17", t15Triage.Occupant.Ai!.Model);
+        Assert.Equal("gpt-5.6-terra", t16Triage.Occupant.Ai!.Model);
+        Assert.Equal(t15Triage.Occupant.Ai.MaxTokens, t16Triage.Occupant.Ai.MaxTokens);
+        Assert.Equal(t15Triage.Occupant.Ai.Timeout, t16Triage.Occupant.Ai.Timeout);
+        Assert.Equal(
+            t15Triage.Occupant.Authority!.CanDecide.Select(key => key.Value),
+            t16Triage.Occupant.Authority!.CanDecide.Select(key => key.Value));
+        Assert.Equal(
+            t15Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value),
+            t16Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value));
     }
 
     [Fact]

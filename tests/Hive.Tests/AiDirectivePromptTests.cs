@@ -78,6 +78,18 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("Escalation", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Directive", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains(
+            "Choose Report only for information or an assessment that asks the superior for no decision, authorization, or choice.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Choose Escalation whenever the response asks the superior to decide, authorize, or choose; never place such a request inside Report.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "without exposing intermediate reasoning",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
             "required top-level \"acting_under\"",
             request.SystemInstruction,
             StringComparison.Ordinal);
@@ -198,8 +210,18 @@ public sealed class AiDirectivePromptTests
         Assert.DoesNotContain("hive-evaluation-v1", sections.BusinessIdentity, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("Return JSON only", sections.HiveProtocol, StringComparison.Ordinal);
+        Assert.Contains(
+            "Choose Report only for information or an assessment that asks the superior for no decision, authorization, or choice.",
+            sections.HiveProtocol,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Choose Escalation whenever the response asks the superior to decide, authorize, or choose; never place such a request inside Report.",
+            sections.HiveProtocol,
+            StringComparison.Ordinal);
         Assert.Contains("runtime evaluation appendix", sections.HiveProtocol, StringComparison.Ordinal);
         Assert.DoesNotContain("triaging incoming bugs", sections.HiveProtocol, StringComparison.Ordinal);
+        Assert.DoesNotContain("severity", sections.HiveProtocol, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("evidence", sections.HiveProtocol, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("hive-evaluation-v1", sections.HiveProtocol, StringComparison.Ordinal);
 
         Assert.Contains("Allowed \"acting_under\" values", sections.RuntimeAuthority, StringComparison.Ordinal);

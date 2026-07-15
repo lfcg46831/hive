@@ -34,7 +34,8 @@ public sealed record EvaluationJourney(
     string? PricingVersion = null,
     int? PricingTokenUnit = null,
     decimal? InputPricePerTokenUnit = null,
-    decimal? OutputPricePerTokenUnit = null);
+    decimal? OutputPricePerTokenUnit = null,
+    EvaluationInvalidOutputDiagnostics? InvalidOutputDiagnostics = null);
 
 internal sealed record EvaluationAuditRow(
     DateTimeOffset OccurredAt,
@@ -121,7 +122,8 @@ internal static class EvaluationJourneyProjector
             PayloadValue(cost.Payload, "pricingVersion"),
             PayloadInt(cost.Payload, "pricingTokenUnit"),
             PayloadDecimal(cost.Payload, "inputPricePerTokenUnit"),
-            PayloadDecimal(cost.Payload, "outputPricePerTokenUnit"));
+            PayloadDecimal(cost.Payload, "outputPricePerTokenUnit"),
+            ParseInvalidOutputDiagnostics(decision?.Payload));
     }
 
     private static bool IsFailedOrRejected(string outcome) =>
@@ -185,6 +187,109 @@ internal static class EvaluationJourneyProjector
             : throw new InvalidOperationException(
                 $"Evaluation audit payload '{property}' is invalid.");
     }
+
+    private static EvaluationInvalidOutputDiagnostics? ParseInvalidOutputDiagnostics(
+        string? payload)
+    {
+        var count = PayloadInt(payload, "parseErrorCount");
+        if (count is null or 0)
+        {
+            return null;
+        }
+
+        if (count < 0)
+        {
+            throw new InvalidOperationException("Evaluation parse diagnostic count is invalid.");
+        }
+
+        var version = PayloadInt(payload, "parseErrorContractVersion");
+        if (version != EvaluationInvalidOutputDiagnosticContract.Version)
+        {
+            throw new InvalidOperationException("Evaluation parse diagnostic contract version is unsupported.");
+        }
+
+        var errors = new List<EvaluationInvalidOutputDiagnostic>(count.Value);
+        for (var index = 0; index < count.Value; index++)
+        {
+            var path = PayloadValue(payload, $"parseError.{index}.path");
+            var code = PayloadValue(payload, $"parseError.{index}.code");
+            if (path is null || code is null ||
+                !EvaluationInvalidOutputDiagnosticContract.Paths.Contains(path) ||
+                !EvaluationInvalidOutputDiagnosticContract.Codes.Contains(code))
+            {
+                throw new InvalidOperationException(
+                    "Evaluation parse diagnostic is outside the closed contract.");
+            }
+
+            errors.Add(new EvaluationInvalidOutputDiagnostic(path, code));
+        }
+
+        var ordered = errors
+            .OrderBy(item => item.Path, StringComparer.Ordinal)
+            .ThenBy(item => item.Code, StringComparer.Ordinal)
+            .ToArray();
+        if (!errors.SequenceEqual(ordered))
+        {
+            throw new InvalidOperationException(
+                "Evaluation parse diagnostics are not canonically ordered.");
+        }
+
+        return new EvaluationInvalidOutputDiagnostics(version.Value, count.Value, ordered);
+    }
+}
+
+internal static class EvaluationInvalidOutputDiagnosticContract
+{
+    public const int Version = 1;
+
+    public static IReadOnlySet<string> Codes { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "empty-response",
+        "invalid-field",
+        "invalid-intent",
+        "invalid-json",
+        "invalid-schema-version",
+        "payload-ambiguous",
+        "payload-intent-mismatch",
+        "payload-required",
+        "required-field",
+        "top-level-object-required",
+        "unknown-field",
+    };
+
+    public static IReadOnlySet<string> Paths { get; } = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "$",
+        "acting_under",
+        "decision",
+        "decision.directive",
+        "decision.directive.context",
+        "decision.directive.objective",
+        "decision.directive.target_position_id",
+        "decision.escalation",
+        "decision.escalation.context",
+        "decision.escalation.issue",
+        "decision.escalation.options_considered",
+        "decision.escalation.options_considered.item",
+        "decision.intent",
+        "decision.report",
+        "decision.report.body",
+        "decision.report.kind",
+        "directive",
+        "directive.context",
+        "directive.objective",
+        "directive.target_position_id",
+        "escalation",
+        "escalation.context",
+        "escalation.issue",
+        "escalation.options_considered",
+        "escalation.options_considered.item",
+        "intent",
+        "report",
+        "report.body",
+        "report.kind",
+        "schema_version",
+    };
 }
 
 public sealed class PostgreSqlEvaluationAuditReader : IEvaluationAuditReader

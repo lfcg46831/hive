@@ -97,7 +97,7 @@ positions:
         model: gpt-5-mini
         max_tokens: 4096
         max_iterations: 4
-        timeout: PT30S
+        timeout: PT45S
         processing: interactive
         budget:
           reactive_max_eur_per_day: 5.00

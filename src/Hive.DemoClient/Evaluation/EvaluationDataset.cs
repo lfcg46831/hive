@@ -12,7 +12,13 @@ public sealed record EvaluationDataset(
     [property: JsonPropertyName("cases")] IReadOnlyList<EvaluationCaseResult> Cases,
     [property: JsonPropertyName("projection_version")] int? ProjectionVersion = null,
     [property: JsonPropertyName("rubric_version")] int? RubricVersion = null,
-    [property: JsonPropertyName("corpus_score")] double? CorpusScore = null);
+    [property: JsonPropertyName("corpus_score")] double? CorpusScore = null,
+    [property: JsonPropertyName("evaluation_plan_version")] int? EvaluationPlanVersion = null,
+    [property: JsonPropertyName("freeze_id")] string? FreezeId = null,
+    [property: JsonPropertyName("evaluation_partition")] string? EvaluationPartition = null,
+    [property: JsonPropertyName("code_version")] string? CodeVersion = null,
+    [property: JsonPropertyName("configuration_version")] string? ConfigurationVersion = null,
+    [property: JsonPropertyName("run_analysis")] EvaluationRunAnalysis? RunAnalysis = null);
 
 public sealed record EvaluationCaseResult(
     [property: JsonPropertyName("case_id")] string CaseId,
@@ -42,7 +48,19 @@ public sealed record EvaluationCaseResult(
     [property: JsonPropertyName("input_price_per_token_unit")] decimal? InputPricePerTokenUnit = null,
     [property: JsonPropertyName("output_price_per_token_unit")] decimal? OutputPricePerTokenUnit = null,
     [property: JsonPropertyName("prediction")] EvaluationPrediction? Prediction = null,
-    [property: JsonPropertyName("scoring")] EvaluationCaseScoring? Scoring = null);
+    [property: JsonPropertyName("scoring")] EvaluationCaseScoring? Scoring = null,
+    [property: JsonPropertyName("invalid_output_diagnostics")]
+    EvaluationInvalidOutputDiagnostics? InvalidOutputDiagnostics = null);
+
+public sealed record EvaluationInvalidOutputDiagnostics(
+    [property: JsonPropertyName("contract_version")] int ContractVersion,
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("errors")]
+    IReadOnlyList<EvaluationInvalidOutputDiagnostic> Errors);
+
+public sealed record EvaluationInvalidOutputDiagnostic(
+    [property: JsonPropertyName("path")] string Path,
+    [property: JsonPropertyName("code")] string Code);
 
 public sealed record EvaluationPrediction(
     [property: JsonPropertyName("projection_version")] int ProjectionVersion,

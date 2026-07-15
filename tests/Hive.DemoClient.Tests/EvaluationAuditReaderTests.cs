@@ -155,6 +155,63 @@ public sealed class EvaluationAuditReaderTests
         Assert.Null(journey.CostAmount);
     }
 
+    [Fact]
+    public void Projects_only_closed_versioned_invalid_output_diagnostics()
+    {
+        var journey = EvaluationJourneyProjector.TryProject(
+        [
+            Row(0, "SubmissionReceived", "Accepted"),
+            Row(
+                1,
+                "GatewayCostRecorded",
+                "Succeeded",
+                providerId: "openai",
+                modelId: "gpt-test"),
+            Row(
+                2,
+                "AgentDecided",
+                "Failed",
+                reasonCode: "ai-output-invalid",
+                payload: "{\"terminalCode\":\"ai-output-invalid\",\"parseErrorContractVersion\":\"1\",\"parseErrorCount\":\"2\",\"parseError.0.path\":\"decision\",\"parseError.0.code\":\"payload-ambiguous\",\"parseError.1.path\":\"decision.report.body\",\"parseError.1.code\":\"invalid-field\"}"),
+        ]);
+
+        Assert.NotNull(journey);
+        var diagnostics = Assert.IsType<EvaluationInvalidOutputDiagnostics>(
+            journey.InvalidOutputDiagnostics);
+        Assert.Equal(1, diagnostics.ContractVersion);
+        Assert.Equal(2, diagnostics.Count);
+        Assert.Equal(
+            [
+                new EvaluationInvalidOutputDiagnostic("decision", "payload-ambiguous"),
+                new EvaluationInvalidOutputDiagnostic("decision.report.body", "invalid-field"),
+            ],
+            diagnostics.Errors);
+    }
+
+    [Fact]
+    public void Rejects_dynamic_or_unversioned_parse_diagnostics_from_the_read_model()
+    {
+        var rows = new[]
+        {
+            Row(0, "SubmissionReceived", "Accepted"),
+            Row(1, "GatewayCostRecorded", "Succeeded"),
+            Row(
+                2,
+                "AgentDecided",
+                "Failed",
+                reasonCode: "ai-output-invalid",
+                payload: "{\"parseErrorContractVersion\":\"1\",\"parseErrorCount\":\"1\",\"parseError.0.path\":\"decision.rejected-secret\",\"parseError.0.code\":\"invalid-field\"}"),
+        };
+
+        var exception = Assert.Throws<InvalidOperationException>(() =>
+            EvaluationJourneyProjector.TryProject(rows));
+
+        Assert.Equal(
+            "Evaluation parse diagnostic is outside the closed contract.",
+            exception.Message);
+        Assert.DoesNotContain("rejected-secret", exception.Message, StringComparison.Ordinal);
+    }
+
     private static EvaluationAuditRow Row(
         int seconds,
         string stage,

@@ -42,13 +42,13 @@ internal static class AiDirectivePrompt
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
-            BuildHiveProtocolInstruction(),
+            BuildHiveProtocolInstruction(context.EvaluationInstruction is not null),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context),
             context.EvaluationInstruction?.Content);
     }
 
-    private static string BuildHiveProtocolInstruction()
+    private static string BuildHiveProtocolInstruction(bool hasEvaluationAppendix)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -57,20 +57,27 @@ internal static class AiDirectivePrompt
         var directiveIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Directive);
 
+        var lines = new List<string>
+        {
+            "You are the HIVE AI occupant for the current position.",
+            "Classify the directive using only the provided context.",
+            "Return JSON only with no Markdown fences or explanatory prose.",
+            $"Set \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" to {AiDirectiveDecisionSchema.SchemaVersion}.",
+            $"Include required top-level \"{AiToolActingUnderSchema.PropertyName}\" and exactly one \"{AiDirectiveDecisionSchema.DecisionProperty}\" object for every organizational message output.",
+            $"Inside \"{AiDirectiveDecisionSchema.DecisionProperty}\", use exactly one \"{AiDirectiveDecisionSchema.IntentProperty}\" value and its single matching payload: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
+            $"For {reportIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
+            $"For {escalationIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
+            $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
+        };
+        if (hasEvaluationAppendix)
+        {
+            lines.Add(
+                "A runtime evaluation appendix is present below; its single exact envelope is mandatory in the selected payload, so verify it before returning JSON.");
+        }
+
         return string.Join(
             Environment.NewLine,
-            [
-                "You are the HIVE AI occupant for the current position.",
-                "Classify the directive using only the provided context.",
-                "Return JSON only with no Markdown fences or explanatory prose.",
-                $"Set \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" to {AiDirectiveDecisionSchema.SchemaVersion}.",
-                $"Use exactly one top-level \"{AiDirectiveDecisionSchema.IntentProperty}\" value: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
-                $"Include required top-level \"{AiToolActingUnderSchema.PropertyName}\" alongside \"{AiDirectiveDecisionSchema.SchemaVersionProperty}\" and \"{AiDirectiveDecisionSchema.IntentProperty}\" for every organizational message output.",
-                $"Always include top-level \"{AiDirectiveDecisionSchema.ReportPayloadProperty}\", \"{AiDirectiveDecisionSchema.EscalationPayloadProperty}\", and \"{AiDirectiveDecisionSchema.DirectivePayloadProperty}\"; set the two payloads that do not match \"{AiDirectiveDecisionSchema.IntentProperty}\" to null.",
-                $"For {reportIntent}, include {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
-                $"For {escalationIntent}, include {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
-                $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
-            ]);
+            lines);
     }
 
     private static string BuildRuntimeAuthorityInstruction(

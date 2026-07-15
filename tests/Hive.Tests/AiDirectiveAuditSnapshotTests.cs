@@ -264,6 +264,7 @@ public sealed class AiDirectiveAuditSnapshotTests
     public async Task AiAgentActor_records_invalid_output_audit_without_result_message_or_effects()
     {
         var request = Request();
+        var auditLog = new RecordingJourneyAuditLog();
         var system = ActorSystem.Create($"ai-agent-audit-invalid-output-{Guid.NewGuid():N}");
 
         try
@@ -271,7 +272,9 @@ public sealed class AiDirectiveAuditSnapshotTests
             var actor = system.ActorOf(
                 Props.Create(() => new AiAgentActor(
                     request.Occupant,
-                    new StaticResponseInvoker("{"))),
+                    new StaticResponseInvoker("{"),
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    auditLog)),
                 "agent");
 
             actor.Tell(request);
@@ -284,9 +287,23 @@ public sealed class AiDirectiveAuditSnapshotTests
             Assert.Equal(AiGatewayCallResult.Succeeded, snapshot.Gateway.Result);
             Assert.Equal(AiDirectiveInterpretationOutcomeKind.EscalationRequired, snapshot.Decision!.Outcome);
             Assert.Equal("ai-output-invalid", snapshot.Decision.FailureCode);
+            Assert.Equal(1, snapshot.Decision.ParseErrorContractVersion);
             Assert.Equal(1, snapshot.Decision.ParseErrorCount);
+            var diagnostic = Assert.Single(snapshot.Decision.ParseErrors);
+            Assert.Equal("$", diagnostic.Path);
+            Assert.Equal("invalid-json", diagnostic.Code);
             Assert.Null(snapshot.ResultMessage);
             Assert.Null(snapshot.PositionEffects);
+            var auditRecord = Assert.Single(auditLog.Records);
+            Assert.Equal(JourneyAuditStage.AgentDecided, auditRecord.Stage);
+            var payload = auditRecord.Payload;
+            Assert.Equal("1", payload["parseErrorContractVersion"]);
+            Assert.Equal("1", payload["parseErrorCount"]);
+            Assert.Equal("$", payload["parseError.0.path"]);
+            Assert.Equal("invalid-json", payload["parseError.0.code"]);
+            Assert.DoesNotContain(
+                payload.Values,
+                value => value.Contains("Customer reports checkout failures", StringComparison.Ordinal));
             Assert.Contains(
                 snapshot.Redactions,
                 redaction => redaction.Path == "gateway.response.text");

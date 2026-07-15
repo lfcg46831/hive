@@ -12,6 +12,7 @@ public sealed class AiDirectiveDecisionContractTests
     {
         Assert.Equal(1, AiDirectiveDecisionSchema.SchemaVersion);
         Assert.Equal("schema_version", AiDirectiveDecisionSchema.SchemaVersionProperty);
+        Assert.Equal("decision", AiDirectiveDecisionSchema.DecisionProperty);
         Assert.Equal("intent", AiDirectiveDecisionSchema.IntentProperty);
         Assert.Equal("acting_under", AiDirectiveDecisionSchema.ActingUnderProperty);
         Assert.Equal(

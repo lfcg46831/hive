@@ -93,6 +93,7 @@ public sealed class AiDirectivePromptTests
         Assert.DoesNotContain("bug triage agent", request.SystemInstruction, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("You are responsible for triaging incoming bugs.", request.SystemInstruction, StringComparison.Ordinal);
         Assert.DoesNotContain("hive-evaluation-v1:", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.DoesNotContain("runtime evaluation appendix", request.SystemInstruction, StringComparison.Ordinal);
         Assert.DoesNotContain("missing-information", request.SystemInstruction, StringComparison.Ordinal);
 
         Assert.Contains($"CorrelationId: {processingRequest.CorrelationId}", request.Content, StringComparison.Ordinal);
@@ -126,28 +127,57 @@ public sealed class AiDirectivePromptTests
         Assert.False(schema.TryGetProperty("anyOf", out _));
         Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
         Assert.Equal(
-            ["schema_version", "intent", "acting_under", "report", "escalation", "directive"],
+            ["schema_version", "acting_under", "decision"],
             schema.GetProperty("required")
                 .EnumerateArray()
                 .Select(item => item.GetString())
                 .ToArray());
         var properties = schema.GetProperty("properties");
-        foreach (var payloadName in new[] { "report", "escalation", "directive" })
+        var alternatives = properties.GetProperty("decision")
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(3, alternatives.Length);
+        foreach (var (intent, payloadName) in new[]
+                 {
+                     ("Report", "report"),
+                     ("Escalation", "escalation"),
+                     ("Directive", "directive"),
+                 })
         {
-            var alternatives = properties.GetProperty(payloadName)
-                .GetProperty("anyOf")
+            var alternative = Assert.Single(
+                alternatives.Where(item =>
+                    item.GetProperty("properties")
+                        .GetProperty("intent")
+                        .GetProperty("const")
+                        .GetString() == intent));
+            Assert.Equal(
+                ["intent", payloadName],
+                alternative.GetProperty("required")
                 .EnumerateArray()
-                .ToArray();
-            Assert.Equal(2, alternatives.Length);
-            Assert.Contains(
-                alternatives,
-                alternative => alternative.GetProperty("type").GetString() == "null");
+                .Select(item => item.GetString())
+                .ToArray());
+            Assert.False(alternative.GetProperty("additionalProperties").GetBoolean());
         }
+        var reportBranch = alternatives.Single(item =>
+            item.GetProperty("properties")
+                .GetProperty("intent")
+                .GetProperty("const")
+                .GetString() == "Report");
+        Assert.Contains(
+            "\\u3000",
+            reportBranch.GetProperty("properties")
+                .GetProperty("report")
+                .GetProperty("properties")
+                .GetProperty("body")
+                .GetProperty("pattern")
+                .GetString(),
+            StringComparison.Ordinal);
         Assert.Equal(
             [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text],
             outputConstraint.AllowedFallbackModes);
         Assert.Contains(
-            "set the two payloads that do not match \"intent\" to null",
+            "exactly one \"intent\" value and its single matching payload",
             request.SystemInstruction,
             StringComparison.Ordinal);
     }
@@ -168,6 +198,7 @@ public sealed class AiDirectivePromptTests
         Assert.DoesNotContain("hive-evaluation-v1", sections.BusinessIdentity, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains("Return JSON only", sections.HiveProtocol, StringComparison.Ordinal);
+        Assert.Contains("runtime evaluation appendix", sections.HiveProtocol, StringComparison.Ordinal);
         Assert.DoesNotContain("triaging incoming bugs", sections.HiveProtocol, StringComparison.Ordinal);
         Assert.DoesNotContain("hive-evaluation-v1", sections.HiveProtocol, StringComparison.Ordinal);
 

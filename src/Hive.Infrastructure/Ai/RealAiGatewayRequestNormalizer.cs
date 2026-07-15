@@ -6,6 +6,8 @@ namespace Hive.Infrastructure.Ai;
 
 internal sealed class RealAiGatewayRequestNormalizer
 {
+    internal const string StrictOptionKey = "strict";
+
     public NormalizedAiGatewayProviderRequest Normalize(
         AiGatewayRequest request,
         RealAiGatewayProviderSettings settings,
@@ -58,6 +60,13 @@ internal sealed class RealAiGatewayRequestNormalizer
             MaxOutputTokens = parameters.MaxOutputTokens,
             ResponseFormat = MapResponseFormat(request.OutputConstraint, outputConstraintMode),
         };
+        if (outputConstraintMode is AiOutputConstraintMode.JsonSchema)
+        {
+            options.AdditionalProperties = new AdditionalPropertiesDictionary
+            {
+                [StrictOptionKey] = true,
+            };
+        }
 
         if (request.Tools.Count > 0)
         {

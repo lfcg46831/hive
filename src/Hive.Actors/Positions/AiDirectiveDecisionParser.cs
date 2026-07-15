@@ -10,13 +10,99 @@ internal sealed record AiDirectiveDecisionParseError
 {
     public AiDirectiveDecisionParseError(string code, string path)
     {
-        Code = AiAgentGatewayText.Require(code, nameof(code));
-        Path = AiAgentGatewayText.Require(path, nameof(path));
+        Code = AiDirectiveDecisionParseDiagnosticContract.RequireCode(code);
+        Path = AiDirectiveDecisionParseDiagnosticContract.RequirePath(path);
     }
 
     public string Code { get; }
 
     public string Path { get; }
+}
+
+internal static class AiDirectiveDecisionParseDiagnosticContract
+{
+    public const int Version = 1;
+
+    public const string EmptyResponseCode = "empty-response";
+    public const string InvalidJsonCode = "invalid-json";
+    public const string TopLevelObjectRequiredCode = "top-level-object-required";
+    public const string RequiredFieldCode = "required-field";
+    public const string InvalidSchemaVersionCode = "invalid-schema-version";
+    public const string InvalidIntentCode = "invalid-intent";
+    public const string PayloadRequiredCode = "payload-required";
+    public const string PayloadAmbiguousCode = "payload-ambiguous";
+    public const string PayloadIntentMismatchCode = "payload-intent-mismatch";
+    public const string UnknownFieldCode = "unknown-field";
+    public const string InvalidFieldCode = "invalid-field";
+
+    public static ImmutableArray<string> Codes { get; } =
+    [
+        EmptyResponseCode,
+        InvalidFieldCode,
+        InvalidIntentCode,
+        InvalidJsonCode,
+        InvalidSchemaVersionCode,
+        PayloadAmbiguousCode,
+        PayloadIntentMismatchCode,
+        PayloadRequiredCode,
+        RequiredFieldCode,
+        TopLevelObjectRequiredCode,
+        UnknownFieldCode,
+    ];
+
+    public static ImmutableArray<string> Paths { get; } =
+    [
+        "$",
+        AiDirectiveDecisionSchema.ActingUnderProperty,
+        AiDirectiveDecisionSchema.DecisionProperty,
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.item",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.IntentProperty}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}",
+        $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField}",
+        AiDirectiveDecisionSchema.DirectivePayloadProperty,
+        $"{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}",
+        $"{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}",
+        $"{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}",
+        AiDirectiveDecisionSchema.EscalationPayloadProperty,
+        $"{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}",
+        $"{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}",
+        $"{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}",
+        $"{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.item",
+        AiDirectiveDecisionSchema.IntentProperty,
+        AiDirectiveDecisionSchema.ReportPayloadProperty,
+        $"{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}",
+        $"{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField}",
+        AiDirectiveDecisionSchema.SchemaVersionProperty,
+    ];
+
+    public static string RequireCode(string code) => Require(code, Codes, nameof(code));
+
+    public static string RequirePath(string path) => Require(path, Paths, nameof(path));
+
+    private static string Require(
+        string value,
+        ImmutableArray<string> vocabulary,
+        string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(value, parameterName);
+        if (!vocabulary.Contains(value, StringComparer.Ordinal))
+        {
+            throw new ArgumentException(
+                "AI directive parse diagnostic value is outside the closed vocabulary.",
+                parameterName);
+        }
+
+        return value;
+    }
 }
 
 internal sealed record AiDirectiveDecisionParseResult
@@ -67,6 +153,7 @@ internal sealed record AiDirectiveDecisionParseResult
         }
 
         var ordered = snapshot
+            .Distinct()
             .OrderBy(error => error.Path, StringComparer.Ordinal)
             .ThenBy(error => error.Code, StringComparer.Ordinal)
             .ToImmutableArray();
@@ -77,17 +164,17 @@ internal sealed record AiDirectiveDecisionParseResult
 
 internal static class AiDirectiveDecisionParser
 {
-    private const string EmptyResponseCode = "empty-response";
-    private const string InvalidJsonCode = "invalid-json";
-    private const string TopLevelObjectRequiredCode = "top-level-object-required";
-    private const string RequiredFieldCode = "required-field";
-    private const string InvalidSchemaVersionCode = "invalid-schema-version";
-    private const string InvalidIntentCode = "invalid-intent";
-    private const string PayloadRequiredCode = "payload-required";
-    private const string PayloadAmbiguousCode = "payload-ambiguous";
-    private const string PayloadIntentMismatchCode = "payload-intent-mismatch";
-    private const string UnknownFieldCode = "unknown-field";
-    private const string InvalidFieldCode = "invalid-field";
+    private const string EmptyResponseCode = AiDirectiveDecisionParseDiagnosticContract.EmptyResponseCode;
+    private const string InvalidJsonCode = AiDirectiveDecisionParseDiagnosticContract.InvalidJsonCode;
+    private const string TopLevelObjectRequiredCode = AiDirectiveDecisionParseDiagnosticContract.TopLevelObjectRequiredCode;
+    private const string RequiredFieldCode = AiDirectiveDecisionParseDiagnosticContract.RequiredFieldCode;
+    private const string InvalidSchemaVersionCode = AiDirectiveDecisionParseDiagnosticContract.InvalidSchemaVersionCode;
+    private const string InvalidIntentCode = AiDirectiveDecisionParseDiagnosticContract.InvalidIntentCode;
+    private const string PayloadRequiredCode = AiDirectiveDecisionParseDiagnosticContract.PayloadRequiredCode;
+    private const string PayloadAmbiguousCode = AiDirectiveDecisionParseDiagnosticContract.PayloadAmbiguousCode;
+    private const string PayloadIntentMismatchCode = AiDirectiveDecisionParseDiagnosticContract.PayloadIntentMismatchCode;
+    private const string UnknownFieldCode = AiDirectiveDecisionParseDiagnosticContract.UnknownFieldCode;
+    private const string InvalidFieldCode = AiDirectiveDecisionParseDiagnosticContract.InvalidFieldCode;
 
     private static readonly string[] TopLevelFields =
     [
@@ -97,6 +184,13 @@ internal static class AiDirectiveDecisionParser
         AiDirectiveDecisionSchema.ReportPayloadProperty,
         AiDirectiveDecisionSchema.EscalationPayloadProperty,
         AiDirectiveDecisionSchema.DirectivePayloadProperty,
+    ];
+
+    private static readonly string[] CanonicalTopLevelFields =
+    [
+        AiDirectiveDecisionSchema.SchemaVersionProperty,
+        AiDirectiveDecisionSchema.ActingUnderProperty,
+        AiDirectiveDecisionSchema.DecisionProperty,
     ];
 
     private static readonly string[] ReportFields =
@@ -141,20 +235,46 @@ internal static class AiDirectiveDecisionParser
         }
 
         var errors = new List<AiDirectiveDecisionParseError>();
-        AddUnknownFields(root, "$", TopLevelFields, errors);
-
         var schemaVersionValid = ValidateSchemaVersion(root, errors);
-        var intent = ReadIntent(root, errors);
         var actingUnder = ReadActingUnder(root, canDecide ?? []);
-        var payloads = ReadPayloads(root);
+        var hasCanonicalEnvelope = root.TryGetProperty(
+            AiDirectiveDecisionSchema.DecisionProperty,
+            out _);
+        var decisionEnvelope = ReadDecisionEnvelope(root, errors);
+        AddUnknownFields(
+            root,
+            "$",
+            hasCanonicalEnvelope ? CanonicalTopLevelFields : TopLevelFields,
+            errors);
+        if (hasCanonicalEnvelope && !decisionEnvelope.HasValue)
+        {
+            return AiDirectiveDecisionParseResult.Failure(errors);
+        }
+
+        var canonical = decisionEnvelope.HasValue;
+        var decisionRoot = decisionEnvelope ?? root;
+        var decisionPath = canonical ? AiDirectiveDecisionSchema.DecisionProperty : "$";
+        if (canonical)
+        {
+            AddUnknownFields(
+                decisionRoot,
+                decisionPath,
+                TopLevelFields.Where(field =>
+                    field != AiDirectiveDecisionSchema.SchemaVersionProperty &&
+                    field != AiDirectiveDecisionSchema.ActingUnderProperty).ToArray(),
+                errors);
+        }
+
+        var intent = ReadIntent(decisionRoot, decisionPath, errors);
+        var payloads = ReadPayloads(decisionRoot);
 
         if (payloads.Count == 0)
         {
-            errors.Add(Error(PayloadRequiredCode, "$"));
+            errors.Add(Error(PayloadRequiredCode, decisionPath));
         }
         else if (payloads.Count > 1)
         {
-            errors.Add(Error(PayloadAmbiguousCode, "$"));
+            errors.Add(Error(PayloadAmbiguousCode, decisionPath));
         }
 
         AiDirectiveDecision? decision = null;
@@ -163,13 +283,14 @@ internal static class AiDirectiveDecisionParser
             var payload = payloads[0];
             if (payload.Intent != expectedIntent)
             {
-                errors.Add(Error(PayloadIntentMismatchCode, "$"));
+                errors.Add(Error(PayloadIntentMismatchCode, decisionPath));
             }
             else
             {
                 decision = ParsePayload(
                     expectedIntent,
                     payload.Element,
+                    decisionPath,
                     actingUnder,
                     errors);
             }
@@ -178,6 +299,24 @@ internal static class AiDirectiveDecisionParser
         return errors.Count == 0 && decision is not null
             ? AiDirectiveDecisionParseResult.Success(decision)
             : AiDirectiveDecisionParseResult.Failure(errors);
+    }
+
+    private static JsonElement? ReadDecisionEnvelope(
+        JsonElement root,
+        ICollection<AiDirectiveDecisionParseError> errors)
+    {
+        if (!root.TryGetProperty(AiDirectiveDecisionSchema.DecisionProperty, out var decision))
+        {
+            return null;
+        }
+
+        if (decision.ValueKind is not JsonValueKind.Object)
+        {
+            errors.Add(Error(InvalidFieldCode, AiDirectiveDecisionSchema.DecisionProperty));
+            return null;
+        }
+
+        return decision;
     }
 
     private static JsonDocument? ParseJson(
@@ -219,18 +358,20 @@ internal static class AiDirectiveDecisionParser
 
     private static AiDirectiveDecisionIntent? ReadIntent(
         JsonElement root,
+        string pathPrefix,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
+        var path = ChildPath(pathPrefix, AiDirectiveDecisionSchema.IntentProperty);
         if (!root.TryGetProperty(AiDirectiveDecisionSchema.IntentProperty, out var intent))
         {
-            errors.Add(Error(RequiredFieldCode, AiDirectiveDecisionSchema.IntentProperty));
+            errors.Add(Error(RequiredFieldCode, path));
             return null;
         }
 
         if (intent.ValueKind is not JsonValueKind.String ||
             !AiDirectiveDecisionIntentContract.TryParseWireValue(intent.GetString(), out var parsed))
         {
-            errors.Add(Error(InvalidIntentCode, AiDirectiveDecisionSchema.IntentProperty));
+            errors.Add(Error(InvalidIntentCode, path));
             return null;
         }
 
@@ -294,22 +435,24 @@ internal static class AiDirectiveDecisionParser
     private static AiDirectiveDecision? ParsePayload(
         AiDirectiveDecisionIntent intent,
         JsonElement payload,
+        string decisionPath,
         ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors) =>
         intent switch
         {
-            AiDirectiveDecisionIntent.Report => ParseReport(payload, actingUnder, errors),
-            AiDirectiveDecisionIntent.Escalation => ParseEscalation(payload, actingUnder, errors),
-            AiDirectiveDecisionIntent.Directive => ParseDirective(payload, actingUnder, errors),
+            AiDirectiveDecisionIntent.Report => ParseReport(payload, decisionPath, actingUnder, errors),
+            AiDirectiveDecisionIntent.Escalation => ParseEscalation(payload, decisionPath, actingUnder, errors),
+            AiDirectiveDecisionIntent.Directive => ParseDirective(payload, decisionPath, actingUnder, errors),
             _ => throw new InvalidOperationException("Validated decision intent is not mapped."),
         };
 
     private static AiDirectiveReportDecision? ParseReport(
         JsonElement payload,
+        string decisionPath,
         ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
-        const string payloadPath = AiDirectiveDecisionSchema.ReportPayloadProperty;
+        var payloadPath = ChildPath(decisionPath, AiDirectiveDecisionSchema.ReportPayloadProperty);
         if (!RequireObject(payload, payloadPath, errors))
         {
             return null;
@@ -335,10 +478,11 @@ internal static class AiDirectiveDecisionParser
 
     private static AiDirectiveEscalationDecision? ParseEscalation(
         JsonElement payload,
+        string decisionPath,
         ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
-        const string payloadPath = AiDirectiveDecisionSchema.EscalationPayloadProperty;
+        var payloadPath = ChildPath(decisionPath, AiDirectiveDecisionSchema.EscalationPayloadProperty);
         if (!RequireObject(payload, payloadPath, errors))
         {
             return null;
@@ -375,10 +519,11 @@ internal static class AiDirectiveDecisionParser
 
     private static AiDirectiveChildDirectiveDecision? ParseDirective(
         JsonElement payload,
+        string decisionPath,
         ActingUnderDeclaration actingUnder,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
-        const string payloadPath = AiDirectiveDecisionSchema.DirectivePayloadProperty;
+        var payloadPath = ChildPath(decisionPath, AiDirectiveDecisionSchema.DirectivePayloadProperty);
         if (!RequireObject(payload, payloadPath, errors))
         {
             return null;
@@ -445,9 +590,8 @@ internal static class AiDirectiveDecisionParser
             return null;
         }
 
-        var text = value.GetString();
-        if (string.IsNullOrWhiteSpace(text) ||
-            !string.Equals(text, text.Trim(), StringComparison.Ordinal))
+        var text = value.GetString()?.Trim();
+        if (string.IsNullOrWhiteSpace(text))
         {
             errors.Add(Error(InvalidFieldCode, path));
             return null;
@@ -514,19 +658,17 @@ internal static class AiDirectiveDecisionParser
         }
 
         var options = ImmutableArray.CreateBuilder<string>();
-        var index = 0;
         foreach (var item in value.EnumerateArray())
         {
-            var itemPath = $"{path}[{index}]";
+            var itemPath = $"{path}.item";
             if (item.ValueKind is not JsonValueKind.String)
             {
                 errors.Add(Error(InvalidFieldCode, itemPath));
             }
             else
             {
-                var option = item.GetString();
-                if (string.IsNullOrWhiteSpace(option) ||
-                    !string.Equals(option, option.Trim(), StringComparison.Ordinal))
+                var option = item.GetString()?.Trim();
+                if (string.IsNullOrWhiteSpace(option))
                 {
                     errors.Add(Error(InvalidFieldCode, itemPath));
                 }
@@ -535,8 +677,6 @@ internal static class AiDirectiveDecisionParser
                     options.Add(option);
                 }
             }
-
-            index++;
         }
 
         return options.ToImmutable();
@@ -578,13 +718,13 @@ internal static class AiDirectiveDecisionParser
         {
             if (!allowedFields.Contains(property.Name, StringComparer.Ordinal))
             {
-                var path = pathPrefix == "$"
-                    ? property.Name
-                    : $"{pathPrefix}.{property.Name}";
-                errors.Add(Error(UnknownFieldCode, path));
+                errors.Add(Error(UnknownFieldCode, pathPrefix));
             }
         }
     }
+
+    private static string ChildPath(string parent, string child) =>
+        parent == "$" ? child : $"{parent}.{child}";
 
     private static bool HasPayloadErrors(
         IEnumerable<AiDirectiveDecisionParseError> errors,

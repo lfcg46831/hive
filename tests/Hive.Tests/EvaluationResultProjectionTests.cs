@@ -127,6 +127,20 @@ public sealed class EvaluationResultProjectionTests
     }
 
     [Fact]
+    public void Parser_accepts_the_single_exact_envelope_marker_inline_at_the_end_of_content()
+    {
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "Summary. hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[]}}",
+            "report",
+            Rubric()));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["severity"].Status);
+        Assert.Equal(["high"], dimensions["severity"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["missing-information"].Status);
+        Assert.Empty(dimensions["missing-information"].Labels);
+    }
+
+    [Fact]
     public void Parser_validates_each_dimension_independently_without_persisting_rejected_values()
     {
         var projection = EvaluationProjectionParser.Parse(

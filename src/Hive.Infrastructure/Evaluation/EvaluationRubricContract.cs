@@ -118,8 +118,10 @@ internal sealed record EvaluationRubricContract(
             });
 
         var builder = new StringBuilder();
-        builder.AppendLine("For every Report, put exactly one standalone evaluation envelope line in report.body.");
-        builder.AppendLine("For every Escalation, put exactly one standalone evaluation envelope line in escalation.context.");
+        builder.AppendLine("MANDATORY COMPLETION CHECK: an otherwise complete response without the evaluation envelope is invalid.");
+        builder.AppendLine("Do not return JSON until exactly one envelope with the exact marker and shape below is present in the selected payload.");
+        builder.AppendLine("For every Report, end report.body with a newline followed by exactly one evaluation envelope line.");
+        builder.AppendLine("For every Escalation, end escalation.context with a newline followed by exactly one evaluation envelope line.");
         builder.Append("Use this compact envelope shape: ")
             .Append(EvaluationInstruction.EnvelopeMarker)
             .AppendLine(compactExample);
@@ -141,7 +143,7 @@ internal sealed record EvaluationRubricContract(
 
         builder.AppendLine("Collapse duplicate set labels and order emitted dimension ids and labels lexically.");
         builder.AppendLine("Do not include dimensions derived from HIVE result facts in the envelope.");
-        builder.Append("Do not invent aliases, move the line to another field, or emit it more than once.");
+        builder.Append("FINAL CHECK: copy the marker exactly, keep the compact JSON on the same line, use the assigned field, and emit it once.");
 
         return new EvaluationInstruction(RubricVersion, builder.ToString());
     }

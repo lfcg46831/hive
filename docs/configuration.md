@@ -244,7 +244,7 @@ dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost
 
 The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
 
-To run the complete 30-case evaluation, add the evaluation-only projection profile and expose PostgreSQL only on loopback:
+To run the frozen bug-triage calibration or holdout, add the evaluation-only projection profile and expose PostgreSQL only on loopback:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml up --build
@@ -268,14 +268,31 @@ The enabled evaluation profile is also the single owner of projection activation
 
 The override must be present when the `api` container is created; adding it only to a later runner command does not change an existing container. If the runner reports that evaluation projection storage is not ready at the required schema version, recreate the API with the evaluation Compose file set above and wait for the health check before retrying. The runner verifies the migration ledger and both generic projection tables before submitting the first corpus case, and returns an actionable configuration error instead of exposing a PostgreSQL exception.
 
-Set the runner's read-only connection in the current shell and choose a new canonical `run-id` for each independent measurement:
+Set the runner's read-only connection in the current shell and choose a new canonical `run-id` for each independent measurement. Gate-bearing bug-triage runs must use the tracked calibration/holdout plan; it verifies the SHA-256 of the corpus, baseline/rubric, business prompt, organization/provider/evaluation configuration, runner code, and calibration latency evidence before submitting the first case. The plan fixes the model aliases, pricing version, structured-output mode, 45-second provider deadline, two-minute polling deadline, and one-second interval, so `--corpus`, `--rubric`, `--timeout-seconds`, and `--poll-milliseconds` cannot override it.
 
 ```powershell
 $env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id model-a-001 --base-url http://localhost:8080
+$plan='config/organizations/acme-delivery/examples/evaluation/bug-triage-evaluation-plan.v1.json'
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id calibration-ready-v1 --base-url http://localhost:8080 --plan $plan --partition calibration
 ```
 
-The runner submits cases sequentially through the generic directive API and writes `artifacts/evaluation/model-a-001.json`. It polls the audit read model for at most two minutes per case, joins the safe evaluation projection by organization/thread/directive, validates the corpus references against the same tracked v1 rubric, and emits dimension rows ordered by `dimension_id` with `status`, admitted `labels`, and `score`, plus the unrounded corpus macro-mean. The API and runner must use the same rubric file/version. Override polling with `--timeout-seconds` and `--poll-milliseconds`; use `--corpus`, `--rubric`, or `--output` only when evaluating different tracked inputs or output location. Reusing a `run-id` reuses the same deterministic message/thread/directive identities for safe retry; it does not create a second independent measurement. A missing, invalid, or version-incompatible projection is a structured scoring failure and receives zero in each affected dimension. The output contains correlation, canonical predicted labels, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, human baseline, model text, credentials, or the connection string. Do not commit populated result datasets until they have been reviewed as evaluation artefacts.
+The runner submits cases sequentially through the generic directive API and writes temporary outputs under `artifacts/evaluation/` (for example, `artifacts/evaluation/calibration-ready-v1.json`). The complete `artifacts/` tree is ignored and remains disposable. After review, promote only the immutable inputs and results selected as evaluation evidence into `evidence/evaluation/<freeze-id>/`; the frozen plan must reference that curated location and its verified hashes before a dependent run. Do not keep a second copy under `artifacts/`. The runner polls the audit read model for at most two minutes per case, joins the safe evaluation projection by organization/thread/directive, validates the corpus references against the same tracked v1 rubric, and emits dimension rows ordered by `dimension_id` with `status`, admitted `labels`, and `score`, plus the unrounded corpus macro-mean. `run_analysis` reports terminal, explicit-cost, and scoreable-projection coverage; macro quality by dimension; the `report`/`escalation` decision matrix; escalation recall; available and unavailable cost; uncensored latency percentiles; and the declared censored-deadline calibration. Calibration readiness is `ready` only when every case has an auditable terminal, explicit cost state, and valid projection under the frozen provider/model/configuration. Quality thresholds are not applied here; they belong to the later go/no-go task.
+
+The existing `bug-triage-corpus.v1.json` is calibration-only because its cases and earlier outputs have already been observed. Prompt, model, label, or deadline tuning may use only that partition. After a reviewed `ready` calibration dataset is recorded by path and SHA-256 in the plan's `calibration_readiness`, the runner unlocks the separately reviewed 30-case holdout:
+
+```powershell
+dotnet run --project src/Hive.DemoClient -- evaluate --run-id holdout-v1 --base-url http://localhost:8080 --plan $plan --partition holdout
+```
+
+The holdout command fails before network access when readiness evidence is missing/drifted, any frozen input changed, or an exact case id/normalized context overlaps calibration. Never inspect holdout results and then tune prompt, model, labels, or timeout against them; a changed frozen input requires a new freeze and a new unseen holdout. T05 reports only holdout evidence and marks incomplete coverage explicitly; only a `gate-eligible` complete holdout is valid input to the T06 decision. Reusing a `run-id` reuses deterministic message/thread/directive identities for safe retry and does not create an independent measurement. A missing, invalid, or version-incompatible projection remains a structured scoring failure. Output contains correlations, canonical predicted labels, aggregate matrix/recall, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, per-case human baseline, model text, credentials, or the connection string. Review populated result datasets before committing them as evaluation artefacts. Generic `--corpus`/`--rubric` runs without `--plan` remain available for non-gate fixture development, including the follow-up example.
+
+Generate the versioned T05 report from the holdout dataset and the tracked reporting profile:
+
+```powershell
+dotnet run --project src/Hive.DemoClient -- report
+```
+
+The defaults read `evidence/evaluation/bug-triage-holdout-v1/holdout-v1.json` and `config/organizations/acme-delivery/examples/evaluation/bug-triage-report-profile.v1.json`, then write `evidence/evaluation/bug-triage-holdout-v1/bug-triage-unit-economics-quality-report.v1.md`. Use `--dataset`, `--profile`, and `--output` to select other versioned inputs/outputs. The profile owns the explicit workload assumption and at least two provider/model price scenarios. The report includes hashes of both inputs, coverage and quality by configured dimension, decision matrix and positive-label rate/recall, measured cost with unavailable observations kept visible, position/day projection, token-price model sensitivity, and latency percentiles. Repricing holds observed input/output token usage constant and is not a quality or latency claim for an alternative model; the report never defines T06 thresholds or a go/no-go outcome.
 
 Stop the demo with the same Compose file set used to start it:
 

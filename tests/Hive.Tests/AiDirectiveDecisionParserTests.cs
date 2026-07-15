@@ -23,15 +23,120 @@ public sealed class AiDirectiveDecisionParserTests
         { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":null,\"escalation\":null,\"directive\":null}", "payload-required", "$" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"},\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\"]}}", "payload-ambiguous", "$" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\"]}}", "payload-intent-mismatch", "$" },
-        { "{\"schema_version\":1,\"intent\":\"Report\",\"message_id\":\"model-made-id\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}", "unknown-field", "message_id" },
-        { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\",\"directive_id\":\"model-made-id\"}}", "unknown-field", "report.directive_id" },
+        { "{\"schema_version\":1,\"intent\":\"Report\",\"message_id\":\"model-made-id\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}", "unknown-field", "$" },
+        { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\",\"directive_id\":\"model-made-id\"}}", "unknown-field", "report" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Blocked\",\"body\":\"Working.\"}}", "invalid-field", "report.kind" },
         { "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\" \"}}", "invalid-field", "report.body" },
         { "{\"schema_version\":1,\"intent\":\"Escalation\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":null}}", "invalid-field", "escalation.options_considered" },
         { "{\"schema_version\":1,\"intent\":\"Escalation\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":\"Ask lead.\"}}", "invalid-field", "escalation.options_considered" },
-        { "{\"schema_version\":1,\"intent\":\"Escalation\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\",\" \"]}}", "invalid-field", "escalation.options_considered[1]" },
+        { "{\"schema_version\":1,\"intent\":\"Escalation\",\"escalation\":{\"issue\":\"Need help.\",\"context\":\"Blocked.\",\"options_considered\":[\"Ask lead.\",\" \"]}}", "invalid-field", "escalation.options_considered.item" },
         { "{\"schema_version\":1,\"intent\":\"Directive\",\"directive\":{\"target_position_id\":\" \",\"objective\":\"Investigate.\",\"context\":\"Use logs.\"}}", "invalid-field", "directive.target_position_id" },
     };
+
+    [Fact]
+    public void Canonical_nested_union_parses_the_single_intent_payload_pair()
+    {
+        const string output = """
+            {
+              "schema_version": 1,
+              "acting_under": "delivery.bug-triage",
+              "decision": {
+                "intent": "Report",
+                "report": {
+                  "kind": "Done",
+                  "body": "Triage completed."
+                }
+              }
+            }
+            """;
+
+        var result = AiDirectiveDecisionParser.Parse(
+            output,
+            [AuthorityKey.From("delivery.bug-triage")]);
+
+        AssertSuccess(result);
+        var decision = Assert.IsType<AiDirectiveReportDecision>(result.Decision);
+        Assert.Equal("Triage completed.", decision.Body);
+        Assert.Equal(ActingUnderDeclarationState.Declared, decision.ActingUnder.State);
+    }
+
+    [Fact]
+    public void Free_text_normalizes_only_outer_unicode_whitespace_and_preserves_internal_text()
+    {
+        const string output = """
+            {
+              "schema_version": 1,
+              "acting_under": "delivery.bug-triage",
+              "decision": {
+                "intent": "Report",
+                "report": {
+                  "kind": "Progress",
+                  "body": "   First line.\n  Second  line.  \n"
+                }
+              }
+            }
+            """;
+
+        var result = AiDirectiveDecisionParser.Parse(output);
+
+        AssertSuccess(result);
+        var decision = Assert.IsType<AiDirectiveReportDecision>(result.Decision);
+        Assert.Equal("First line.\n  Second  line.", decision.Body);
+    }
+
+    [Fact]
+    public void Canonical_union_escalation_and_directive_branches_are_parser_compatible()
+    {
+        const string escalation = """
+            {"schema_version":1,"acting_under":"delivery.bug-triage","decision":{"intent":"Escalation","escalation":{"issue":" Need approval. ","context":" Blocked. ","options_considered":[" Ask lead. "]}}}
+            """;
+        const string directive = """
+            {"schema_version":1,"acting_under":"delivery.bug-triage","decision":{"intent":"Directive","directive":{"target_position_id":" engineer ","objective":" Investigate. ","context":" Use logs. "}}}
+            """;
+
+        var escalationResult = AiDirectiveDecisionParser.Parse(escalation);
+        var directiveResult = AiDirectiveDecisionParser.Parse(directive);
+
+        AssertSuccess(escalationResult);
+        AssertSuccess(directiveResult);
+        Assert.Equal(
+            "Need approval.",
+            Assert.IsType<AiDirectiveEscalationDecision>(escalationResult.Decision).Issue);
+        Assert.Equal(
+            "engineer",
+            Assert.IsType<AiDirectiveChildDirectiveDecision>(directiveResult.Decision)
+                .TargetPositionId.Value);
+    }
+
+    [Fact]
+    public void Canonical_union_rejects_unicode_whitespace_only_after_local_normalization()
+    {
+        const string output = """
+            {"schema_version":1,"acting_under":"delivery.bug-triage","decision":{"intent":"Report","report":{"kind":"Done","body":"  　"}}}
+            """;
+
+        var result = AiDirectiveDecisionParser.Parse(output);
+
+        AssertFailure(result, "invalid-field", "decision.report.body");
+    }
+
+    [Fact]
+    public void Parse_diagnostic_contract_is_closed_versioned_and_deterministic()
+    {
+        Assert.Equal(1, AiDirectiveDecisionParseDiagnosticContract.Version);
+        Assert.Equal(
+            AiDirectiveDecisionParseDiagnosticContract.Codes
+                .OrderBy(value => value, StringComparer.Ordinal),
+            AiDirectiveDecisionParseDiagnosticContract.Codes);
+        Assert.Equal(
+            AiDirectiveDecisionParseDiagnosticContract.Paths
+                .OrderBy(value => value, StringComparer.Ordinal),
+            AiDirectiveDecisionParseDiagnosticContract.Paths);
+        Assert.Throws<ArgumentException>(() =>
+            new AiDirectiveDecisionParseError("invalid-field", "decision.dynamic-value"));
+        Assert.Throws<ArgumentException>(() =>
+            new AiDirectiveDecisionParseError("dynamic-code", "$"));
+    }
 
     [Fact]
     public void Valid_report_output_parses_into_report_decision()
@@ -228,7 +333,7 @@ public sealed class AiDirectiveDecisionParserTests
 
         var result = AiDirectiveDecisionParser.Parse(output);
 
-        AssertFailure(result, "unknown-field", "thread_id");
+        AssertFailure(result, "unknown-field", "$");
         Assert.Null(result.Decision);
         Assert.All(
             result.Errors,

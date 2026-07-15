@@ -40,11 +40,16 @@ public static class EvaluationCommand
             await JsonSerializer.SerializeAsync(stream, dataset, OutputJson, cancellationToken).ConfigureAwait(false);
             await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(options.OutputPath).ConfigureAwait(false);
+            if (dataset.RunAnalysis is not null)
+            {
+                return dataset.RunAnalysis.Status is "ready" or "gate-eligible" ? 0 : 1;
+            }
+
             return dataset.Cases.All(item =>
-                (item.Outcome is "succeeded" or "accepted")
-                && item.Scoring?.Status == "scored")
-                ? 0
-                : 1;
+                    (item.Outcome is "succeeded" or "accepted")
+                    && item.Scoring?.Status == "scored")
+                    ? 0
+                    : 1;
         }
         catch (ArgumentException exception)
         {
@@ -62,5 +67,6 @@ public static class EvaluationCommand
     private static Task WriteUsageAsync(TextWriter output) => output.WriteLineAsync(
         "Usage: dotnet run --project src/Hive.DemoClient -- evaluate --run-id <id> " +
         "[--base-url <url>] [--connection-string <postgres>] [--corpus <path>] [--rubric <path>] " +
-        "[--output <path>] [--timeout-seconds <n>] [--poll-milliseconds <n>]");
+        "[--plan <path> --partition <calibration|holdout>] [--output <path>] " +
+        "[--timeout-seconds <n>] [--poll-milliseconds <n>]");
 }

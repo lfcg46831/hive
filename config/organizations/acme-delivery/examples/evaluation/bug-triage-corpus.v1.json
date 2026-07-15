@@ -1,6 +1,7 @@
 {
   "corpus_version": 1,
   "fixture_kind": "evaluation-example",
+  "partition": "calibration",
   "provenance": "anonymized-historical-reconstructions",
   "anonymization": {
     "direct_identifiers_removed": true,

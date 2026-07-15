@@ -80,6 +80,7 @@ internal static class AiDirectiveDecisionSchema
     public const int SchemaVersion = 1;
     public const string SchemaName = "hive_ai_directive_decision_v1";
     public const string SchemaVersionProperty = "schema_version";
+    public const string DecisionProperty = "decision";
     public const string IntentProperty = "intent";
     public const string ActingUnderProperty = "acting_under";
     public const string ReportPayloadProperty = "report";
@@ -137,66 +138,95 @@ internal static class AiDirectiveDecisionSchema
               "type": "object",
               "properties": {
                 "schema_version": { "type": "integer", "const": 1 },
-                "intent": {
-                  "type": "string",
-                  "enum": ["Report", "Escalation", "Directive"]
-                },
                 "acting_under": { "type": "string" },
-                "report": {
+                "decision": {
                   "anyOf": [
                     {
                       "type": "object",
                       "properties": {
-                        "kind": { "type": "string", "enum": ["Progress", "Done"] },
-                        "body": { "type": "string" }
-                      },
-                      "required": ["kind", "body"],
-                      "additionalProperties": false
-                    },
-                    { "type": "null" }
-                  ]
-                },
-                "escalation": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "issue": { "type": "string" },
-                        "context": { "type": "string" },
-                        "options_considered": {
-                          "type": "array",
-                          "items": { "type": "string" }
+                        "intent": { "type": "string", "const": "Report" },
+                        "report": {
+                          "type": "object",
+                          "properties": {
+                            "kind": { "type": "string", "enum": ["Progress", "Done"] },
+                            "body": {
+                              "type": "string",
+                              "description": "Business content; include any mandatory runtime appendix assigned to this field exactly as instructed.",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            }
+                          },
+                          "required": ["kind", "body"],
+                          "additionalProperties": false
                         }
                       },
-                      "required": ["issue", "context", "options_considered"],
+                      "required": ["intent", "report"],
                       "additionalProperties": false
                     },
-                    { "type": "null" }
-                  ]
-                },
-                "directive": {
-                  "anyOf": [
                     {
                       "type": "object",
                       "properties": {
-                        "target_position_id": { "type": "string" },
-                        "objective": { "type": "string" },
-                        "context": { "type": "string" }
+                        "intent": { "type": "string", "const": "Escalation" },
+                        "escalation": {
+                          "type": "object",
+                          "properties": {
+                            "issue": {
+                              "type": "string",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            },
+                            "context": {
+                              "type": "string",
+                              "description": "Business context; include any mandatory runtime appendix assigned to this field exactly as instructed.",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            },
+                            "options_considered": {
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                              }
+                            }
+                          },
+                          "required": ["issue", "context", "options_considered"],
+                          "additionalProperties": false
+                        }
                       },
-                      "required": ["target_position_id", "objective", "context"],
+                      "required": ["intent", "escalation"],
                       "additionalProperties": false
                     },
-                    { "type": "null" }
+                    {
+                      "type": "object",
+                      "properties": {
+                        "intent": { "type": "string", "const": "Directive" },
+                        "directive": {
+                          "type": "object",
+                          "properties": {
+                            "target_position_id": {
+                              "type": "string",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            },
+                            "objective": {
+                              "type": "string",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            },
+                            "context": {
+                              "type": "string",
+                              "pattern": "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]"
+                            }
+                          },
+                          "required": ["target_position_id", "objective", "context"],
+                          "additionalProperties": false
+                        }
+                      },
+                      "required": ["intent", "directive"],
+                      "additionalProperties": false
+                    }
                   ]
                 }
               },
               "required": [
                 "schema_version",
-                "intent",
                 "acting_under",
-                "report",
-                "escalation",
-                "directive"
+                "decision"
               ],
               "additionalProperties": false
             }

@@ -39,28 +39,44 @@ internal static class EvaluationProjectionParser
         var dimensions = rubric.Dimensions
             .Where(dimension => dimension.Source == "evaluation-envelope")
             .ToArray();
-        var payloads = (content ?? string.Empty)
-            .Split('\n')
-            .Select(line => line.Trim())
-            .Where(line => line.StartsWith(
+        var source = content ?? string.Empty;
+        var markerIndexes = new List<int>();
+        var searchFrom = 0;
+        while (searchFrom < source.Length)
+        {
+            var index = source.IndexOf(
                 EvaluationInstruction.EnvelopeMarker,
-                StringComparison.Ordinal))
-            .Select(line => line[EvaluationInstruction.EnvelopeMarker.Length..].Trim())
-            .ToArray();
+                searchFrom,
+                StringComparison.Ordinal);
+            if (index < 0)
+            {
+                break;
+            }
 
-        if (payloads.Length == 0)
+            markerIndexes.Add(index);
+            searchFrom = index + EvaluationInstruction.EnvelopeMarker.Length;
+        }
+
+        if (markerIndexes.Count == 0)
         {
             return WithStatus(dimensions, EvaluationDimensionStatus.Missing);
         }
 
-        if (payloads.Length != 1 || payloads[0].Length == 0)
+        if (markerIndexes.Count != 1)
+        {
+            return WithStatus(dimensions, EvaluationDimensionStatus.Invalid);
+        }
+
+        var payload = source[
+            (markerIndexes[0] + EvaluationInstruction.EnvelopeMarker.Length)..].Trim();
+        if (payload.Length == 0)
         {
             return WithStatus(dimensions, EvaluationDimensionStatus.Invalid);
         }
 
         try
         {
-            using var document = JsonDocument.Parse(payloads[0]);
+            using var document = JsonDocument.Parse(payload);
             var root = document.RootElement;
             var rootProperties = root.ValueKind == JsonValueKind.Object
                 ? root.EnumerateObject().ToArray()

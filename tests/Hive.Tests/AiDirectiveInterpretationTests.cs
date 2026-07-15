@@ -64,7 +64,7 @@ public sealed class AiDirectiveInterpretationTests
                 Position,
                 Thread,
                 Message,
-                """{"schema_version":1,"intent":"Report","acting_under":"bug.triage","report":{"kind":"Done","body":"Complete","unexpected":true}}""",
+                """{"schema_version":1,"acting_under":"bug.triage","decision":{"intent":"Report","report":{"kind":"Done","body":"Complete","unexpected":true}}}""",
                 AiFinishReason.Stop,
                 outputConstraintMode: outputConstraintMode));
 
@@ -75,7 +75,7 @@ public sealed class AiDirectiveInterpretationTests
         Assert.Equal("ai-output-invalid", failure.Code);
         Assert.Contains(
             failure.ParseErrors,
-            error => error.Code == "unknown-field" && error.Path == "report.unexpected");
+            error => error.Code == "unknown-field" && error.Path == "decision.report");
     }
 
     [Fact]

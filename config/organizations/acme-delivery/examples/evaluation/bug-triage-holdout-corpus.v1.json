@@ -1,0 +1,224 @@
+{
+  "corpus_version": 1,
+  "fixture_kind": "evaluation-example",
+  "partition": "holdout",
+  "provenance": "anonymized-historical-reconstructions",
+  "anonymization": {
+    "direct_identifiers_removed": true,
+    "organizations_generalized": true,
+    "timestamps_shifted": true,
+    "technical_values_generalized": true
+  },
+  "cases": [
+    {
+      "case_id": "holdout-001",
+      "source_category": "support-summary",
+      "context": "Customers complete an express checkout and receive an order confirmation, but the warehouse queue never receives the order. Support reproduced the behavior for every express order after the morning deployment. Standard checkout still works, the payment is captured once, and application logs identify a serialization failure before the warehouse publish step.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "order-fulfilment" }
+    },
+    {
+      "case_id": "holdout-002",
+      "source_category": "incident-note",
+      "context": "A subset of users in one production region cannot refresh an authenticated session and are sent to sign-in after roughly ten minutes. The same accounts remain active in another region. Metrics show elevated session-store read failures, but the note does not identify the deployed version or whether the affected region has a different configuration.",
+      "human_reference": { "severity": ["high"], "missing-information": ["configuration-diff", "deployment-version"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "identity-platform" }
+    },
+    {
+      "case_id": "holdout-003",
+      "source_category": "operations-handoff",
+      "context": "A new release causes an intermittent inventory mismatch in production. The owning team asks triage to authorize an immediate rollback, while the commercial lead says the release contains a time-sensitive pricing change that must remain live. Evidence confirms both impacts, and no delegated rollback authority or agreed priority is recorded in the handoff.",
+      "human_reference": { "severity": ["high"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "delivery-lead" }
+    },
+    {
+      "case_id": "holdout-004",
+      "source_category": "crash-report",
+      "context": "The desktop client closes whenever a user opens a saved search containing a date filter. Crash telemetry links the failure to date parsing and shows it began with the latest client build. The report includes the operating system, build, saved-search shape, stack trace, and a reliable reproduction sequence; unrelated saved searches continue to work.",
+      "human_reference": { "severity": ["medium"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "desktop-client" }
+    },
+    {
+      "case_id": "holdout-005",
+      "source_category": "chat-transcript",
+      "context": "Several people say the account settings page sometimes loses an edited phone number after Save. The conversation contains no browser or device details, does not state whether autosave was still running, and mixes observations from test and production. No participant provides a repeatable sequence or identifies the exact form variant used.",
+      "human_reference": { "severity": ["medium"], "missing-information": ["autosave-status", "browser-and-device", "environment", "form-identity", "reproduction-steps"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "account-experience" }
+    },
+    {
+      "case_id": "holdout-006",
+      "source_category": "finance-review",
+      "context": "Monthly invoice exports round tax at line level instead of invoice level for one supported jurisdiction, producing a small but systematic total difference. Finance reproduced the calculation with a documented sample and confirmed the expected rule. The export is used for reconciliation but no payments or ledger entries are changed by the defect.",
+      "human_reference": { "severity": ["medium"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "billing-platform" }
+    },
+    {
+      "case_id": "holdout-007",
+      "source_category": "compliance-review",
+      "context": "A cleanup job is retaining audit attachments beyond the configured period. Engineering can either delete all affected attachments immediately or pause deletion until legal confirms whether a preservation obligation applies. The affected scope and retention drift are known, but the correct irreversible action depends on a business decision that triage is not authorized to make.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "compliance-owner" }
+    },
+    {
+      "case_id": "holdout-008",
+      "source_category": "product-feedback",
+      "context": "Users report that a dashboard filter resets after they navigate back from a detail view. The report identifies the production environment and affected dashboard, but does not include browser details, a reproduction sequence, or whether the same behavior occurred in the previous release. Data remains available and reapplying the filter restores the view.",
+      "human_reference": { "severity": ["low"], "missing-information": ["browser-and-device", "previous-release-comparison", "reproduction-steps"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "analytics-ui" }
+    },
+    {
+      "case_id": "holdout-009",
+      "source_category": "partner-report",
+      "context": "A partner receives duplicate webhook deliveries for about one percent of completed shipments. Their consumer does not return response headers or indicate whether it retries failed requests, and the report omits correlation identifiers for the duplicate pairs. Internal delivery logs show retries but cannot yet distinguish provider retries from consumer replays.",
+      "human_reference": { "severity": ["high"], "missing-information": ["client-retry-behavior", "correlation-metadata", "protocol-error", "rate-limit-response-headers"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "webhook-delivery" }
+    },
+    {
+      "case_id": "holdout-010",
+      "source_category": "support-summary",
+      "context": "Password reset messages arrive more than twenty minutes late for users of one mail provider, while other providers deliver normally. Support includes timestamps from the application notification log and three anonymized examples, but there is no delivery-provider status or evidence from the recipient side. Users can retry without creating duplicate reset tokens.",
+      "human_reference": { "severity": ["medium"], "missing-information": ["delivery-provider-status", "notification-log-evidence"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "notification-service" }
+    },
+    {
+      "case_id": "holdout-011",
+      "source_category": "api-consumer-note",
+      "context": "An integration partner asks for a production firewall exception after their source network changed without notice. Requests are currently rejected before authentication and no customers are blocked inside the product. The technical cause is clear, but accepting the new origin changes an approved security boundary and requires an accountable authorization outside bug triage.",
+      "human_reference": { "severity": ["high"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "security-owner" }
+    },
+    {
+      "case_id": "holdout-012",
+      "source_category": "internal-report",
+      "context": "An internal administration page sorts archived projects lexically by month name rather than chronologically. The issue is reproducible in production and test with the same data, affects only archived records, and has a straightforward failing example. Search and export retain the correct dates, and active project workflows are unaffected.",
+      "human_reference": { "severity": ["low"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "admin-console" }
+    },
+    {
+      "case_id": "holdout-013",
+      "source_category": "customer-report",
+      "context": "A customer says bulk user import stops partway through a large file and leaves some accounts created. The report includes a screenshot but no textual attachment, run log, request volume, environment, or correlation metadata. It is unclear whether retrying creates duplicates and whether the same rows fail consistently.",
+      "human_reference": { "severity": ["high"], "missing-information": ["client-retry-behavior", "correlation-metadata", "environment", "request-volume-and-concurrency", "run-log", "textual-attachments"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "identity-import" }
+    },
+    {
+      "case_id": "holdout-014",
+      "source_category": "database-alert",
+      "context": "The primary database rejects new writes because its storage volume is full. Read traffic remains available, but order creation and account updates fail across production. Monitoring confirms the capacity threshold, affected endpoints, and onset, and the operations runbook identifies the owning database team and immediate containment procedure.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "database-operations" }
+    },
+    {
+      "case_id": "holdout-015",
+      "source_category": "finance-review",
+      "context": "A reporting change can either preserve the historical revenue calculation or adopt a regulator's newly published interpretation for the current quarter. Both implementations are technically viable and the discrepancy is quantified, but finance and compliance have not agreed which policy applies. Triage is asked to choose the accounting treatment before release.",
+      "human_reference": { "severity": ["high"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "finance-owner" }
+    },
+    {
+      "case_id": "holdout-016",
+      "source_category": "release-note",
+      "context": "After a mobile release, the share button creates a valid link but omits the optional preview image. The release note identifies the client build and confirms the behavior on two devices, but it does not compare the previous release or provide the affected operating-system versions. Opening and sharing the generated link still works.",
+      "human_reference": { "severity": ["low"], "missing-information": ["browser-and-device", "previous-release-comparison"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "mobile-client" }
+    },
+    {
+      "case_id": "holdout-017",
+      "source_category": "security-alert",
+      "context": "Monitoring detects repeated successful logins for disabled accounts in one production tenant. Audit records show that a stale authentication cache continues to admit sessions after account disablement, and the issue is reproducible with a controlled account. The affected tenant, deployment, correlation data, and containment owner are all known.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "identity-security" }
+    },
+    {
+      "case_id": "holdout-018",
+      "source_category": "performance-investigation",
+      "context": "Search latency rises sharply during the afternoon and returns to normal overnight. The note includes average latency but omits request concurrency, affected endpoints, regional scope, correlation metadata, and probe responses from the search dependency. It is not yet clear whether the slowdown affects all users or a single query family.",
+      "human_reference": { "severity": ["high"], "missing-information": ["affected-endpoints", "correlation-metadata", "environment-and-region", "probe-response", "request-volume-and-concurrency"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "search-platform" }
+    },
+    {
+      "case_id": "holdout-019",
+      "source_category": "accessibility-audit",
+      "context": "Keyboard users cannot complete a newly designed onboarding step because focus never reaches the required confirmation control. The problem is reproducible in the release candidate and blocks the documented keyboard path. Product asks triage to waive the issue for launch because a pointer-device workaround exists, but no accountable accessibility exception has been approved.",
+      "human_reference": { "severity": ["high"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "product-owner" }
+    },
+    {
+      "case_id": "holdout-020",
+      "source_category": "localization-review",
+      "context": "A translated empty-state message uses the wrong plural form in one locale. The review identifies the exact screen, locale, expected wording, deployed version, and a repeatable path. The mistake does not alter data or prevent any action, and the source-language and other translated variants render correctly.",
+      "human_reference": { "severity": ["low"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "localization" }
+    },
+    {
+      "case_id": "holdout-021",
+      "source_category": "payment-incident",
+      "context": "Refund requests are accepted by the application but remain pending and are never sent to the payment provider. The issue affects all production refunds created since a queue configuration change. Operations provides queue depth, the configuration diff, affected transaction samples, and provider status confirming that the external service is healthy.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "payment-operations" }
+    },
+    {
+      "case_id": "holdout-022",
+      "source_category": "data-import-report",
+      "context": "A scheduled catalog import reports success but skips records whose descriptions contain a particular punctuation character. The reporter provides the source file and skipped rows, but not the deployed version, environment, run log, or comparison with the previous release. Existing catalog records remain unchanged and can be edited manually.",
+      "human_reference": { "severity": ["medium"], "missing-information": ["deployment-version", "environment", "previous-release-comparison", "run-log"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "catalog-import" }
+    },
+    {
+      "case_id": "holdout-023",
+      "source_category": "partner-report",
+      "context": "A critical delivery partner announces an extended outage and asks whether the organization should disable new submissions or keep accepting work for later retry. Internal queuing is healthy and the technical impact is understood, but either choice changes customer commitments and operating risk. No pre-approved continuity policy selects between the options.",
+      "human_reference": { "severity": ["critical"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "delivery-lead" }
+    },
+    {
+      "case_id": "holdout-024",
+      "source_category": "customer-report",
+      "context": "Users see an outdated display name in notification emails after updating their profile. The account page and API immediately show the new value. The report identifies production and supplies examples, but omits the notification log evidence, failure frequency, deployment version, and whether messages to every recipient type are affected.",
+      "human_reference": { "severity": ["medium"], "missing-information": ["affected-recipient-scope", "deployment-version", "failure-frequency", "notification-log-evidence"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "notification-templates" }
+    },
+    {
+      "case_id": "holdout-025",
+      "source_category": "engineering-chat",
+      "context": "A continuous-integration job intermittently hangs after all tests appear to finish. The chat gives no failing test name, commit range, run log, timeout location, or frequency across branches, and nobody confirms whether runners share the same environment. The latest retry passed without a code change.",
+      "human_reference": { "severity": ["medium"], "missing-information": ["commit-range", "environment", "failing-test-name", "failure-frequency", "run-log"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "developer-platform" }
+    },
+    {
+      "case_id": "holdout-026",
+      "source_category": "security-review",
+      "context": "A public download link remains usable after its owning project is archived. Security reproduced the behavior in production and confirmed that the authorization check ignores project state. The affected endpoint, authentication state, deployed version, correlation metadata, and a controlled reproduction are included, with no evidence of exploitation.",
+      "human_reference": { "severity": ["high"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "authorization-service" }
+    },
+    {
+      "case_id": "holdout-027",
+      "source_category": "security-alert",
+      "context": "An alert suggests that a service credential may have been copied outside the approved environment. Logs are incomplete and there is no confirmed misuse, but the credential can access production data. Engineering asks whether to revoke it immediately, which would interrupt a customer-facing integration, or continue monitoring while evidence is collected.",
+      "human_reference": { "severity": ["critical"], "missing-information": ["correlation-metadata", "origin"], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "security-owner" }
+    },
+    {
+      "case_id": "holdout-028",
+      "source_category": "accessibility-audit",
+      "context": "A decorative chart announces every visual tick mark to screen readers, making the dashboard verbose but leaving all values available in an accessible table. The audit includes the browser, assistive technology, affected screen, deployed version, expected behavior, and reliable reproduction steps.",
+      "human_reference": { "severity": ["low"], "missing-information": [], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "analytics-ui" }
+    },
+    {
+      "case_id": "holdout-029",
+      "source_category": "operations-handoff",
+      "context": "A background reconciliation job fails for one account group after a schema rollout, while interactive requests continue normally. The handoff includes the environment and error summary but not the affected endpoints, configuration diff, deployment version, correlation metadata, run log, or volume of records waiting for retry.",
+      "human_reference": { "severity": ["high"], "missing-information": ["affected-endpoints", "configuration-diff", "correlation-metadata", "deployment-version", "request-volume-and-concurrency", "run-log"], "decision": ["report"] },
+      "analysis_metadata": { "expected-routing": "reconciliation-service" }
+    },
+    {
+      "case_id": "holdout-030",
+      "source_category": "support-summary",
+      "context": "Two teams disagree about an intermittent export defect: support requests an emergency response because a strategic customer is affected, while engineering classifies it as routine because retries succeed. The frequency, customer impact, and workaround are documented, but the teams ask triage to set the cross-team priority and commitment without an agreed escalation policy.",
+      "human_reference": { "severity": ["medium"], "missing-information": [], "decision": ["escalation"] },
+      "analysis_metadata": { "expected-routing": "delivery-lead" }
+    }
+  ]
+}

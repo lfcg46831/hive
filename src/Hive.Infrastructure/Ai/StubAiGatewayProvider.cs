@@ -21,11 +21,13 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         """
         {
           "schema_version": 1,
-          "intent": "Report",
           "acting_under": "delivery.bug-triage",
-          "report": {
-            "kind": "Done",
-            "body": "Bug triage complete: checkout confirmation failures are reproducible with high user impact."
+          "decision": {
+            "intent": "Report",
+            "report": {
+              "kind": "Done",
+              "body": "Bug triage complete: checkout confirmation failures are reproducible with high user impact."
+            }
           }
         }
         """;
@@ -34,15 +36,17 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         """
         {
           "schema_version": 1,
-          "intent": "Escalation",
           "acting_under": "delivery.bug-triage",
-          "escalation": {
-            "issue": "Missing bug triage information",
-            "context": "The report lacks enough reproduction or environment evidence to complete triage deterministically.",
-            "options_considered": [
-              "Proceed with the partial report",
-              "Request reproduction steps and affected environment"
-            ]
+          "decision": {
+            "intent": "Escalation",
+            "escalation": {
+              "issue": "Missing bug triage information",
+              "context": "The report lacks enough reproduction or environment evidence to complete triage deterministically.",
+              "options_considered": [
+                "Proceed with the partial report",
+                "Request reproduction steps and affected environment"
+              ]
+            }
           }
         }
         """;
@@ -51,15 +55,17 @@ internal sealed class StubAiGatewayProvider : IAiGatewayProvider
         """
         {
           "schema_version": 1,
-          "intent": "Escalation",
           "acting_under": "delivery.bug-triage",
-          "escalation": {
-            "issue": "External decision required",
-            "context": "The next action depends on an external production or customer-impact decision outside the triage position authority.",
-            "options_considered": [
-              "Classify only the technical symptoms",
-              "Escalate for an accountable external decision"
-            ]
+          "decision": {
+            "intent": "Escalation",
+            "escalation": {
+              "issue": "External decision required",
+              "context": "The next action depends on an external production or customer-impact decision outside the triage position authority.",
+              "options_considered": [
+                "Classify only the technical symptoms",
+                "Escalate for an accountable external decision"
+              ]
+            }
           }
         }
         """;

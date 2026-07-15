@@ -423,12 +423,16 @@ public sealed class RealAiGatewayProviderTests
                 Assert.Equal(
                     "object",
                     jsonSchema.Schema!.Value.GetProperty("type").GetString());
+                Assert.True(Assert.IsType<bool>(
+                    capturedOptions.AdditionalProperties![RealAiGatewayRequestNormalizer.StrictOptionKey]));
                 break;
             case AiOutputConstraintMode.JsonObject:
                 Assert.Same(ChatResponseFormat.Json, capturedOptions!.ResponseFormat);
+                Assert.Null(capturedOptions.AdditionalProperties);
                 break;
             case AiOutputConstraintMode.Text:
                 Assert.Same(ChatResponseFormat.Text, capturedOptions!.ResponseFormat);
+                Assert.Null(capturedOptions.AdditionalProperties);
                 break;
         }
     }

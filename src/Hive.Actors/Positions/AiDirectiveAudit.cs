@@ -317,7 +317,7 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
         AiDirectiveInterpretationOutcomeKind outcome,
         string? decisionKind = null,
         string? failureCode = null,
-        int parseErrorCount = 0,
+        IEnumerable<AiDirectiveDecisionParseError>? parseErrors = null,
         bool? isRetryable = null,
         ActingUnderDeclaration? actingUnder = null)
     {
@@ -329,11 +329,6 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
                 "Unknown AI directive interpretation outcome.");
         }
 
-        if (parseErrorCount < 0)
-        {
-            throw new ArgumentOutOfRangeException(nameof(parseErrorCount));
-        }
-
         Outcome = outcome;
         DecisionKind = decisionKind is null
             ? null
@@ -341,7 +336,7 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
         FailureCode = failureCode is null
             ? null
             : AiAgentGatewayText.Require(failureCode, nameof(failureCode));
-        ParseErrorCount = parseErrorCount;
+        ParseErrors = SnapshotParseErrors(parseErrors);
         IsRetryable = isRetryable;
         ActingUnder = actingUnder;
     }
@@ -352,11 +347,38 @@ internal sealed record AiDirectiveAuditDecisionSnapshot
 
     public string? FailureCode { get; }
 
-    public int ParseErrorCount { get; }
+    public int ParseErrorContractVersion => AiDirectiveDecisionParseDiagnosticContract.Version;
+
+    public int ParseErrorCount => ParseErrors.Length;
+
+    public ImmutableArray<AiDirectiveDecisionParseError> ParseErrors { get; }
 
     public bool? IsRetryable { get; }
 
     public ActingUnderDeclaration? ActingUnder { get; }
+
+    private static ImmutableArray<AiDirectiveDecisionParseError> SnapshotParseErrors(
+        IEnumerable<AiDirectiveDecisionParseError>? source)
+    {
+        if (source is null)
+        {
+            return ImmutableArray<AiDirectiveDecisionParseError>.Empty;
+        }
+
+        var snapshot = source.ToImmutableArray();
+        if (snapshot.Any(error => error is null))
+        {
+            throw new ArgumentException(
+                "AI directive audit parse diagnostics cannot contain null entries.",
+                nameof(source));
+        }
+
+        return snapshot
+            .Distinct()
+            .OrderBy(error => error.Path, StringComparer.Ordinal)
+            .ThenBy(error => error.Code, StringComparer.Ordinal)
+            .ToImmutableArray();
+    }
 }
 
 internal sealed record AiDirectiveAuditResultMessageSnapshot
@@ -524,7 +546,7 @@ internal static class AiDirectiveAuditSnapshotFactory
             interpretation.Outcome,
             DecisionKind(interpretation.Decision),
             interpretation.Failure?.Code,
-            interpretation.Failure?.ParseErrors.Length ?? 0,
+            interpretation.Failure?.ParseErrors,
             interpretation.Failure?.IsRetryable,
             interpretation.Decision?.ActingUnder);
     }

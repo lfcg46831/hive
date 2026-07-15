@@ -810,17 +810,7 @@ internal sealed class AiAgentActor : ReceiveActor
                 snapshot.Context.DirectiveId,
                 snapshot.Context.PositionId,
                 decision.FailureCode,
-                payload: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["status"] = snapshot.Status.ToString(),
-                    ["terminalCode"] = snapshot.TerminalCode,
-                    ["decisionKind"] = decision.DecisionKind ?? "none",
-                    ["actingUnderState"] = decision.ActingUnder?.State.ToString() ?? "none",
-                    ["actingUnderCode"] = decision.ActingUnder?.Code ?? "none",
-                    ["actingUnderKey"] = decision.ActingUnder?.Key?.Value ?? "none",
-                    ["parseErrorCount"] = decision.ParseErrorCount.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    ["redactions"] = RedactionPayload(snapshot),
-                },
+                payload: DecisionPayload(snapshot, decision),
                 occurredAtUtc: snapshot.RecordedAt,
                 idempotencyDiscriminator: decision.DecisionKind ?? "none"));
         }
@@ -857,6 +847,34 @@ internal sealed class AiAgentActor : ReceiveActor
         decision.FailureCode is null
             ? JourneyAuditOutcome.Succeeded
             : JourneyAuditOutcome.Failed;
+
+    private static IReadOnlyDictionary<string, string> DecisionPayload(
+        AiDirectiveAuditSnapshot snapshot,
+        AiDirectiveAuditDecisionSnapshot decision)
+    {
+        var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["status"] = snapshot.Status.ToString(),
+            ["terminalCode"] = snapshot.TerminalCode,
+            ["decisionKind"] = decision.DecisionKind ?? "none",
+            ["actingUnderState"] = decision.ActingUnder?.State.ToString() ?? "none",
+            ["actingUnderCode"] = decision.ActingUnder?.Code ?? "none",
+            ["actingUnderKey"] = decision.ActingUnder?.Key?.Value ?? "none",
+            ["parseErrorContractVersion"] = decision.ParseErrorContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["parseErrorCount"] = decision.ParseErrorCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["redactions"] = RedactionPayload(snapshot),
+        };
+        for (var index = 0; index < decision.ParseErrors.Length; index++)
+        {
+            var diagnostic = decision.ParseErrors[index];
+            payload[$"parseError.{index}.path"] = diagnostic.Path;
+            payload[$"parseError.{index}.code"] = diagnostic.Code;
+        }
+
+        return payload;
+    }
 
     private static string RedactionPayload(AiDirectiveAuditSnapshot snapshot) =>
         string.Join(

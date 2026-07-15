@@ -47,7 +47,7 @@ public sealed class EvaluationRunner
         double? corpusScore = _rubric is null
             ? null
             : _rubric.ScoreCorpus(results.Select(item => item.Scoring!).ToArray());
-        return new EvaluationDataset(
+        var dataset = new EvaluationDataset(
             1,
             corpus.CorpusVersion,
             options.RunId,
@@ -58,6 +58,27 @@ public sealed class EvaluationRunner
             _rubric is null ? null : 1,
             _rubric?.RubricVersion,
             corpusScore);
+        if (options.Plan is null || options.Partition is null)
+        {
+            return dataset;
+        }
+
+        dataset = dataset with
+        {
+            EvaluationPlanVersion = options.Plan.PlanVersion,
+            FreezeId = options.Plan.FreezeId,
+            EvaluationPartition = options.Partition,
+            CodeVersion = options.Plan.CodeVersion,
+            ConfigurationVersion = options.Plan.ConfigurationVersion,
+        };
+        return dataset with
+        {
+            RunAnalysis = EvaluationRunAnalyzer.Analyze(
+                corpus,
+                dataset,
+                options.Plan,
+                options.Partition),
+        };
     }
 
     private async Task<EvaluationCaseResult> RunCaseAsync(
@@ -135,7 +156,8 @@ public sealed class EvaluationRunner
             journey.PricingTokenUnit, journey.InputPricePerTokenUnit,
             journey.OutputPricePerTokenUnit,
             normalizedPrediction,
-            _rubric?.Score(item.HumanReference, normalizedPrediction));
+            _rubric?.Score(item.HumanReference, normalizedPrediction),
+            journey.InvalidOutputDiagnostics);
     }
 
     private EvaluationCaseResult Empty(

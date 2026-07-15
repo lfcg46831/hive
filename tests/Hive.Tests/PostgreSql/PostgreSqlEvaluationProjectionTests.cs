@@ -291,6 +291,7 @@ public sealed class PostgreSqlEvaluationProjectionTests(PostgreSqlFixture fixtur
         Assert.DoesNotContain(schema, item => item.Column == "legacy_payload");
         Assert.Contains(schema, item => item == ("result_projections", "contract_version"));
         Assert.Contains(schema, item => item == ("result_projection_dimensions", "dimension_id"));
+        Assert.Contains(schema, item => item == ("result_projection_dimensions", "diagnostic_code"));
     }
 
     private static PostgreSqlEvaluationResultProjector Projector(NpgsqlDataSource dataSource) =>

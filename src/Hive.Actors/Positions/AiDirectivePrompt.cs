@@ -31,7 +31,9 @@ internal static class AiDirectivePrompt
             processingMode: context.ProcessingMode,
             timeout: context.Limits.Timeout,
             policy: Policy(context),
-            outputConstraint: AiDirectiveDecisionSchema.OutputConstraint);
+            outputConstraint: context.EvaluationInstruction is { } evaluationInstruction
+                ? AiDirectiveEvaluationEnvelope.ComposeOutputConstraint(evaluationInstruction)
+                : AiDirectiveDecisionSchema.OutputConstraint);
     }
 
     internal static AiDirectiveSystemInstructionSections BuildSystemInstructionSections(
@@ -72,7 +74,7 @@ internal static class AiDirectivePrompt
         if (hasEvaluationAppendix)
         {
             lines.Add(
-                "A runtime evaluation appendix is present below; its single exact envelope is mandatory in the selected payload, so verify it before returning JSON.");
+                "A runtime evaluation appendix is present below; when the enforced response format declares a top-level \"evaluation\" property, fill it, otherwise its single exact envelope line is mandatory in the selected payload — verify before returning JSON.");
         }
 
         return string.Join(

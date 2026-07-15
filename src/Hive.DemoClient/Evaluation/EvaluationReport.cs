@@ -95,7 +95,8 @@ public static class EvaluationReportBuilder
             profile.ModelScenarios
                 .OrderBy(item => item.ProviderId, StringComparer.Ordinal)
                 .ThenBy(item => item.ModelId, StringComparer.Ordinal)
-                .ToArray());
+                .ToArray(),
+            analysis.EnvelopeDiagnostics);
     }
 
     private static EvaluationDataset LoadDataset(string path)
@@ -357,6 +358,28 @@ public static class EvaluationReportRenderer
             }
         }
 
+        // Datasets recorded before US-F0-13-T12c carry no envelope diagnostics; their
+        // tracked reports must re-render byte-identically, so the section only exists
+        // when the run analysis declared the aggregate.
+        if (report.EnvelopeDiagnostics is { } envelopeDiagnostics)
+        {
+            builder.AppendLine();
+            if (envelopeDiagnostics.Count == 0)
+            {
+                builder.AppendLine("Envelope diagnostics: **none**.");
+            }
+            else
+            {
+                builder.AppendLine("| Envelope code | Dimension | Cases | Occurrences |");
+                builder.AppendLine("| --- | --- | ---: | ---: |");
+                foreach (var diagnostic in envelopeDiagnostics)
+                {
+                    builder.AppendLine(
+                        $"| {Code(diagnostic.Code)} | {Code(diagnostic.DimensionId)} | {diagnostic.CaseCount} | {diagnostic.OccurrenceCount} |");
+                }
+            }
+        }
+
         builder.AppendLine();
         builder.AppendLine("## Unit economics");
         builder.AppendLine();
@@ -492,7 +515,8 @@ public sealed record EvaluationReport(
     IReadOnlyList<EvaluationMeasuredCost> MeasuredCosts,
     IReadOnlyList<EvaluationModelSensitivity> ModelSensitivity,
     EvaluationLatencyAnalysis Latency,
-    IReadOnlyList<EvaluationModelCostScenario> PricingSources);
+    IReadOnlyList<EvaluationModelCostScenario> PricingSources,
+    IReadOnlyList<EvaluationEnvelopeDiagnosticAggregate>? EnvelopeDiagnostics = null);
 
 public sealed record EvaluationReportInput(string Name, string Sha256);
 

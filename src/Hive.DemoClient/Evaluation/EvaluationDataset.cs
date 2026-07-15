@@ -71,7 +71,8 @@ public sealed record EvaluationPrediction(
 public sealed record EvaluationDimensionPrediction(
     [property: JsonPropertyName("dimension_id")] string DimensionId,
     [property: JsonPropertyName("status")] string Status,
-    [property: JsonPropertyName("labels")] IReadOnlyList<string> Labels);
+    [property: JsonPropertyName("labels")] IReadOnlyList<string> Labels,
+    [property: JsonPropertyName("diagnostic_code")] string? DiagnosticCode = null);
 
 public sealed record EvaluationCaseScoring(
     [property: JsonPropertyName("status")] string Status,

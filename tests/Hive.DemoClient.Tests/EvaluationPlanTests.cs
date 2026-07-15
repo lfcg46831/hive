@@ -150,6 +150,56 @@ public sealed class EvaluationPlanTests
     }
 
     [Fact]
+    public void Analyzer_aggregates_envelope_diagnostics_per_case_and_execution()
+    {
+        var corpus = new EvaluationCorpus(
+            1,
+            "evaluation-example",
+            [Case("case-001", "report"), Case("case-002", "report")]);
+        var cases = new[]
+        {
+            Result("case-001", "report", 100, 0.01m, 1d) with
+            {
+                Prediction = new EvaluationPrediction(
+                    1,
+                    1,
+                    [
+                        new("decision", EvaluationDimensionStatuses.Valid, ["report"]),
+                        new("missing-information", "invalid", [], "unknown-label"),
+                        new("severity", "missing", [], "envelope-missing"),
+                    ]),
+            },
+            Result("case-002", "report", 200, 0.02m, 1d) with
+            {
+                Prediction = new EvaluationPrediction(
+                    1,
+                    1,
+                    [
+                        new("decision", EvaluationDimensionStatuses.Valid, ["report"]),
+                        new("missing-information", "invalid", [], "unknown-label"),
+                        new("severity", "valid", ["medium"]),
+                    ]),
+            },
+        };
+        var dataset = new EvaluationDataset(
+            1, 1, "calibration-envelope", "http://localhost:8080", 120, 1000, cases, 1, 1, 0.5);
+
+        var analysis = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            dataset,
+            PlanForAnalysis(),
+            EvaluationPlan.CalibrationPartition);
+
+        Assert.NotNull(analysis.EnvelopeDiagnostics);
+        Assert.Equal(
+            [
+                new EvaluationEnvelopeDiagnosticAggregate("envelope-missing", "severity", 1, 1),
+                new EvaluationEnvelopeDiagnosticAggregate("unknown-label", "missing-information", 2, 2),
+            ],
+            analysis.EnvelopeDiagnostics);
+    }
+
+    [Fact]
     public void Holdout_fixture_is_anonymized_well_formed_and_uses_only_rubric_labels()
     {
         var path = Path.Combine(

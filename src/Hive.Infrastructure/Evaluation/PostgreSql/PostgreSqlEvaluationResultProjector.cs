@@ -136,14 +136,16 @@ public sealed class PostgreSqlEvaluationResultProjector : IEvaluationResultProje
                     directive_id,
                     dimension_id,
                     status,
-                    labels)
+                    labels,
+                    diagnostic_code)
                 VALUES (
                     @organization_id,
                     @thread_id,
                     @directive_id,
                     @dimension_id,
                     @status,
-                    @labels);
+                    @labels,
+                    @diagnostic_code);
                 """,
                 connection,
                 transaction);
@@ -159,6 +161,8 @@ public sealed class PostgreSqlEvaluationResultProjector : IEvaluationResultProje
                 StatusValue(dimension.Status);
             line.Parameters.Add("labels", NpgsqlDbType.Array | NpgsqlDbType.Text).Value =
                 dimension.Labels.ToArray();
+            line.Parameters.Add("diagnostic_code", NpgsqlDbType.Text).Value =
+                (object?)dimension.DiagnosticCode ?? DBNull.Value;
             await line.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 

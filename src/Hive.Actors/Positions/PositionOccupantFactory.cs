@@ -446,7 +446,8 @@ internal sealed class AiAgentActor : ReceiveActor
             _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
             var interpretation = AiDirectiveDecisionInterpreter.Interpret(
                 result,
-                context.Authority.CanDecide);
+                context.Authority.CanDecide,
+                acceptEvaluationEnvelope: context.EvaluationInstruction is not null);
             _directiveInterpretations[request.CorrelationId] = interpretation;
 
             if (interpretation.IsDecision)
@@ -456,7 +457,8 @@ internal sealed class AiAgentActor : ReceiveActor
                     reason: "AI gateway response interpreted");
                 var resultMessage = AiDirectiveResultMessageFactory.Create(
                     context,
-                    interpretation.Decision!);
+                    interpretation.Decision!,
+                    evaluationEnvelopeJson: interpretation.EvaluationEnvelopeJson);
                 AiAgentActionGateResult? actionGateResult = null;
                 if (resultMessage.IsSuccess)
                 {

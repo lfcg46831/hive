@@ -194,6 +194,133 @@ public sealed class EvaluationResultProjectionTests
     }
 
     [Fact]
+    public void Parser_tolerates_text_after_the_first_complete_envelope_object()
+    {
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "Summary.\n" +
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[]}} Trailing prose.\n" +
+            "More prose {with} stray braces.",
+            "report",
+            Rubric()));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["severity"].Status);
+        Assert.Equal(["high"], dimensions["severity"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["missing-information"].Status);
+        Assert.Empty(dimensions["missing-information"].Labels);
+    }
+
+    [Fact]
+    public void Parser_delimits_the_payload_to_the_first_complete_json_object()
+    {
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"medium\"],\"missing-information\":[\"run-log\"]}}{\"second\":\"object\"}",
+            "report",
+            Rubric()));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["severity"].Status);
+        Assert.Equal(["medium"], dimensions["severity"].Labels);
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["missing-information"].Status);
+        Assert.Equal(["run-log"], dimensions["missing-information"].Labels);
+    }
+
+    [Fact]
+    public void Parser_still_invalidates_duplicated_markers_after_a_valid_leading_object()
+    {
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[]}}\n" +
+            "hive-evaluation-v1:{\"dimensions\":{}}",
+            "report",
+            Rubric()));
+
+        Assert.All(
+            dimensions.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal(EvaluationDimensionStatus.Invalid, dimension.Status));
+    }
+
+    [Fact]
+    public void Parser_still_invalidates_truncated_and_non_object_payloads()
+    {
+        var rubric = Rubric();
+        var truncated = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"",
+            "report",
+            rubric));
+        var array = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:[\"dimensions\"] trailing",
+            "report",
+            rubric));
+        var scalar = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1: 42 trailing",
+            "report",
+            rubric));
+
+        Assert.All(
+            new[] { truncated, array, scalar }
+                .SelectMany(result => result.Values)
+                .Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal(EvaluationDimensionStatus.Invalid, dimension.Status));
+    }
+
+    [Fact]
+    public void Parser_attaches_closed_vocabulary_diagnostic_codes_to_failed_dimensions()
+    {
+        var rubric = Rubric();
+        var valid = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"],\"missing-information\":[]}}",
+            "report",
+            rubric));
+        var missing = ById(EvaluationProjectionParser.Parse("No envelope", "report", rubric));
+        var duplicated = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{}}\nhive-evaluation-v1:{\"dimensions\":{}}",
+            "report",
+            rubric));
+        var notJson = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{not-json}",
+            "report",
+            rubric));
+        var shape = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{},\"extra\":true}",
+            "report",
+            rubric));
+        var mixed = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"low\",\"high\"],\"missing-information\":[\"not-a-vocab-label\"]}}",
+            "report",
+            rubric));
+
+        Assert.All(
+            valid.Values,
+            dimension => Assert.Null(dimension.DiagnosticCode));
+        Assert.All(
+            missing.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal("envelope-missing", dimension.DiagnosticCode));
+        Assert.All(
+            duplicated.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal("envelope-duplicated", dimension.DiagnosticCode));
+        Assert.All(
+            notJson.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal("payload-not-json", dimension.DiagnosticCode));
+        Assert.All(
+            shape.Values.Where(dimension => dimension.DimensionId != "decision"),
+            dimension => Assert.Equal("unexpected-shape", dimension.DiagnosticCode));
+        Assert.Equal("cardinality-violation", mixed["severity"].DiagnosticCode);
+        Assert.Equal("unknown-label", mixed["missing-information"].DiagnosticCode);
+        Assert.Null(mixed["decision"].DiagnosticCode);
+    }
+
+    [Fact]
+    public void Parser_marks_a_dimension_absent_from_a_present_envelope_as_missing()
+    {
+        var dimensions = ById(EvaluationProjectionParser.Parse(
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"high\"]}}",
+            "report",
+            Rubric()));
+
+        Assert.Equal(EvaluationDimensionStatus.Valid, dimensions["severity"].Status);
+        Assert.Equal(EvaluationDimensionStatus.Missing, dimensions["missing-information"].Status);
+        Assert.Equal("envelope-missing", dimensions["missing-information"].DiagnosticCode);
+    }
+
+    [Fact]
     public void Parser_treats_rubric_labels_as_opaque_exact_tokens()
     {
         using var rubric = TemporaryRubric.WithReplacement(

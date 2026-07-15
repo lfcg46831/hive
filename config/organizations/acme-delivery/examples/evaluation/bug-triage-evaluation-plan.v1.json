@@ -3,12 +3,16 @@
   "fixture_kind": "evaluation-calibration-holdout",
   "freeze_id": "bug-triage-holdout-v1",
   "freeze_status": "frozen",
-  "code_version": "us-f0-13-t09e-v4",
+  "code_version": "us-f0-13-t12-v1",
   "configuration_version": "acme-delivery-bug-triage-v5",
   "calibration": {
     "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json",
     "sha256": "329c133848897503227b460fbd5beec3550149bc8c51e8a0dfb6dc138d5580f7",
     "semantic_overlap_reviewed": true
+  },
+  "calibration_readiness": {
+    "dataset_path": "evidence/evaluation/bug-triage-holdout-v1/calibration-ready-v7.json",
+    "sha256": "fcc98dc2b75638263d9854904cf66dfec82026e08b4e53298e8b79d519d42d8b"
   },
   "holdout": {
     "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-holdout-corpus.v1.json",
@@ -53,12 +57,12 @@
     {
       "role": "evaluation-analysis-code",
       "path": "src/Hive.DemoClient/Evaluation/EvaluationRunAnalysis.cs",
-      "sha256": "c18b9eb4a3953d15d3db954a488e5d214638b7555fc6423b1f3942d84aad2b46"
+      "sha256": "59a5de66fd75b5d79c0ebef1c8587e5ea13fe89ae6a830b0d3033816903a3d81"
     },
     {
       "role": "evaluation-dataset-code",
       "path": "src/Hive.DemoClient/Evaluation/EvaluationDataset.cs",
-      "sha256": "becc12a447e4d07751dbbecaca35685be8568bcdf844f1195cec5d74502f1ce2"
+      "sha256": "d3cb591f577dfe6320ae321a8371a7d04e65246c6b543da4800cbcb46c197ba2"
     },
     {
       "role": "evaluation-audit-reader-code",
@@ -93,12 +97,12 @@
     {
       "role": "directive-decision-parser-code",
       "path": "src/Hive.Actors/Positions/AiDirectiveDecisionParser.cs",
-      "sha256": "20d1951fc0468df0ec8b5d9e49455fcd3f20c30a32c092cfcae82dfb50b46e1e"
+      "sha256": "a319672a85718e23c2824434174c0058fcd544afbe58d14ef6faf8e4d46f6fc1"
     },
     {
       "role": "directive-system-prompt-code",
       "path": "src/Hive.Actors/Positions/AiDirectivePrompt.cs",
-      "sha256": "580d724b39a8cb566d5af70ee2fa1d0be861d3655e937e01d49b200e332e1ff7"
+      "sha256": "38e5f006019e46ff5cc75d68e9ea552ed83659d5be473b40d4fb65caad7274bc"
     },
     {
       "role": "directive-audit-snapshot-code",
@@ -108,7 +112,7 @@
     {
       "role": "directive-audit-projection-code",
       "path": "src/Hive.Actors/Positions/PositionOccupantFactory.cs",
-      "sha256": "a37a22de1465e8e816c7f3796d0651113e1d7a1365236038b1f48d6ff1dad0c0"
+      "sha256": "c93a36dd043e36e0fa1a917f1f08f1aeb13dbc9e5f3911acfdda899e45574156"
     },
     {
       "role": "real-provider-output-normalizer-code",
@@ -118,12 +122,17 @@
     {
       "role": "evaluation-instruction-code",
       "path": "src/Hive.Infrastructure/Evaluation/EvaluationRubricContract.cs",
-      "sha256": "42444ff8684bde119d7b7818dd507c472c736f2b2cf07cd3c5c42e6b559d0cd3"
+      "sha256": "a5340218dd146b3e4f62f127ce716ed8a4a807e269dca8477fa7b8e1d6aee0a7"
     },
     {
       "role": "evaluation-projection-parser-code",
       "path": "src/Hive.Infrastructure/Evaluation/EvaluationProjectionParser.cs",
-      "sha256": "f2e2e0881ea30c33197c61ba5d413a9426c9872c4a9dacb689caf25a6e0cd798"
+      "sha256": "8c149c4df291171853dad49693d1084bb912c86c66028b3ec57754c0d5fc62e1"
+    },
+    {
+      "role": "evaluation-envelope-transport-code",
+      "path": "src/Hive.Actors/Positions/AiDirectiveEvaluationEnvelope.cs",
+      "sha256": "06c5923aaac6afb2b68e97beb5d2a59875421f3a85d387886dbd576d831ebbce"
     },
     {
       "role": "deadline-source-model-a-001",
@@ -166,9 +175,5 @@
     "dimension_id": "decision",
     "negative_label": "report",
     "positive_label": "escalation"
-  },
-  "calibration_readiness": {
-    "dataset_path": "evidence/evaluation/bug-triage-holdout-v1/calibration-ready-v6.json",
-    "sha256": "21c2023c43696287db5d91dc8515ccdb2d994a704d13d199c71cfbc577636df5"
   }
 }

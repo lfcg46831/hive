@@ -119,9 +119,10 @@ internal sealed record EvaluationRubricContract(
 
         var builder = new StringBuilder();
         builder.AppendLine("MANDATORY COMPLETION CHECK: an otherwise complete response without the evaluation envelope is invalid.");
-        builder.AppendLine("Do not return JSON until exactly one envelope with the exact marker and shape below is present in the selected payload.");
-        builder.AppendLine("For every Report, end report.body with a newline followed by exactly one evaluation envelope line.");
-        builder.AppendLine("For every Escalation, end escalation.context with a newline followed by exactly one evaluation envelope line.");
+        builder.AppendLine("When the enforced response format declares a required top-level \"evaluation\" property, put the dimensions object there and do not emit the textual envelope marker line anywhere.");
+        builder.AppendLine("Otherwise, do not return JSON until exactly one envelope with the exact marker and shape below is present in the selected payload:");
+        builder.AppendLine("for every Report, end report.body with a newline followed by exactly one evaluation envelope line;");
+        builder.AppendLine("for every Escalation, end escalation.context with a newline followed by exactly one evaluation envelope line.");
         builder.Append("Use this compact envelope shape: ")
             .Append(EvaluationInstruction.EnvelopeMarker)
             .AppendLine(compactExample);
@@ -143,9 +144,17 @@ internal sealed record EvaluationRubricContract(
 
         builder.AppendLine("Collapse duplicate set labels and order emitted dimension ids and labels lexically.");
         builder.AppendLine("Do not include dimensions derived from HIVE result facts in the envelope.");
-        builder.Append("FINAL CHECK: copy the marker exactly, keep the compact JSON on the same line, use the assigned field, and emit it once.");
+        builder.Append("FINAL CHECK: emit the dimensions object exactly once — in the enforced \"evaluation\" property when it exists, otherwise as one exact marker line in the assigned field with the compact JSON on the same line.");
 
-        return new EvaluationInstruction(RubricVersion, builder.ToString());
+        return new EvaluationInstruction(
+            RubricVersion,
+            builder.ToString(),
+            envelopeDimensions
+                .Select(dimension => new EvaluationEnvelopeDimension(
+                    dimension.Id,
+                    dimension.ValueKind == "single-label",
+                    dimension.Labels))
+                .ToImmutableArray());
     }
 
     private static EvaluationDimensionContract ReadDimension(JsonElement dimension)

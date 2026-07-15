@@ -36,9 +36,11 @@ public sealed class NoopEvaluationProjectionReader : IEvaluationProjectionReader
 public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjectionReader
 {
     public const string UnavailableMessage =
-        "Evaluation projection storage is not ready at schema version 2. Start HIVE with " +
+        "Evaluation projection storage is not ready at schema version 3. Start HIVE with " +
         "docker-compose.evaluation.yml, recreate any stale evaluation profile host, and wait " +
         "for readiness before running evaluate.";
+
+    private const int RequiredSchemaVersion = 3;
 
     private readonly NpgsqlDataSource _dataSource;
 
@@ -77,7 +79,7 @@ public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjection
             if (migrationTableAvailable)
             {
                 await using var version = _dataSource.CreateCommand(
-                    "SELECT EXISTS (SELECT 1 FROM evaluation.schema_migrations WHERE version = 2);");
+                    $"SELECT EXISTS (SELECT 1 FROM evaluation.schema_migrations WHERE version = {RequiredSchemaVersion});");
                 currentVersionAvailable = await version.ExecuteScalarAsync(cancellationToken)
                     .ConfigureAwait(false) is true;
             }
@@ -111,7 +113,8 @@ public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjection
                     projection.rubric_version,
                     dimension.dimension_id,
                     dimension.status,
-                    dimension.labels
+                    dimension.labels,
+                    dimension.diagnostic_code
                 FROM evaluation.result_projections AS projection
                 LEFT JOIN evaluation.result_projection_dimensions AS dimension
                   ON dimension.organization_id = projection.organization_id
@@ -140,7 +143,8 @@ public sealed class PostgreSqlEvaluationProjectionReader : IEvaluationProjection
                     dimensions.Add(new EvaluationDimensionPrediction(
                         reader.GetString(2),
                         reader.GetString(3),
-                        reader.GetFieldValue<string[]>(4)));
+                        reader.GetFieldValue<string[]>(4),
+                        reader.IsDBNull(5) ? null : reader.GetString(5)));
                 }
             }
 

@@ -87,7 +87,8 @@ internal static class AiDirectiveResultMessageFactory
         AiDirectiveDecision decision,
         Func<MessageId>? newMessageId = null,
         Func<DirectiveId>? newDirectiveId = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        string? evaluationEnvelopeJson = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(decision);
@@ -102,12 +103,14 @@ internal static class AiDirectiveResultMessageFactory
                 context,
                 report,
                 messageIdFactory,
-                now),
+                now,
+                evaluationEnvelopeJson),
             AiDirectiveEscalationDecision escalation => CreateEscalation(
                 context,
                 escalation,
                 messageIdFactory,
-                now),
+                now,
+                evaluationEnvelopeJson),
             AiDirectiveChildDirectiveDecision directive => CreateChildDirective(
                 context,
                 directive,
@@ -122,7 +125,8 @@ internal static class AiDirectiveResultMessageFactory
         AiDirectiveExecutionContext context,
         AiDirectiveReportDecision decision,
         Func<MessageId> newMessageId,
-        Func<DateTimeOffset> clock)
+        Func<DateTimeOffset> clock,
+        string? evaluationEnvelopeJson)
     {
         if (context.Relation.ReportsTo is not { } superior)
         {
@@ -147,7 +151,7 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.Deadline,
                 context.Directive.DirectiveId,
                 decision.Kind,
-                decision.Body),
+                ComposeSelectedPayload(decision.Body, evaluationEnvelopeJson)),
             decision.ActingUnder);
     }
 
@@ -155,7 +159,8 @@ internal static class AiDirectiveResultMessageFactory
         AiDirectiveExecutionContext context,
         AiDirectiveEscalationDecision decision,
         Func<MessageId> newMessageId,
-        Func<DateTimeOffset> clock)
+        Func<DateTimeOffset> clock,
+        string? evaluationEnvelopeJson)
     {
         EndpointRef destination = context.Relation.ReportsTo is { } superior
             ? new PositionEndpointRef(superior)
@@ -174,10 +179,26 @@ internal static class AiDirectiveResultMessageFactory
                 clock(),
                 context.Directive.Deadline,
                 decision.Issue,
-                decision.Context,
+                ComposeSelectedPayload(decision.Context, evaluationEnvelopeJson),
                 decision.OptionsConsidered),
             decision.ActingUnder);
     }
+
+    /// <summary>
+    /// When an accepted structured evaluation section exists, the canonical envelope line is
+    /// materialized by the runtime in the selected payload field so the durable transport no
+    /// longer depends on model prompt discipline (US-F0-13-T12a). Without a structured
+    /// section, the payload is preserved verbatim and any model-emitted textual envelope
+    /// follows the hardened fallback path.
+    /// </summary>
+    private static string ComposeSelectedPayload(
+        string payloadText,
+        string? evaluationEnvelopeJson) =>
+        evaluationEnvelopeJson is null
+            ? payloadText
+            : AiDirectiveEvaluationEnvelope.ComposePayloadText(
+                payloadText,
+                evaluationEnvelopeJson);
 
     private static AiDirectiveResultMessage CreateChildDirective(
         AiDirectiveExecutionContext context,

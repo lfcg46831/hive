@@ -246,7 +246,7 @@ public sealed class EvaluationRunnerTests
                 dimensionTableAvailable,
                 currentVersionAvailable));
 
-        Assert.Contains("schema version 2", exception.Message, StringComparison.Ordinal);
+        Assert.Contains("schema version 3", exception.Message, StringComparison.Ordinal);
         Assert.Contains("docker-compose.evaluation.yml", exception.Message, StringComparison.Ordinal);
     }
 

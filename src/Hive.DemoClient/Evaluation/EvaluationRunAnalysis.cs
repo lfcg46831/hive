@@ -64,6 +64,25 @@ public static class EvaluationRunAnalyzer
                 group.Select(item => item.CaseId).Distinct(StringComparer.Ordinal).Count(),
                 group.Count()))
             .ToArray();
+        var envelopeDiagnostics = dataset.Cases
+            .Where(item => item.Prediction is not null)
+            .SelectMany(item => item.Prediction!.Dimensions
+                .Where(dimension => dimension.DiagnosticCode is not null)
+                .Select(dimension => new
+                {
+                    item.CaseId,
+                    Code = dimension.DiagnosticCode!,
+                    dimension.DimensionId,
+                }))
+            .GroupBy(item => (item.Code, item.DimensionId))
+            .OrderBy(group => group.Key.Code, StringComparer.Ordinal)
+            .ThenBy(group => group.Key.DimensionId, StringComparer.Ordinal)
+            .Select(group => new EvaluationEnvelopeDiagnosticAggregate(
+                group.Key.Code,
+                group.Key.DimensionId,
+                group.Select(item => item.CaseId).Distinct(StringComparer.Ordinal).Count(),
+                group.Count()))
+            .ToArray();
         var latency = BuildLatency(dataset.Cases);
         var cost = BuildCost(dataset.Cases);
         var deadline = new EvaluationDeadlineAnalysis(
@@ -94,7 +113,8 @@ public static class EvaluationRunAnalyzer
             invalidOutputDiagnostics,
             cost,
             latency,
-            deadline);
+            deadline,
+            envelopeDiagnostics);
     }
 
     private static bool IsAuditableTerminal(EvaluationCaseResult item) =>
@@ -300,7 +320,9 @@ public sealed record EvaluationRunAnalysis(
     IReadOnlyList<EvaluationInvalidOutputDiagnosticAggregate> InvalidOutputDiagnostics,
     [property: JsonPropertyName("cost")] EvaluationCostAnalysis Cost,
     [property: JsonPropertyName("latency")] EvaluationLatencyAnalysis Latency,
-    [property: JsonPropertyName("deadline_calibration")] EvaluationDeadlineAnalysis DeadlineCalibration);
+    [property: JsonPropertyName("deadline_calibration")] EvaluationDeadlineAnalysis DeadlineCalibration,
+    [property: JsonPropertyName("envelope_diagnostics")]
+    IReadOnlyList<EvaluationEnvelopeDiagnosticAggregate>? EnvelopeDiagnostics = null);
 
 public sealed record EvaluationCoverage(
     [property: JsonPropertyName("total")] int Total,
@@ -326,6 +348,12 @@ public sealed record EvaluationPositiveRecall(
 public sealed record EvaluationInvalidOutputDiagnosticAggregate(
     [property: JsonPropertyName("path")] string Path,
     [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("case_count")] int CaseCount,
+    [property: JsonPropertyName("occurrence_count")] int OccurrenceCount);
+
+public sealed record EvaluationEnvelopeDiagnosticAggregate(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("dimension_id")] string DimensionId,
     [property: JsonPropertyName("case_count")] int CaseCount,
     [property: JsonPropertyName("occurrence_count")] int OccurrenceCount);
 

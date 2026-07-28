@@ -1,5 +1,6 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
+using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Ai;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
@@ -144,6 +145,40 @@ public sealed class AiGatewayIntegrationTests
         Assert.DoesNotContain(settings.ApiKey!, error.Message);
     }
 
+    [Fact]
+    public async Task Optional_real_outcome_verifier_smoke_confirms_semantic_done()
+    {
+        var settings = OptionalRealSmokeSettings.FromEnvironment();
+        if (!settings.IsEnabled)
+        {
+            Assert.Empty(settings.ToConfiguration());
+            return;
+        }
+
+        using var provider = BuildProvider(settings.ToConfiguration());
+        var gateway = new CapturingResponseGateway(provider.GetRequiredService<IAiGateway>());
+        var verifier = new AiGatewayOutcomeVerifier(gateway);
+
+        var result = await verifier.VerifyAsync(OutcomeVerifierRequest());
+
+        var gatewayResponse = Assert.IsType<AiGatewayResponse>(gateway.Response);
+        var parserDiagnostics = gatewayResponse.Text is null
+            ? "text-unavailable"
+            : string.Join(
+                ",",
+                OutcomeVerifierParser.Parse(gatewayResponse.Text).Errors.Select(
+                    error => $"{error.Code}:{error.Path}"));
+        var responseShape = gatewayResponse.Text is null
+            ? "text-unavailable"
+            : TopLevelPropertyNames(gatewayResponse.Text);
+        Assert.True(
+            result.Status == OutcomeVerifierResultStatus.Classified,
+            $"Verifier status={result.Status}; gatewaySuccess={gatewayResponse.IsSuccess}; " +
+            $"finishReason={gatewayResponse.FinishReason}; parser={parserDiagnostics}; " +
+            $"shape={responseShape}.");
+        Assert.Equal(OutcomeVerifierClassification.ReportDone, result.Classification);
+    }
+
     private static ServiceProvider BuildProvider(
         IReadOnlyDictionary<string, string?> values)
     {
@@ -171,6 +206,96 @@ public sealed class AiGatewayIntegrationTests
             "Classify this integration smoke request in one short sentence.",
             provider: provider,
             timeout: timeout);
+
+    private static OutcomeVerificationRequest OutcomeVerifierRequest() =>
+        new(
+            new OutcomeVerificationContext(
+                Organization,
+                Position,
+                Thread,
+                Message,
+                DirectiveId.From(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+                TimeSpan.FromSeconds(45),
+                [new OutcomeVerificationContextEntry(
+                    "directive.objective",
+                    "Assess whether a reproducible non-blocking defect should be reported."),
+                new OutcomeVerificationContextEntry(
+                    "directive.context",
+                    "The defect is reproducible, visible, and does not block the user workflow.")]),
+            new ExecutionFacts(
+                iterationCount: 1,
+                retryCount: 0,
+                deadlineExceeded: false,
+                budgetExhausted: false,
+                humanApprovalRequired: false,
+                approvalPending: false,
+                OutcomeDependencyState.Available,
+                OutcomeAuthorityState.Authorized,
+                OutcomeRoutingState.Available,
+                autonomousActionAvailable: false,
+                delegationRequired: false,
+                pendingActions: false,
+                externalInterventionRequired: false,
+                verifiableProgress: false,
+                responsibilityRetained: true,
+                OutcomeCompletionState.NotDeclared),
+            new DirectiveExecutionContract(),
+            new OutcomeProposal(
+                OutcomeProposedIntent.ReportDone,
+                OutcomeWorkState.Completed,
+                OutcomeRequiredIntervention.None,
+                blockers: [],
+                nextAction: null,
+                evidenceReferences:
+                [
+                    new OutcomeEvidenceReference(
+                        OutcomeEvidenceSource.DirectiveInput,
+                        "directive.objective"),
+                    new OutcomeEvidenceReference(
+                        OutcomeEvidenceSource.DirectiveInput,
+                        "directive.context"),
+                ]),
+            new OutcomePolicySnapshot(
+                "outcome-policy-v1",
+                "sha256:real-verifier-smoke",
+                maximumIterations: 4,
+                maximumRetries: 3,
+                verifierEnabled: true),
+            new OutcomeVerificationArtifact(
+                OutcomeKind.ReportDone,
+                [new(
+                    "report.body",
+                    "The reproducible non-blocking defect was assessed and should be reported.")]));
+
+    private static string TopLevelPropertyNames(string output)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(output);
+            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
+                ? string.Join(
+                    ",",
+                    document.RootElement.EnumerateObject().Select(property => property.Name))
+                : document.RootElement.ValueKind.ToString();
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return "invalid-json";
+        }
+    }
+
+    private sealed class CapturingResponseGateway(IAiGateway inner) : IAiGateway
+    {
+        public AiGatewayResponse? Response { get; private set; }
+
+        public async Task<AiGatewayResponse> CompleteAsync(
+            AiGatewayRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Response = await inner.CompleteAsync(request, cancellationToken);
+            return Response;
+        }
+    }
 
     private sealed record OptionalRealSmokeSettings(
         string? ApiKey,

@@ -112,7 +112,7 @@ public sealed class ExampleOrganizationConfigurationTests
     }
 
     [Fact]
-    public void Example_triage_v2_makes_the_business_decision_boundary_explicit()
+    public void Example_triage_v2_captures_the_calibrated_business_boundaries()
     {
         var prompt = File.ReadAllText(Path.Combine(
             OrganizationDirectory,
@@ -138,6 +138,42 @@ public sealed class ExampleOrganizationConfigurationTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Missing facts are non-blocking only when the available evidence still supports both conclusions.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Only identify a fact as missing when its absence creates material uncertainty in the severity assessment or prevents a safe, actionable next step.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Optional diagnostics, implementation details, and validation data that would merely help later remediation are recommendations, not missing-information gaps.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Do not manufacture a leader decision by expanding triage into an unrequested immediate production mitigation, solution choice, priority choice, or owner selection.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "High or critical severity, security or financial exposure, and implementation by another team do not by themselves make the triage incomplete.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Do not turn that recommendation into a menu of mitigations or a request for authorization.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "omit it unless obtaining it could change the severity classification or is necessary to keep the recommended next step safe.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "state that no material triage information is missing instead of producing a standard diagnostic checklist.",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "identify only the blockers known to be absent",
+            prompt,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Normal downstream implementation, deployment, prioritization, or change control",
             prompt,
             StringComparison.Ordinal);
     }
@@ -245,6 +281,120 @@ public sealed class ExampleOrganizationConfigurationTests
         Assert.Equal(
             t15Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value),
             t16Triage.Occupant.Authority.Overrides.Select(item => item.Key.Value));
+    }
+
+    [Fact]
+    public void Timeout60_experiment_preserves_the_historical_hybrid_profile_except_for_timeout()
+    {
+        var historical = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "hybrid-outcome-resolution-v1",
+                "organization.yaml"));
+        var timeout60 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "hybrid-outcome-resolution-timeout60-v1",
+                "organization.yaml"));
+
+        Assert.True(historical.IsSuccess, string.Join(Environment.NewLine, historical.Errors));
+        Assert.True(timeout60.IsSuccess, string.Join(Environment.NewLine, timeout60.Errors));
+
+        var historicalTriage = historical.Configuration!.Positions.Single(
+            position => position.Id.Value == "bug-triage");
+        var timeout60Triage = timeout60.Configuration!.Positions.Single(
+            position => position.Id.Value == "bug-triage");
+
+        Assert.Equal("triage-v2", historicalTriage.Occupant.IdentityPromptRef);
+        Assert.Equal(
+            historicalTriage.Occupant.IdentityPromptRef,
+            timeout60Triage.Occupant.IdentityPromptRef);
+        Assert.Equal(
+            historicalTriage.Occupant.Ai!.Model,
+            timeout60Triage.Occupant.Ai!.Model);
+        Assert.Equal(
+            historicalTriage.Occupant.Ai.MaxTokens,
+            timeout60Triage.Occupant.Ai.MaxTokens);
+        Assert.Equal(
+            historicalTriage.Occupant.Ai.MaxIterations,
+            timeout60Triage.Occupant.Ai.MaxIterations);
+        Assert.Equal("PT45S", historicalTriage.Occupant.Ai.Timeout);
+        Assert.Equal("PT60S", timeout60Triage.Occupant.Ai.Timeout);
+        Assert.Equal(
+            historicalTriage.Occupant.Authority!.CanDecide.Select(key => key.Value),
+            timeout60Triage.Occupant.Authority!.CanDecide.Select(key => key.Value));
+        Assert.Equal(
+            historical.Configuration.Prompts.Select(prompt => (prompt.Id, prompt.Path)),
+            timeout60.Configuration.Prompts.Select(prompt => (prompt.Id, prompt.Path)));
+    }
+
+    [Fact]
+    public void Reliability_experiment_preserves_timeout60_profile_except_for_triage_output_ceiling()
+    {
+        var timeout60 = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "hybrid-outcome-resolution-timeout60-v1",
+                "organization.yaml"));
+        var reliability = new OrganizationConfigurationParser().ParseFile(
+            Path.Combine(
+                RepositoryRoot,
+                "config",
+                "experiments",
+                "hybrid-outcome-resolution-reliability-v1",
+                "organization.yaml"));
+
+        Assert.True(timeout60.IsSuccess, string.Join(Environment.NewLine, timeout60.Errors));
+        Assert.True(reliability.IsSuccess, string.Join(Environment.NewLine, reliability.Errors));
+
+        var timeout60Triage = timeout60.Configuration!.Positions.Single(
+            position => position.Id.Value == "bug-triage");
+        var reliabilityTriage = reliability.Configuration!.Positions.Single(
+            position => position.Id.Value == "bug-triage");
+
+        Assert.Equal(
+            timeout60Triage.Occupant.IdentityPromptRef,
+            reliabilityTriage.Occupant.IdentityPromptRef);
+        Assert.Equal(
+            timeout60Triage.Occupant.Ai!.Model,
+            reliabilityTriage.Occupant.Ai!.Model);
+        Assert.Equal(4096, timeout60Triage.Occupant.Ai.MaxTokens);
+        Assert.Equal(8192, reliabilityTriage.Occupant.Ai.MaxTokens);
+        Assert.Equal(
+            timeout60Triage.Occupant.Ai.MaxIterations,
+            reliabilityTriage.Occupant.Ai.MaxIterations);
+        Assert.Equal("PT60S", timeout60Triage.Occupant.Ai.Timeout);
+        Assert.Equal(
+            timeout60Triage.Occupant.Ai.Timeout,
+            reliabilityTriage.Occupant.Ai.Timeout);
+        Assert.Equal(
+            timeout60Triage.Occupant.Authority!.CanDecide.Select(key => key.Value),
+            reliabilityTriage.Occupant.Authority!.CanDecide.Select(key => key.Value));
+        Assert.Equal(
+            timeout60.Configuration.Prompts.Select(prompt => (prompt.Id, prompt.Path)),
+            reliability.Configuration.Prompts.Select(prompt => (prompt.Id, prompt.Path)));
+
+        var timeout60NonTriage = timeout60.Configuration.Positions
+            .Where(position => position.Id.Value != "bug-triage")
+            .Select(position => (
+                position.Id,
+                position.Occupant.Ai?.Model,
+                position.Occupant.Ai?.MaxTokens,
+                position.Occupant.Ai?.Timeout));
+        var reliabilityNonTriage = reliability.Configuration.Positions
+            .Where(position => position.Id.Value != "bug-triage")
+            .Select(position => (
+                position.Id,
+                position.Occupant.Ai?.Model,
+                position.Occupant.Ai?.MaxTokens,
+                position.Occupant.Ai?.Timeout));
+        Assert.Equal(timeout60NonTriage, reliabilityNonTriage);
     }
 
     [Fact]

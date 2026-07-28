@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
 using Hive.Domain.Governance;
+using Hive.Domain.Outcomes;
 
 namespace Hive.Actors.Positions;
 
@@ -63,12 +64,14 @@ internal sealed record AiDirectiveInterpretationResult
         string correlationId,
         AiDirectiveInterpretationOutcomeKind outcome,
         AiDirectiveDecision? decision,
+        OutcomeProposal? proposal,
         AiDirectiveInterpretationFailure? failure,
         string? evaluationEnvelopeJson)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         Outcome = outcome;
         Decision = decision;
+        Proposal = proposal;
         Failure = failure;
         EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
@@ -78,6 +81,8 @@ internal sealed record AiDirectiveInterpretationResult
     public AiDirectiveInterpretationOutcomeKind Outcome { get; }
 
     public AiDirectiveDecision? Decision { get; }
+
+    public OutcomeProposal? Proposal { get; }
 
     public AiDirectiveInterpretationFailure? Failure { get; }
 
@@ -98,6 +103,7 @@ internal sealed record AiDirectiveInterpretationResult
     public static AiDirectiveInterpretationResult AcceptedDecision(
         string correlationId,
         AiDirectiveDecision decision,
+        OutcomeProposal? proposal = null,
         string? evaluationEnvelopeJson = null)
     {
         ArgumentNullException.ThrowIfNull(decision);
@@ -106,6 +112,7 @@ internal sealed record AiDirectiveInterpretationResult
             correlationId,
             AiDirectiveInterpretationOutcomeKind.DecisionAccepted,
             decision,
+            proposal,
             failure: null,
             evaluationEnvelopeJson);
     }
@@ -120,6 +127,7 @@ internal sealed record AiDirectiveInterpretationResult
             correlationId,
             AiDirectiveInterpretationOutcomeKind.StructuredError,
             decision: null,
+            proposal: null,
             failure,
             evaluationEnvelopeJson: null);
     }
@@ -134,6 +142,7 @@ internal sealed record AiDirectiveInterpretationResult
             correlationId,
             AiDirectiveInterpretationOutcomeKind.EscalationRequired,
             decision: null,
+            proposal: null,
             failure,
             evaluationEnvelopeJson: null);
     }
@@ -144,7 +153,8 @@ internal static class AiDirectiveDecisionInterpreter
     public static AiDirectiveInterpretationResult Interpret(
         AiAgentGatewayInvocationResult invocation,
         IEnumerable<AuthorityKey>? canDecide = null,
-        bool acceptEvaluationEnvelope = false)
+        bool acceptEvaluationEnvelope = false,
+        bool requireOutcomeProposal = false)
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
@@ -159,12 +169,14 @@ internal static class AiDirectiveDecisionInterpreter
         var parseResult = AiDirectiveDecisionParser.Parse(
             invocation.Response.Text,
             canDecide,
-            acceptEvaluationEnvelope);
+            acceptEvaluationEnvelope,
+            requireOutcomeProposal);
         if (parseResult.IsSuccess)
         {
             return AiDirectiveInterpretationResult.AcceptedDecision(
                 invocation.CorrelationId,
                 parseResult.Decision!,
+                parseResult.Proposal,
                 parseResult.EvaluationEnvelopeJson);
         }
 

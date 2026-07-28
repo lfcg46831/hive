@@ -1,3 +1,5 @@
+using Hive.Domain.Outcomes;
+
 namespace Hive.Domain.Organization.Configuration;
 
 /// <summary>
@@ -6,7 +8,8 @@ namespace Hive.Domain.Organization.Configuration;
 /// <see cref="Ai"/> runtime configuration (only meaningful for an <see cref="OccupantType.AiAgent"/>),
 /// the optional <see cref="WorkingHours"/> window, the position <see cref="Authority"/>, the declared
 /// proactivity (<see cref="Schedule"/>), the event reactions (<see cref="Subscriptions"/>) and the
-/// authorized <see cref="Tools"/>. Optional sections are <see langword="null"/> or empty when absent;
+/// authorized <see cref="Tools"/>, plus the optional <see cref="OutcomePolicy"/> overlay. Optional
+/// sections are <see langword="null"/> or empty when absent;
 /// semantic consistency (for example an AI block only on an AI occupant) is validated later.
 /// </summary>
 public sealed record OccupantConfiguration
@@ -20,7 +23,8 @@ public sealed record OccupantConfiguration
         AuthorityConfiguration? authority = null,
         IReadOnlyList<ScheduleEntryConfiguration>? schedule = null,
         IReadOnlyList<SubscriptionConfiguration>? subscriptions = null,
-        IReadOnlyList<ToolConfiguration>? tools = null)
+        IReadOnlyList<ToolConfiguration>? tools = null,
+        OutcomePolicyOverlay? outcomePolicy = null)
     {
         Type = type;
         IdentityPromptRef = identityPromptRef;
@@ -30,6 +34,7 @@ public sealed record OccupantConfiguration
         Schedule = schedule ?? Array.Empty<ScheduleEntryConfiguration>();
         Subscriptions = subscriptions ?? Array.Empty<SubscriptionConfiguration>();
         Tools = tools ?? Array.Empty<ToolConfiguration>();
+        OutcomePolicy = outcomePolicy;
     }
 
     /// <summary>Whether the occupant is an AI agent or a human.</summary>
@@ -55,4 +60,7 @@ public sealed record OccupantConfiguration
 
     /// <summary>The authorized tools/connectors in declaration order; empty when none.</summary>
     public IReadOnlyList<ToolConfiguration> Tools { get; }
+
+    /// <summary>The optional position-level tighten-only outcome-policy overlay.</summary>
+    public OutcomePolicyOverlay? OutcomePolicy { get; }
 }

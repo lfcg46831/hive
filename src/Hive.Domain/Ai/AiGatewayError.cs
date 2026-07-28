@@ -12,7 +12,8 @@ public sealed record AiGatewayError
         AiGatewayErrorCode code,
         string message,
         bool isRetryable,
-        AiProviderMetadata? provider = null)
+        AiProviderMetadata? provider = null,
+        AiGatewayFailureDiagnostics? diagnostics = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -27,6 +28,7 @@ public sealed record AiGatewayError
         Message = AiContractGuards.RequireText(message, nameof(message));
         IsRetryable = isRetryable;
         Provider = provider;
+        Diagnostics = diagnostics;
     }
 
     public OrganizationId OrganizationId { get; }
@@ -44,4 +46,6 @@ public sealed record AiGatewayError
     public bool IsRetryable { get; }
 
     public AiProviderMetadata? Provider { get; }
+
+    public AiGatewayFailureDiagnostics? Diagnostics { get; }
 }

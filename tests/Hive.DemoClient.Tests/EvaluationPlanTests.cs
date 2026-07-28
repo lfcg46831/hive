@@ -6,13 +6,19 @@ namespace Hive.DemoClient.Tests;
 public sealed class EvaluationPlanTests
 {
     [Fact]
-    public void Tracked_plan_separates_calibration_and_holdout_and_locks_overrides()
+    public void Historical_tracked_plan_preserves_corpus_isolation_and_rejects_post_freeze_code()
     {
-        var plan = EvaluationPlan.Load(PlanPath, EvaluationPlan.CalibrationPartition);
-        var calibration = EvaluationCorpus.Load(plan.Select(EvaluationPlan.CalibrationPartition).CorpusPath);
-        var holdout = EvaluationCorpus.Load(plan.Select(EvaluationPlan.HoldoutPartition).CorpusPath);
+        using var stream = File.OpenRead(PlanPath);
+        var plan = JsonSerializer.Deserialize<EvaluationPlan>(stream)!;
+        var calibration = EvaluationCorpus.Load(Path.Combine(
+            RepositoryRoot,
+            plan.Calibration.Path.Replace('/', Path.DirectorySeparatorChar)));
+        var holdout = EvaluationCorpus.Load(Path.Combine(
+            RepositoryRoot,
+            plan.Holdout.Path.Replace('/', Path.DirectorySeparatorChar)));
 
         Assert.Equal("bug-triage-holdout-v1", plan.FreezeId);
+        Assert.Equal("us-f0-13-t12-v1", plan.CodeVersion);
         Assert.Equal(45, plan.Provider.TimeoutSeconds);
         Assert.Equal(30, calibration.Cases.Count);
         Assert.Equal(30, holdout.Cases.Count);
@@ -21,29 +27,12 @@ public sealed class EvaluationPlanTests
         Assert.Empty(calibration.Cases.Select(item => Normalize(item.Context))
             .Intersect(holdout.Cases.Select(item => Normalize(item.Context)), StringComparer.Ordinal));
 
-        var options = EvaluationRunOptions.Parse(
-            [
-                "--run-id", "calibration-ready-v1",
-                "--connection-string", "Host=localhost",
-                "--plan", PlanPath,
-                "--partition", "calibration",
-            ],
-            RepositoryRoot);
-        Assert.Equal(TimeSpan.FromMinutes(2), options.Timeout);
-        Assert.Equal(TimeSpan.FromSeconds(1), options.PollInterval);
-        Assert.Equal(EvaluationPlan.CalibrationPartition, options.Partition);
-        Assert.NotNull(options.Plan);
-
-        var exception = Assert.Throws<ArgumentException>(() => EvaluationRunOptions.Parse(
-            [
-                "--run-id", "invalid-override",
-                "--connection-string", "Host=localhost",
-                "--plan", PlanPath,
-                "--partition", "calibration",
-                "--timeout-seconds", "30",
-            ],
-            RepositoryRoot));
-        Assert.Contains("cannot override", exception.Message, StringComparison.Ordinal);
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            EvaluationPlan.Load(PlanPath, EvaluationPlan.CalibrationPartition));
+        Assert.Equal(
+            "Frozen evaluation-runner-code has drifted from SHA-256 " +
+            "168b63c56f9db5e63146211d7b8feffff12abfcce397bc446bacf84142201367.",
+            exception.Message);
     }
 
     [Fact]

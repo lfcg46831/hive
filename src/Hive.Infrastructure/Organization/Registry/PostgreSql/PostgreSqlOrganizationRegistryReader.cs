@@ -4,6 +4,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Npgsql;
 
 namespace Hive.Infrastructure.Organization.Registry.PostgreSql;
@@ -69,6 +70,7 @@ internal static class PostgreSqlOrganizationRegistryReader
                    owner_type,
                    owner_ref,
                    prompts::text,
+                   outcome_policy::text,
                    action_domain_catalog::text,
                    action_domain_catalog_fingerprint,
                    action_domain_catalog_updated_at,
@@ -92,9 +94,12 @@ internal static class PostgreSqlOrganizationRegistryReader
             reader.IsDBNull(3) ? null : reader.GetString(3),
             UnitId.From(reader.GetString(4)),
             new OwnerConfiguration(ownerType, reader.GetString(6)),
-            Array.AsReadOnly(RegistryJson.Deserialize<PromptConfiguration[]>(reader.GetString(7))));
+            Array.AsReadOnly(RegistryJson.Deserialize<PromptConfiguration[]>(reader.GetString(7))),
+            reader.IsDBNull(8)
+                ? null
+                : RegistryJson.Deserialize<OutcomePolicyOverlay>(reader.GetString(8)));
 
-        var actionDomainCatalog = reader.IsDBNull(8) || reader.IsDBNull(9) || reader.IsDBNull(10)
+        var actionDomainCatalog = reader.IsDBNull(9) || reader.IsDBNull(10) || reader.IsDBNull(11)
             ? new RegistryEntry<ActionDomainCatalog>(
                 new ActionDomainCatalog(
                     1,
@@ -103,9 +108,9 @@ internal static class PostgreSqlOrganizationRegistryReader
                 "missing",
                 reader.GetFieldValue<DateTimeOffset>(2))
             : new RegistryEntry<ActionDomainCatalog>(
-                RegistryJson.DeserializeActionDomainCatalog(reader.GetString(8)),
-                reader.GetString(9),
-                reader.GetFieldValue<DateTimeOffset>(10));
+                RegistryJson.DeserializeActionDomainCatalog(reader.GetString(9)),
+                reader.GetString(10),
+                reader.GetFieldValue<DateTimeOffset>(11));
 
         return new Header(
             reader.GetInt64(0),
@@ -113,8 +118,8 @@ internal static class PostgreSqlOrganizationRegistryReader
             reader.GetFieldValue<DateTimeOffset>(2),
             new RegistryEntry<RegistryOrganization>(
                 value,
-                reader.GetString(11),
-                reader.GetFieldValue<DateTimeOffset>(12)),
+                reader.GetString(12),
+                reader.GetFieldValue<DateTimeOffset>(13)),
             actionDomainCatalog);
     }
 
@@ -207,6 +212,7 @@ internal static class PostgreSqlOrganizationRegistryReader
                    working_hours::text,
                    subscriptions::text,
                    tools::text,
+                   outcome_policy::text,
                    entry_fingerprint,
                    updated_at
             FROM registry.occupants
@@ -229,13 +235,16 @@ internal static class PostgreSqlOrganizationRegistryReader
                     ? null
                     : RegistryJson.Deserialize<WorkingHoursConfiguration>(reader.GetString(4)),
                 Array.AsReadOnly(RegistryJson.Deserialize<SubscriptionConfiguration[]>(reader.GetString(5))),
-                Array.AsReadOnly(RegistryJson.Deserialize<ToolConfiguration[]>(reader.GetString(6))));
+                Array.AsReadOnly(RegistryJson.Deserialize<ToolConfiguration[]>(reader.GetString(6))),
+                reader.IsDBNull(7)
+                    ? null
+                    : RegistryJson.Deserialize<OutcomePolicyOverlay>(reader.GetString(7)));
             result.Add(
                 id,
                 new RegistryEntry<RegistryOccupant>(
                     value,
-                    reader.GetString(7),
-                    reader.GetFieldValue<DateTimeOffset>(8)));
+                    reader.GetString(8),
+                    reader.GetFieldValue<DateTimeOffset>(9)));
         }
 
         return new ReadOnlyDictionary<PositionId, RegistryEntry<RegistryOccupant>>(result);

@@ -72,6 +72,56 @@ public sealed class EvaluationRunnerTests
     }
 
     [Fact]
+    public async Task Preserves_the_minimized_outcome_resolution_sequence_in_the_dataset()
+    {
+        var step = new EvaluationOutcomeResolution(
+            "enforcement",
+            1,
+            "Report.Done",
+            "Completed",
+            "None",
+            "Escalation",
+            ["verifier-disagreement"],
+            "outcome-policy-v1",
+            "sha256:policy",
+            true,
+            true,
+            [],
+            "openai",
+            "gpt-test",
+            10,
+            2,
+            12,
+            0.001m,
+            "USD",
+            5,
+            VerifierStatus: "Classified",
+            VerifierClassification: "Undetermined",
+            SemanticCompletionCandidate: false,
+            SemanticCompletionIneligibilityReasons:
+            [
+                "evidence-source-not-directive-input",
+                "evidence-reference-not-in-context",
+            ],
+            DeadlineRemainingMilliseconds: 9000);
+        var journey = Journey("escalation", "openai", "gpt-test") with
+        {
+            OutcomeResolution = step,
+            OutcomeResolutionSteps = [step],
+        };
+        using var client = new HttpClient(new RecordingHandler(HttpStatusCode.Accepted));
+        var runner = new EvaluationRunner(client, new RecordingAuditReader(journey));
+
+        var result = Assert.Single((await runner.RunAsync(
+            Corpus(("triage-001", "Context")),
+            Options("run-resolution-steps"),
+            CancellationToken.None)).Cases);
+
+        Assert.Same(step, result.OutcomeResolution);
+        Assert.Equal([step], result.OutcomeResolutionSteps);
+    }
+
+    [Fact]
     public async Task Records_submission_rejection_and_continues_with_remaining_cases()
     {
         var handler = new RecordingHandler(HttpStatusCode.BadRequest, HttpStatusCode.Accepted);
@@ -213,6 +263,113 @@ public sealed class EvaluationRunnerTests
     }
 
     [Fact]
+    public void Run_analysis_reports_outcome_resolution_quality_and_operational_metrics()
+    {
+        var corpus = Corpus(
+            ("case-positive", "Escalation expected"),
+            ("case-negative", "Report expected")) with
+        {
+            Cases =
+            [
+                Corpus(("case-positive", "Escalation expected")).Cases[0] with
+                {
+                    HumanReference = new Dictionary<string, IReadOnlyList<string>>
+                    {
+                        ["decision"] = ["escalation"],
+                    },
+                },
+                Corpus(("case-negative", "Report expected")).Cases[0],
+            ],
+        };
+        var dataset = new EvaluationDataset(
+            1,
+            1,
+            "run-outcomes",
+            "http://localhost:8080",
+            120,
+            1000,
+            [
+                OutcomeCase(
+                    "case-positive",
+                    new EvaluationOutcomeResolution(
+                        "enforcement", 1, "ContinueWork", "InProgress", "None",
+                        "ContinueWork", ["autonomous-action-available"],
+                        "outcome-policy-v1", "sha256:one", false, false,
+                        [], "openai", "gpt-test", 10, 2, 12, 0.001m, "USD", 4,
+                        SemanticCompletionCandidate: false,
+                        SemanticCompletionIneligibilityReasons:
+                        [
+                            "proposal-intent-not-report-done",
+                            "work-state-not-completed",
+                            "next-action-present",
+                        ])),
+                OutcomeCase(
+                    "case-negative",
+                    new EvaluationOutcomeResolution(
+                        "enforcement", 1, "Report.Progress", "InProgress", "None",
+                        "Escalation", ["routing-unavailable"],
+                        "outcome-policy-v1", "sha256:one", true, true,
+                        ["facts-unavailable"], "openai", "gpt-test", 10, 2, 12,
+                        0.001m, "USD", 5,
+                        VerifierStatus: "Classified",
+                        VerifierClassification: "Undetermined",
+                        SemanticCompletionCandidate: true)),
+            ]);
+        var plan = new EvaluationPlan
+        {
+            Provider = new EvaluationProviderFreeze
+            {
+                ProviderId = "openai",
+                ModelIds = ["gpt-test"],
+                OutputConstraintMode = "json-schema",
+                PricingVersion = "pricing-v1",
+            },
+            DecisionAnalysis = new EvaluationDecisionAnalysisFreeze
+            {
+                DimensionId = "decision",
+                NegativeLabel = "report",
+                PositiveLabel = "escalation",
+            },
+            DeadlineCalibration = new EvaluationDeadlineFreeze(),
+        };
+
+        var analysis = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            dataset,
+            plan,
+            EvaluationPlan.CalibrationPartition);
+
+        var outcomes = Assert.IsType<EvaluationOutcomeResolutionAnalysis>(
+            analysis.OutcomeResolution);
+        Assert.Equal(new EvaluationCoverage(2, 2, 1d), outcomes.Coverage);
+        Assert.Equal(2, outcomes.ProposalResolutionMatrix.Count);
+        Assert.Equal(1, outcomes.OverrideCount);
+        Assert.Equal(0.5d, outcomes.OverrideRate);
+        Assert.Equal(1, outcomes.VerifierCount);
+        Assert.Equal(0.5d, outcomes.VerifierRate);
+        Assert.Equal(1, outcomes.UndeterminedCount);
+        Assert.Equal(0.5d, outcomes.UndeterminedRate);
+        Assert.Equal(1, outcomes.FalseNegativeCount);
+        Assert.Equal(1, outcomes.FalsePositiveCount);
+        Assert.Equal(2, outcomes.Reasons.Count);
+        Assert.Contains(outcomes.Reasons, item =>
+            item.Code == "routing-unavailable" && item.CaseCount == 1);
+        Assert.Equal(2, outcomes.Latency.ObservedCount);
+        Assert.Equal(5, outcomes.Latency.P95Milliseconds);
+        var diagnostic = Assert.Single(outcomes.Diagnostics);
+        Assert.Equal("facts-unavailable", diagnostic.Code);
+        Assert.Equal(1, diagnostic.CaseCount);
+        Assert.Equal(
+            [
+                "next-action-present",
+                "proposal-intent-not-report-done",
+                "work-state-not-completed",
+            ],
+            outcomes.SemanticCompletionIneligibilityReasons!
+                .Select(item => item.Code));
+    }
+
+    [Fact]
     public void Options_require_canonical_run_id_and_connection_string()
     {
         var invalid = Assert.Throws<ArgumentException>(() => EvaluationRunOptions.Parse(
@@ -282,6 +439,38 @@ public sealed class EvaluationRunnerTests
         TimeSpan.FromSeconds(1),
         TimeSpan.FromMilliseconds(1),
         EvaluationRunOptions.DefaultSentAt);
+
+    private static EvaluationCaseResult OutcomeCase(
+        string caseId,
+        EvaluationOutcomeResolution resolution) =>
+        new(
+            caseId,
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "accepted",
+            202,
+            "succeeded",
+            "completed",
+            "report",
+            "openai",
+            "gpt-test",
+            "json-schema",
+            10,
+            2,
+            12,
+            false,
+            0.001m,
+            "USD",
+            false,
+            4,
+            5,
+            "provider-reported",
+            "pricing-v1",
+            1_000_000,
+            0.25m,
+            2m,
+            OutcomeResolution: resolution);
 
     private static EvaluationJourney Journey(string decision, string provider, string model) => new(
         "succeeded", "completed", decision, provider, model, "json-schema",

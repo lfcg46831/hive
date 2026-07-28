@@ -7,6 +7,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Evaluation;
 using OrgDirective = Hive.Domain.Messaging.Directive;
@@ -23,6 +24,32 @@ public sealed class AiDirectivePromptTests
     {
         Assert.Throws<ArgumentNullException>(() =>
             AiDirectivePrompt.CreateInitialRequest(null!));
+    }
+
+    [Fact]
+    public void CreateInitialRequest_negotiates_and_explains_the_outcome_proposal_when_required()
+    {
+        var context = AiDirectiveExecutionContext.From(
+            Request(includeOptionalContext: false),
+            requiresStructuredOutcomeProposal: true);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Contains(
+            AiDirectiveOutcomeProposalEnvelope.PropertyName,
+            request.OutputConstraint!.JsonSchema.GetProperty("required")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
+        Assert.Contains("non-authoritative proposal", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("directive.context", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Equal(
+            OutcomeProposalConstraint.SchemaVersion,
+            request.OutputConstraint.JsonSchema.GetProperty("properties")
+                .GetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName)
+                .GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.SchemaVersionProperty)
+                .GetProperty("const")
+                .GetInt32());
     }
 
     [Fact]
@@ -83,6 +110,14 @@ public sealed class AiDirectivePromptTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Choose Escalation whenever the response asks the superior to decide, authorize, or choose; never place such a request inside Report.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "A recommendation about a future action is informational and does not by itself request or exercise authorization.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Normal downstream implementation, deployment, prioritization, or change control does not alone make it an Escalation",
             request.SystemInstruction,
             StringComparison.Ordinal);
         Assert.Contains(
@@ -216,6 +251,10 @@ public sealed class AiDirectivePromptTests
             StringComparison.Ordinal);
         Assert.Contains(
             "Choose Escalation whenever the response asks the superior to decide, authorize, or choose; never place such a request inside Report.",
+            sections.HiveProtocol,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "A recommendation about a future action is informational and does not by itself request or exercise authorization.",
             sections.HiveProtocol,
             StringComparison.Ordinal);
         Assert.Contains("runtime evaluation appendix", sections.HiveProtocol, StringComparison.Ordinal);

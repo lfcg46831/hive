@@ -11,4 +11,6 @@ public sealed class HiveOptions
     public AgentsNodeOptions Agents { get; set; } = new();
 
     public OrganizationOptions Organizations { get; set; } = new();
+
+    public OutcomeResolutionOptions Outcomes { get; set; } = new();
 }

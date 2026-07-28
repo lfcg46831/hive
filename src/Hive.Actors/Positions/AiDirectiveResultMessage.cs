@@ -29,12 +29,14 @@ internal sealed record AiDirectiveResultMessage
         string correlationId,
         OrgMessage? message,
         AiDirectiveResultMessageFailure? failure,
-        ActingUnderDeclaration actingUnder)
+        ActingUnderDeclaration actingUnder,
+        string? evaluationEnvelopeJson)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         Message = message;
         Failure = failure;
         ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
+        EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
 
     public string CorrelationId { get; }
@@ -45,6 +47,13 @@ internal sealed record AiDirectiveResultMessage
 
     public ActingUnderDeclaration ActingUnder { get; }
 
+    /// <summary>
+    /// Canonical structured evaluation transport retained independently of the selected
+    /// organizational payload so an authoritative outcome override can rematerialize the
+    /// message without dropping its evaluation projection.
+    /// </summary>
+    public string? EvaluationEnvelopeJson { get; }
+
     public bool IsSuccess => Message is not null;
 
     public bool IsFailure => !IsSuccess;
@@ -52,7 +61,8 @@ internal sealed record AiDirectiveResultMessage
     public static AiDirectiveResultMessage Success(
         string correlationId,
         OrgMessage message,
-        ActingUnderDeclaration? actingUnder = null)
+        ActingUnderDeclaration? actingUnder = null,
+        string? evaluationEnvelopeJson = null)
     {
         ArgumentNullException.ThrowIfNull(message);
 
@@ -60,13 +70,15 @@ internal sealed record AiDirectiveResultMessage
             correlationId,
             message,
             failure: null,
-            actingUnder ?? ActingUnderDeclaration.Missing());
+            actingUnder ?? ActingUnderDeclaration.Missing(),
+            evaluationEnvelopeJson);
     }
 
     public static AiDirectiveResultMessage Rejected(
         string correlationId,
         AiDirectiveResultMessageFailure failure,
-        ActingUnderDeclaration? actingUnder = null)
+        ActingUnderDeclaration? actingUnder = null,
+        string? evaluationEnvelopeJson = null)
     {
         ArgumentNullException.ThrowIfNull(failure);
 
@@ -74,7 +86,8 @@ internal sealed record AiDirectiveResultMessage
             correlationId,
             message: null,
             failure,
-            actingUnder ?? ActingUnderDeclaration.Missing());
+            actingUnder ?? ActingUnderDeclaration.Missing(),
+            evaluationEnvelopeJson);
     }
 }
 
@@ -152,7 +165,8 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.DirectiveId,
                 decision.Kind,
                 ComposeSelectedPayload(decision.Body, evaluationEnvelopeJson)),
-            decision.ActingUnder);
+            decision.ActingUnder,
+            evaluationEnvelopeJson);
     }
 
     private static AiDirectiveResultMessage CreateEscalation(
@@ -181,7 +195,8 @@ internal static class AiDirectiveResultMessageFactory
                 decision.Issue,
                 ComposeSelectedPayload(decision.Context, evaluationEnvelopeJson),
                 decision.OptionsConsidered),
-            decision.ActingUnder);
+            decision.ActingUnder,
+            evaluationEnvelopeJson);
     }
 
     /// <summary>
@@ -232,7 +247,8 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.DirectiveId,
                 decision.Objective,
                 decision.Context),
-            decision.ActingUnder);
+            decision.ActingUnder,
+            evaluationEnvelopeJson: null);
     }
 
     private static PositionEndpointRef FromCurrentPosition(AiDirectiveExecutionContext context) =>

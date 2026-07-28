@@ -1,4 +1,5 @@
 using System.Globalization;
+using Hive.Domain.Outcomes;
 
 namespace Hive.Domain.Organization.Configuration.Validation;
 
@@ -62,8 +63,55 @@ public static class OrganizationConfigurationStructuralValidator
 
         ValidateLeadership(configuration, errors);
         ValidateUnitTree(configuration, errors);
+        ValidateOutcomePolicies(configuration, errors);
 
         return OrganizationConfigurationValidationResult.Create(errors);
+    }
+
+    private static void ValidateOutcomePolicies(
+        OrganizationConfiguration configuration,
+        List<OrganizationConfigurationValidationError> errors)
+    {
+        var organizationPolicyIsValid = true;
+        try
+        {
+            OutcomePolicyComposer.RequireTighteningOverlay(
+                inherited: null,
+                configuration.Organization.OutcomePolicy,
+                "organization");
+        }
+        catch (InvalidOperationException exception)
+        {
+            organizationPolicyIsValid = false;
+            errors.Add(new OrganizationConfigurationValidationError(
+                "outcome-policy-loosens-invariant",
+                "organization.outcome_policy",
+                exception.Message));
+        }
+
+        if (!organizationPolicyIsValid)
+        {
+            return;
+        }
+
+        for (var positionIndex = 0; positionIndex < configuration.Positions.Count; positionIndex++)
+        {
+            var positionPolicy = configuration.Positions[positionIndex].Occupant.OutcomePolicy;
+            try
+            {
+                OutcomePolicyComposer.RequireTighteningOverlay(
+                    configuration.Organization.OutcomePolicy,
+                    positionPolicy,
+                    "position");
+            }
+            catch (InvalidOperationException exception)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "outcome-policy-loosens-invariant",
+                    $"positions[{positionIndex}].occupant.outcome_policy",
+                    exception.Message));
+            }
+        }
     }
 
     /// <summary>

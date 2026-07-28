@@ -75,6 +75,8 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__AGENTS__REMEMBERENTITIES` | `true` | Whether the position shard region remembers its entities (`Hive:Agents:RememberEntities`, US-F0-06-T04c). On (default), positions kept warm by an active agenda/subscription survive rebalance and node restart; inactive positions that passivate are forgotten and reactivated on demand. A durable placement contract — keep it identical on every node and do not change it while positions are persisted. |
 | `HIVE__AGENTS__PASSIVATEIDLEAFTER` | unset (workload default `00:02:00`) | Initial inactivity threshold after which an idle position is eligible for passivation (`Hive:Agents:PassivateIdleAfter`, US-F0-06-T04c), as a `hh:mm:ss` span. With remember-entities on (the default) Akka.NET region auto-idle is disabled, so this is the initial threshold the safe-passivation protocol (US-F0-06-T11) uses; with remember-entities off the region auto-passivates entities idle for longer than it. Must be greater than zero when set. |
 | `HIVE__AGENTS__CLUSTERUPTIMEOUT` | unset (workload default `00:00:30`) | Maximum time the `agents` workload waits for the `ActorSystem` to reach cluster *Up* before initializing Cluster Sharding for the `PositionActor` (`Hive:Agents:ClusterUpTimeout`, US-F0-06-T04d), as a `hh:mm:ss` span. Sharding only starts once the node is a full cluster member; if *Up* is not reached within this window the workload fails the node startup observably (`ClusterStartupTimeoutException`) instead of starting sharding on a node that has not joined. Must be greater than zero when set. |
+| `HIVE__OUTCOMES__MODE` | `shadow` | Hybrid outcome rollout mode (`Hive:Outcomes:Mode`). `shadow` calculates and audits proposal→resolution but preserves the proposed message; `enforcement` applies the closed resolution before the existing action/routing gates. Only these exact lowercase values are valid. |
+| `HIVE__OUTCOMES__VERIFIERTIMEOUT` | `00:00:15` | Maximum verifier call duration (`Hive:Outcomes:VerifierTimeout`) as a positive `hh:mm:ss` span. The effective request timeout is the minimum of this value, the position AI timeout and the remaining directive deadline; zero or a negative value fails startup validation. |
 
 ## Run with Docker Compose
 
@@ -389,6 +391,78 @@ dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id terra
 ```
 
 The registry response must show `identityPromptRef=triage-v2`, `model=gpt-5.6-terra`, and `maxTokens=4096`. Preserve the dataset even when the runner exits with code `1`; do not run a holdout. Restore the normal profile afterwards with the same command shown above without the Terra override.
+
+For the corrected T17f hybrid outcome calibration, layer the isolated enforcement profile last. It restores the provider-resolved `gpt-5-mini-2025-08-07` snapshot while preserving `triage-v2`, the v1 corpus/baseline/rubric, JSON Schema output, 4096-token main-output limit, bounded 2048-token verifier-output limit, 45-second provider timeout, 120-second polling timeout, one-second polling interval, default provider pricing, and effective four-iteration position limit. The verifier smoke exercises the limited semantic-completion path (`NotDeclared` plus grounded `DirectiveInput`) and passes only when the closed classification is `Report.Done`; `Undetermined` is a failed preflight. The profile changes only the organization fixture needed by the experiment and `Hive:Outcomes:Mode=enforcement`. The original `hybrid-outcome-calibration-001` through `003` IDs are burned by the rejected v1 measurement. Before consuming the corrected v2 corpus runs, execute both the general provider smoke and the closed verifier-contract smoke against the fixed snapshot:
+
+```powershell
+$keyLine=Get-Content .env | Where-Object { $_ -match '^OPENAI_API_KEY=' } | Select-Object -First 1
+if ($null -eq $keyLine) { throw 'OPENAI_API_KEY is missing from .env.' }
+$env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY=$keyLine.Substring($keyLine.IndexOf('=') + 1).Trim().Trim('"')
+$env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID='gpt-5-mini-2025-08-07'
+try {
+  dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-restore --filter "FullyQualifiedName~AiGatewayIntegrationTests.Optional_real_provider_smoke_test_runs_only_with_local_secret_and_model" -v minimal
+  dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-restore --filter "FullyQualifiedName~AiGatewayIntegrationTests.Optional_real_outcome_verifier_smoke_confirms_semantic_done" -v minimal
+} finally {
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_API_KEY -ErrorAction SilentlyContinue
+  Remove-Item Env:HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID -ErrorAction SilentlyContinue
+}
+```
+
+Only after the smoke succeeds, start and verify the isolated profile, then execute all three new runs in one block without inspecting or tuning between them:
+
+```powershell
+$compose=@('-f','docker-compose.yml','-f','docker-compose.demo.yml','-f','docker-compose.evaluation.yml','-f','docker-compose.postgres-external.yml','-f','docker-compose.evaluation.outcome-resolution.yml')
+docker compose @compose up --build -d
+Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
+$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
+$corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
+$rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
+$evidence='evidence/evaluation/bug-triage-hybrid-outcome-v2'
+$runIds=@('hybrid-outcome-corrected-calibration-001','hybrid-outcome-corrected-calibration-002','hybrid-outcome-corrected-calibration-003')
+$statuses=@()
+foreach ($runId in $runIds) {
+  dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
+  $statuses += "$runId=$LASTEXITCODE"
+}
+$statuses
+```
+
+The configuration response must show `identityPromptRef=triage-v2`, `model=gpt-5-mini-2025-08-07`, and `maxTokens=4096`; the resolved Compose environment must show `Hive:Outcomes:Mode=enforcement`. Each dataset must contain 30 outcome-resolution projections and is preserved even when the runner exits with code `1`. T17f is calibration-only: do not use `--plan`, inspect or tune between runs, execute a holdout, or treat successful calibration as reopening F1a. Restore the normal profile afterwards with the standard evaluation stack command above.
+
+The post-T17f timeout calibration uses a separate profile so the historical 45-second T17f configuration and frozen evaluation plan remain unchanged. The three corrected T17f runs timed out in 10 of 90 cases, while successful main-model calls reached 44.8 seconds and per-run main p95 reached 44.6 seconds. `docker-compose.evaluation.outcome-resolution-timeout60.yml` therefore mounts `config/experiments/hybrid-outcome-resolution-timeout60-v1/organization.yaml`, which changes only the `bug-triage` provider timeout from `PT45S` to `PT60S` relative to the historical hybrid profile. The normal organization remains unchanged.
+
+`US-F0-13-T18a` only prepared and validated this configuration. Do not modify `bug-triage-evaluation-plan.v1.json`; that plan is historical and remains frozen at 45 seconds. The authorized `T18c` block was interrupted after intermediate observation exposed systemic verifier and response-budget defects. `hybrid-outcome-timeout60-calibration-001`, `002`, and `003` are burned and the single completed dataset is exploratory only. The historical timeout profile remains unchanged at 4096 tokens.
+
+`US-F0-13-T18e/T18f` adds minimized diagnostics for provider responses and operational failures. `GatewayCalled` and `GatewayCostRecorded` preserve the resolved provider/model and response id, finish reason, token usage, calculable cost/pricing, validated numeric `providerStatusCode`, `requestTimeoutMilliseconds`, and `maxOutputTokens`; `gateway_calls` projects the same safe values as `finish_reason`, `provider_status_code`, `request_timeout_ms`, and `max_output_tokens`. They never persist the provider error body/message, raw output, rejected message content, reasoning, or arbitrary provider properties. An empty response with `finishReason=Length` and output usage at the configured ceiling identifies output-budget exhaustion without exposing model reasoning. A latency beyond the intended timeout must be diagnosed from the persisted effective timeout before changing provider or runner deadlines.
+
+`US-F0-13-T18g` tunes only the user-controlled `triage-v2` identity prompt; it does not change the generic HIVE protocol, resolver, corpus, rubric, or historical evidence. The next measurement is `T18h` and still requires explicit authorization. First run both real smokes from the preceding section, then start the new reliability profile:
+
+```powershell
+$compose=@('-f','docker-compose.yml','-f','docker-compose.demo.yml','-f','docker-compose.evaluation.yml','-f','docker-compose.postgres-external.yml','-f','docker-compose.evaluation.outcome-resolution-reliability.yml')
+docker compose @compose up --build -d
+Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
+Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
+```
+
+The configuration response must show `identityPromptRef=triage-v2`, `model=gpt-5-mini-2025-08-07`, `maxTokens=8192`, and a 60-second timeout. A future T18h measurement must use new run IDs and a new evidence directory, preserve the 120-second runner polling deadline and one-second interval, execute all authorized calibration runs without intermediate inspection or tuning, and never use a historical or new holdout without a separate freeze decision. The verifier smoke must return exactly `Report.Done`; `Undetermined` is a failed preflight and the corpus must not start.
+
+Revision 2.29 completed this block and rejected the corrected variant. The three `hybrid-outcome-corrected-calibration-*` IDs are now burned and the commands above are retained only as the operational record of the completed measurement; do not rerun them. No holdout is authorized. Any future experiment requires a new bible decision, code/configuration identity, evidence directory, and run IDs.
+
+`US-F0-13-T18i/T18j` corrects the verifier input, observability and deadline contract without running a corpus. The verifier now receives a provider-neutral projection of the materialized proposed organizational message: its closed kind plus at most 16 canonical semantic fields and 16 KiB UTF-8 in total. Evaluation envelopes, provider output, prompts, tools, history, memory, attachments, reasoning and rejected values are excluded. An invalid or oversized artifact is not silently truncated; verification becomes unavailable and the resolver keeps its existing fail-safe behavior.
+
+The outcome audit now carries three separate minimized values — `verifierStatus` (`Classified`, `Unavailable`, `TimedOut` or `InvalidOutput`), `verifierClassification` when the status is `Classified`, and `semanticCompletionCandidate` — projected to the read model/dataset as `verifier_status`, `verifier_classification` and `semantic_completion_candidate`. Historical rows without these fields remain readable. `Undetermined` is counted only from the exact closed verifier classification, not inferred from the final fail-safe outcome. The artifact and verifier output are never persisted.
+
+The normal verifier timeout remains 15 seconds. The isolated `docker-compose.evaluation.outcome-resolution-verifier30.yml` layer used by T18k changes only the deployment-level timeout to 30 seconds, keeps enforcement enabled and reuses the frozen T18h reliability organization snapshot. Inspect its resolved configuration without starting it:
+
+```powershell
+$compose=@('-f','docker-compose.yml','-f','docker-compose.demo.yml','-f','docker-compose.evaluation.yml','-f','docker-compose.postgres-external.yml','-f','docker-compose.evaluation.outcome-resolution-verifier30.yml')
+docker compose @compose config
+```
+
+`T18k` was explicitly authorized and completed with fresh run ids in `evidence/evaluation/bug-triage-hybrid-outcome-verifier30-v1/`. Both real smokes passed and the three 30-case calibration datasets are terminal and scoreable, but the candidate failed the frozen decision, escalation-recall, missing-information and macro-quality gates and is rejected for freeze. The `hybrid-outcome-verifier30-calibration-001`, `002`, and `003` ids are burned; do not rerun them. No holdout was executed or authorized. The normal stack was restored afterwards without the experimental `HIVE__OUTCOMES__*` override. See `hybrid-outcome-verifier30-calibration-report.v1.md` in that evidence directory for the hashes, measurements and decision.
+
+`US-F0-13-T18l` adds diagnosis only; it does not change resolution behavior or an organization-controlled identity prompt. Outcome-resolution audit rows can now include `semanticCompletionIneligibilityReasonCount` plus ordered `semanticCompletionIneligibilityReason.{n}` values from the closed system vocabulary, and `deadlineRemainingMilliseconds` when a directive or processing deadline exists. The audit never includes the evidence source/reference that caused a failure. The evaluation dataset projects these as `semantic_completion_ineligibility_reasons` and `deadline_remaining_ms`, and preserves every per-iteration resolution in `outcome_resolution_steps`; the existing `outcome_resolution` field remains the final step. Missing fields in historical rows remain valid. These diagnostics are for offline analysis and do not authorize a calibration or holdout. The completed diagnosis is recorded in `evidence/evaluation/bug-triage-hybrid-outcome-verifier30-v1/t18l-diagnostic-report.v1.md`.
 
 Generate the versioned T05 report from the holdout dataset and the tracked reporting profile:
 
@@ -755,6 +829,40 @@ Identity prompts live under `prompts/` and are named by their catalogue `id` wit
 Because the files are the source of truth, every structural change — adding a unit, moving a position, editing a prompt, changing authority — is a Git commit reviewed through the normal pull-request flow; the F0 console is read-only and does not edit structure (bible §4.7). The import is validated and idempotent (US-F0-05-T05–T07, T09): committing the same configuration twice produces no duplicates and no unnecessary functional-timestamp churn, so re-running a deploy on an unchanged tree is a safe no-op. Secrets and operational connection values are never placed in these files; they stay in environment variables as described above under PostgreSQL and the role/cluster sections.
 
 Both executable outputs and the Docker image include the tracked `config/organizations` tree. At startup the relative default is resolved from the application directory; deployments that mount configuration elsewhere override it with `HIVE__ORGANIZATIONS__ROOTPATH`. Every immediate child directory must contain `organization.yaml` and its directory name must equal `organization.id`; any parse or semantic validation error aborts startup before workloads run.
+
+### Outcome policy overlays
+
+The outcome resolver uses a code-defined system policy (`outcome-policy-v1`) with a maximum of 8 iterations, 3 retries, verifier support enabled, and every closed objective risk trigger enabled. Organization files may only tighten that baseline. An optional `organization.outcome_policy` applies to every position; an optional `positions[].occupant.outcome_policy` tightens it for one position:
+
+```yaml
+organization:
+  id: acme-delivery
+  root_unit: raiz
+  owner:
+    type: human
+    ref: owner@acme.pt
+  outcome_policy:
+    max_iterations: 6
+    max_retries: 2
+    verifier_enabled: false
+
+positions:
+  - id: bug-triage
+    unit: engenharia
+    reports_to: delivery-lead
+    occupant:
+      type: ai-agent
+      outcome_policy:
+        max_iterations: 4
+        max_retries: 1
+        verifier_enabled: false
+```
+
+`max_iterations` and `max_retries` are non-negative integers and may only stay equal to or decrease the inherited value. Zero is valid and causes the corresponding gate to escalate before another attempt. `verifier_enabled` may stay enabled or be changed to `false`; a position cannot re-enable it after the organization disabled it. The existing `occupant.ai.max_iterations` remains the operational AI-loop limit and also tightens the effective outcome-policy iteration maximum. Attempts to increase an inherited maximum or re-enable the verifier fail organization import. Omitted blocks inherit the effective parent policy.
+
+The runtime policy snapshot identifies both the system contract and registry configuration version. Its SHA-256 fingerprint covers the registry fingerprint, canonical overlays, runtime AI iteration limit, and effective values. There are no environment-variable overrides for these fields; change them through the reviewed organization GitOps document.
+
+The deployment-level rollout switch is separate from those policy overlays. `Hive:Outcomes:Mode` defaults to `shadow`; set `HIVE__OUTCOMES__MODE=enforcement` only for a deployment intended to apply the resolver to emitted messages. `Hive:Outcomes:VerifierTimeout` defaults to 15 seconds and must be positive; the runtime caps each verifier request by the position AI timeout and remaining directive deadline. In both modes the audit row is idempotent by correlation and iteration and contains only the proposed intent/state/intervention, resolved outcome, closed reasons and diagnostics, policy version/fingerprint, override/verifier flags, verifier status and exact closed classification when present, semantic-completion-candidate flag, provider/model, token/cost metadata and resolver latency. Prompt text, model output, verifier artifact/output, next-action text, chain-of-thought and rejected values are never stored. The evaluation dataset projects the same minimized record and aggregates proposal→resolution, triggered reasons, overrides, verifier use, exact `Undetermined` classifications, false negatives/positives, resolver latency and diagnostics.
 
 ## Message serialization
 

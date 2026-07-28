@@ -166,14 +166,18 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
             failure.Code,
             failure.Message,
             failure.IsRetryable,
-            outputConstraintMode);
+            outputConstraintMode,
+            failure.StatusCode is { } statusCode
+                ? new AiGatewayFailureDiagnostics(providerStatusCode: statusCode)
+                : null);
 
     private AiGatewayResponse Failed(
         AiGatewayRequest request,
         AiGatewayErrorCode code,
         string message,
         bool isRetryable,
-        AiOutputConstraintMode? outputConstraintMode = null) =>
+        AiOutputConstraintMode? outputConstraintMode = null,
+        AiGatewayFailureDiagnostics? diagnostics = null) =>
         AiGatewayResponse.Failed(
             new AiGatewayError(
                 request.OrganizationId,
@@ -185,31 +189,39 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
                 isRetryable,
                 new AiProviderMetadata(
                     request.Provider?.ProviderId ?? _settings.DefaultProvider.ProviderId,
-                    request.Provider?.ModelId ?? _settings.DefaultProvider.ModelId)),
+                    request.Provider?.ModelId ?? _settings.DefaultProvider.ModelId),
+                diagnostics),
             outputConstraintMode);
 
     private sealed record ProviderFailure(
         AiGatewayErrorCode Code,
         string Message,
-        bool IsRetryable)
+        bool IsRetryable,
+        int? StatusCode)
     {
         public static ProviderFailure FromStatus(int statusCode)
         {
+            var diagnosticStatusCode = statusCode is >= 100 and <= 599
+                ? statusCode
+                : (int?)null;
             return statusCode switch
             {
                 401 or 403 => new(
                     AiGatewayErrorCode.CredentialsMissing,
                     BuildMessage(AiGatewayErrorCode.CredentialsMissing, statusCode),
-                    IsRetryable: false),
+                    IsRetryable: false,
+                    diagnosticStatusCode),
                 408 or 504 => Timeout(statusCode),
                 429 => new(
                     AiGatewayErrorCode.QuotaExceeded,
                     BuildMessage(AiGatewayErrorCode.QuotaExceeded, statusCode),
-                    IsRetryable: true),
+                    IsRetryable: true,
+                    diagnosticStatusCode),
                 >= 400 and < 500 => new(
                     AiGatewayErrorCode.ProviderRejected,
                     BuildMessage(AiGatewayErrorCode.ProviderRejected, statusCode),
-                    IsRetryable: false),
+                    IsRetryable: false,
+                    diagnosticStatusCode),
                 >= 500 and < 600 => ProviderUnavailable(statusCode),
                 _ => ProviderUnavailable(statusCode),
             };
@@ -219,13 +231,18 @@ internal sealed class RealAiGatewayProvider : IAiGatewayProvider
             new(
                 AiGatewayErrorCode.Timeout,
                 BuildMessage(AiGatewayErrorCode.Timeout, statusCode),
-                IsRetryable: true);
+                IsRetryable: true,
+                DiagnosticStatusCode(statusCode));
 
         public static ProviderFailure ProviderUnavailable(int? statusCode) =>
             new(
                 AiGatewayErrorCode.ProviderUnavailable,
                 BuildMessage(AiGatewayErrorCode.ProviderUnavailable, statusCode),
-                IsRetryable: true);
+                IsRetryable: true,
+                DiagnosticStatusCode(statusCode));
+
+        private static int? DiagnosticStatusCode(int? statusCode) =>
+            statusCode is >= 100 and <= 599 ? statusCode : null;
 
         private static string BuildMessage(AiGatewayErrorCode code, int? statusCode)
         {

@@ -61,6 +61,8 @@ public sealed class AiGatewayCostAuditEventTests
         Assert.Equal(AiCostStatus.Estimated, audit.CostStatus);
         Assert.Null(audit.ErrorCode);
         Assert.Null(audit.IsRetryable);
+        Assert.Equal("outcome-verification", audit.Operation);
+        Assert.Equal(2, audit.Iteration);
     }
 
     [Fact]
@@ -91,6 +93,58 @@ public sealed class AiGatewayCostAuditEventTests
         Assert.Null(audit.Cost);
         Assert.Null(audit.AppliedPricing);
         Assert.Equal(AiCostStatus.Unavailable, audit.CostStatus);
+    }
+
+    [Fact]
+    public void FromResponse_projects_minimized_diagnostics_from_invalid_provider_response()
+    {
+        var usage = new AiTokenUsage(1_000, 4_096, 5_096);
+        var cost = new AiCostMetadata(0.008442m, "USD", isEstimated: true);
+        var pricing = new AiAppliedPricing(
+            "openai-2026-07-13",
+            1_000_000,
+            0.25m,
+            2m,
+            "USD");
+        var provider = new AiProviderMetadata(
+            "openai",
+            "gpt-5-mini-2025-08-07",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["response-id"] = "response-empty-123",
+            });
+        var response = AiGatewayResponse.Failed(new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            AiGatewayErrorCode.InvalidProviderResponse,
+            "AI gateway real provider returned neither text nor a tool call.",
+            isRetryable: false,
+            provider,
+            new AiGatewayFailureDiagnostics(
+                AiFinishReason.Length,
+                usage,
+                cost,
+                pricing)));
+
+        var audit = AiGatewayCostAuditEvent.FromResponse(
+            Request(),
+            response,
+            StartedAt,
+            CompletedAt);
+
+        Assert.Equal(AiGatewayCallResult.Failed, audit.Result);
+        Assert.Equal(provider, audit.Provider);
+        Assert.Equal(usage, audit.Usage);
+        Assert.Equal(cost, audit.Cost);
+        Assert.Equal(pricing, audit.AppliedPricing);
+        Assert.Equal(AiCostStatus.Estimated, audit.CostStatus);
+        Assert.Equal(AiGatewayErrorCode.InvalidProviderResponse, audit.ErrorCode);
+        Assert.False(audit.IsRetryable);
+        Assert.Equal(AiFinishReason.Length, audit.FinishReason);
+        Assert.Equal(TimeSpan.FromSeconds(60), audit.RequestTimeout);
+        Assert.Equal(8192, audit.MaxOutputTokens);
     }
 
     [Fact]
@@ -161,5 +215,12 @@ public sealed class AiGatewayCostAuditEventTests
             Thread,
             Message,
             "Classify this bug.",
-            provider: Provider);
+            modelParameters: new AiModelParameters(maxOutputTokens: 8192),
+            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["hive.operation"] = "outcome-verification",
+                ["iteration"] = "2",
+            },
+            provider: Provider,
+            timeout: TimeSpan.FromSeconds(60));
 }

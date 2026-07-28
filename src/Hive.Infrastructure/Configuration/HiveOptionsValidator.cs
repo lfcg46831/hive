@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Hive.Domain.Outcomes;
 
 namespace Hive.Infrastructure.Configuration;
 
@@ -10,6 +11,9 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
         $"{HiveOptions.SectionName}:Agents:PassivateIdleAfter";
     private const string ClusterUpTimeoutPath =
         $"{HiveOptions.SectionName}:Agents:ClusterUpTimeout";
+    private const string OutcomeModePath = $"{HiveOptions.SectionName}:Outcomes:Mode";
+    private const string OutcomeVerifierTimeoutPath =
+        $"{HiveOptions.SectionName}:Outcomes:VerifierTimeout";
 
     private static readonly HashSet<string> KnownRoles =
         new(NodeRoleNames.All, StringComparer.OrdinalIgnoreCase);
@@ -76,6 +80,21 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
             failures.Add(
                 $"{ClusterUpTimeoutPath} must be greater than zero when set " +
                 $"(configured value: {clusterUpTimeout}).");
+        }
+
+        if (!OutcomeResolutionModeContract.TryParse(options.Outcomes?.Mode, out _))
+        {
+            failures.Add(
+                $"{OutcomeModePath} must be 'shadow' or 'enforcement' " +
+                $"(configured value: {Format(options.Outcomes?.Mode)}).");
+        }
+
+        if (options.Outcomes?.VerifierTimeout is { } verifierTimeout &&
+            verifierTimeout <= TimeSpan.Zero)
+        {
+            failures.Add(
+                $"{OutcomeVerifierTimeoutPath} must be greater than zero " +
+                $"(configured value: {verifierTimeout}).");
         }
 
         return failures.Count == 0

@@ -1,0 +1,15 @@
+# Calibration-only hybrid outcome-resolution profile for US-F0-13-T17f.
+#
+# Layer last after docker-compose.evaluation.yml. It enables enforcement and
+# bind-mounts the isolated triage-v2 / gpt-5-mini organization fixture without
+# changing the normal organization source or any historical experiment.
+
+services:
+  api:
+    environment:
+      HIVE__OUTCOMES__MODE: "enforcement"
+    volumes:
+      - type: bind
+        source: ./config/experiments/hybrid-outcome-resolution-v1/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

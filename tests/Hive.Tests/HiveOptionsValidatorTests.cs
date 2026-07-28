@@ -198,6 +198,63 @@ public sealed class HiveOptionsValidatorTests
                 && failure.Contains("greater than zero"));
     }
 
+    [Fact]
+    public void Outcome_resolution_defaults_to_shadow()
+    {
+        var options = CreateOptions(["agents"]);
+
+        var result = _validator.Validate(null, options);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("shadow", options.Outcomes.Mode);
+        Assert.Equal(TimeSpan.FromSeconds(15), options.Outcomes.VerifierTimeout);
+    }
+
+    [Theory]
+    [InlineData("shadow")]
+    [InlineData("enforcement")]
+    public void Closed_outcome_resolution_modes_are_valid(string mode)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Outcomes.Mode = mode;
+
+        Assert.True(_validator.Validate(null, options).Succeeded);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("Shadow")]
+    [InlineData("observe")]
+    public void Unknown_outcome_resolution_mode_is_invalid(string mode)
+    {
+        var options = CreateOptions(["agents"]);
+        options.Outcomes.Mode = mode;
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains(
+            Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures),
+            failure => failure.Contains("Hive:Outcomes:Mode", StringComparison.Ordinal)
+                && failure.Contains("shadow", StringComparison.Ordinal)
+                && failure.Contains("enforcement", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Non_positive_outcome_verifier_timeout_is_invalid()
+    {
+        var options = CreateOptions(["agents"]);
+        options.Outcomes.VerifierTimeout = TimeSpan.Zero;
+
+        var result = _validator.Validate(null, options);
+
+        Assert.Contains(
+            Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures),
+            failure => failure.Contains(
+                    "Hive:Outcomes:VerifierTimeout",
+                    StringComparison.Ordinal) &&
+                failure.Contains("greater than zero", StringComparison.Ordinal));
+    }
+
     private Microsoft.Extensions.Options.ValidateOptionsResult Validate(string[] roles) =>
         _validator.Validate(null, CreateOptions(roles));
 

@@ -141,6 +141,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 owner_type,
                 owner_ref,
                 prompts,
+                outcome_policy,
                 action_domain_catalog,
                 action_domain_catalog_fingerprint,
                 action_domain_catalog_updated_at,
@@ -156,6 +157,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 @owner_type,
                 @owner_ref,
                 @prompts,
+                @outcome_policy,
                 @action_domain_catalog,
                 @action_domain_catalog_fingerprint,
                 @action_domain_catalog_updated_at,
@@ -170,6 +172,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 owner_type = EXCLUDED.owner_type,
                 owner_ref = EXCLUDED.owner_ref,
                 prompts = EXCLUDED.prompts,
+                outcome_policy = EXCLUDED.outcome_policy,
                 action_domain_catalog = EXCLUDED.action_domain_catalog,
                 action_domain_catalog_fingerprint = EXCLUDED.action_domain_catalog_fingerprint,
                 action_domain_catalog_updated_at = EXCLUDED.action_domain_catalog_updated_at,
@@ -187,6 +190,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddText(command, "owner_type", value.Owner.Type.ToString());
         AddText(command, "owner_ref", value.Owner.Ref);
         AddJson(command, "prompts", value.Prompts);
+        AddJson(command, "outcome_policy", value.OutcomePolicy);
         AddJson(command, "action_domain_catalog", snapshot.ActionDomainCatalog.Value);
         AddText(command, "action_domain_catalog_fingerprint", snapshot.ActionDomainCatalog.Fingerprint);
         AddTimestamp(command, "action_domain_catalog_updated_at", snapshot.ActionDomainCatalog.UpdatedAt);
@@ -279,10 +283,10 @@ internal static class PostgreSqlOrganizationRegistryWriter
             """
             INSERT INTO registry.occupants (
                 organization_id, position_id, occupant_type, identity_prompt_ref, ai, working_hours,
-                subscriptions, tools, entry_fingerprint, updated_at)
+                subscriptions, tools, outcome_policy, entry_fingerprint, updated_at)
             VALUES (
                 @organization_id, @position_id, @occupant_type, @identity_prompt_ref, @ai, @working_hours,
-                @subscriptions, @tools, @entry_fingerprint, @updated_at)
+                @subscriptions, @tools, @outcome_policy, @entry_fingerprint, @updated_at)
             ON CONFLICT (organization_id, position_id) DO UPDATE SET
                 occupant_type = EXCLUDED.occupant_type,
                 identity_prompt_ref = EXCLUDED.identity_prompt_ref,
@@ -290,6 +294,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 working_hours = EXCLUDED.working_hours,
                 subscriptions = EXCLUDED.subscriptions,
                 tools = EXCLUDED.tools,
+                outcome_policy = EXCLUDED.outcome_policy,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
             """,
@@ -303,6 +308,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddJson(command, "working_hours", value.WorkingHours);
         AddJson(command, "subscriptions", value.Subscriptions);
         AddJson(command, "tools", value.Tools);
+        AddJson(command, "outcome_policy", value.OutcomePolicy);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

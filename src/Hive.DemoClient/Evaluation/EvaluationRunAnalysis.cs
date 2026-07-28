@@ -85,6 +85,7 @@ public static class EvaluationRunAnalyzer
             .ToArray();
         var latency = BuildLatency(dataset.Cases);
         var cost = BuildCost(dataset.Cases);
+        var outcomeResolution = BuildOutcomeResolutionAnalysis(corpus, dataset, plan);
         var deadline = new EvaluationDeadlineAnalysis(
             plan.DeadlineCalibration.Method,
             plan.DeadlineCalibration.SourceRunIds,
@@ -114,7 +115,8 @@ public static class EvaluationRunAnalyzer
             cost,
             latency,
             deadline,
-            envelopeDiagnostics);
+            envelopeDiagnostics,
+            outcomeResolution);
     }
 
     private static bool IsAuditableTerminal(EvaluationCaseResult item) =>
@@ -243,6 +245,129 @@ public static class EvaluationRunAnalyzer
             observed.Length == 0 ? null : observed[^1]);
     }
 
+    private static EvaluationOutcomeResolutionAnalysis? BuildOutcomeResolutionAnalysis(
+        EvaluationCorpus corpus,
+        EvaluationDataset dataset,
+        EvaluationPlan plan)
+    {
+        var resolved = dataset.Cases
+            .Where(item => item.OutcomeResolution is not null)
+            .ToArray();
+        if (resolved.Length == 0)
+        {
+            return null;
+        }
+
+        var matrix = resolved
+            .GroupBy(item => (
+                item.OutcomeResolution!.ProposedIntent,
+                item.OutcomeResolution.ResolvedOutcome))
+            .OrderBy(group => group.Key.ProposedIntent, StringComparer.Ordinal)
+            .ThenBy(group => group.Key.ResolvedOutcome, StringComparer.Ordinal)
+            .Select(group => new EvaluationOutcomeResolutionMatrixCell(
+                group.Key.ProposedIntent,
+                group.Key.ResolvedOutcome,
+                group.Count()))
+            .ToArray();
+        var diagnostics = resolved
+            .SelectMany(item => item.OutcomeResolution!.Diagnostics.Select(code => new
+            {
+                item.CaseId,
+                Code = code,
+            }))
+            .GroupBy(item => item.Code, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new EvaluationOutcomeResolutionDiagnosticAggregate(
+                group.Key,
+                group.Select(item => item.CaseId).Distinct(StringComparer.Ordinal).Count(),
+                group.Count()))
+            .ToArray();
+        var reasons = resolved
+            .SelectMany(item => item.OutcomeResolution!.Reasons.Select(code => new
+            {
+                item.CaseId,
+                Code = code,
+            }))
+            .GroupBy(item => item.Code, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new EvaluationOutcomeResolutionReasonAggregate(
+                group.Key,
+                group.Select(item => item.CaseId).Distinct(StringComparer.Ordinal).Count(),
+                group.Count()))
+            .ToArray();
+        var semanticCompletionIneligibilityReasons = resolved
+            .SelectMany(item =>
+                (item.OutcomeResolution!.SemanticCompletionIneligibilityReasons ?? [])
+                .Select(code => new
+                {
+                    item.CaseId,
+                    Code = code,
+                }))
+            .GroupBy(item => item.Code, StringComparer.Ordinal)
+            .OrderBy(group => group.Key, StringComparer.Ordinal)
+            .Select(group => new EvaluationSemanticCompletionIneligibilityReasonAggregate(
+                group.Key,
+                group.Select(item => item.CaseId).Distinct(StringComparer.Ordinal).Count(),
+                group.Count()))
+            .ToArray();
+
+        var byId = dataset.Cases.ToDictionary(item => item.CaseId, StringComparer.Ordinal);
+        var falseNegative = 0;
+        var falsePositive = 0;
+        foreach (var item in corpus.Cases)
+        {
+            var actual = SingleLabel(item.HumanReference, plan.DecisionAnalysis.DimensionId);
+            if (actual is null || !byId.TryGetValue(item.CaseId, out var result) ||
+                result.OutcomeResolution is null)
+            {
+                continue;
+            }
+
+            var predictedPositive = result.OutcomeResolution.ResolvedOutcome is
+                "Escalation" or "ApprovalRequired";
+            if (actual == plan.DecisionAnalysis.PositiveLabel && !predictedPositive)
+            {
+                falseNegative++;
+            }
+            else if (actual == plan.DecisionAnalysis.NegativeLabel && predictedPositive)
+            {
+                falsePositive++;
+            }
+        }
+
+        var overrideCount = resolved.Count(item => item.OutcomeResolution!.ProposalOverridden);
+        var verifierCount = resolved.Count(item => item.OutcomeResolution!.VerifierInvoked);
+        var undeterminedCount = resolved.Count(item =>
+            item.OutcomeResolution!.VerifierClassification == "Undetermined");
+        var resolutionLatencies = resolved
+            .Select(item => item.OutcomeResolution!.LatencyMilliseconds)
+            .Where(value => value.HasValue)
+            .Select(value => value!.Value)
+            .OrderBy(value => value)
+            .ToArray();
+        return new EvaluationOutcomeResolutionAnalysis(
+            Coverage(dataset.Cases.Count, resolved.Length),
+            matrix,
+            overrideCount,
+            (double)overrideCount / resolved.Length,
+            verifierCount,
+            (double)verifierCount / resolved.Length,
+            undeterminedCount,
+            (double)undeterminedCount / resolved.Length,
+            falseNegative,
+            falsePositive,
+            reasons,
+            new EvaluationLatencyAnalysis(
+                resolutionLatencies.Length,
+                0,
+                Percentile(resolutionLatencies, 0.50),
+                Percentile(resolutionLatencies, 0.95),
+                Percentile(resolutionLatencies, 0.99),
+                resolutionLatencies.Length == 0 ? null : resolutionLatencies[^1]),
+            diagnostics,
+            semanticCompletionIneligibilityReasons);
+    }
+
     private static EvaluationCostAnalysis BuildCost(
         IReadOnlyList<EvaluationCaseResult> cases)
     {
@@ -322,7 +447,50 @@ public sealed record EvaluationRunAnalysis(
     [property: JsonPropertyName("latency")] EvaluationLatencyAnalysis Latency,
     [property: JsonPropertyName("deadline_calibration")] EvaluationDeadlineAnalysis DeadlineCalibration,
     [property: JsonPropertyName("envelope_diagnostics")]
-    IReadOnlyList<EvaluationEnvelopeDiagnosticAggregate>? EnvelopeDiagnostics = null);
+    IReadOnlyList<EvaluationEnvelopeDiagnosticAggregate>? EnvelopeDiagnostics = null,
+    [property: JsonPropertyName("outcome_resolution")]
+    EvaluationOutcomeResolutionAnalysis? OutcomeResolution = null);
+
+public sealed record EvaluationOutcomeResolutionAnalysis(
+    [property: JsonPropertyName("coverage")] EvaluationCoverage Coverage,
+    [property: JsonPropertyName("proposal_resolution_matrix")]
+    IReadOnlyList<EvaluationOutcomeResolutionMatrixCell> ProposalResolutionMatrix,
+    [property: JsonPropertyName("override_count")] int OverrideCount,
+    [property: JsonPropertyName("override_rate")] double OverrideRate,
+    [property: JsonPropertyName("verifier_count")] int VerifierCount,
+    [property: JsonPropertyName("verifier_rate")] double VerifierRate,
+    [property: JsonPropertyName("undetermined_count")] int UndeterminedCount,
+    [property: JsonPropertyName("undetermined_rate")] double UndeterminedRate,
+    [property: JsonPropertyName("false_negative_count")] int FalseNegativeCount,
+    [property: JsonPropertyName("false_positive_count")] int FalsePositiveCount,
+    [property: JsonPropertyName("reasons")]
+    IReadOnlyList<EvaluationOutcomeResolutionReasonAggregate> Reasons,
+    [property: JsonPropertyName("latency")] EvaluationLatencyAnalysis Latency,
+    [property: JsonPropertyName("diagnostics")]
+    IReadOnlyList<EvaluationOutcomeResolutionDiagnosticAggregate> Diagnostics,
+    [property: JsonPropertyName("semantic_completion_ineligibility_reasons")]
+    IReadOnlyList<EvaluationSemanticCompletionIneligibilityReasonAggregate>?
+        SemanticCompletionIneligibilityReasons = null);
+
+public sealed record EvaluationOutcomeResolutionMatrixCell(
+    [property: JsonPropertyName("proposal")] string Proposal,
+    [property: JsonPropertyName("resolution")] string Resolution,
+    [property: JsonPropertyName("count")] int Count);
+
+public sealed record EvaluationOutcomeResolutionDiagnosticAggregate(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("case_count")] int CaseCount,
+    [property: JsonPropertyName("occurrence_count")] int OccurrenceCount);
+
+public sealed record EvaluationOutcomeResolutionReasonAggregate(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("case_count")] int CaseCount,
+    [property: JsonPropertyName("occurrence_count")] int OccurrenceCount);
+
+public sealed record EvaluationSemanticCompletionIneligibilityReasonAggregate(
+    [property: JsonPropertyName("code")] string Code,
+    [property: JsonPropertyName("case_count")] int CaseCount,
+    [property: JsonPropertyName("occurrence_count")] int OccurrenceCount);
 
 public sealed record EvaluationCoverage(
     [property: JsonPropertyName("total")] int Total,

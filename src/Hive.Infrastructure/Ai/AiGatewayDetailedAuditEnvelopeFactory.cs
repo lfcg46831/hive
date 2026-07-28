@@ -57,7 +57,8 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
             error.Code,
             RedactText(error.Message, "error.message", key: null, redactions),
             error.IsRetryable,
-            error.Provider ?? request.Provider);
+            error.Provider ?? request.Provider,
+            error.Diagnostics);
         var rejectionReason = AiGatewayErrorCodeContract.ToWireValue(error.Code);
 
         return new AiGatewayAuditEnvelope(
@@ -71,6 +72,8 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
             auditRequest,
             error.Provider ?? request.Provider,
             error: auditError,
+            usage: error.Diagnostics?.Usage,
+            cost: error.Diagnostics?.Cost,
             rejectionReason: rejectionReason,
             redactions: redactions,
             outputConstraintMode: response.OutputConstraintMode);

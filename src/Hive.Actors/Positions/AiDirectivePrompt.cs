@@ -5,6 +5,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Actors.Positions;
@@ -31,9 +32,7 @@ internal static class AiDirectivePrompt
             processingMode: context.ProcessingMode,
             timeout: context.Limits.Timeout,
             policy: Policy(context),
-            outputConstraint: context.EvaluationInstruction is { } evaluationInstruction
-                ? AiDirectiveEvaluationEnvelope.ComposeOutputConstraint(evaluationInstruction)
-                : AiDirectiveDecisionSchema.OutputConstraint);
+            outputConstraint: OutputConstraint(context));
     }
 
     internal static AiDirectiveSystemInstructionSections BuildSystemInstructionSections(
@@ -44,13 +43,17 @@ internal static class AiDirectivePrompt
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
-            BuildHiveProtocolInstruction(context.EvaluationInstruction is not null),
+            BuildHiveProtocolInstruction(
+                context.EvaluationInstruction is not null,
+                context.RequiresStructuredOutcomeProposal),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context),
             context.EvaluationInstruction?.Content);
     }
 
-    private static string BuildHiveProtocolInstruction(bool hasEvaluationAppendix)
+    private static string BuildHiveProtocolInstruction(
+        bool hasEvaluationAppendix,
+        bool requiresStructuredOutcomeProposal)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -69,6 +72,7 @@ internal static class AiDirectivePrompt
             $"Inside \"{AiDirectiveDecisionSchema.DecisionProperty}\", use exactly one \"{AiDirectiveDecisionSchema.IntentProperty}\" value and its single matching payload: \"{reportIntent}\", \"{escalationIntent}\", or \"{directiveIntent}\".",
             $"Choose {reportIntent} only for information or an assessment that asks the superior for no decision, authorization, or choice.",
             $"Choose {escalationIntent} whenever the response asks the superior to decide, authorize, or choose; never place such a request inside {reportIntent}.",
+            $"A recommendation about a future action is informational and does not by itself request or exercise authorization. Normal downstream implementation, deployment, prioritization, or change control does not alone make it an {escalationIntent}; choose {escalationIntent} only when the response asks the superior to decide, authorize, or choose now.",
             "Apply these intent rules without exposing intermediate reasoning; return only the required structured fields.",
             $"For {reportIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
             $"For {escalationIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
@@ -80,9 +84,29 @@ internal static class AiDirectivePrompt
                 "A runtime evaluation appendix is present below; when the enforced response format declares a top-level \"evaluation\" property, fill it, otherwise its single exact envelope line is mandatory in the selected payload — verify before returning JSON.");
         }
 
+        if (requiresStructuredOutcomeProposal)
+        {
+            lines.AddRange(
+            [
+                $"Include the required top-level \"{AiDirectiveOutcomeProposalEnvelope.PropertyName}\" object using OutcomeProposal schema version {OutcomeProposalConstraint.SchemaVersion}; it is a non-authoritative proposal that the runtime will validate and resolve.",
+                $"Keep the organizational decision and {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.ProposedIntentProperty} compatible: Done maps to Report.Done, Progress maps to Report.Progress or ContinueWork, escalation maps to Escalation or ApprovalRequired, and a child directive maps to Directive.",
+                $"A Report.Done proposal must cite only grounded known input references such as \"directive.objective\" or \"directive.context\" with source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\"; never invent runtime, tool, completion-criterion, or persisted-state evidence.",
+            ]);
+        }
+
         return string.Join(
             Environment.NewLine,
             lines);
+    }
+
+    private static AiOutputConstraint OutputConstraint(AiDirectiveExecutionContext context)
+    {
+        var constraint = context.EvaluationInstruction is { } evaluationInstruction
+            ? AiDirectiveEvaluationEnvelope.ComposeOutputConstraint(evaluationInstruction)
+            : AiDirectiveDecisionSchema.OutputConstraint;
+        return context.RequiresStructuredOutcomeProposal
+            ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(constraint)
+            : constraint;
     }
 
     private static string BuildRuntimeAuthorityInstruction(
@@ -292,6 +316,8 @@ internal static class AiDirectivePrompt
             ["correlation_id"] = context.CorrelationId,
             ["directive_id"] = context.Directive.DirectiveId.ToString(),
             ["message_id"] = context.Directive.MessageId.ToString(),
+            ["iteration"] = "1",
+            ["hive.operation"] = "directive-inference",
         };
 
         if (context.IdentityPromptRef is { } identityPromptRef)

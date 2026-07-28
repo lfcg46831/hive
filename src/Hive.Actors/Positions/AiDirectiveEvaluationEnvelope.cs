@@ -81,6 +81,27 @@ internal static class AiDirectiveEvaluationEnvelope
             : body + "\n" + envelopeLine;
     }
 
+    /// <summary>
+    /// Removes reserved evaluation-envelope lines from a selected payload. This is used when
+    /// deriving bounded semantic evidence for the outcome verifier; durable result transport
+    /// keeps the envelope unchanged. An inline discussion of the marker remains business text.
+    /// </summary>
+    public static string RemoveEnvelopeLines(string payloadText)
+    {
+        ArgumentNullException.ThrowIfNull(payloadText);
+
+        return string.Join(
+                "\n",
+                payloadText
+                    .Split('\n')
+                    .Where(line => !line
+                        .TrimStart()
+                        .StartsWith(
+                            EvaluationInstruction.EnvelopeMarker,
+                            StringComparison.Ordinal)))
+            .TrimEnd();
+    }
+
     private static JsonObject BuildEvaluationSchema(EvaluationInstruction instruction)
     {
         var dimensionProperties = new JsonObject();

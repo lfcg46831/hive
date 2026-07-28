@@ -213,12 +213,14 @@ public sealed record AiGatewayAuditErrorSnapshot
         AiGatewayErrorCode code,
         string message,
         bool isRetryable,
-        AiProviderMetadata? provider = null)
+        AiProviderMetadata? provider = null,
+        AiGatewayFailureDiagnostics? diagnostics = null)
     {
         Code = AiGatewayErrorCodeContract.RequireDefined(code, nameof(code));
         Message = AiContractGuards.RequireText(message, nameof(message));
         IsRetryable = isRetryable;
         Provider = provider;
+        Diagnostics = diagnostics;
     }
 
     public AiGatewayErrorCode Code { get; }
@@ -228,6 +230,8 @@ public sealed record AiGatewayAuditErrorSnapshot
     public bool IsRetryable { get; }
 
     public AiProviderMetadata? Provider { get; }
+
+    public AiGatewayFailureDiagnostics? Diagnostics { get; }
 }
 
 public sealed record AiGatewayAuditRedaction

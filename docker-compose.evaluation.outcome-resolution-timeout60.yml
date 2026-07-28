@@ -1,0 +1,17 @@
+# Calibration-only 60-second hybrid outcome-resolution profile for
+# US-F0-13-T18a.
+#
+# Layer last after docker-compose.evaluation.yml. It enables enforcement and
+# bind-mounts the isolated triage-v2 / gpt-5-mini organization fixture without
+# changing the normal organization source, the historical 45-second T17f
+# profile, or any frozen evaluation plan.
+
+services:
+  api:
+    environment:
+      HIVE__OUTCOMES__MODE: "enforcement"
+    volumes:
+      - type: bind
+        source: ./config/experiments/hybrid-outcome-resolution-timeout60-v1/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

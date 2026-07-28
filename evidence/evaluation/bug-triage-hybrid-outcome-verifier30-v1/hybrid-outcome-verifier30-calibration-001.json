@@ -1,0 +1,5256 @@
+{
+  "schema_version": 1,
+  "corpus_version": 1,
+  "run_id": "hybrid-outcome-verifier30-calibration-001",
+  "api_base_url": "http://localhost:8080",
+  "timeout_seconds": 120,
+  "poll_interval_milliseconds": 1000,
+  "cases": [
+    {
+      "case_id": "triage-001",
+      "message_id": "537dfbaf-e749-43bf-46d3-a65d76b517d5",
+      "thread_id": "963a5b1d-d38d-d4d5-9327-1a40ee99d70d",
+      "directive_id": "7852d99f-a3de-06e0-31b2-51a98c73ce2e",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6431,
+      "output_tokens": 4260,
+      "total_tokens": 10691,
+      "tokens_estimated": false,
+      "cost_amount": 0.010128,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 53940,
+      "journey_duration_ms": 54434,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "correlation-metadata",
+              "deployment-version",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4701,
+        "output_tokens": 3398,
+        "total_tokens": 8099,
+        "cost_amount": 0.007971,
+        "cost_currency": "USD",
+        "latency_ms": 13645,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4701,
+          "output_tokens": 3398,
+          "total_tokens": 8099,
+          "tokens_estimated": false,
+          "cost_amount": 0.007971,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 40464,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1730,
+          "output_tokens": 862,
+          "total_tokens": 2592,
+          "tokens_estimated": false,
+          "cost_amount": 0.002157,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 13476,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-002",
+      "message_id": "3ee2b7f8-ee5a-6ff5-93c3-d1ceeade0c26",
+      "thread_id": "e58a7029-988f-5e57-049a-234d4b2a9084",
+      "directive_id": "c58a3a86-125b-cd31-05fe-30f8107dca4b",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 4691,
+      "output_tokens": 3449,
+      "total_tokens": 8140,
+      "tokens_estimated": false,
+      "cost_amount": 0.008071,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 41696,
+      "journey_duration_ms": 41745,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.7
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Escalation",
+        "work_state": "Blocked",
+        "required_intervention": "SuperiorDecision",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "proposal-escalation"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4691,
+        "output_tokens": 3449,
+        "total_tokens": 8140,
+        "cost_amount": 0.008071,
+        "cost_currency": "USD",
+        "latency_ms": 12,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4691,
+          "output_tokens": 3449,
+          "total_tokens": 8140,
+          "tokens_estimated": false,
+          "cost_amount": 0.008071,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 41696,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-003",
+      "message_id": "b1a338ae-634a-9ba7-7bb8-279d966752e8",
+      "thread_id": "8009f2a7-a0de-1c2d-9134-e54085175b2e",
+      "directive_id": "6f1bfcde-02b8-329e-15b6-2a76c575fd71",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6432,
+      "output_tokens": 3724,
+      "total_tokens": 10156,
+      "tokens_estimated": false,
+      "cost_amount": 0.009057,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 46607,
+      "journey_duration_ms": 46677,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4686,
+        "output_tokens": 3054,
+        "total_tokens": 7740,
+        "cost_amount": 0.007280,
+        "cost_currency": "USD",
+        "latency_ms": 10288,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4686,
+          "output_tokens": 3054,
+          "total_tokens": 7740,
+          "tokens_estimated": false,
+          "cost_amount": 0.007280,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 36357,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1746,
+          "output_tokens": 670,
+          "total_tokens": 2416,
+          "tokens_estimated": false,
+          "cost_amount": 0.001777,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 10250,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-004",
+      "message_id": "decacfe8-5390-36d4-603a-7bbf2fda7e31",
+      "thread_id": "fe5dd9a8-b62b-e1c7-4ad5-8f83ef4375b8",
+      "directive_id": "624ebcca-0d0b-b755-e0fc-ff84d7bb4597",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6300,
+      "output_tokens": 4553,
+      "total_tokens": 10853,
+      "tokens_estimated": false,
+      "cost_amount": 0.010681,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 54987,
+      "journey_duration_ms": 55048,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "failure-frequency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "failure-frequency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.475
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4680,
+        "output_tokens": 3819,
+        "total_tokens": 8499,
+        "cost_amount": 0.008808,
+        "cost_currency": "USD",
+        "latency_ms": 9893,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4680,
+          "output_tokens": 3819,
+          "total_tokens": 8499,
+          "tokens_estimated": false,
+          "cost_amount": 0.008808,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 45119,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1620,
+          "output_tokens": 734,
+          "total_tokens": 2354,
+          "tokens_estimated": false,
+          "cost_amount": 0.001873,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 9868,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-005",
+      "message_id": "590659cc-400b-d72d-d98a-9192aa38fbd6",
+      "thread_id": "17b67619-df33-b769-014a-3e5bf68d8e94",
+      "directive_id": "d8f87ca0-b54d-e672-052f-31ebb1ba40fc",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 9306,
+      "output_tokens": 6345,
+      "total_tokens": 15651,
+      "tokens_estimated": false,
+      "cost_amount": 0.015016,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 74792,
+      "journey_duration_ms": 74862,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "delivery-provider-status",
+              "run-log"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "delivery-provider-status",
+              "run-log"
+            ],
+            "score": 0.6666666666666666
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.7083333333333333
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 2,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "deadline-exceeded"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4653,
+        "output_tokens": 3063,
+        "total_tokens": 7716,
+        "cost_amount": 0.007289,
+        "cost_currency": "USD",
+        "latency_ms": 5,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4653,
+          "output_tokens": 3282,
+          "total_tokens": 7935,
+          "tokens_estimated": false,
+          "cost_amount": 0.007727,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 39406,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "directive-inference",
+          "iteration": 2,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4653,
+          "output_tokens": 3063,
+          "total_tokens": 7716,
+          "tokens_estimated": false,
+          "cost_amount": 0.007289,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 35386,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-006",
+      "message_id": "8bd5e9d2-15b9-d3aa-4f70-215a723d80de",
+      "thread_id": "c9bebaba-2d8e-cd9e-a854-c1a23cf7e4a1",
+      "directive_id": "848ef0fa-11d3-b116-e1ab-7ceedaeda6fe",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6149,
+      "output_tokens": 4171,
+      "total_tokens": 10320,
+      "tokens_estimated": false,
+      "cost_amount": 0.009880,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 50248,
+      "journey_duration_ms": 50306,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.5249999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4690,
+        "output_tokens": 3757,
+        "total_tokens": 8447,
+        "cost_amount": 0.008687,
+        "cost_currency": "USD",
+        "latency_ms": 7604,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4690,
+          "output_tokens": 3757,
+          "total_tokens": 8447,
+          "tokens_estimated": false,
+          "cost_amount": 0.008687,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 42661,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1459,
+          "output_tokens": 414,
+          "total_tokens": 1873,
+          "tokens_estimated": false,
+          "cost_amount": 0.001193,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 7587,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-007",
+      "message_id": "19063036-edcf-7193-edb1-a8286ea1cd20",
+      "thread_id": "c6545b96-0c3d-a8c6-ed0b-430ec7f5d0b9",
+      "directive_id": "8404a73d-a987-5bae-88b8-38e55e6860c3",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6357,
+      "output_tokens": 4476,
+      "total_tokens": 10833,
+      "tokens_estimated": false,
+      "cost_amount": 0.010541,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 57855,
+      "journey_duration_ms": 57947,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "notification-log-evidence",
+              "request-volume-and-concurrency",
+              "textual-attachments"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "notification-log-evidence",
+              "request-volume-and-concurrency",
+              "textual-attachments"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.175
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4672,
+        "output_tokens": 3934,
+        "total_tokens": 8606,
+        "cost_amount": 0.009036,
+        "cost_currency": "USD",
+        "latency_ms": 12982,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4672,
+          "output_tokens": 3934,
+          "total_tokens": 8606,
+          "tokens_estimated": false,
+          "cost_amount": 0.009036,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 44909,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1685,
+          "output_tokens": 542,
+          "total_tokens": 2227,
+          "tokens_estimated": false,
+          "cost_amount": 0.001505,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 12946,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-008",
+      "message_id": "f2cb589a-1d42-d75e-d0dd-68108ae23846",
+      "thread_id": "3436ec6d-fdbd-9545-352b-c4232b1d976c",
+      "directive_id": "841c9aed-72f0-1d6d-2704-769d73614c3c",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6331,
+      "output_tokens": 4397,
+      "total_tokens": 10728,
+      "tokens_estimated": false,
+      "cost_amount": 0.010377,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 58439,
+      "journey_duration_ms": 58492,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.825
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4674,
+        "output_tokens": 3727,
+        "total_tokens": 8401,
+        "cost_amount": 0.008623,
+        "cost_currency": "USD",
+        "latency_ms": 13726,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4674,
+          "output_tokens": 3727,
+          "total_tokens": 8401,
+          "tokens_estimated": false,
+          "cost_amount": 0.008623,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 44731,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1657,
+          "output_tokens": 670,
+          "total_tokens": 2327,
+          "tokens_estimated": false,
+          "cost_amount": 0.001754,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 13708,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-009",
+      "message_id": "5f6386e3-40d0-538d-65f4-a4786d290213",
+      "thread_id": "4b305139-cb3e-4d23-2e80-93d3d6338859",
+      "directive_id": "4edb737a-84ff-496b-93f2-ad0ddbfa8902",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6220,
+      "output_tokens": 4227,
+      "total_tokens": 10447,
+      "tokens_estimated": false,
+      "cost_amount": 0.010009,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 51927,
+      "journey_duration_ms": 51996,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4672,
+        "output_tokens": 3493,
+        "total_tokens": 8165,
+        "cost_amount": 0.008154,
+        "cost_currency": "USD",
+        "latency_ms": 10419,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4672,
+          "output_tokens": 3493,
+          "total_tokens": 8165,
+          "tokens_estimated": false,
+          "cost_amount": 0.008154,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 41535,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1548,
+          "output_tokens": 734,
+          "total_tokens": 2282,
+          "tokens_estimated": false,
+          "cost_amount": 0.001855,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 10392,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-010",
+      "message_id": "7fb845ca-dd66-1f90-da83-9cbb40d9d68d",
+      "thread_id": "805ae095-cb84-7465-6a50-eb820a0fa250",
+      "directive_id": "f9874a07-34bd-63fb-e310-7ec4638cfbb0",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6142,
+      "output_tokens": 3631,
+      "total_tokens": 9773,
+      "tokens_estimated": false,
+      "cost_amount": 0.008798,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 58271,
+      "journey_duration_ms": 58321,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.825
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4671,
+        "output_tokens": 2897,
+        "total_tokens": 7568,
+        "cost_amount": 0.006962,
+        "cost_currency": "USD",
+        "latency_ms": 13420,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4671,
+          "output_tokens": 2897,
+          "total_tokens": 7568,
+          "tokens_estimated": false,
+          "cost_amount": 0.006962,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 44866,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1471,
+          "output_tokens": 734,
+          "total_tokens": 2205,
+          "tokens_estimated": false,
+          "cost_amount": 0.001836,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 13405,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-011",
+      "message_id": "dc2ab3cd-8586-4d1a-ab2e-3d8525bc78dd",
+      "thread_id": "a321fd23-c52e-fde8-023f-bf44251e2ed4",
+      "directive_id": "04cd6b17-55bf-32f8-0488-a69ef3ed92a6",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6093,
+      "output_tokens": 3835,
+      "total_tokens": 9928,
+      "tokens_estimated": false,
+      "cost_amount": 0.009193,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 49838,
+      "journey_duration_ms": 49923,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "client-retry-behavior",
+              "failure-frequency",
+              "origin",
+              "rate-limit-response-headers",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "client-retry-behavior",
+              "failure-frequency",
+              "origin",
+              "rate-limit-response-headers",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0.8
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6299999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4657,
+        "output_tokens": 3037,
+        "total_tokens": 7694,
+        "cost_amount": 0.007238,
+        "cost_currency": "USD",
+        "latency_ms": 10679,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4657,
+          "output_tokens": 3037,
+          "total_tokens": 7694,
+          "tokens_estimated": false,
+          "cost_amount": 0.007238,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 39193,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1436,
+          "output_tokens": 798,
+          "total_tokens": 2234,
+          "tokens_estimated": false,
+          "cost_amount": 0.001955,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 10645,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-012",
+      "message_id": "55eab743-5b73-bfae-0b42-9abb3e74af7e",
+      "thread_id": "581842ce-dc4c-133b-c4d6-1c28b22d6ebe",
+      "directive_id": "76addaaa-6e2d-147c-bbce-ae3280af87d5",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6310,
+      "output_tokens": 3422,
+      "total_tokens": 9732,
+      "tokens_estimated": false,
+      "cost_amount": 0.008421,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 46006,
+      "journey_duration_ms": 46090,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "failure-frequency",
+              "reproduction-steps"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.175
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4677,
+        "output_tokens": 2944,
+        "total_tokens": 7621,
+        "cost_amount": 0.007057,
+        "cost_currency": "USD",
+        "latency_ms": 7362,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4677,
+          "output_tokens": 2944,
+          "total_tokens": 7621,
+          "tokens_estimated": false,
+          "cost_amount": 0.007057,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 38681,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1633,
+          "output_tokens": 478,
+          "total_tokens": 2111,
+          "tokens_estimated": false,
+          "cost_amount": 0.001364,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 7325,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-013",
+      "message_id": "b7c3ff5f-4c9d-1a95-c515-ec251fc55152",
+      "thread_id": "82565487-27b6-2766-24a9-bb4a35a4a37f",
+      "directive_id": "b8d69dde-3989-04ae-9244-68a3d1fb61f5",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6374,
+      "output_tokens": 3799,
+      "total_tokens": 10173,
+      "tokens_estimated": false,
+      "cost_amount": 0.009192,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 51804,
+      "journey_duration_ms": 51873,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "deployment-version",
+              "failure-frequency",
+              "reproduction-steps",
+              "run-log"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "deployment-version",
+              "failure-frequency",
+              "reproduction-steps",
+              "run-log"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.35
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4676,
+        "output_tokens": 3321,
+        "total_tokens": 7997,
+        "cost_amount": 0.007811,
+        "cost_currency": "USD",
+        "latency_ms": 8130,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4676,
+          "output_tokens": 3321,
+          "total_tokens": 7997,
+          "tokens_estimated": false,
+          "cost_amount": 0.007811,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 43696,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1698,
+          "output_tokens": 478,
+          "total_tokens": 2176,
+          "tokens_estimated": false,
+          "cost_amount": 0.001381,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 8108,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-014",
+      "message_id": "31d640cf-f0bc-879d-58a5-5c384958b114",
+      "thread_id": "e9efc664-f9af-663b-5a16-398b367d4fcb",
+      "directive_id": "f384d617-4703-b758-d903-613732009359",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 9306,
+      "output_tokens": 6281,
+      "total_tokens": 15587,
+      "tokens_estimated": false,
+      "cost_amount": 0.014888,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 88781,
+      "journey_duration_ms": 88911,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 2,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "deadline-exceeded"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4653,
+        "output_tokens": 2973,
+        "total_tokens": 7626,
+        "cost_amount": 0.007109,
+        "cost_currency": "USD",
+        "latency_ms": 5,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4653,
+          "output_tokens": 3308,
+          "total_tokens": 7961,
+          "tokens_estimated": false,
+          "cost_amount": 0.007779,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 46612,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "directive-inference",
+          "iteration": 2,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4653,
+          "output_tokens": 2973,
+          "total_tokens": 7626,
+          "tokens_estimated": false,
+          "cost_amount": 0.007109,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 42169,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-015",
+      "message_id": "882d15ac-38b6-1b45-1d23-48d923ee82aa",
+      "thread_id": "b2c2124f-9a28-0524-7584-73d69890e503",
+      "directive_id": "877c717a-fe34-44c6-73fc-deb14296a640",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 9298,
+      "output_tokens": 6074,
+      "total_tokens": 15372,
+      "tokens_estimated": false,
+      "cost_amount": 0.014472,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 82431,
+      "journey_duration_ms": 82501,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "probe-response",
+              "request-volume-and-concurrency",
+              "run-log"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "deployment-version",
+              "environment-and-region",
+              "failure-frequency",
+              "previous-release-comparison",
+              "probe-response",
+              "request-volume-and-concurrency",
+              "run-log"
+            ],
+            "score": 0.7272727272727273
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.7295454545454545
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 2,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "deadline-exceeded"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4649,
+        "output_tokens": 3382,
+        "total_tokens": 8031,
+        "cost_amount": 0.007926,
+        "cost_currency": "USD",
+        "latency_ms": 5,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4649,
+          "output_tokens": 2692,
+          "total_tokens": 7341,
+          "tokens_estimated": false,
+          "cost_amount": 0.006546,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 37568,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "directive-inference",
+          "iteration": 2,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4649,
+          "output_tokens": 3382,
+          "total_tokens": 8031,
+          "tokens_estimated": false,
+          "cost_amount": 0.007926,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 44863,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-016",
+      "message_id": "80bcecd1-4482-23f9-733a-c4aee5397a68",
+      "thread_id": "d2bee2c3-af69-69b1-2ef0-0329275dba62",
+      "directive_id": "e38a86b5-1ef8-1513-6adb-ba2ca1d499eb",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6341,
+      "output_tokens": 3448,
+      "total_tokens": 9789,
+      "tokens_estimated": false,
+      "cost_amount": 0.008482,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 51831,
+      "journey_duration_ms": 51890,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4675,
+        "output_tokens": 2778,
+        "total_tokens": 7453,
+        "cost_amount": 0.006725,
+        "cost_currency": "USD",
+        "latency_ms": 12351,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4675,
+          "output_tokens": 2778,
+          "total_tokens": 7453,
+          "tokens_estimated": false,
+          "cost_amount": 0.006725,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 39512,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1666,
+          "output_tokens": 670,
+          "total_tokens": 2336,
+          "tokens_estimated": false,
+          "cost_amount": 0.001757,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 12319,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-017",
+      "message_id": "f2adbd19-5f50-c35c-60a8-8cdb6267cf35",
+      "thread_id": "f01ceac1-4ce9-a31f-cce8-b94413546501",
+      "directive_id": "cd1e45a4-b44e-d256-6298-9ef2b97dcfab",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6036,
+      "output_tokens": 3962,
+      "total_tokens": 9998,
+      "tokens_estimated": false,
+      "cost_amount": 0.009433,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 57452,
+      "journey_duration_ms": 57507,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4667,
+        "output_tokens": 3164,
+        "total_tokens": 7831,
+        "cost_amount": 0.007495,
+        "cost_currency": "USD",
+        "latency_ms": 11059,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4667,
+          "output_tokens": 3164,
+          "total_tokens": 7831,
+          "tokens_estimated": false,
+          "cost_amount": 0.007495,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 46410,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1369,
+          "output_tokens": 798,
+          "total_tokens": 2167,
+          "tokens_estimated": false,
+          "cost_amount": 0.001938,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 11042,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-018",
+      "message_id": "d4bb45c4-9ba8-42e8-4807-b46436797bdc",
+      "thread_id": "e2478364-41e4-9019-df53-d7afadf43f0b",
+      "directive_id": "f18e709b-13f0-298d-5c81-4744ed04e797",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6062,
+      "output_tokens": 3992,
+      "total_tokens": 10054,
+      "tokens_estimated": false,
+      "cost_amount": 0.009500,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 67743,
+      "journey_duration_ms": 67841,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 1
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4668,
+        "output_tokens": 3194,
+        "total_tokens": 7862,
+        "cost_amount": 0.007555,
+        "cost_currency": "USD",
+        "latency_ms": 11464,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4668,
+          "output_tokens": 3194,
+          "total_tokens": 7862,
+          "tokens_estimated": false,
+          "cost_amount": 0.007555,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 56311,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1394,
+          "output_tokens": 798,
+          "total_tokens": 2192,
+          "tokens_estimated": false,
+          "cost_amount": 0.001945,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 11432,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-019",
+      "message_id": "8defafb4-91a8-f2b4-767c-38fbcf37992d",
+      "thread_id": "f979d0fb-b602-a602-d53d-ae8f97548cc1",
+      "directive_id": "7c7ca493-01c8-b513-d0a6-753228fda8df",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6085,
+      "output_tokens": 3488,
+      "total_tokens": 9573,
+      "tokens_estimated": false,
+      "cost_amount": 0.008497,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 50567,
+      "journey_duration_ms": 50623,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.825
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4677,
+        "output_tokens": 2562,
+        "total_tokens": 7239,
+        "cost_amount": 0.006293,
+        "cost_currency": "USD",
+        "latency_ms": 13082,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4677,
+          "output_tokens": 2562,
+          "total_tokens": 7239,
+          "tokens_estimated": false,
+          "cost_amount": 0.006293,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 37511,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1408,
+          "output_tokens": 926,
+          "total_tokens": 2334,
+          "tokens_estimated": false,
+          "cost_amount": 0.002204,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 13056,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-020",
+      "message_id": "efdabf67-a043-2ddb-dae0-41e0c8e8f90d",
+      "thread_id": "acbdde12-362e-2fe1-7a70-932c870e502f",
+      "directive_id": "fff30d1a-2743-eaa2-6c2d-e574d53b5fd2",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6289,
+      "output_tokens": 3755,
+      "total_tokens": 10044,
+      "tokens_estimated": false,
+      "cost_amount": 0.009083,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 51969,
+      "journey_duration_ms": 52036,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "previous-release-comparison"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "previous-release-comparison"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4678,
+        "output_tokens": 3149,
+        "total_tokens": 7827,
+        "cost_amount": 0.007468,
+        "cost_currency": "USD",
+        "latency_ms": 9897,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4678,
+          "output_tokens": 3149,
+          "total_tokens": 7827,
+          "tokens_estimated": false,
+          "cost_amount": 0.007468,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 42093,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1611,
+          "output_tokens": 606,
+          "total_tokens": 2217,
+          "tokens_estimated": false,
+          "cost_amount": 0.001615,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 9876,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-021",
+      "message_id": "f249f0b4-d1f8-387f-6b50-667fe11c9d49",
+      "thread_id": "d0b8f233-f515-23a5-b2ca-62badc1f88ce",
+      "directive_id": "292f34a6-a8c1-c61d-07fa-2a1e51495ece",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 9370,
+      "output_tokens": 7014,
+      "total_tokens": 16384,
+      "tokens_estimated": false,
+      "cost_amount": 0.016370,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 101303,
+      "journey_duration_ms": 101463,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.175
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 2,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "deadline-exceeded"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4685,
+        "output_tokens": 3770,
+        "total_tokens": 8455,
+        "cost_amount": 0.008711,
+        "cost_currency": "USD",
+        "latency_ms": 48,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4685,
+          "output_tokens": 3244,
+          "total_tokens": 7929,
+          "tokens_estimated": false,
+          "cost_amount": 0.007659,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 45695,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "directive-inference",
+          "iteration": 2,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4685,
+          "output_tokens": 3770,
+          "total_tokens": 8455,
+          "tokens_estimated": false,
+          "cost_amount": 0.008711,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 55608,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-022",
+      "message_id": "8a9931af-cdae-30e1-7baf-0c2372efa4b0",
+      "thread_id": "2fc9d494-1d04-4268-6706-c96c76536acb",
+      "directive_id": "27fb377b-7dbf-de07-a351-30dc658493f5",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 4673,
+      "output_tokens": 3519,
+      "total_tokens": 8192,
+      "tokens_estimated": false,
+      "cost_amount": 0.008206,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 48534,
+      "journey_duration_ms": 48607,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "authentication-state",
+              "certificate-validity",
+              "configuration-diff",
+              "protocol-error",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "authentication-state",
+              "certificate-validity",
+              "configuration-diff",
+              "protocol-error",
+              "reproduction-steps"
+            ],
+            "score": 0.6
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.86
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Escalation",
+        "work_state": "Blocked",
+        "required_intervention": "SuperiorDecision",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "proposal-escalation"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4673,
+        "output_tokens": 3519,
+        "total_tokens": 8192,
+        "cost_amount": 0.008206,
+        "cost_currency": "USD",
+        "latency_ms": 12,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4673,
+          "output_tokens": 3519,
+          "total_tokens": 8192,
+          "tokens_estimated": false,
+          "cost_amount": 0.008206,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 48534,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-023",
+      "message_id": "065b2f44-1df8-0869-bdae-fe24a591765c",
+      "thread_id": "0c8fa4d9-ebf7-c762-155a-ea8f81a112bf",
+      "directive_id": "9f7bb124-f3f2-10e8-e660-7c60454ff88f",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6278,
+      "output_tokens": 4123,
+      "total_tokens": 10401,
+      "tokens_estimated": false,
+      "cost_amount": 0.009815,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 50781,
+      "journey_duration_ms": 50852,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.6499999999999999
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4673,
+        "output_tokens": 3325,
+        "total_tokens": 7998,
+        "cost_amount": 0.007818,
+        "cost_currency": "USD",
+        "latency_ms": 11642,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4673,
+          "output_tokens": 3325,
+          "total_tokens": 7998,
+          "tokens_estimated": false,
+          "cost_amount": 0.007818,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 39178,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1605,
+          "output_tokens": 798,
+          "total_tokens": 2403,
+          "tokens_estimated": false,
+          "cost_amount": 0.001997,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 11603,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-024",
+      "message_id": "5efc15c2-8b57-9ab8-94bc-30c9256d4e2b",
+      "thread_id": "1d439aab-0cba-5136-613f-c9457caa6c52",
+      "directive_id": "d99e8573-e064-ba5b-e866-eb7b88be066c",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 5999,
+      "output_tokens": 4275,
+      "total_tokens": 10274,
+      "tokens_estimated": false,
+      "cost_amount": 0.010050,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 53047,
+      "journey_duration_ms": 53104,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "deployment-version",
+              "environment",
+              "failure-frequency",
+              "reproduction-steps",
+              "request-volume-and-concurrency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.175
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4676,
+        "output_tokens": 3541,
+        "total_tokens": 8217,
+        "cost_amount": 0.008251,
+        "cost_currency": "USD",
+        "latency_ms": 12246,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4676,
+          "output_tokens": 3541,
+          "total_tokens": 8217,
+          "tokens_estimated": false,
+          "cost_amount": 0.008251,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 40820,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1323,
+          "output_tokens": 734,
+          "total_tokens": 2057,
+          "tokens_estimated": false,
+          "cost_amount": 0.001799,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 12227,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-025",
+      "message_id": "88944dbd-3e7d-160c-a144-15b67e5b242f",
+      "thread_id": "9ad5fdb5-f399-0dbe-d673-49e81a13f16d",
+      "directive_id": "806a0647-3218-7272-9b3d-ce30f9149475",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 4671,
+      "output_tokens": 3434,
+      "total_tokens": 8105,
+      "tokens_estimated": false,
+      "cost_amount": 0.008036,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 37960,
+      "journey_duration_ms": 38027,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "commit-range",
+              "environment",
+              "failing-test-name",
+              "failure-frequency",
+              "origin",
+              "reproduction-steps",
+              "run-log",
+              "textual-attachments"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "commit-range",
+              "environment",
+              "failing-test-name",
+              "failure-frequency",
+              "origin",
+              "reproduction-steps",
+              "run-log",
+              "textual-attachments"
+            ],
+            "score": 0.7692307692307693
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.9192307692307692
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Escalation",
+        "work_state": "Blocked",
+        "required_intervention": "SuperiorDecision",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "proposal-escalation"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4671,
+        "output_tokens": 3434,
+        "total_tokens": 8105,
+        "cost_amount": 0.008036,
+        "cost_currency": "USD",
+        "latency_ms": 15,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4671,
+          "output_tokens": 3434,
+          "total_tokens": 8105,
+          "tokens_estimated": false,
+          "cost_amount": 0.008036,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 37960,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    },
+    {
+      "case_id": "triage-026",
+      "message_id": "4040df33-f8db-108a-1f20-5a4b1529a92f",
+      "thread_id": "9b9501d9-3c10-13e9-3956-1037ea02f0ee",
+      "directive_id": "3f778d93-4560-6990-e848-15c3a721ae5b",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6339,
+      "output_tokens": 4451,
+      "total_tokens": 10790,
+      "tokens_estimated": false,
+      "cost_amount": 0.010487,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 52647,
+      "journey_duration_ms": 52801,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "authentication-state",
+              "previous-release-comparison",
+              "run-log"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "affected-recipient-scope",
+              "authentication-state",
+              "previous-release-comparison",
+              "run-log"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 0
+          }
+        ],
+        "case_score": 0.3
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4685,
+        "output_tokens": 3589,
+        "total_tokens": 8274,
+        "cost_amount": 0.008349,
+        "cost_currency": "USD",
+        "latency_ms": 12848,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4685,
+          "output_tokens": 3589,
+          "total_tokens": 8274,
+          "tokens_estimated": false,
+          "cost_amount": 0.008349,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 39861,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1654,
+          "output_tokens": 862,
+          "total_tokens": 2516,
+          "tokens_estimated": false,
+          "cost_amount": 0.002138,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 12786,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-027",
+      "message_id": "e0b914b6-5d46-9ed8-b2ff-41ef1bad0176",
+      "thread_id": "90393382-1c01-9703-15d0-c64ff4498c21",
+      "directive_id": "66549314-d234-d6ab-8d24-ca497d78f8a3",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "report",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 5993,
+      "output_tokens": 3415,
+      "total_tokens": 9408,
+      "tokens_estimated": false,
+      "cost_amount": 0.008328,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 43112,
+      "journey_duration_ms": 43174,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "report"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 1
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Report.Done",
+        "reasons": [
+          "semantic-completion-verified",
+          "verifier-confirmed"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": false,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4673,
+        "output_tokens": 2553,
+        "total_tokens": 7226,
+        "cost_amount": 0.006274,
+        "cost_currency": "USD",
+        "latency_ms": 12404,
+        "verifier_status": "Classified",
+        "verifier_classification": "Report.Done",
+        "semantic_completion_candidate": true
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4673,
+          "output_tokens": 2553,
+          "total_tokens": 7226,
+          "tokens_estimated": false,
+          "cost_amount": 0.006274,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 30736,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1320,
+          "output_tokens": 862,
+          "total_tokens": 2182,
+          "tokens_estimated": false,
+          "cost_amount": 0.002054,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 12376,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-028",
+      "message_id": "f4d113e9-2dd6-e01b-6958-995ab0133d42",
+      "thread_id": "68962010-4d25-2412-08e1-43c05e8028cf",
+      "directive_id": "887069d6-e447-c339-f449-8a20c945af95",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 5963,
+      "output_tokens": 3505,
+      "total_tokens": 9468,
+      "tokens_estimated": false,
+      "cost_amount": 0.008501,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 43240,
+      "journey_duration_ms": 43292,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [],
+            "score": 1
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "low"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.7
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4665,
+        "output_tokens": 2963,
+        "total_tokens": 7628,
+        "cost_amount": 0.007092,
+        "cost_currency": "USD",
+        "latency_ms": 8393,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4665,
+          "output_tokens": 2963,
+          "total_tokens": 7628,
+          "tokens_estimated": false,
+          "cost_amount": 0.007092,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 34860,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1298,
+          "output_tokens": 542,
+          "total_tokens": 1840,
+          "tokens_estimated": false,
+          "cost_amount": 0.001409,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 8380,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-029",
+      "message_id": "39cd1269-88f9-0a53-aed1-0a2b95bf1f0d",
+      "thread_id": "41a0acbd-a0fe-1021-7c00-4944c2d3c4e7",
+      "directive_id": "8dc5236f-fa9b-044e-111d-c9869b5facfe",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 6189,
+      "output_tokens": 3603,
+      "total_tokens": 9792,
+      "tokens_estimated": false,
+      "cost_amount": 0.008754,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 46434,
+      "journey_duration_ms": 46484,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-recipient-scope",
+              "failure-frequency"
+            ],
+            "score": 0
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "medium"
+            ],
+            "score": 1
+          }
+        ],
+        "case_score": 0.35
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 1,
+        "proposed_intent": "Report.Done",
+        "work_state": "Completed",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "verifier-disagreement"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": true,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4691,
+        "output_tokens": 2997,
+        "total_tokens": 7688,
+        "cost_amount": 0.007167,
+        "cost_currency": "USD",
+        "latency_ms": 8997,
+        "verifier_status": "Classified",
+        "verifier_classification": "Undetermined",
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4691,
+          "output_tokens": 2997,
+          "total_tokens": 7688,
+          "tokens_estimated": false,
+          "cost_amount": 0.007167,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 37451,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "outcome-verification",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 1498,
+          "output_tokens": 606,
+          "total_tokens": 2104,
+          "tokens_estimated": false,
+          "cost_amount": 0.001587,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 8983,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 30000,
+          "max_output_tokens": 2048
+        }
+      ]
+    },
+    {
+      "case_id": "triage-030",
+      "message_id": "7c0f736a-facb-c2a3-a62f-8fdc6e865a0c",
+      "thread_id": "ead76550-d248-1d32-ef7e-76a087e12721",
+      "directive_id": "f6961a4b-8da3-b460-f2bc-73554d2b563c",
+      "submission_status": "accepted",
+      "http_status": 202,
+      "outcome": "succeeded",
+      "terminal_code": "result-emitted",
+      "decision": "escalation",
+      "provider_id": "openai",
+      "model_id": "gpt-5-mini-2025-08-07",
+      "output_constraint_mode": "json-schema",
+      "input_tokens": 9366,
+      "output_tokens": 7585,
+      "total_tokens": 16951,
+      "tokens_estimated": false,
+      "cost_amount": 0.017512,
+      "cost_currency": "USD",
+      "cost_estimated": true,
+      "gateway_latency_ms": 91269,
+      "journey_duration_ms": 91369,
+      "cost_status": "estimated",
+      "pricing_version": "openai-2026-07-13",
+      "pricing_token_unit": 1000000,
+      "input_price_per_token_unit": 0.25,
+      "output_price_per_token_unit": 2.00,
+      "prediction": {
+        "projection_version": 1,
+        "rubric_version": 1,
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "authentication-state",
+              "autosave-status",
+              "browser-and-device",
+              "failure-frequency",
+              "form-identity",
+              "idle-duration",
+              "reproduction-steps"
+            ],
+            "diagnostic_code": null
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "diagnostic_code": null
+          }
+        ]
+      },
+      "scoring": {
+        "status": "scored",
+        "failure_codes": [],
+        "dimensions": [
+          {
+            "dimension_id": "decision",
+            "status": "valid",
+            "labels": [
+              "escalation"
+            ],
+            "score": 1
+          },
+          {
+            "dimension_id": "missing-information",
+            "status": "valid",
+            "labels": [
+              "affected-endpoints",
+              "authentication-state",
+              "autosave-status",
+              "browser-and-device",
+              "failure-frequency",
+              "form-identity",
+              "idle-duration",
+              "reproduction-steps"
+            ],
+            "score": 0.7692307692307693
+          },
+          {
+            "dimension_id": "severity",
+            "status": "valid",
+            "labels": [
+              "high"
+            ],
+            "score": 0.5
+          }
+        ],
+        "case_score": 0.7442307692307693
+      },
+      "invalid_output_diagnostics": null,
+      "outcome_resolution": {
+        "mode": "enforcement",
+        "iteration": 2,
+        "proposed_intent": "Report.Progress",
+        "work_state": "InProgress",
+        "required_intervention": "None",
+        "resolved_outcome": "Escalation",
+        "reasons": [
+          "deadline-exceeded"
+        ],
+        "policy_version": "outcome-policy-v1/registry-9",
+        "policy_fingerprint": "sha256:9056bbdec0f4f45351b85857c89e7816767e707811881ce7740a81dfbb30890d",
+        "proposal_overridden": true,
+        "verifier_invoked": false,
+        "diagnostics": [],
+        "provider_id": "openai",
+        "model_id": "gpt-5-mini-2025-08-07",
+        "input_tokens": 4683,
+        "output_tokens": 4224,
+        "total_tokens": 8907,
+        "cost_amount": 0.009619,
+        "cost_currency": "USD",
+        "latency_ms": 4,
+        "verifier_status": null,
+        "verifier_classification": null,
+        "semantic_completion_candidate": false
+      },
+      "gateway_calls": [
+        {
+          "call_index": 1,
+          "operation": "directive-inference",
+          "iteration": 1,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4683,
+          "output_tokens": 3361,
+          "total_tokens": 8044,
+          "tokens_estimated": false,
+          "cost_amount": 0.007893,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 43059,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        },
+        {
+          "call_index": 2,
+          "operation": "directive-inference",
+          "iteration": 2,
+          "outcome": "succeeded",
+          "reason_code": null,
+          "provider_id": "openai",
+          "model_id": "gpt-5-mini-2025-08-07",
+          "output_constraint_mode": "json-schema",
+          "input_tokens": 4683,
+          "output_tokens": 4224,
+          "total_tokens": 8907,
+          "tokens_estimated": false,
+          "cost_amount": 0.009619,
+          "cost_currency": "USD",
+          "cost_estimated": true,
+          "latency_ms": 48210,
+          "cost_status": "estimated",
+          "pricing_version": "openai-2026-07-13",
+          "pricing_token_unit": 1000000,
+          "input_price_per_token_unit": 0.25,
+          "output_price_per_token_unit": 2.00,
+          "finish_reason": "Stop",
+          "provider_status_code": null,
+          "request_timeout_ms": 60000,
+          "max_output_tokens": 8192
+        }
+      ]
+    }
+  ],
+  "projection_version": 1,
+  "rubric_version": 1,
+  "corpus_score": 0.5572113442113442,
+  "evaluation_plan_version": null,
+  "freeze_id": null,
+  "evaluation_partition": null,
+  "code_version": null,
+  "configuration_version": null,
+  "run_analysis": null
+}

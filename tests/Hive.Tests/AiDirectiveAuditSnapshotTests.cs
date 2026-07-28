@@ -287,7 +287,7 @@ public sealed class AiDirectiveAuditSnapshotTests
             Assert.Equal(AiGatewayCallResult.Succeeded, snapshot.Gateway.Result);
             Assert.Equal(AiDirectiveInterpretationOutcomeKind.EscalationRequired, snapshot.Decision!.Outcome);
             Assert.Equal("ai-output-invalid", snapshot.Decision.FailureCode);
-            Assert.Equal(1, snapshot.Decision.ParseErrorContractVersion);
+            Assert.Equal(2, snapshot.Decision.ParseErrorContractVersion);
             Assert.Equal(1, snapshot.Decision.ParseErrorCount);
             var diagnostic = Assert.Single(snapshot.Decision.ParseErrors);
             Assert.Equal("$", diagnostic.Path);
@@ -297,7 +297,7 @@ public sealed class AiDirectiveAuditSnapshotTests
             var auditRecord = Assert.Single(auditLog.Records);
             Assert.Equal(JourneyAuditStage.AgentDecided, auditRecord.Stage);
             var payload = auditRecord.Payload;
-            Assert.Equal("1", payload["parseErrorContractVersion"]);
+            Assert.Equal("2", payload["parseErrorContractVersion"]);
             Assert.Equal("1", payload["parseErrorCount"]);
             Assert.Equal("$", payload["parseError.0.path"]);
             Assert.Equal("invalid-json", payload["parseError.0.code"]);

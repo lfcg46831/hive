@@ -59,6 +59,162 @@ public sealed class ComposeDemoConfigurationTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void T17f_compose_profile_enforces_hybrid_resolution_without_committing_a_secret()
+    {
+        var profile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution.yml"));
+        var organization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-v1",
+            "organization.yaml"));
+
+        Assert.Contains("HIVE__OUTCOMES__MODE: \"enforcement\"", profile, StringComparison.Ordinal);
+        Assert.Contains(
+            "./config/experiments/hybrid-outcome-resolution-v1/organization.yaml",
+            profile,
+            StringComparison.Ordinal);
+        Assert.Contains("identity_prompt_ref: triage-v2", organization, StringComparison.Ordinal);
+        Assert.Contains("model: gpt-5-mini-2025-08-07", organization, StringComparison.Ordinal);
+        Assert.Contains("timeout: PT45S", organization, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPENAI_API_KEY", profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-", profile, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sk-", organization, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void T18a_timeout60_profile_is_isolated_from_the_historical_T17f_profile()
+    {
+        var historicalProfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution.yml"));
+        var historicalOrganization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-v1",
+            "organization.yaml"));
+        var timeout60Profile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution-timeout60.yml"));
+        var timeout60Organization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-timeout60-v1",
+            "organization.yaml"));
+
+        Assert.Contains("timeout: PT45S", historicalOrganization, StringComparison.Ordinal);
+        Assert.Contains("timeout: PT60S", timeout60Organization, StringComparison.Ordinal);
+        Assert.Contains(
+            "./config/experiments/hybrid-outcome-resolution-v1/organization.yaml",
+            historicalProfile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "./config/experiments/hybrid-outcome-resolution-timeout60-v1/organization.yaml",
+            timeout60Profile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE__OUTCOMES__MODE: \"enforcement\"",
+            timeout60Profile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "identity_prompt_ref: triage-v2",
+            timeout60Organization,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "model: gpt-5-mini-2025-08-07",
+            timeout60Organization,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("OPENAI_API_KEY", timeout60Profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-", timeout60Profile, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sk-", timeout60Organization, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void T18e_reliability_profile_is_isolated_from_historical_profiles()
+    {
+        var timeout60Organization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-timeout60-v1",
+            "organization.yaml"));
+        var reliabilityProfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution-reliability.yml"));
+        var reliabilityOrganization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-reliability-v1",
+            "organization.yaml"));
+
+        Assert.Contains("max_tokens: 4096", timeout60Organization, StringComparison.Ordinal);
+        Assert.Contains("timeout: PT60S", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.Contains("max_tokens: 8192", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.Contains(
+            "./config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml",
+            reliabilityProfile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE__OUTCOMES__MODE: \"enforcement\"",
+            reliabilityProfile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "identity_prompt_ref: triage-v2",
+            reliabilityOrganization,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "model: gpt-5-mini-2025-08-07",
+            reliabilityOrganization,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("OPENAI_API_KEY", reliabilityProfile, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-", reliabilityProfile, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sk-", reliabilityOrganization, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void T18j_verifier30_profile_changes_only_the_systemic_verifier_deadline()
+    {
+        var reliabilityProfile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution-reliability.yml"));
+        var verifier30Profile = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "docker-compose.evaluation.outcome-resolution-verifier30.yml"));
+        var reliabilityOrganization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "hybrid-outcome-resolution-reliability-v1",
+            "organization.yaml"));
+
+        Assert.DoesNotContain(
+            "HIVE__OUTCOMES__VERIFIERTIMEOUT",
+            reliabilityProfile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE__OUTCOMES__VERIFIERTIMEOUT: \"00:00:30\"",
+            verifier30Profile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE__OUTCOMES__MODE: \"enforcement\"",
+            verifier30Profile,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "./config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml",
+            verifier30Profile,
+            StringComparison.Ordinal);
+        Assert.Contains("timeout: PT60S", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.Contains("max_tokens: 8192", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.DoesNotContain("OPENAI_API_KEY", verifier30Profile, StringComparison.Ordinal);
+        Assert.DoesNotContain("sk-", verifier30Profile, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string RepositoryRoot
     {
         get

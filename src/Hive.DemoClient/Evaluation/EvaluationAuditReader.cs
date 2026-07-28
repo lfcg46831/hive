@@ -35,7 +35,10 @@ public sealed record EvaluationJourney(
     int? PricingTokenUnit = null,
     decimal? InputPricePerTokenUnit = null,
     decimal? OutputPricePerTokenUnit = null,
-    EvaluationInvalidOutputDiagnostics? InvalidOutputDiagnostics = null);
+    EvaluationInvalidOutputDiagnostics? InvalidOutputDiagnostics = null,
+    EvaluationOutcomeResolution? OutcomeResolution = null,
+    IReadOnlyList<EvaluationGatewayCall>? GatewayCalls = null,
+    IReadOnlyList<EvaluationOutcomeResolution>? OutcomeResolutionSteps = null);
 
 internal sealed record EvaluationAuditRow(
     DateTimeOffset OccurredAt,
@@ -64,8 +67,9 @@ internal static class EvaluationJourneyProjector
         DateTimeOffset? submissionStartedAt = null;
         DateTimeOffset? last = null;
         EvaluationAuditRow? result = null;
-        EvaluationAuditRow? cost = null;
+        var costs = new List<EvaluationAuditRow>();
         EvaluationAuditRow? decision = null;
+        var outcomeResolutions = new List<EvaluationAuditRow>();
 
         foreach (var row in rows)
         {
@@ -78,13 +82,14 @@ internal static class EvaluationJourneyProjector
             last = last is null || row.OccurredAt > last ? row.OccurredAt : last;
             if (row.Stage == "AgentDecided") decision = row;
             if (row.Stage == "ResultMessageCreated") result = row;
-            if (row.Stage == "GatewayCostRecorded") cost = row;
+            if (row.Stage == "GatewayCostRecorded") costs.Add(row);
+            if (row.Stage == "OutcomeResolved") outcomeResolutions.Add(row);
         }
 
         var failedDecision = decision is not null && IsFailedOrRejected(decision.Outcome)
             ? decision
             : null;
-        if (cost is null ||
+        if (costs.Count == 0 ||
             (result is null && failedDecision is null) ||
             submissionStartedAt is null ||
             last is null)
@@ -93,38 +98,150 @@ internal static class EvaluationJourneyProjector
         }
 
         var terminal = result is null ? failedDecision! : decision;
+        var terminalCost = costs[^1];
+        var gatewayCalls = costs
+            .Select((row, index) => ProjectGatewayCall(row, index + 1))
+            .ToArray();
+        var aggregate = AggregateGatewayCalls(gatewayCalls);
+        var outcomeResolutionSteps = outcomeResolutions
+            .Select(ParseOutcomeResolution)
+            .OfType<EvaluationOutcomeResolution>()
+            .ToArray();
         return new EvaluationJourney(
             (terminal?.Outcome ?? result!.Outcome).ToLowerInvariant(),
             result is null
-                ? cost.ReasonCode
-                    ?? PayloadValue(cost.Payload, "errorCode")
+                ? terminalCost.ReasonCode
+                    ?? PayloadValue(terminalCost.Payload, "errorCode")
                     ?? PayloadValue(terminal?.Payload, "terminalCode")
                     ?? terminal?.ReasonCode
                 : PayloadValue(terminal?.Payload, "terminalCode")
                     ?? result.ReasonCode
                     ?? terminal?.ReasonCode,
             Decision(result?.MessageType),
-            cost.ProviderId,
-            cost.ModelId,
-            PayloadValue(cost.Payload, "outputConstraintMode"),
-            cost.InputTokens,
-            cost.OutputTokens,
-            cost.TotalTokens,
-            cost.TokensEstimated,
-            cost.CostAmount,
-            cost.CostCurrency,
-            cost.CostEstimated,
-            cost.LatencyMilliseconds,
+            aggregate.ProviderId,
+            aggregate.ModelId,
+            aggregate.OutputConstraintMode,
+            aggregate.InputTokens,
+            aggregate.OutputTokens,
+            aggregate.TotalTokens,
+            aggregate.TokensEstimated,
+            aggregate.CostAmount,
+            aggregate.CostCurrency,
+            aggregate.CostEstimated,
+            aggregate.LatencyMilliseconds,
             Convert.ToInt64(
                 (last.Value - submissionStartedAt.Value).TotalMilliseconds,
                 CultureInfo.InvariantCulture),
-            PayloadValue(cost.Payload, "costStatus") ?? CostStatusFrom(cost),
-            PayloadValue(cost.Payload, "pricingVersion"),
-            PayloadInt(cost.Payload, "pricingTokenUnit"),
-            PayloadDecimal(cost.Payload, "inputPricePerTokenUnit"),
-            PayloadDecimal(cost.Payload, "outputPricePerTokenUnit"),
-            ParseInvalidOutputDiagnostics(decision?.Payload));
+            aggregate.CostStatus,
+            aggregate.PricingVersion,
+            aggregate.PricingTokenUnit,
+            aggregate.InputPricePerTokenUnit,
+            aggregate.OutputPricePerTokenUnit,
+            ParseInvalidOutputDiagnostics(decision?.Payload),
+            outcomeResolutionSteps.LastOrDefault(),
+            gatewayCalls,
+            outcomeResolutionSteps);
     }
+
+    private static EvaluationGatewayCall ProjectGatewayCall(
+        EvaluationAuditRow row,
+        int callIndex) =>
+        new(
+            callIndex,
+            PayloadValue(row.Payload, "operation") ?? "unspecified",
+            PayloadInt(row.Payload, "iteration") ?? callIndex,
+            row.Outcome.ToLowerInvariant(),
+            row.ReasonCode ?? PayloadValue(row.Payload, "errorCode"),
+            row.ProviderId,
+            row.ModelId,
+            PayloadValue(row.Payload, "outputConstraintMode"),
+            row.InputTokens,
+            row.OutputTokens,
+            row.TotalTokens,
+            row.TokensEstimated,
+            row.CostAmount,
+            row.CostCurrency,
+            row.CostEstimated,
+            row.LatencyMilliseconds,
+            PayloadValue(row.Payload, "costStatus") ?? CostStatusFrom(row),
+            PayloadValue(row.Payload, "pricingVersion"),
+            PayloadInt(row.Payload, "pricingTokenUnit"),
+            PayloadDecimal(row.Payload, "inputPricePerTokenUnit"),
+            PayloadDecimal(row.Payload, "outputPricePerTokenUnit"),
+            PayloadValue(row.Payload, "finishReason"),
+            PayloadInt(row.Payload, "providerStatusCode"),
+            PayloadDouble(row.Payload, "requestTimeoutMilliseconds"),
+            PayloadInt(row.Payload, "maxOutputTokens"));
+
+    private static EvaluationGatewayAggregate AggregateGatewayCalls(
+        IReadOnlyList<EvaluationGatewayCall> calls)
+    {
+        var usageComplete = calls.All(call =>
+            call.InputTokens.HasValue &&
+            call.OutputTokens.HasValue &&
+            call.TotalTokens.HasValue &&
+            call.TokensEstimated.HasValue);
+        var costComplete = calls.All(call =>
+            call.CostAmount.HasValue &&
+            call.CostCurrency is not null &&
+            call.CostEstimated.HasValue) &&
+            CommonValue(calls.Select(call => call.CostCurrency)) is not null;
+        var latencyComplete = calls.All(call => call.LatencyMilliseconds.HasValue);
+
+        return new EvaluationGatewayAggregate(
+            CommonValue(calls.Select(call => call.ProviderId)),
+            CommonValue(calls.Select(call => call.ModelId)),
+            CommonValue(calls.Select(call => call.OutputConstraintMode)),
+            usageComplete ? calls.Sum(call => call.InputTokens!.Value) : null,
+            usageComplete ? calls.Sum(call => call.OutputTokens!.Value) : null,
+            usageComplete ? calls.Sum(call => call.TotalTokens!.Value) : null,
+            usageComplete ? calls.Any(call => call.TokensEstimated == true) : null,
+            costComplete ? calls.Sum(call => call.CostAmount!.Value) : null,
+            costComplete ? CommonValue(calls.Select(call => call.CostCurrency)) : null,
+            costComplete ? calls.Any(call => call.CostEstimated == true) : null,
+            latencyComplete ? calls.Sum(call => (long)call.LatencyMilliseconds!.Value) : null,
+            costComplete
+                ? calls.Any(call => call.CostStatus == "estimated")
+                    ? "estimated"
+                    : "provider-reported"
+                : "cost-unavailable",
+            costComplete ? CommonValue(calls.Select(call => call.PricingVersion)) : null,
+            costComplete ? CommonValue(calls.Select(call => call.PricingTokenUnit)) : null,
+            costComplete
+                ? CommonValue(calls.Select(call => call.InputPricePerTokenUnit))
+                : null,
+            costComplete
+                ? CommonValue(calls.Select(call => call.OutputPricePerTokenUnit))
+                : null);
+    }
+
+    private static T? CommonValue<T>(IEnumerable<T?> values)
+    {
+        var distinct = values
+            .Where(value => value is not null)
+            .Distinct()
+            .Take(2)
+            .ToArray();
+        return distinct.Length == 1 ? distinct[0] : default;
+    }
+
+    private sealed record EvaluationGatewayAggregate(
+        string? ProviderId,
+        string? ModelId,
+        string? OutputConstraintMode,
+        int? InputTokens,
+        int? OutputTokens,
+        int? TotalTokens,
+        bool? TokensEstimated,
+        decimal? CostAmount,
+        string? CostCurrency,
+        bool? CostEstimated,
+        long? LatencyMilliseconds,
+        string CostStatus,
+        string? PricingVersion,
+        int? PricingTokenUnit,
+        decimal? InputPricePerTokenUnit,
+        decimal? OutputPricePerTokenUnit);
 
     private static bool IsFailedOrRejected(string outcome) =>
         outcome is "Failed" or "Rejected";
@@ -188,6 +305,24 @@ internal static class EvaluationJourneyProjector
                 $"Evaluation audit payload '{property}' is invalid.");
     }
 
+    private static double? PayloadDouble(string? payload, string property)
+    {
+        var value = PayloadValue(payload, property);
+        if (value is null)
+        {
+            return null;
+        }
+
+        return double.TryParse(
+            value,
+            NumberStyles.Float,
+            CultureInfo.InvariantCulture,
+            out var result)
+            ? result
+            : throw new InvalidOperationException(
+                $"Evaluation audit payload '{property}' is invalid.");
+    }
+
     private static EvaluationInvalidOutputDiagnostics? ParseInvalidOutputDiagnostics(
         string? payload)
     {
@@ -203,7 +338,8 @@ internal static class EvaluationJourneyProjector
         }
 
         var version = PayloadInt(payload, "parseErrorContractVersion");
-        if (version != EvaluationInvalidOutputDiagnosticContract.Version)
+        if (version is null ||
+            !EvaluationInvalidOutputDiagnosticContract.SupportedVersions.Contains(version.Value))
         {
             throw new InvalidOperationException("Evaluation parse diagnostic contract version is unsupported.");
         }
@@ -236,11 +372,331 @@ internal static class EvaluationJourneyProjector
 
         return new EvaluationInvalidOutputDiagnostics(version.Value, count.Value, ordered);
     }
+
+    private static EvaluationOutcomeResolution? ParseOutcomeResolution(EvaluationAuditRow? row)
+    {
+        if (row is null)
+        {
+            return null;
+        }
+
+        var mode = RequiredPayloadValue(row.Payload, "mode");
+        if (mode is not ("shadow" or "enforcement"))
+        {
+            throw new InvalidOperationException("Outcome resolution mode is outside the closed contract.");
+        }
+
+        var reasonCount = RequiredNonNegativePayloadInt(row.Payload, "reasonCount");
+        var diagnosticCount = RequiredNonNegativePayloadInt(row.Payload, "diagnosticCount");
+        var reasons = Enumerable.Range(0, reasonCount)
+            .Select(index => RequiredPayloadValue(row.Payload, $"reason.{index}"))
+            .ToArray();
+        var diagnostics = Enumerable.Range(0, diagnosticCount)
+            .Select(index => RequiredPayloadValue(row.Payload, $"diagnostic.{index}"))
+            .ToArray();
+        if (diagnostics.Any(code => !OutcomeResolutionDiagnosticCodes.Contains(code)))
+        {
+            throw new InvalidOperationException(
+                "Outcome resolution diagnostic is outside the closed contract.");
+        }
+
+        if (reasons.Any(code => !OutcomeResolutionReasonCodes.Contains(code)) ||
+            !OutcomeProposedIntentCodes.Contains(RequiredPayloadValue(row.Payload, "proposedIntent")) ||
+            !OutcomeWorkStateCodes.Contains(RequiredPayloadValue(row.Payload, "workState")) ||
+            !OutcomeRequiredInterventionCodes.Contains(
+                RequiredPayloadValue(row.Payload, "requiredIntervention")) ||
+            !OutcomeKindCodes.Contains(RequiredPayloadValue(row.Payload, "resolvedOutcome")))
+        {
+            throw new InvalidOperationException(
+                "Outcome resolution value is outside the closed contract.");
+        }
+
+        var verifierStatus = PayloadValue(row.Payload, "verifierStatus");
+        var verifierClassification = PayloadValue(row.Payload, "verifierClassification");
+        if ((verifierStatus is not null && !OutcomeVerifierStatusCodes.Contains(verifierStatus)) ||
+            (verifierClassification is not null &&
+             !OutcomeVerifierClassificationCodes.Contains(verifierClassification)) ||
+            (verifierStatus == "Classified") != (verifierClassification is not null))
+        {
+            throw new InvalidOperationException(
+                "Outcome verifier audit value is outside the closed contract.");
+        }
+
+        var ineligibilityReasons = ParseSemanticCompletionIneligibilityReasons(row.Payload);
+        var semanticCompletionCandidate =
+            OptionalPayloadBool(row.Payload, "semanticCompletionCandidate");
+        if (ineligibilityReasons is not null &&
+            (semanticCompletionCandidate == true) != (ineligibilityReasons.Count == 0))
+        {
+            throw new InvalidOperationException(
+                "Semantic-completion eligibility audit values are inconsistent.");
+        }
+
+        var deadlineRemainingMilliseconds =
+            OptionalNonNegativePayloadLong(row.Payload, "deadlineRemainingMilliseconds");
+        return new EvaluationOutcomeResolution(
+            mode,
+            RequiredNonNegativePayloadInt(row.Payload, "iteration"),
+            RequiredPayloadValue(row.Payload, "proposedIntent"),
+            RequiredPayloadValue(row.Payload, "workState"),
+            RequiredPayloadValue(row.Payload, "requiredIntervention"),
+            RequiredPayloadValue(row.Payload, "resolvedOutcome"),
+            reasons,
+            RequiredPayloadValue(row.Payload, "policyVersion"),
+            RequiredPayloadValue(row.Payload, "policyFingerprint"),
+            RequiredPayloadBool(row.Payload, "proposalOverridden"),
+            RequiredPayloadBool(row.Payload, "verifierInvoked"),
+            diagnostics,
+            row.ProviderId,
+            row.ModelId,
+            row.InputTokens,
+            row.OutputTokens,
+            row.TotalTokens,
+            row.CostAmount,
+            row.CostCurrency,
+            row.LatencyMilliseconds,
+            verifierStatus,
+            verifierClassification,
+            semanticCompletionCandidate,
+            ineligibilityReasons,
+            deadlineRemainingMilliseconds);
+    }
+
+    private static IReadOnlyList<string>? ParseSemanticCompletionIneligibilityReasons(
+        string payload)
+    {
+        var count = OptionalNonNegativePayloadInt(
+            payload,
+            "semanticCompletionIneligibilityReasonCount");
+        if (count is null)
+        {
+            return null;
+        }
+
+        var reasons = Enumerable.Range(0, count.Value)
+            .Select(index => RequiredPayloadValue(
+                payload,
+                $"semanticCompletionIneligibilityReason.{index}"))
+            .ToArray();
+        if (reasons.Distinct(StringComparer.Ordinal).Count() != reasons.Length ||
+            reasons.Any(reason =>
+                !OutcomeSemanticCompletionIneligibilityReasonCodes.Contains(reason)))
+        {
+            throw new InvalidOperationException(
+                "Semantic-completion ineligibility reason is outside the closed contract.");
+        }
+
+        var ordered = reasons
+            .OrderBy(reason =>
+                OutcomeSemanticCompletionIneligibilityReasonOrder[reason])
+            .ToArray();
+        if (!reasons.SequenceEqual(ordered, StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Semantic-completion ineligibility reasons are not canonically ordered.");
+        }
+
+        return reasons;
+    }
+
+    private static string RequiredPayloadValue(string payload, string property) =>
+        PayloadValue(payload, property)
+        ?? throw new InvalidOperationException(
+            $"Outcome resolution audit payload '{property}' is missing.");
+
+    private static int RequiredNonNegativePayloadInt(string payload, string property)
+    {
+        var value = PayloadInt(payload, property);
+        return value is >= 0
+            ? value.Value
+            : throw new InvalidOperationException(
+                $"Outcome resolution audit payload '{property}' is invalid.");
+    }
+
+    private static int? OptionalNonNegativePayloadInt(string payload, string property)
+    {
+        var value = PayloadInt(payload, property);
+        return value is null or >= 0
+            ? value
+            : throw new InvalidOperationException(
+                $"Outcome resolution audit payload '{property}' is invalid.");
+    }
+
+    private static long? OptionalNonNegativePayloadLong(string payload, string property)
+    {
+        var value = PayloadValue(payload, property);
+        if (value is null)
+        {
+            return null;
+        }
+
+        return long.TryParse(
+            value,
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var result) &&
+            result >= 0
+                ? result
+                : throw new InvalidOperationException(
+                    $"Outcome resolution audit payload '{property}' is invalid.");
+    }
+
+    private static bool RequiredPayloadBool(string payload, string property)
+    {
+        var value = RequiredPayloadValue(payload, property);
+        return value switch
+        {
+            "true" => true,
+            "false" => false,
+            _ => throw new InvalidOperationException(
+                $"Outcome resolution audit payload '{property}' is invalid."),
+        };
+    }
+
+    private static bool? OptionalPayloadBool(string payload, string property)
+    {
+        var value = PayloadValue(payload, property);
+        return value switch
+        {
+            null => null,
+            "true" => true,
+            "false" => false,
+            _ => throw new InvalidOperationException(
+                $"Outcome resolution audit payload '{property}' is invalid."),
+        };
+    }
+
+    private static readonly IReadOnlySet<string> OutcomeResolutionDiagnosticCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "facts-unavailable",
+            "policy-unavailable",
+            "policy-incompatible",
+            "resolution-unavailable",
+            "materialization-incompatible",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeProposedIntentCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ContinueWork",
+            "Report.Progress",
+            "Report.Done",
+            "Escalation",
+            "Directive",
+            "ApprovalRequired",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeWorkStateCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "NotStarted",
+            "InProgress",
+            "Blocked",
+            "Completed",
+            "Failed",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeRequiredInterventionCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "None",
+            "HumanApproval",
+            "SuperiorDecision",
+            "ExternalAction",
+            "Delegation",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeKindCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ContinueWork",
+            "Report.Progress",
+            "Report.Done",
+            "Escalation",
+            "Directive",
+            "ApprovalRequired",
+            "Undetermined",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeVerifierStatusCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "Classified",
+            "Unavailable",
+            "TimedOut",
+            "InvalidOutput",
+        };
+
+    private static readonly IReadOnlySet<string> OutcomeVerifierClassificationCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "ContinueWork",
+            "Report.Progress",
+            "Report.Done",
+            "Escalation",
+            "Directive",
+            "ApprovalRequired",
+            "Undetermined",
+        };
+
+    private static readonly IReadOnlyDictionary<string, int>
+        OutcomeSemanticCompletionIneligibilityReasonOrder =
+            new Dictionary<string, int>(StringComparer.Ordinal)
+            {
+                ["proposal-intent-not-report-done"] = 1,
+                ["work-state-not-completed"] = 2,
+                ["intervention-required"] = 3,
+                ["blockers-present"] = 4,
+                ["next-action-present"] = 5,
+                ["structured-completion-criteria-present"] = 6,
+                ["completion-state-incompatible"] = 7,
+                ["evidence-references-missing"] = 8,
+                ["evidence-source-not-directive-input"] = 9,
+                ["evidence-reference-not-in-context"] = 10,
+            };
+
+    private static readonly IReadOnlySet<string>
+        OutcomeSemanticCompletionIneligibilityReasonCodes =
+            OutcomeSemanticCompletionIneligibilityReasonOrder.Keys
+                .ToHashSet(StringComparer.Ordinal);
+
+    private static readonly IReadOnlySet<string> OutcomeResolutionReasonCodes =
+        new HashSet<string>(StringComparer.Ordinal)
+        {
+            "human-approval-gate",
+            "approval-pending",
+            "deadline-exceeded",
+            "budget-exhausted",
+            "iteration-limit-reached",
+            "retry-limit-reached",
+            "permanent-dependency-failure",
+            "authority-denied",
+            "routing-unavailable",
+            "policy-trigger-observed",
+            "autonomous-action-available",
+            "delegation-required",
+            "completion-criteria-satisfied",
+            "verifiable-progress",
+            "insufficient-facts",
+            "contradictory-facts",
+            "verifier-confirmed",
+            "verifier-unavailable",
+            "verifier-timed-out",
+            "verifier-output-invalid",
+            "verifier-contradicted-facts",
+            "verifier-disagreement",
+            "facts-unavailable",
+            "policy-unavailable",
+            "policy-incompatible",
+            "proposal-escalation",
+            "semantic-completion-verified",
+        };
 }
 
 internal static class EvaluationInvalidOutputDiagnosticContract
 {
-    public const int Version = 1;
+    public static IReadOnlySet<int> SupportedVersions { get; } = new HashSet<int> { 1, 2 };
 
     public static IReadOnlySet<string> Codes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -255,6 +711,9 @@ internal static class EvaluationInvalidOutputDiagnosticContract
         "required-field",
         "top-level-object-required",
         "unknown-field",
+        "invalid-vocabulary",
+        "duplicate-field",
+        "contradictory-combination",
     };
 
     public static IReadOnlySet<string> Paths { get; } = new HashSet<string>(StringComparer.Ordinal)
@@ -289,6 +748,19 @@ internal static class EvaluationInvalidOutputDiagnosticContract
         "report.body",
         "report.kind",
         "schema_version",
+        "outcome_proposal",
+        "outcome_proposal.schema_version",
+        "outcome_proposal.proposal",
+        "outcome_proposal.proposal.blockers",
+        "outcome_proposal.proposal.blockers.item",
+        "outcome_proposal.proposal.evidence_references",
+        "outcome_proposal.proposal.evidence_references.item",
+        "outcome_proposal.proposal.evidence_references.item.reference",
+        "outcome_proposal.proposal.evidence_references.item.source",
+        "outcome_proposal.proposal.next_action",
+        "outcome_proposal.proposal.proposed_intent",
+        "outcome_proposal.proposal.required_intervention",
+        "outcome_proposal.proposal.work_state",
     };
 }
 

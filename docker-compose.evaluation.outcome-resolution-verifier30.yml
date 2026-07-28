@@ -1,0 +1,16 @@
+# Calibration-only verifier-deadline profile for US-F0-13-T18j.
+#
+# Layer last after docker-compose.evaluation.yml. It preserves the T18h reliability
+# organization snapshot while changing only the systemic verifier timeout from its
+# 15-second default to 30 seconds. It does not authorize a corpus or holdout run.
+
+services:
+  api:
+    environment:
+      HIVE__OUTCOMES__MODE: "enforcement"
+      HIVE__OUTCOMES__VERIFIERTIMEOUT: "00:00:30"
+    volumes:
+      - type: bind
+        source: ./config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml
+        target: /app/config/organizations/acme-delivery/organization.yaml
+        read_only: true

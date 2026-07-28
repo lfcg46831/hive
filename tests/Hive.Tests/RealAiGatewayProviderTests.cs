@@ -562,16 +562,39 @@ public sealed class RealAiGatewayProviderTests
         var chatResponse = new ChatResponse(
             new ChatMessage(ChatRole.Assistant, string.Empty))
         {
-            FinishReason = ChatFinishReason.Stop,
+            ResponseId = "response-empty-123",
+            ModelId = "gpt-5-mini-2025-08-07",
+            FinishReason = ChatFinishReason.Length,
+            Usage = new UsageDetails
+            {
+                InputTokenCount = 1_000,
+                OutputTokenCount = 4_096,
+                TotalTokenCount = 5_096,
+                ReasoningTokenCount = 4_096,
+            },
         };
         var chatClient = new FakeChatClient((_, _, _) => Task.FromResult(chatResponse));
 
-        var response = await Gateway(chatClient).CompleteAsync(Request());
+        var response = await Gateway(
+            chatClient,
+            ConfigurePricing).CompleteAsync(Request());
 
         Assert.True(response.IsFailure);
         var error = Assert.IsType<AiGatewayError>(response.Error);
         Assert.Equal(AiGatewayErrorCode.InvalidProviderResponse, error.Code);
         Assert.False(error.IsRetryable);
+        Assert.Equal("gpt-5-mini-2025-08-07", error.Provider?.ModelId);
+        Assert.Equal(
+            "response-empty-123",
+            error.Provider?.Metadata["response-id"]);
+        var diagnostics = Assert.IsType<AiGatewayFailureDiagnostics>(error.Diagnostics);
+        Assert.Equal(AiFinishReason.Length, diagnostics.FinishReason);
+        Assert.Equal(1_000, diagnostics.Usage?.InputTokens);
+        Assert.Equal(4_096, diagnostics.Usage?.OutputTokens);
+        Assert.Equal(5_096, diagnostics.Usage?.TotalTokens);
+        Assert.Equal(0.008442m, diagnostics.Cost?.Amount);
+        Assert.True(diagnostics.Cost?.IsEstimated);
+        Assert.Equal("openai-2026-07-13", diagnostics.AppliedPricing?.Version);
     }
 
     [Fact]
@@ -804,6 +827,8 @@ public sealed class RealAiGatewayProviderTests
         Assert.DoesNotContain(nameof(HttpRequestException), error.Message);
         Assert.NotNull(error.Provider);
         Assert.Equal("openai", error.Provider.ProviderId);
+        var diagnostics = Assert.IsType<AiGatewayFailureDiagnostics>(error.Diagnostics);
+        Assert.Equal((int)statusCode, diagnostics.ProviderStatusCode);
     }
 
     private static ChatResponse SuccessChatResponse() =>

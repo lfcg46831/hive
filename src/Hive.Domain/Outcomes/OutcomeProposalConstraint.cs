@@ -1,0 +1,264 @@
+using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Hive.Domain.Ai;
+
+namespace Hive.Domain.Outcomes;
+
+public static class OutcomeProposalConstraint
+{
+    public const int SchemaVersion = OrganizationalOutcomeContractVersions.OutcomeProposal;
+    public const string SchemaName = "hive_outcome_proposal_v2";
+    public const string SchemaVersionProperty = "schema_version";
+    public const string ProposalProperty = "proposal";
+    public const string ProposedIntentProperty = "proposed_intent";
+    public const string WorkStateProperty = "work_state";
+    public const string RequiredInterventionProperty = "required_intervention";
+    public const string BlockersProperty = "blockers";
+    public const string NextActionProperty = "next_action";
+    public const string EvidenceReferencesProperty = "evidence_references";
+    public const string EvidenceSourceProperty = "source";
+    public const string EvidenceReferenceProperty = "reference";
+
+    public static ImmutableArray<string> ProposalRequiredFields { get; } =
+    [
+        ProposedIntentProperty,
+        WorkStateProperty,
+        RequiredInterventionProperty,
+        BlockersProperty,
+        NextActionProperty,
+        EvidenceReferencesProperty,
+    ];
+
+    public static ImmutableArray<string> EvidenceRequiredFields { get; } =
+    [
+        EvidenceSourceProperty,
+        EvidenceReferenceProperty,
+    ];
+
+    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema();
+
+    public static AiOutputConstraint OutputConstraint { get; } = new(
+        SchemaName,
+        SchemaVersion,
+        CanonicalJsonSchema,
+        [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+
+    private static JsonElement CreateJsonSchema()
+    {
+        var proposalBranches = new JsonArray
+        {
+            CreateProposalBranch(
+                OutcomeProposedIntent.ContinueWork,
+                [OutcomeWorkState.NotStarted, OutcomeWorkState.InProgress],
+                [OutcomeRequiredIntervention.None],
+                blockersAllowed: [],
+                nextActionMode: NextActionMode.Required,
+                minimumEvidenceReferences: 0),
+            CreateProposalBranch(
+                OutcomeProposedIntent.ReportProgress,
+                [OutcomeWorkState.InProgress],
+                [OutcomeRequiredIntervention.None],
+                blockersAllowed: [],
+                nextActionMode: NextActionMode.Required,
+                minimumEvidenceReferences: 1),
+            CreateProposalBranch(
+                OutcomeProposedIntent.ReportDone,
+                [OutcomeWorkState.Completed],
+                [OutcomeRequiredIntervention.None],
+                blockersAllowed: [],
+                nextActionMode: NextActionMode.Forbidden,
+                minimumEvidenceReferences: 1),
+            CreateProposalBranch(
+                OutcomeProposedIntent.Escalation,
+                [OutcomeWorkState.Blocked, OutcomeWorkState.Failed],
+                [
+                    OutcomeRequiredIntervention.SuperiorDecision,
+                    OutcomeRequiredIntervention.ExternalAction,
+                ],
+                blockersAllowed: Enum.GetValues<OutcomeBlocker>()
+                    .Where(blocker => blocker is not OutcomeBlocker.HumanApproval),
+                nextActionMode: NextActionMode.Optional,
+                minimumEvidenceReferences: 0,
+                minimumBlockers: 1),
+            CreateProposalBranch(
+                OutcomeProposedIntent.Directive,
+                [OutcomeWorkState.NotStarted, OutcomeWorkState.InProgress],
+                [OutcomeRequiredIntervention.Delegation],
+                blockersAllowed: [],
+                nextActionMode: NextActionMode.Required,
+                minimumEvidenceReferences: 0),
+            CreateProposalBranch(
+                OutcomeProposedIntent.ApprovalRequired,
+                [OutcomeWorkState.Blocked],
+                [OutcomeRequiredIntervention.HumanApproval],
+                blockersAllowed: [OutcomeBlocker.HumanApproval],
+                nextActionMode: NextActionMode.Optional,
+                minimumEvidenceReferences: 0,
+                minimumBlockers: 1),
+        };
+
+        var root = new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                [SchemaVersionProperty] = new JsonObject
+                {
+                    ["type"] = "integer",
+                    ["const"] = SchemaVersion,
+                },
+                [ProposalProperty] = new JsonObject
+                {
+                    ["anyOf"] = proposalBranches,
+                },
+            },
+            ["required"] = JsonArray(SchemaVersionProperty, ProposalProperty),
+            ["additionalProperties"] = false,
+        };
+
+        return JsonSerializer.SerializeToElement(root);
+    }
+
+    private static JsonObject CreateProposalBranch(
+        OutcomeProposedIntent proposedIntent,
+        IEnumerable<OutcomeWorkState> workStates,
+        IEnumerable<OutcomeRequiredIntervention> interventions,
+        IEnumerable<OutcomeBlocker> blockersAllowed,
+        NextActionMode nextActionMode,
+        int minimumEvidenceReferences,
+        int minimumBlockers = 0)
+    {
+        var blockerWireValues = blockersAllowed
+            .Select(OutcomeBlockerContract.ToWireValue)
+            .ToArray();
+        var blockers = new JsonObject
+        {
+            ["type"] = "array",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["enum"] = JsonArray(
+                    blockerWireValues.Length == 0
+                        ? OutcomeBlockerContract.WireValues
+                        : blockerWireValues),
+            },
+            ["uniqueItems"] = true,
+        };
+        if (minimumBlockers > 0)
+        {
+            blockers["minItems"] = minimumBlockers;
+        }
+        else
+        {
+            blockers["maxItems"] = 0;
+        }
+
+        if (proposedIntent is OutcomeProposedIntent.ApprovalRequired)
+        {
+            blockers["maxItems"] = 1;
+        }
+
+        return new JsonObject
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                [ProposedIntentProperty] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["const"] = OutcomeProposedIntentContract.ToWireValue(proposedIntent),
+                },
+                [WorkStateProperty] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = JsonArray(workStates.Select(OutcomeWorkStateContract.ToWireValue)),
+                },
+                [RequiredInterventionProperty] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["enum"] = JsonArray(
+                        interventions.Select(OutcomeRequiredInterventionContract.ToWireValue)),
+                },
+                [BlockersProperty] = blockers,
+                [NextActionProperty] = CreateNextActionSchema(nextActionMode),
+                [EvidenceReferencesProperty] = CreateEvidenceReferencesSchema(
+                    minimumEvidenceReferences),
+            },
+            ["required"] = JsonArray(ProposalRequiredFields),
+            ["additionalProperties"] = false,
+        };
+    }
+
+    private static JsonNode CreateNextActionSchema(NextActionMode mode) =>
+        mode switch
+        {
+            NextActionMode.Required => CreateNonBlankStringSchema(),
+            NextActionMode.Forbidden => new JsonObject { ["type"] = "null" },
+            NextActionMode.Optional => new JsonObject
+            {
+                ["anyOf"] = new JsonArray
+                {
+                    CreateNonBlankStringSchema(),
+                    new JsonObject { ["type"] = "null" },
+                },
+            },
+            _ => throw new InvalidOperationException("Unknown next-action schema mode."),
+        };
+
+    private static JsonObject CreateEvidenceReferencesSchema(int minimumEvidenceReferences) =>
+        new()
+        {
+            ["type"] = "array",
+            ["items"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["properties"] = new JsonObject
+                {
+                    [EvidenceSourceProperty] = new JsonObject
+                    {
+                        ["type"] = "string",
+                        ["enum"] = JsonArray(OutcomeEvidenceSourceContract.WireValues),
+                    },
+                    [EvidenceReferenceProperty] = new JsonObject
+                    {
+                        ["type"] = "string",
+                        ["minLength"] = 1,
+                        ["maxLength"] = 128,
+                        ["pattern"] = "^[A-Za-z0-9._:/-]+$",
+                    },
+                },
+                ["required"] = JsonArray(EvidenceRequiredFields),
+                ["additionalProperties"] = false,
+            },
+            ["minItems"] = minimumEvidenceReferences,
+            ["uniqueItems"] = true,
+        };
+
+    private static JsonObject CreateNonBlankStringSchema() =>
+        new()
+        {
+            ["type"] = "string",
+            ["pattern"] = "[^\\u0009-\\u000D\\u0020\\u0085\\u00A0\\u1680\\u2000-\\u200A\\u2028\\u2029\\u202F\\u205F\\u3000]",
+        };
+
+    private static JsonArray JsonArray(IEnumerable<string> values)
+    {
+        var array = new JsonArray();
+        foreach (var value in values)
+        {
+            array.Add(value);
+        }
+
+        return array;
+    }
+
+    private static JsonArray JsonArray(params string[] values) => JsonArray((IEnumerable<string>)values);
+
+    private enum NextActionMode
+    {
+        Required = 1,
+        Optional = 2,
+        Forbidden = 3,
+    }
+}

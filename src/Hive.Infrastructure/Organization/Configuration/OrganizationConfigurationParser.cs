@@ -2,6 +2,7 @@ using System.Globalization;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using YamlDotNet.Core;
 using YamlDotNet.RepresentationModel;
 
@@ -129,6 +130,7 @@ public sealed class OrganizationConfigurationParser
         var rootUnitValue = RequireScalar(organization, "root_unit", "organization", context);
         var name = OptionalScalar(organization, "name", "organization", context);
         var owner = ReadOwner(organization, "organization", context);
+        var outcomePolicy = ReadOutcomePolicy(organization, "organization", context);
 
         var id = idValue is null ? null : Identity(OrganizationId.From, idValue, idNode!, "organization.id", context);
         var rootUnit = rootUnitValue is null
@@ -140,7 +142,7 @@ public sealed class OrganizationConfigurationParser
             return null;
         }
 
-        return new OrganizationHeader(id, rootUnit, owner, name);
+        return new OrganizationHeader(id, rootUnit, owner, name, outcomePolicy);
     }
 
     private static OwnerConfiguration? ReadOwner(YamlMappingNode organization, string path, ParseContext context)
@@ -316,6 +318,7 @@ public sealed class OrganizationConfigurationParser
         var schedule = ReadSchedule(occupant, occupantPath, context);
         var subscriptions = ReadSubscriptions(occupant, occupantPath, context);
         var tools = ReadTools(occupant, occupantPath, context);
+        var outcomePolicy = ReadOutcomePolicy(occupant, occupantPath, context);
 
         if (type is null)
         {
@@ -330,7 +333,77 @@ public sealed class OrganizationConfigurationParser
             authority,
             schedule,
             subscriptions,
-            tools);
+            tools,
+            outcomePolicy);
+    }
+
+    private static OutcomePolicyOverlay? ReadOutcomePolicy(
+        YamlMappingNode parent,
+        string path,
+        ParseContext context)
+    {
+        var policyPath = $"{path}.outcome_policy";
+        var node = Child(parent, "outcome_policy");
+        if (node is null || IsNull(node))
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode policy)
+        {
+            context.AddAt(
+                node,
+                policyPath,
+                "field 'outcome_policy' must be a mapping.");
+            return null;
+        }
+
+        var allowedFields = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "max_iterations",
+            "max_retries",
+            "verifier_enabled",
+        };
+        foreach (var pair in policy.Children)
+        {
+            if (pair.Key is not YamlScalarNode key ||
+                key.Value is null ||
+                !allowedFields.Contains(key.Value))
+            {
+                var renderedKey = pair.Key is YamlScalarNode scalar
+                    ? scalar.Value ?? "<null>"
+                    : "<non-scalar>";
+                context.AddAt(
+                    pair.Key,
+                    $"{policyPath}.{renderedKey}",
+                    $"unknown outcome-policy field '{renderedKey}'.");
+            }
+        }
+
+        var maximumIterations = OptionalInt(policy, "max_iterations", policyPath, context);
+        var maximumRetries = OptionalInt(policy, "max_retries", policyPath, context);
+        var (verifierOk, verifierEnabled) = OptionalBool(
+            policy,
+            "verifier_enabled",
+            policyPath,
+            context);
+        if (!verifierOk)
+        {
+            return null;
+        }
+
+        try
+        {
+            return new OutcomePolicyOverlay(
+                maximumIterations,
+                maximumRetries,
+                verifierEnabled);
+        }
+        catch (ArgumentOutOfRangeException exception)
+        {
+            context.AddAt(node, policyPath, $"invalid outcome policy: {exception.Message}");
+            return null;
+        }
     }
 
     private static AiConfiguration? ReadAi(YamlMappingNode occupant, string path, ParseContext context)

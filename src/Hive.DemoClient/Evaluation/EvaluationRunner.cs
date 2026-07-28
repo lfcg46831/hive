@@ -157,7 +157,10 @@ public sealed class EvaluationRunner
             journey.OutputPricePerTokenUnit,
             normalizedPrediction,
             _rubric?.Score(item.HumanReference, normalizedPrediction),
-            journey.InvalidOutputDiagnostics);
+            journey.InvalidOutputDiagnostics,
+            journey.OutcomeResolution,
+            journey.GatewayCalls,
+            journey.OutcomeResolutionSteps);
     }
 
     private EvaluationCaseResult Empty(

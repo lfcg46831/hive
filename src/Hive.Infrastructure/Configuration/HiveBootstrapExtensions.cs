@@ -5,6 +5,7 @@ using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Domain.Positions;
 using Hive.Domain.Organization;
+using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Evaluation;
@@ -115,6 +116,23 @@ public static class HiveBootstrapExtensions
             return string.IsNullOrWhiteSpace(connectionString)
                 ? new UnavailablePositionConfigurationProvider(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlPositionConfigurationProvider(connectionString, organizationsRoot);
+        });
+        builder.Services.TryAddSingleton<IExecutionFactsMaterializer, ExecutionFactsMaterializer>();
+        builder.Services.TryAddSingleton<OrganizationalOutcomeContextComposer>();
+        builder.Services.TryAddSingleton<IOrganizationalOutcomeResolver, OrganizationalOutcomeResolver>();
+        builder.Services.TryAddSingleton<IOutcomeVerifier, AiGatewayOutcomeVerifier>();
+        builder.Services.TryAddSingleton<
+            IOrganizationalOutcomeOrchestrator,
+            OrganizationalOutcomeOrchestrator>();
+        builder.Services.TryAddSingleton<IOutcomePolicyProvider>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? new UnavailableOutcomePolicyProvider(ConnectionStringNames.PostgreSql)
+                : new PostgreSqlOutcomePolicyProvider(connectionString);
         });
         builder.Services.TryAddSingleton<IOrganizationRelations>(serviceProvider =>
         {

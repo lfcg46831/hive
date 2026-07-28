@@ -72,7 +72,8 @@ internal sealed class OrganizationRegistryProjection
                 configuration.Organization.Owner.Ref),
             ReadOnly(configuration.Prompts
                 .OrderBy(prompt => prompt.Id, StringComparer.Ordinal)
-                .Select(prompt => new PromptConfiguration(prompt.Id, prompt.Path)))));
+                .Select(prompt => new PromptConfiguration(prompt.Id, prompt.Path))),
+            Clone(configuration.Organization.OutcomePolicy)));
 
         var units = configuration.Units
             .OrderBy(unit => unit.Id.Value, StringComparer.Ordinal)
@@ -196,7 +197,8 @@ internal sealed class OrganizationRegistryProjection
                 .OrderBy(tool => tool.Connector, StringComparer.Ordinal)
                 .ThenBy(
                     tool => string.Join('\0', tool.Scope),
-                    StringComparer.Ordinal)));
+                    StringComparer.Ordinal)),
+            Clone(occupant.OutcomePolicy));
     }
 
     private static RegistryAuthority ProjectAuthority(PositionConfiguration position)
@@ -235,6 +237,15 @@ internal sealed class OrganizationRegistryProjection
             ai.Timeout,
             ai.MaxIterations);
     }
+
+    private static Hive.Domain.Outcomes.OutcomePolicyOverlay? Clone(
+        Hive.Domain.Outcomes.OutcomePolicyOverlay? overlay) =>
+        overlay is null
+            ? null
+            : new Hive.Domain.Outcomes.OutcomePolicyOverlay(
+                overlay.MaximumIterations,
+                overlay.MaximumRetries,
+                overlay.VerifierEnabled);
 
     private static OrganizationRelationsSnapshot BuildRelations(OrganizationConfiguration configuration)
     {

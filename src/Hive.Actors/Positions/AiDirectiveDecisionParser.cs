@@ -3,6 +3,7 @@ using System.Text.Json;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.Outcomes;
 
 namespace Hive.Actors.Positions;
 
@@ -21,7 +22,7 @@ internal sealed record AiDirectiveDecisionParseError
 
 internal static class AiDirectiveDecisionParseDiagnosticContract
 {
-    public const int Version = 1;
+    public const int Version = 2;
 
     public const string EmptyResponseCode = "empty-response";
     public const string InvalidJsonCode = "invalid-json";
@@ -34,14 +35,20 @@ internal static class AiDirectiveDecisionParseDiagnosticContract
     public const string PayloadIntentMismatchCode = "payload-intent-mismatch";
     public const string UnknownFieldCode = "unknown-field";
     public const string InvalidFieldCode = "invalid-field";
+    public const string InvalidVocabularyCode = "invalid-vocabulary";
+    public const string DuplicateFieldCode = "duplicate-field";
+    public const string ContradictoryCombinationCode = "contradictory-combination";
 
     public static ImmutableArray<string> Codes { get; } =
     [
+        ContradictoryCombinationCode,
+        DuplicateFieldCode,
         EmptyResponseCode,
         InvalidFieldCode,
         InvalidIntentCode,
         InvalidJsonCode,
         InvalidSchemaVersionCode,
+        InvalidVocabularyCode,
         PayloadAmbiguousCode,
         PayloadIntentMismatchCode,
         PayloadRequiredCode,
@@ -50,8 +57,12 @@ internal static class AiDirectiveDecisionParseDiagnosticContract
         UnknownFieldCode,
     ];
 
-    public static ImmutableArray<string> Paths { get; } =
-    [
+    public static ImmutableArray<string> Paths { get; } = BuildPaths();
+
+    private static ImmutableArray<string> BuildPaths()
+    {
+        var paths = new List<string>
+        {
         "$",
         AiDirectiveDecisionSchema.ActingUnderProperty,
         AiDirectiveDecisionSchema.DecisionProperty,
@@ -82,7 +93,16 @@ internal static class AiDirectiveDecisionParseDiagnosticContract
         $"{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}",
         $"{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField}",
         AiDirectiveDecisionSchema.SchemaVersionProperty,
-    ];
+        };
+        paths.AddRange(OutcomeProposalParseDiagnosticContract.Paths.Select(path =>
+            path == "$"
+                ? AiDirectiveOutcomeProposalEnvelope.PropertyName
+                : $"{AiDirectiveOutcomeProposalEnvelope.PropertyName}.{path}"));
+        return paths
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(path => path, StringComparer.Ordinal)
+            .ToImmutableArray();
+    }
 
     public static string RequireCode(string code) => Require(code, Codes, nameof(code));
 
@@ -109,10 +129,12 @@ internal sealed record AiDirectiveDecisionParseResult
 {
     private AiDirectiveDecisionParseResult(
         AiDirectiveDecision? decision,
+        OutcomeProposal? proposal,
         ImmutableArray<AiDirectiveDecisionParseError> errors,
         string? evaluationEnvelopeJson)
     {
         Decision = decision;
+        Proposal = proposal;
         Errors = errors;
         EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
@@ -122,6 +144,8 @@ internal sealed record AiDirectiveDecisionParseResult
     public bool IsFailure => !IsSuccess;
 
     public AiDirectiveDecision? Decision { get; }
+
+    public OutcomeProposal? Proposal { get; }
 
     public IReadOnlyList<AiDirectiveDecisionParseError> Errors { get; }
 
@@ -134,12 +158,14 @@ internal sealed record AiDirectiveDecisionParseResult
 
     public static AiDirectiveDecisionParseResult Success(
         AiDirectiveDecision decision,
+        OutcomeProposal? proposal = null,
         string? evaluationEnvelopeJson = null)
     {
         ArgumentNullException.ThrowIfNull(decision);
 
         return new AiDirectiveDecisionParseResult(
             decision,
+            proposal,
             ImmutableArray<AiDirectiveDecisionParseError>.Empty,
             evaluationEnvelopeJson);
     }
@@ -170,7 +196,11 @@ internal sealed record AiDirectiveDecisionParseResult
             .ThenBy(error => error.Code, StringComparer.Ordinal)
             .ToImmutableArray();
 
-        return new AiDirectiveDecisionParseResult(null, ordered, evaluationEnvelopeJson: null);
+        return new AiDirectiveDecisionParseResult(
+            decision: null,
+            proposal: null,
+            errors: ordered,
+            evaluationEnvelopeJson: null);
     }
 }
 
@@ -187,6 +217,7 @@ internal static class AiDirectiveDecisionParser
     private const string PayloadIntentMismatchCode = AiDirectiveDecisionParseDiagnosticContract.PayloadIntentMismatchCode;
     private const string UnknownFieldCode = AiDirectiveDecisionParseDiagnosticContract.UnknownFieldCode;
     private const string InvalidFieldCode = AiDirectiveDecisionParseDiagnosticContract.InvalidFieldCode;
+    private const string DuplicateFieldCode = AiDirectiveDecisionParseDiagnosticContract.DuplicateFieldCode;
 
     private static readonly string[] TopLevelFields =
     [
@@ -228,7 +259,8 @@ internal static class AiDirectiveDecisionParser
     public static AiDirectiveDecisionParseResult Parse(
         string? output,
         IEnumerable<AuthorityKey>? canDecide = null,
-        bool acceptEvaluationEnvelope = false)
+        bool acceptEvaluationEnvelope = false,
+        bool requireOutcomeProposal = false)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -255,10 +287,14 @@ internal static class AiDirectiveDecisionParser
             out _);
         var decisionEnvelope = ReadDecisionEnvelope(root, errors);
         var evaluationEnvelopeJson = ReadEvaluationEnvelope(root, acceptEvaluationEnvelope);
+        var proposal = ReadOutcomeProposal(root, requireOutcomeProposal, errors);
         AddUnknownFields(
             root,
             "$",
-            AllowedTopLevelFields(hasCanonicalEnvelope, acceptEvaluationEnvelope),
+            AllowedTopLevelFields(
+                hasCanonicalEnvelope,
+                acceptEvaluationEnvelope,
+                requireOutcomeProposal),
             errors);
         if (hasCanonicalEnvelope && !decisionEnvelope.HasValue)
         {
@@ -310,19 +346,82 @@ internal static class AiDirectiveDecisionParser
             }
         }
 
+        if (decision is not null && proposal is not null &&
+            !AiDirectiveOutcomeProposalEnvelope.IsCompatible(decision, proposal))
+        {
+            errors.Add(Error(
+                AiDirectiveDecisionParseDiagnosticContract.ContradictoryCombinationCode,
+                $"{AiDirectiveOutcomeProposalEnvelope.PropertyName}." +
+                $"{OutcomeProposalConstraint.ProposalProperty}." +
+                OutcomeProposalConstraint.ProposedIntentProperty));
+        }
+
         return errors.Count == 0 && decision is not null
-            ? AiDirectiveDecisionParseResult.Success(decision, evaluationEnvelopeJson)
+            ? AiDirectiveDecisionParseResult.Success(
+                decision,
+                proposal,
+                evaluationEnvelopeJson)
             : AiDirectiveDecisionParseResult.Failure(errors);
     }
 
     private static string[] AllowedTopLevelFields(
         bool hasCanonicalEnvelope,
-        bool acceptEvaluationEnvelope)
+        bool acceptEvaluationEnvelope,
+        bool requireOutcomeProposal)
     {
         var allowed = hasCanonicalEnvelope ? CanonicalTopLevelFields : TopLevelFields;
-        return acceptEvaluationEnvelope
-            ? [.. allowed, AiDirectiveEvaluationEnvelope.PropertyName]
+        if (acceptEvaluationEnvelope)
+        {
+            allowed = [.. allowed, AiDirectiveEvaluationEnvelope.PropertyName];
+        }
+
+        return requireOutcomeProposal
+            ? [.. allowed, AiDirectiveOutcomeProposalEnvelope.PropertyName]
             : allowed;
+    }
+
+    private static OutcomeProposal? ReadOutcomeProposal(
+        JsonElement root,
+        bool requireOutcomeProposal,
+        ICollection<AiDirectiveDecisionParseError> errors)
+    {
+        if (!requireOutcomeProposal)
+        {
+            return null;
+        }
+
+        if (root.EnumerateObject().Count(property =>
+            property.NameEquals(AiDirectiveOutcomeProposalEnvelope.PropertyName)) > 1)
+        {
+            errors.Add(Error(
+                DuplicateFieldCode,
+                AiDirectiveOutcomeProposalEnvelope.PropertyName));
+        }
+
+        if (!root.TryGetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName, out var value))
+        {
+            errors.Add(Error(
+                RequiredFieldCode,
+                AiDirectiveOutcomeProposalEnvelope.PropertyName));
+            return null;
+        }
+
+        var parsed = OutcomeProposalParser.Parse(JsonSerializer.Serialize(value));
+        if (parsed.IsSuccess)
+        {
+            return parsed.Proposal;
+        }
+
+        foreach (var error in parsed.Errors)
+        {
+            errors.Add(Error(
+                error.Code,
+                error.Path == "$"
+                    ? AiDirectiveOutcomeProposalEnvelope.PropertyName
+                    : $"{AiDirectiveOutcomeProposalEnvelope.PropertyName}.{error.Path}"));
+        }
+
+        return null;
     }
 
     private static string? ReadEvaluationEnvelope(

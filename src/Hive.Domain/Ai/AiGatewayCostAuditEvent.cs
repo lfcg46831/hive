@@ -5,6 +5,8 @@ namespace Hive.Domain.Ai;
 public sealed record AiGatewayCostAuditEvent
 {
     private const string DirectiveIdMetadataKey = "directive_id";
+    private const string OperationMetadataKey = "hive.operation";
+    private const string IterationMetadataKey = "iteration";
 
     public AiGatewayCostAuditEvent(
         OrganizationId organizationId,
@@ -21,7 +23,13 @@ public sealed record AiGatewayCostAuditEvent
         bool? isRetryable = null,
         DirectiveId? directiveId = null,
         AiOutputConstraintMode? outputConstraintMode = null,
-        AiAppliedPricing? appliedPricing = null)
+        AiAppliedPricing? appliedPricing = null,
+        string? operation = null,
+        int? iteration = null,
+        AiFinishReason? finishReason = null,
+        int? providerStatusCode = null,
+        TimeSpan? requestTimeout = null,
+        int? maxOutputTokens = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -64,6 +72,50 @@ public sealed record AiGatewayCostAuditEvent
                 nameof(appliedPricing));
         }
 
+        if (iteration is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(iteration),
+                iteration,
+                "AI gateway audit iteration must be greater than zero.");
+        }
+
+        if (finishReason is { } reason)
+        {
+            AiFinishReasonContract.RequireDefined(reason, nameof(finishReason));
+        }
+
+        if (providerStatusCode is < 100 or > 599)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(providerStatusCode),
+                providerStatusCode,
+                "Provider status code must be between 100 and 599.");
+        }
+
+        if (Result == AiGatewayCallResult.Succeeded && providerStatusCode is not null)
+        {
+            throw new ArgumentException(
+                "Successful AI gateway audit event cannot carry a provider failure status code.",
+                nameof(providerStatusCode));
+        }
+
+        if (requestTimeout is { } timeout && timeout <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(requestTimeout),
+                requestTimeout,
+                "AI gateway audit request timeout must be greater than zero.");
+        }
+
+        if (maxOutputTokens is <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(maxOutputTokens),
+                maxOutputTokens,
+                "AI gateway audit max output tokens must be greater than zero.");
+        }
+
         OrganizationId = organizationId;
         PositionId = positionId;
         ThreadId = threadId;
@@ -80,10 +132,18 @@ public sealed record AiGatewayCostAuditEvent
                 ? AiCostStatus.Estimated
                 : AiCostStatus.ProviderReported;
         DirectiveId = directiveId;
+        Operation = operation is null
+            ? null
+            : AiContractGuards.RequireText(operation, nameof(operation));
+        Iteration = iteration;
         ErrorCode = errorCode is null
             ? null
             : AiGatewayErrorCodeContract.RequireDefined(errorCode.Value, nameof(errorCode));
         IsRetryable = isRetryable;
+        FinishReason = finishReason;
+        ProviderStatusCode = providerStatusCode;
+        RequestTimeout = requestTimeout;
+        MaxOutputTokens = maxOutputTokens;
         OutputConstraintMode = outputConstraintMode is null
             ? null
             : AiOutputConstraintModeContract.RequireDefined(
@@ -100,6 +160,10 @@ public sealed record AiGatewayCostAuditEvent
     public MessageId MessageId { get; }
 
     public DirectiveId? DirectiveId { get; }
+
+    public string? Operation { get; }
+
+    public int? Iteration { get; }
 
     public DateTimeOffset StartedAt { get; }
 
@@ -122,6 +186,14 @@ public sealed record AiGatewayCostAuditEvent
     public AiGatewayErrorCode? ErrorCode { get; }
 
     public bool? IsRetryable { get; }
+
+    public AiFinishReason? FinishReason { get; }
+
+    public int? ProviderStatusCode { get; }
+
+    public TimeSpan? RequestTimeout { get; }
+
+    public int? MaxOutputTokens { get; }
 
     public AiOutputConstraintMode? OutputConstraintMode { get; }
 
@@ -149,10 +221,16 @@ public sealed record AiGatewayCostAuditEvent
                 response.Cost,
                 directiveId: DirectiveIdFrom(request),
                 outputConstraintMode: response.OutputConstraintMode,
-                appliedPricing: response.AppliedPricing);
+                appliedPricing: response.AppliedPricing,
+                operation: OperationFrom(request),
+                iteration: IterationFrom(request),
+                finishReason: response.FinishReason,
+                requestTimeout: request.Timeout,
+                maxOutputTokens: request.ModelParameters.MaxOutputTokens);
         }
 
         var error = response.Error!;
+        var diagnostics = error.Diagnostics;
         return new AiGatewayCostAuditEvent(
             error.OrganizationId,
             error.PositionId,
@@ -162,10 +240,19 @@ public sealed record AiGatewayCostAuditEvent
             completedAt,
             AiGatewayCallResult.Failed,
             error.Provider ?? request.Provider,
+            diagnostics?.Usage,
+            diagnostics?.Cost,
             errorCode: error.Code,
             isRetryable: error.IsRetryable,
             directiveId: DirectiveIdFrom(request),
-            outputConstraintMode: response.OutputConstraintMode);
+            outputConstraintMode: response.OutputConstraintMode,
+            appliedPricing: diagnostics?.AppliedPricing,
+            operation: OperationFrom(request),
+            iteration: IterationFrom(request),
+            finishReason: diagnostics?.FinishReason,
+            providerStatusCode: diagnostics?.ProviderStatusCode,
+            requestTimeout: request.Timeout,
+            maxOutputTokens: request.ModelParameters.MaxOutputTokens);
     }
 
     private static DirectiveId? DirectiveIdFrom(AiGatewayRequest request)
@@ -179,4 +266,21 @@ public sealed record AiGatewayCostAuditEvent
             ? DirectiveId.From(parsed)
             : null;
     }
+
+    private static string? OperationFrom(AiGatewayRequest request) =>
+        request.Metadata.TryGetValue(OperationMetadataKey, out var value) &&
+        !string.IsNullOrWhiteSpace(value)
+            ? value
+            : null;
+
+    private static int? IterationFrom(AiGatewayRequest request) =>
+        request.Metadata.TryGetValue(IterationMetadataKey, out var value) &&
+        int.TryParse(
+            value,
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var parsed) &&
+        parsed > 0
+            ? parsed
+            : null;
 }

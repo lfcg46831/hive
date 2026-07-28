@@ -123,7 +123,7 @@ public sealed class AiDirectiveDecisionParserTests
     [Fact]
     public void Parse_diagnostic_contract_is_closed_versioned_and_deterministic()
     {
-        Assert.Equal(1, AiDirectiveDecisionParseDiagnosticContract.Version);
+        Assert.Equal(2, AiDirectiveDecisionParseDiagnosticContract.Version);
         Assert.Equal(
             AiDirectiveDecisionParseDiagnosticContract.Codes
                 .OrderBy(value => value, StringComparer.Ordinal),

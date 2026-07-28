@@ -165,6 +165,11 @@ public sealed class AiGatewayServiceTests
         Assert.Equal("0.25", auditLog.Records[1].Payload["inputPricePerTokenUnit"]);
         Assert.Equal("2", auditLog.Records[1].Payload["outputPricePerTokenUnit"]);
         Assert.Equal("USD", auditLog.Records[1].Payload["pricingCurrency"]);
+        Assert.All(auditLog.Records, record =>
+        {
+            Assert.Equal("directive-inference", record.Payload["operation"]);
+            Assert.Equal("1", record.Payload["iteration"]);
+        });
         var payloadText = string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values));
         Assert.Contains("request.content", payloadText, StringComparison.Ordinal);
         Assert.DoesNotContain("sk-secret", payloadText, StringComparison.OrdinalIgnoreCase);
@@ -218,6 +223,65 @@ public sealed class AiGatewayServiceTests
         Assert.Equal(auditLog.Records[1].AuditEventId, auditLog.Records[3].AuditEventId);
         Assert.NotEqual(auditLog.Records[0].Latency, auditLog.Records[2].Latency);
         Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[1].AuditEventId);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_distinguishes_main_and_verifier_audit_ids_for_same_message()
+    {
+        var startedAt = new DateTimeOffset(2026, 7, 20, 10, 0, 0, TimeSpan.Zero);
+        var providerMetadata = new AiProviderMetadata("stub", "bug-triage");
+        var mainRequest = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Classify this bug.",
+            metadata: DirectiveMetadata(),
+            provider: providerMetadata);
+        var verifierRequest = new AiGatewayRequest(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "Verify the proposed outcome.",
+            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["directive_id"] = Directive.ToString(),
+                ["iteration"] = "1",
+                ["hive.operation"] = "outcome-verification",
+            },
+            provider: providerMetadata);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "The checkout bug is reproducible.",
+            AiFinishReason.Stop,
+            providerMetadata,
+            usage: new AiTokenUsage(11, 13, 24, isEstimated: true),
+            cost: new AiCostMetadata(0.00032m, "USD", isEstimated: true));
+        var auditLog = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(response),
+            publisher,
+            new SequenceTimeProvider(
+                startedAt,
+                startedAt.AddMilliseconds(210),
+                startedAt.AddSeconds(1),
+                startedAt.AddSeconds(1).AddMilliseconds(310)),
+            publisher);
+
+        await gateway.CompleteAsync(mainRequest);
+        await gateway.CompleteAsync(verifierRequest);
+
+        Assert.Equal(4, auditLog.Records.Count);
+        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[2].AuditEventId);
+        Assert.NotEqual(auditLog.Records[1].AuditEventId, auditLog.Records[3].AuditEventId);
+        Assert.Equal("directive-inference", auditLog.Records[0].Payload["operation"]);
+        Assert.Equal("outcome-verification", auditLog.Records[2].Payload["operation"]);
+        Assert.All(auditLog.Records, record => Assert.Equal(Directive, record.DirectiveId));
     }
 
     [Fact]
@@ -515,27 +579,111 @@ public sealed class AiGatewayServiceTests
             AiGatewayErrorCode.ProviderRejected,
             "AI gateway real provider failed (provider-rejected, status 400) for jane@example.com token=sk-error123456789.",
             isRetryable: false,
-            providerMetadata));
+            providerMetadata,
+            new AiGatewayFailureDiagnostics(providerStatusCode: 400)));
         var auditLog = new RecordingJourneyAuditLog();
         var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
         var gateway = new AiGateway(
             new RecordingAiGatewayProvider(response),
-            auditPublisher: null,
+            publisher,
             new SequenceTimeProvider(startedAt, completedAt),
             publisher);
 
-        await gateway.CompleteAsync(Request(provider: providerMetadata));
+        await gateway.CompleteAsync(Request(
+            provider: providerMetadata,
+            modelParameters: new AiModelParameters(maxOutputTokens: 8192),
+            timeout: TimeSpan.FromSeconds(60)));
 
-        var record = Assert.Single(auditLog.Records);
-        Assert.Equal(JourneyAuditStage.GatewayCalled, record.Stage);
-        Assert.Equal("provider-rejected", record.ReasonCode);
-        Assert.Equal("provider-rejected", record.Payload["errorCode"]);
-        Assert.Equal("False", record.Payload["isRetryable"]);
-        Assert.DoesNotContain("errorMessage", record.Payload.Keys);
+        Assert.Equal(2, auditLog.Records.Count);
+        var gatewayCalled = auditLog.Records[0];
+        var costRecorded = auditLog.Records[1];
+        Assert.Equal(JourneyAuditStage.GatewayCalled, gatewayCalled.Stage);
+        Assert.Equal("provider-rejected", gatewayCalled.ReasonCode);
+        Assert.Equal("provider-rejected", gatewayCalled.Payload["errorCode"]);
+        Assert.Equal("False", gatewayCalled.Payload["isRetryable"]);
+        Assert.Equal("400", gatewayCalled.Payload["providerStatusCode"]);
+        Assert.Equal("60000", gatewayCalled.Payload["requestTimeoutMilliseconds"]);
+        Assert.Equal("8192", gatewayCalled.Payload["maxOutputTokens"]);
+        Assert.Equal("400", costRecorded.Payload["providerStatusCode"]);
+        Assert.Equal("60000", costRecorded.Payload["requestTimeoutMilliseconds"]);
+        Assert.Equal("8192", costRecorded.Payload["maxOutputTokens"]);
+        Assert.DoesNotContain("errorMessage", gatewayCalled.Payload.Keys);
         Assert.DoesNotContain(
             "status 400",
-            string.Join(" ", record.Payload.Values),
+            string.Join(" ", auditLog.Records.SelectMany(record => record.Payload.Values)),
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task CompleteAsync_persists_empty_response_finish_usage_and_cost_without_raw_content()
+    {
+        var startedAt = new DateTimeOffset(2026, 7, 26, 19, 0, 0, TimeSpan.Zero);
+        var completedAt = startedAt.AddSeconds(56);
+        var usage = new AiTokenUsage(1_000, 4_096, 5_096);
+        var cost = new AiCostMetadata(0.008442m, "USD", isEstimated: true);
+        var pricing = new AiAppliedPricing(
+            "openai-2026-07-13",
+            1_000_000,
+            0.25m,
+            2m,
+            "USD");
+        var providerMetadata = new AiProviderMetadata(
+            "openai",
+            "gpt-5-mini-2025-08-07",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["response-id"] = "response-empty-123",
+            });
+        var response = AiGatewayResponse.Failed(new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            AiGatewayErrorCode.InvalidProviderResponse,
+            "AI gateway real provider returned neither text nor a tool call.",
+            isRetryable: false,
+            providerMetadata,
+            new AiGatewayFailureDiagnostics(
+                AiFinishReason.Length,
+                usage,
+                cost,
+                pricing)));
+        var auditLog = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditAiGatewayPublisher(auditLog);
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(response),
+            publisher,
+            new SequenceTimeProvider(startedAt, completedAt),
+            publisher);
+
+        await gateway.CompleteAsync(Request(
+            provider: providerMetadata,
+            modelParameters: new AiModelParameters(maxOutputTokens: 8192),
+            timeout: TimeSpan.FromSeconds(60)));
+
+        Assert.Equal(
+            [JourneyAuditStage.GatewayCalled, JourneyAuditStage.GatewayCostRecorded],
+            auditLog.Records.Select(record => record.Stage));
+        var gatewayCalled = auditLog.Records[0];
+        var costRecorded = auditLog.Records[1];
+        Assert.Equal("Length", gatewayCalled.Payload["finishReason"]);
+        Assert.Equal("Length", costRecorded.Payload["finishReason"]);
+        Assert.Equal("60000", costRecorded.Payload["requestTimeoutMilliseconds"]);
+        Assert.Equal("8192", costRecorded.Payload["maxOutputTokens"]);
+        Assert.Equal(usage, gatewayCalled.Usage);
+        Assert.Equal(cost, gatewayCalled.Cost);
+        Assert.Equal(usage, costRecorded.Usage);
+        Assert.Equal(cost, costRecorded.Cost);
+        Assert.Equal("estimated", costRecorded.Payload["costStatus"]);
+        Assert.Equal(pricing.Version, costRecorded.Payload["pricingVersion"]);
+        Assert.All(
+            auditLog.Records,
+            record => Assert.Equal(providerMetadata, record.Provider));
+        var payload = string.Join(
+            " ",
+            auditLog.Records.SelectMany(record => record.Payload.Values));
+        Assert.DoesNotContain("raw", payload, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("reasoning", payload, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -814,6 +962,8 @@ public sealed class AiGatewayServiceTests
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["directive_id"] = Directive.ToString(),
+            ["iteration"] = "1",
+            ["hive.operation"] = "directive-inference",
         };
 
     private static AiGatewayResponse SuccessResponse() =>

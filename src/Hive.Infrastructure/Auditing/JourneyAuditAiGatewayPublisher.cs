@@ -32,9 +32,17 @@ public sealed class JourneyAuditAiGatewayPublisher :
             positionId: envelope.PositionId,
             reasonCode: envelope.RejectionReason,
             provider: envelope.Provider,
+            usage: envelope.Result == AiGatewayCallResult.Failed
+                ? envelope.Usage
+                : null,
+            cost: envelope.Result == AiGatewayCallResult.Failed
+                ? envelope.Cost
+                : null,
             latency: envelope.Duration,
             payload: DetailedPayload(envelope),
-            occurredAtUtc: envelope.CompletedAt));
+            occurredAtUtc: envelope.CompletedAt,
+            idempotencyDiscriminator: GatewayCallDiscriminator(
+                envelope.Request.Metadata)));
     }
 
     public void Publish(AiGatewayCostAuditEvent @event)
@@ -57,7 +65,10 @@ public sealed class JourneyAuditAiGatewayPublisher :
             cost: @event.Cost,
             latency: @event.Duration,
             payload: CostPayload(@event),
-            occurredAtUtc: @event.CompletedAt));
+            occurredAtUtc: @event.CompletedAt,
+            idempotencyDiscriminator: GatewayCallDiscriminator(
+                @event.Operation,
+                @event.Iteration)));
     }
 
     private static JourneyAuditOutcome Outcome(AiGatewayCallResult result) =>
@@ -80,15 +91,35 @@ public sealed class JourneyAuditAiGatewayPublisher :
             payload["processingMode"] = processingMode.ToString();
         }
 
-        if (envelope.Response?.FinishReason is { } finishReason)
+        if (envelope.Request.Timeout is { } requestTimeout)
         {
-            payload["finishReason"] = finishReason.ToString();
+            payload["requestTimeoutMilliseconds"] =
+                requestTimeout.TotalMilliseconds.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        if (envelope.Request.ModelParameters.MaxOutputTokens is { } maxOutputTokens)
+        {
+            payload["maxOutputTokens"] =
+                maxOutputTokens.ToString(CultureInfo.InvariantCulture);
+        }
+
+        var finishReason =
+            envelope.Response?.FinishReason ??
+            envelope.Error?.Diagnostics?.FinishReason;
+        if (finishReason is { } resolvedFinishReason)
+        {
+            payload["finishReason"] = resolvedFinishReason.ToString();
         }
 
         if (envelope.Error is { } error)
         {
             payload["errorCode"] = AiGatewayErrorCodeContract.ToWireValue(error.Code);
             payload["isRetryable"] = error.IsRetryable.ToString();
+            if (error.Diagnostics?.ProviderStatusCode is { } providerStatusCode)
+            {
+                payload["providerStatusCode"] =
+                    providerStatusCode.ToString(CultureInfo.InvariantCulture);
+            }
         }
 
         if (envelope.OutputConstraintMode is { } outputConstraintMode)
@@ -96,6 +127,8 @@ public sealed class JourneyAuditAiGatewayPublisher :
             payload["outputConstraintMode"] =
                 AiOutputConstraintModeContract.ToWireValue(outputConstraintMode);
         }
+
+        AddGatewayCallIdentity(payload, envelope.Request.Metadata);
 
         return payload;
     }
@@ -113,6 +146,29 @@ public sealed class JourneyAuditAiGatewayPublisher :
             payload["isRetryable"] = isRetryable.ToString();
         }
 
+        if (@event.FinishReason is { } finishReason)
+        {
+            payload["finishReason"] = finishReason.ToString();
+        }
+
+        if (@event.ProviderStatusCode is { } providerStatusCode)
+        {
+            payload["providerStatusCode"] =
+                providerStatusCode.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (@event.RequestTimeout is { } requestTimeout)
+        {
+            payload["requestTimeoutMilliseconds"] =
+                requestTimeout.TotalMilliseconds.ToString("R", CultureInfo.InvariantCulture);
+        }
+
+        if (@event.MaxOutputTokens is { } maxOutputTokens)
+        {
+            payload["maxOutputTokens"] =
+                maxOutputTokens.ToString(CultureInfo.InvariantCulture);
+        }
+
         if (@event.OutputConstraintMode is { } outputConstraintMode)
         {
             payload["outputConstraintMode"] =
@@ -128,8 +184,64 @@ public sealed class JourneyAuditAiGatewayPublisher :
             payload["pricingCurrency"] = pricing.Currency;
         }
 
+        AddGatewayCallIdentity(payload, @event.Operation, @event.Iteration);
+
         return payload;
     }
+
+    private static void AddGatewayCallIdentity(
+        IDictionary<string, string> payload,
+        IReadOnlyDictionary<string, string> metadata)
+    {
+        metadata.TryGetValue("hive.operation", out var operation);
+        var iteration = metadata.TryGetValue("iteration", out var value) &&
+            int.TryParse(
+                value,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var parsed) &&
+            parsed > 0
+                ? parsed
+                : (int?)null;
+        AddGatewayCallIdentity(payload, operation, iteration);
+    }
+
+    private static void AddGatewayCallIdentity(
+        IDictionary<string, string> payload,
+        string? operation,
+        int? iteration)
+    {
+        if (!string.IsNullOrWhiteSpace(operation))
+        {
+            payload["operation"] = operation;
+        }
+
+        if (iteration is { } value)
+        {
+            payload["iteration"] = value.ToString(CultureInfo.InvariantCulture);
+        }
+    }
+
+    private static string? GatewayCallDiscriminator(
+        IReadOnlyDictionary<string, string> metadata)
+    {
+        metadata.TryGetValue("hive.operation", out var operation);
+        var iteration = metadata.TryGetValue("iteration", out var value) &&
+            int.TryParse(
+                value,
+                NumberStyles.None,
+                CultureInfo.InvariantCulture,
+                out var parsed) &&
+            parsed > 0
+                ? parsed
+                : (int?)null;
+        return GatewayCallDiscriminator(operation, iteration);
+    }
+
+    private static string? GatewayCallDiscriminator(string? operation, int? iteration) =>
+        !string.IsNullOrWhiteSpace(operation) && iteration is { } value
+            ? $"{operation}:{value.ToString(CultureInfo.InvariantCulture)}"
+            : null;
 
     private static DirectiveId? DirectiveIdFrom(
         IReadOnlyDictionary<string, string> metadata)

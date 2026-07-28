@@ -22,6 +22,30 @@ internal sealed class RealAiGatewayResponseNormalizer
         ArgumentNullException.ThrowIfNull(settings);
 
         var rawResponse = CaptureRawResponse(response, settings, request.Provider);
+        var provider = ResolveProviderMetadata(response, settings, request.Provider);
+        var usage = MapUsage(response.Usage);
+
+        if (!TryMapCost(response.AdditionalProperties, out var cost, out var costError))
+        {
+            return new(
+                InvalidProviderResponse(
+                    request,
+                    provider,
+                    costError!,
+                    outputConstraintMode,
+                    Diagnostics(response, usage)),
+                rawResponse);
+        }
+
+        AiAppliedPricing? appliedPricing = null;
+        if (cost is null && settings.PricingCatalog is { } pricingCatalog)
+        {
+            pricingCatalog.TryCalculate(
+                provider,
+                usage,
+                out cost,
+                out appliedPricing);
+        }
 
         List<AiToolCall> toolCalls;
         try
@@ -37,9 +61,10 @@ internal sealed class RealAiGatewayResponseNormalizer
             return new(
                 InvalidProviderResponse(
                     request,
-                    settings,
+                    provider,
                     ex.Message,
-                    outputConstraintMode),
+                    outputConstraintMode,
+                    Diagnostics(response, usage, cost, appliedPricing)),
                 rawResponse);
         }
 
@@ -50,33 +75,11 @@ internal sealed class RealAiGatewayResponseNormalizer
             return new(
                 InvalidProviderResponse(
                     request,
-                    settings,
+                    provider,
                     "AI gateway real provider returned neither text nor a tool call.",
-                    outputConstraintMode),
+                    outputConstraintMode,
+                    Diagnostics(response, usage, cost, appliedPricing)),
                 rawResponse);
-        }
-
-        if (!TryMapCost(response.AdditionalProperties, out var cost, out var costError))
-        {
-            return new(
-                InvalidProviderResponse(
-                    request,
-                    settings,
-                    costError!,
-                    outputConstraintMode),
-                rawResponse);
-        }
-
-        var provider = ResolveProviderMetadata(response, settings, request.Provider);
-        var usage = MapUsage(response.Usage);
-        AiAppliedPricing? appliedPricing = null;
-        if (cost is null && settings.PricingCatalog is { } pricingCatalog)
-        {
-            pricingCatalog.TryCalculate(
-                provider,
-                usage,
-                out cost,
-                out appliedPricing);
         }
 
         return new(
@@ -307,11 +310,25 @@ internal sealed class RealAiGatewayResponseNormalizer
         }
     }
 
+    private static AiGatewayFailureDiagnostics Diagnostics(
+        ChatResponse response,
+        AiTokenUsage? usage,
+        AiCostMetadata? cost = null,
+        AiAppliedPricing? appliedPricing = null) =>
+        new(
+            response.FinishReason is null
+                ? null
+                : MapFinishReason(response.FinishReason, hasToolCalls: false),
+            usage,
+            cost,
+            appliedPricing);
+
     private static AiGatewayResponse InvalidProviderResponse(
         AiGatewayRequest request,
-        RealAiGatewayProviderSettings settings,
+        AiProviderMetadata provider,
         string message,
-        AiOutputConstraintMode? outputConstraintMode) =>
+        AiOutputConstraintMode? outputConstraintMode,
+        AiGatewayFailureDiagnostics diagnostics) =>
         AiGatewayResponse.Failed(
             new AiGatewayError(
                 request.OrganizationId,
@@ -321,9 +338,8 @@ internal sealed class RealAiGatewayResponseNormalizer
                 AiGatewayErrorCode.InvalidProviderResponse,
                 message,
                 isRetryable: false,
-                new AiProviderMetadata(
-                    request.Provider?.ProviderId ?? settings.DefaultProvider.ProviderId,
-                    request.Provider?.ModelId ?? settings.DefaultProvider.ModelId)),
+                provider,
+                diagnostics),
             outputConstraintMode);
 
     private static RedactableAiGatewayProviderResponse CaptureRawResponse(

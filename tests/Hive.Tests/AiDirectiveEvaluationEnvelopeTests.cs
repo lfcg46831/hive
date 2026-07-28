@@ -248,6 +248,24 @@ public sealed class AiDirectiveEvaluationEnvelopeTests
             text);
     }
 
+    [Fact]
+    public void RemoveEnvelopeLines_removes_reserved_lines_but_preserves_inline_discussion()
+    {
+        var payload = "Business summary.\n"
+            + EvaluationInstruction.EnvelopeMarker
+            + CanonicalEnvelopeJson
+            + "\n  "
+            + EvaluationInstruction.EnvelopeMarker
+            + "{\"dimensions\":{\"severity\":[\"stale\"]}}"
+            + "\nThe marker hive-evaluation-v1: may be discussed as business text.";
+
+        var result = AiDirectiveEvaluationEnvelope.RemoveEnvelopeLines(payload);
+
+        Assert.Equal(
+            "Business summary.\nThe marker hive-evaluation-v1: may be discussed as business text.",
+            result);
+    }
+
     // --- Decision parser transport -------------------------------------------------------
 
     [Fact]

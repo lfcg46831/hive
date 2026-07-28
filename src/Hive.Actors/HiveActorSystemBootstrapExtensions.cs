@@ -10,6 +10,7 @@ using Hive.Actors.Sharding;
 using Hive.Domain.Auditing;
 using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
+using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Evaluation;
 using Hive.Infrastructure.Hosting;
@@ -112,6 +113,31 @@ public static class HiveActorSystemBootstrapExtensions
             AiAgentActionGate.CreateRuntime(
                 serviceProvider.GetRequiredService<IOrganizationActionGateRuntimeProvider>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>()));
+        builder.Services.TryAddSingleton<IAiDirectiveOutcomeResolutionIntegrator>(serviceProvider =>
+        {
+            var configuredMode = serviceProvider
+                .GetRequiredService<IOptions<HiveOptions>>()
+                .Value
+                .Outcomes
+                .Mode;
+            if (!OutcomeResolutionModeContract.TryParse(configuredMode, out var mode))
+            {
+                throw new InvalidOperationException(
+                    "Hive:Outcomes:Mode must be 'shadow' or 'enforcement'.");
+            }
+
+            return new AiDirectiveOutcomeResolutionIntegrator(
+                serviceProvider.GetRequiredService<IExecutionFactsMaterializer>(),
+                serviceProvider.GetRequiredService<IOutcomePolicyProvider>(),
+                serviceProvider.GetRequiredService<IOrganizationalOutcomeOrchestrator>(),
+                serviceProvider.GetRequiredService<IJourneyAuditLog>(),
+                mode,
+                verifierTimeout: serviceProvider
+                    .GetRequiredService<IOptions<HiveOptions>>()
+                    .Value
+                    .Outcomes
+                    .VerifierTimeout);
+        });
         builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
             new PositionOccupantFactory(
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
@@ -119,7 +145,8 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>(),
                 serviceProvider.GetRequiredService<IEvaluationResultProjector>(),
-                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>()));
+                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>(),
+                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
         builder.Services.TryAddSingleton<IRetainedActionExecutor>(

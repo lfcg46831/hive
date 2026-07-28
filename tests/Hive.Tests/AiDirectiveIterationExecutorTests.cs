@@ -28,7 +28,11 @@ public sealed class AiDirectiveIterationExecutorTests
         var response = Response("Still working.", AiFinishReason.Stop);
         var invoker = new RecordingInvoker(response);
         var toolExecutor = new RecordingToolExecutor();
-        var executor = new AiDirectiveIterationExecutor(invoker, toolExecutor);
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            toolExecutor,
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(1));
         using var cancellation = new CancellationTokenSource();
 
         var result = await executor.ExecuteAsync(
@@ -49,8 +53,158 @@ public sealed class AiDirectiveIterationExecutorTests
         Assert.Equal(context.OrganizationId, invoker.Invocation.Request.OrganizationId);
         Assert.Equal(context.PositionId, invoker.Invocation.Request.PositionId);
         Assert.Equal("2", invoker.Invocation.Request.Metadata["iteration"]);
+        Assert.Equal(TimeSpan.FromSeconds(14), invoker.Invocation.Request.Timeout);
         Assert.NotNull(invoker.Invocation.Request.OutputConstraint);
         Assert.Equal(0, toolExecutor.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_preserves_absent_timeout_when_no_deadline_exists()
+    {
+        var context = Context(maxIterations: 3, configureTimeout: false);
+        var state = AiDirectiveIterationState.Start(context, At);
+        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(2));
+
+        var result = await executor.ExecuteAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget: true);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, invoker.CallCount);
+        Assert.Null(invoker.Invocation!.Request.Timeout);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_caps_timeout_to_earliest_directive_deadline()
+    {
+        var context = Context(
+            maxIterations: 3,
+            deadline: At.AddSeconds(7),
+            timeout: TimeSpan.FromSeconds(15));
+        var state = AiDirectiveIterationState.Start(context, At);
+        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(2));
+
+        var result = await executor.ExecuteAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget: true);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TimeSpan.FromSeconds(5), invoker.Invocation!.Request.Timeout);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_preserves_configured_timeout_when_deadline_remaining_is_equal()
+    {
+        var context = Context(
+            maxIterations: 3,
+            deadline: At.AddSeconds(15),
+            timeout: TimeSpan.FromSeconds(15));
+        var state = AiDirectiveIterationState.Start(context, At);
+        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => At);
+
+        var result = await executor.ExecuteAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget: true);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(TimeSpan.FromSeconds(15), invoker.Invocation!.Request.Timeout);
+    }
+
+    [Theory]
+    [InlineData(15)]
+    [InlineData(16)]
+    public async Task ExecuteAsync_rejects_inference_when_iteration_deadline_is_not_positive(
+        int elapsedSeconds)
+    {
+        var context = Context(
+            maxIterations: 3,
+            timeout: TimeSpan.FromSeconds(15));
+        var state = AiDirectiveIterationState.Start(context, At);
+        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(elapsedSeconds));
+
+        var result = await executor.ExecuteAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget: true);
+
+        Assert.True(result.IsFailure);
+        Assert.Equal("timeout", result.Failure!.Code);
+        Assert.Equal(0, invoker.CallCount);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_reduces_timeout_across_multiple_inference_continuations()
+    {
+        var context = Context(
+            maxIterations: 4,
+            timeout: TimeSpan.FromSeconds(15));
+        var state = AiDirectiveIterationState.Start(context, At);
+        var now = At.AddSeconds(2);
+        var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => now);
+
+        var firstDecision = state.EvaluateInference(
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+        var firstResult = await executor.ExecuteAsync(
+            context,
+            state,
+            firstDecision,
+            hasAvailableBudget: true);
+        var firstTimeout = invoker.Invocation!.Request.Timeout;
+
+        state = state.Advance(firstDecision, now);
+        now = At.AddSeconds(6);
+        var secondDecision = state.EvaluateInference(
+            At.AddSeconds(5),
+            hasAvailableBudget: true);
+        var secondResult = await executor.ExecuteAsync(
+            context,
+            state,
+            secondDecision,
+            hasAvailableBudget: true);
+        var secondTimeout = invoker.Invocation!.Request.Timeout;
+
+        Assert.True(firstResult.IsSuccess);
+        Assert.True(secondResult.IsSuccess);
+        Assert.Equal(TimeSpan.FromSeconds(13), firstTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(9), secondTimeout);
+        Assert.Equal(2, invoker.CallCount);
     }
 
     [Fact]
@@ -219,7 +373,10 @@ public sealed class AiDirectiveIterationExecutorTests
 
     private static AiDirectiveExecutionContext Context(
         int? maxIterations = null,
-        IEnumerable<ToolConfiguration>? tools = null)
+        IEnumerable<ToolConfiguration>? tools = null,
+        DateTimeOffset? deadline = null,
+        TimeSpan? timeout = null,
+        bool configureTimeout = true)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var directive = new OrgDirective(
@@ -231,7 +388,7 @@ public sealed class AiDirectiveIterationExecutorTests
             Priority.High,
             schemaVersion: 1,
             sentAt: At,
-            deadline: null,
+            deadline,
             DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000001020")),
             parentDirectiveId: null,
             objective: "Triage checkout regression",
@@ -252,7 +409,9 @@ public sealed class AiDirectiveIterationExecutorTests
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
-                    timeout: TimeSpan.FromSeconds(15),
+                    timeout: configureTimeout
+                        ? timeout ?? TimeSpan.FromSeconds(15)
+                        : null,
                     maxIterations: maxIterations),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",

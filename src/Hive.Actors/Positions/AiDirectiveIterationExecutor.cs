@@ -229,6 +229,7 @@ internal sealed class AiDirectiveIterationExecutor
     private readonly IAiAgentGatewayInvoker _gatewayInvoker;
     private readonly IAiDirectiveConnectorToolExecutor _toolExecutor;
     private readonly IAiAgentActionGate _actionGate;
+    private readonly Func<DateTimeOffset> _clock;
 
     public AiDirectiveIterationExecutor(IAiAgentGatewayInvoker gatewayInvoker)
         : this(
@@ -248,11 +249,13 @@ internal sealed class AiDirectiveIterationExecutor
     public AiDirectiveIterationExecutor(
         IAiAgentGatewayInvoker gatewayInvoker,
         IAiDirectiveConnectorToolExecutor toolExecutor,
-        IAiAgentActionGate actionGate)
+        IAiAgentActionGate actionGate,
+        Func<DateTimeOffset>? clock = null)
     {
         _gatewayInvoker = gatewayInvoker ?? throw new ArgumentNullException(nameof(gatewayInvoker));
         _toolExecutor = toolExecutor ?? throw new ArgumentNullException(nameof(toolExecutor));
         _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
     public async ValueTask<AiDirectiveIterationExecutionResult> ExecuteAsync(
@@ -324,9 +327,23 @@ internal sealed class AiDirectiveIterationExecutor
     {
         try
         {
+            var request = AiDirectivePrompt.CreateInitialRequest(context);
+            if (!TryGetEffectiveTimeout(
+                    request.Timeout,
+                    context.Directive.Deadline,
+                    state.Deadline,
+                    _clock(),
+                    out var effectiveTimeout))
+            {
+                return Failed(
+                    state.CorrelationId,
+                    "timeout",
+                    "AI directive iteration inference cannot start because its deadline has been reached.");
+            }
+
             var invocation = new AiAgentGatewayInvocation(
                 state.CorrelationId,
-                CreateInferenceRequest(context, state));
+                CreateInferenceRequest(request, state, effectiveTimeout));
             var result = await _gatewayInvoker
                 .InvokeAsync(invocation, cancellationToken)
                 .ConfigureAwait(false);
@@ -413,10 +430,10 @@ internal sealed class AiDirectiveIterationExecutor
     }
 
     private static AiGatewayRequest CreateInferenceRequest(
-        AiDirectiveExecutionContext context,
-        AiDirectiveIterationState state)
+        AiGatewayRequest request,
+        AiDirectiveIterationState state,
+        TimeSpan? effectiveTimeout)
     {
-        var request = AiDirectivePrompt.CreateInitialRequest(context);
         var metadata = new Dictionary<string, string>(request.Metadata, StringComparer.Ordinal)
         {
             ["iteration"] = (state.CurrentIteration + 1).ToString(CultureInfo.InvariantCulture),
@@ -435,9 +452,42 @@ internal sealed class AiDirectiveIterationExecutor
             metadata,
             request.Provider,
             request.ProcessingMode,
-            request.Timeout,
+            effectiveTimeout,
             request.Policy,
             request.OutputConstraint);
+    }
+
+    private static bool TryGetEffectiveTimeout(
+        TimeSpan? configuredTimeout,
+        DateTimeOffset? directiveDeadline,
+        DateTimeOffset? iterationDeadline,
+        DateTimeOffset observedAt,
+        out TimeSpan? effectiveTimeout)
+    {
+        var deadline = (directiveDeadline, iterationDeadline) switch
+        {
+            ({ } directive, { } iteration) => directive <= iteration ? directive : iteration,
+            ({ } directive, null) => directive,
+            (null, { } iteration) => iteration,
+            _ => (DateTimeOffset?)null,
+        };
+        if (deadline is null)
+        {
+            effectiveTimeout = configuredTimeout;
+            return true;
+        }
+
+        var remaining = deadline.Value - observedAt;
+        if (remaining <= TimeSpan.Zero)
+        {
+            effectiveTimeout = null;
+            return false;
+        }
+
+        effectiveTimeout = configuredTimeout is { } configured && configured <= remaining
+            ? configured
+            : remaining;
+        return true;
     }
 
     private static bool IsToolAuthorized(

@@ -20,6 +20,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         new(2030, 7, 20, 12, 0, 0, TimeSpan.Zero);
     private static readonly OrganizationId Organization = OrganizationId.From("acme");
     private static readonly PositionId Position = PositionId.From("triage-agent");
+    private static readonly PositionId FollowUpPosition =
+        PositionId.From("follow-up-coordination");
     private static readonly PositionId Superior = PositionId.From("delivery-lead");
     private static readonly ThreadId Thread =
         ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000001317"));
@@ -27,6 +29,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001317"));
     private static readonly DirectiveId IncomingDirective =
         DirectiveId.From(Guid.Parse("dddddddd-0000-0000-0000-000000001317"));
+    private const string FollowUpIdentityPrompt =
+        "Coordinate operational follow-up using only the supplied business context.";
 
     [Fact]
     public async Task Shadow_audits_policy_override_but_preserves_the_proposed_message()
@@ -617,7 +621,13 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     [Fact]
     public async Task Ai_agent_requests_one_bounded_correction_before_verifying_grounded_evidence()
     {
-        var request = Request();
+        var request = Request(
+            positionId: FollowUpPosition,
+            identityPromptRef: "follow-up-coordination-v1",
+            identityPrompt: FollowUpIdentityPrompt,
+            positionName: "Follow-up Coordinator",
+            objective: "Coordinate the next operational follow-up",
+            context: "The owner and requested response window are supplied.");
         var audit = new RecordingJourneyAuditLog();
         var invoker = new EvidenceCorrectionInvoker(correctionSucceeds: true);
         var verifier = new StaticVerifier(
@@ -649,19 +659,33 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             var iterationAudit = await actor.Ask<AiDirectiveIterationAuditSnapshotQueryResult>(
                 new GetAiDirectiveIterationAuditSnapshot(request.CorrelationId),
                 TimeSpan.FromSeconds(10));
+            var auditSnapshot = await actor.Ask<AiDirectiveAuditSnapshotQueryResult>(
+                new GetAiDirectiveAuditSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
 
             Assert.Equal(2, invoker.Requests.Count);
             Assert.Equal(1, verifier.CallCount);
             Assert.True(message.Found);
+            Assert.True(auditSnapshot.Found);
             Assert.Equal(ReportKind.Done, Assert.IsType<Report>(message.Result!.Message).Kind);
             Assert.Equal(
                 ["continue", "inference-succeeded", "completed"],
                 iterationAudit.Snapshot!.Entries.Select(entry => entry.Code));
 
+            var initial = invoker.Requests[0];
             var correction = invoker.Requests[1];
             Assert.Equal(
                 "outcome-proposal-evidence",
                 correction.Metadata["hive.correction"]);
+            Assert.Equal(initial.SystemInstruction, correction.SystemInstruction);
+            Assert.Contains(
+                FollowUpIdentityPrompt,
+                correction.SystemInstruction,
+                StringComparison.Ordinal);
+            Assert.StartsWith(
+                $"{initial.Content}{Environment.NewLine}{Environment.NewLine}",
+                correction.Content,
+                StringComparison.Ordinal);
             Assert.Contains(
                 "outcome_proposal.proposal.evidence_references.item.source:invalid-vocabulary",
                 correction.Content,
@@ -669,6 +693,29 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             Assert.Contains("\"directive.context\"", correction.Content, StringComparison.Ordinal);
             Assert.Contains("\"directive.objective\"", correction.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("runtime.fabricated", correction.Content, StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "runtime.fabricated",
+                string.Join('|', audit.Records.SelectMany(record => record.Payload.Values)),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "runtime.fabricated",
+                auditSnapshot.Snapshot!.ToString(),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                auditSnapshot.Snapshot.Redactions,
+                redaction => redaction.Path == "gateway.response.text");
+            Assert.DoesNotContain(
+                "bug-triage",
+                correction.SystemInstruction + correction.Content,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "missing-information",
+                correction.SystemInstruction + correction.Content,
+                StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(
+                "severity",
+                correction.SystemInstruction + correction.Content,
+                StringComparison.OrdinalIgnoreCase);
 
             var evidenceProperties = correction.OutputConstraint!.JsonSchema
                 .GetProperty("properties")
@@ -702,7 +749,13 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     [Fact]
     public async Task Ai_agent_does_not_retry_a_second_invalid_evidence_proposal()
     {
-        var request = Request();
+        var request = Request(
+            positionId: FollowUpPosition,
+            identityPromptRef: "follow-up-coordination-v1",
+            identityPrompt: FollowUpIdentityPrompt,
+            positionName: "Follow-up Coordinator",
+            objective: "Coordinate the next operational follow-up",
+            context: "The owner and requested response window are supplied.");
         var audit = new RecordingJourneyAuditLog();
         var invoker = new EvidenceCorrectionInvoker(correctionSucceeds: false);
         var verifier = new StaticVerifier(
@@ -731,10 +784,18 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
                 new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
                 TimeSpan.FromSeconds(10));
+            var message = await actor.Ask<AiDirectiveResultMessageQueryResult>(
+                new GetAiDirectiveResultMessage(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+            var auditSnapshot = await actor.Ask<AiDirectiveAuditSnapshotQueryResult>(
+                new GetAiDirectiveAuditSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
 
             Assert.Equal(2, invoker.Requests.Count);
             Assert.Equal(0, verifier.CallCount);
             Assert.True(snapshot.Found);
+            Assert.False(message.Found);
+            Assert.True(auditSnapshot.Found);
             Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
             Assert.Contains(
                 "ai-output-invalid",
@@ -744,6 +805,28 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             Assert.Equal(
                 "outcome-proposal-evidence",
                 invoker.Requests[1].Metadata["hive.correction"]);
+            Assert.Equal(
+                invoker.Requests[0].SystemInstruction,
+                invoker.Requests[1].SystemInstruction);
+            Assert.Contains(
+                FollowUpIdentityPrompt,
+                invoker.Requests[1].SystemInstruction,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "runtime.fabricated",
+                invoker.Requests[1].Content,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "runtime.fabricated",
+                string.Join('|', audit.Records.SelectMany(record => record.Payload.Values)),
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "runtime.fabricated",
+                auditSnapshot.Snapshot!.ToString(),
+                StringComparison.Ordinal);
+            Assert.Contains(
+                auditSnapshot.Snapshot.Redactions,
+                redaction => redaction.Path == "gateway.response.text");
         }
         finally
         {
@@ -908,15 +991,22 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     private static AiDirectiveProcessingRequest Request(
         DateTimeOffset? deadline = null,
         bool withoutDeadline = false,
-        int? maxIterations = null)
+        int? maxIterations = null,
+        PositionId? positionId = null,
+        string identityPromptRef = "coordinator-v1",
+        string identityPrompt = "Coordinate the assigned organizational work.",
+        string positionName = "Coordinator",
+        string objective = "Classify incoming work",
+        string context = "A bounded business context.")
     {
-        var entity = PositionEntityId.From(Organization, Position);
+        var effectivePosition = positionId ?? Position;
+        var entity = PositionEntityId.From(Organization, effectivePosition);
         var occupant = OccupantId.From("agent-17");
         var directive = new OrgDirective(
             IncomingMessage,
             Organization,
             new PositionEndpointRef(Superior),
-            new PositionEndpointRef(Position),
+            new PositionEndpointRef(effectivePosition),
             Thread,
             Priority.High,
             schemaVersion: 1,
@@ -924,29 +1014,29 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             deadline: withoutDeadline ? null : deadline ?? At.AddHours(2),
             IncomingDirective,
             parentDirectiveId: null,
-            objective: "Classify incoming work",
-            context: "A bounded business context.");
+            objective,
+            context);
         var configuration = new PositionRuntimeConfiguration(
             new PositionConfigurationStamp(17, "sha256:t17e"),
             Organization,
-            Position,
+            effectivePosition,
             new PositionRuntimeDescriptor(
                 UnitId.From("engineering"),
                 reportsTo: Superior,
-                name: "Coordinator",
+                name: positionName,
                 timezone: "Europe/Lisbon"),
             new OccupantRuntimeConfiguration(
                 OccupantType.AiAgent,
-                identityPromptRef: "coordinator-v1",
+                identityPromptRef,
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "model-v1"),
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: withoutDeadline ? null : TimeSpan.FromSeconds(15),
                     maxIterations: maxIterations),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
-                    "coordinator-v1",
-                    "prompts/coordinator-v1.md",
-                    "Coordinate the assigned organizational work.")),
+                    identityPromptRef,
+                    $"prompts/{identityPromptRef}.md",
+                    identityPrompt)),
             new PositionAuthorityRuntimeConfiguration());
         return AiDirectiveProcessingRequest.Create(
             entity,

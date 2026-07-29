@@ -208,6 +208,46 @@ public sealed class AiDirectiveIterationExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteOutcomeProposalCorrectionAsync_keeps_the_single_correction_inside_the_remaining_deadline()
+    {
+        var context = Context(
+            maxIterations: 3,
+            deadline: At.AddSeconds(30),
+            timeout: TimeSpan.FromSeconds(15),
+            requiresStructuredOutcomeProposal: true);
+        var state = AiDirectiveIterationState.Start(context, At);
+        var decision = state.EvaluateInference(
+            At.AddSeconds(1),
+            hasAvailableBudget: true);
+        var invoker = new RecordingInvoker(
+            Response("Corrected response.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(12));
+
+        var result = await executor.ExecuteOutcomeProposalCorrectionAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget: true,
+            [
+                new AiDirectiveDecisionParseError(
+                    "invalid-vocabulary",
+                    "outcome_proposal.proposal.evidence_references.item.source"),
+            ]);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(1, invoker.CallCount);
+        Assert.Equal(TimeSpan.FromSeconds(3), invoker.Invocation!.Request.Timeout);
+        Assert.Equal(
+            "outcome-proposal-evidence",
+            invoker.Invocation.Request.Metadata["hive.correction"]);
+        Assert.Equal("2", invoker.Invocation.Request.Metadata["iteration"]);
+    }
+
+    [Fact]
     public async Task ExecuteAsync_rejects_unavailable_budget_without_effects()
     {
         var context = Context(maxIterations: 3);
@@ -376,7 +416,8 @@ public sealed class AiDirectiveIterationExecutorTests
         IEnumerable<ToolConfiguration>? tools = null,
         DateTimeOffset? deadline = null,
         TimeSpan? timeout = null,
-        bool configureTimeout = true)
+        bool configureTimeout = true,
+        bool requiresStructuredOutcomeProposal = false)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var directive = new OrgDirective(
@@ -426,7 +467,9 @@ public sealed class AiDirectiveIterationExecutorTests
             OccupantId.From("agent-7"),
             directive);
 
-        return AiDirectiveExecutionContext.From(request);
+        return AiDirectiveExecutionContext.From(
+            request,
+            requiresStructuredOutcomeProposal: requiresStructuredOutcomeProposal);
     }
 
     private static AiGatewayResponse Response(

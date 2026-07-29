@@ -363,6 +363,12 @@ public sealed class EvaluationResultProjectionTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Projections)]
     public async Task Ai_actor_projects_canonical_result_before_audit_redaction()
     {
         const string privateText = "Customer-private diagnostic detail.";

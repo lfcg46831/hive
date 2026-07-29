@@ -137,6 +137,12 @@ public sealed class AiDirectiveAuditSnapshotTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Audit)]
     public async Task AiAgentActor_records_journey_audit_for_decision_and_result_message()
     {
         var request = Request();

@@ -506,6 +506,12 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Outcomes)]
     public async Task Ai_agent_enforcement_emits_only_the_resolved_message_through_the_existing_flow()
     {
         var request = Request();
@@ -557,6 +563,15 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Iterations)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Outcomes)]
     public async Task Ai_agent_continue_work_runs_the_next_inference_before_emitting_a_message()
     {
         var request = Request();

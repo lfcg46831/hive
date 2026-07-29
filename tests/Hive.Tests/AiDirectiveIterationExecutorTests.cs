@@ -164,6 +164,12 @@ public sealed class AiDirectiveIterationExecutorTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Iterations)]
     public async Task ExecuteAsync_reduces_timeout_across_multiple_inference_continuations()
     {
         var context = Context(
@@ -295,6 +301,15 @@ public sealed class AiDirectiveIterationExecutorTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Tools)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Gates)]
     public async Task ExecuteAsync_calls_authorized_connector_tool_with_preserved_arguments()
     {
         var context = Context(maxIterations: 3);
@@ -334,6 +349,15 @@ public sealed class AiDirectiveIterationExecutorTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Tools)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Gates)]
     public async Task ExecuteAsync_rejects_unauthorized_tool_without_effects()
     {
         var context = Context(maxIterations: 3);

@@ -74,6 +74,15 @@ public sealed class AiDirectiveIntegrationFixtureTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.PositionEffects)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Audit)]
     public async Task Report_path_persists_completion_and_records_audit()
     {
         var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>

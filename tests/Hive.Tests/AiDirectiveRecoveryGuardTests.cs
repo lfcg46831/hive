@@ -11,6 +11,15 @@ namespace Hive.Tests;
 public sealed class AiDirectiveRecoveryGuardTests
 {
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Recovery)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Idempotency)]
     public async Task Terminal_journey_result_suppresses_gateway_and_returns_completion()
     {
         var scenario = AiDirectiveIntegrationScenario.Create();

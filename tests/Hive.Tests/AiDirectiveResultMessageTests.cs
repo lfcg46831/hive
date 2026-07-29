@@ -400,6 +400,12 @@ public sealed class AiDirectiveResultMessageTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Gates)]
     public async Task AiAgentActor_retains_objectively_gated_message_before_routing_and_exposes_gate_result()
     {
         var request = Request();

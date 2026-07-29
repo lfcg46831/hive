@@ -96,6 +96,15 @@ public sealed class AiDirectiveIntegrationFailureAndRecoveryTests
     }
 
     [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Recovery)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Idempotency)]
     public async Task Restart_recovers_accepted_result_without_duplicating_work()
     {
         var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>

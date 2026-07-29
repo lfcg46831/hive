@@ -20,6 +20,7 @@ public sealed class NamingConventionsTests
     private static readonly (string RelativeDirectory, string RootNamespace)[] Projects =
     [
         ("src/Hive.Domain", "Hive.Domain"),
+        ("src/Hive.Application", "Hive.Application"),
         ("src/Hive.Actors", "Hive.Actors"),
         ("src/Hive.Infrastructure", "Hive.Infrastructure"),
         ("src/Hive.Api", "Hive.Api"),
@@ -36,12 +37,13 @@ public sealed class NamingConventionsTests
     private static readonly Dictionary<string, string[]> AllowedProjectReferences = new()
     {
         ["Hive.Domain"] = [],
+        ["Hive.Application"] = ["Hive.Domain"],
         ["Hive.Infrastructure"] = ["Hive.Domain"],
-        ["Hive.Actors"] = ["Hive.Domain", "Hive.Infrastructure"],
-        ["Hive.Api"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure"],
-        ["Hive.Worker"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure"],
+        ["Hive.Actors"] = ["Hive.Domain", "Hive.Application", "Hive.Infrastructure"],
+        ["Hive.Api"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure"],
+        ["Hive.Worker"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure"],
         ["Hive.DemoClient"] = [],
-        ["Hive.Tests"] = ["Hive.Domain", "Hive.Actors", "Hive.Infrastructure", "Hive.Api", "Hive.Worker"],
+        ["Hive.Tests"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure", "Hive.Api", "Hive.Worker"],
         ["Hive.DemoClient.Tests"] = ["Hive.Domain", "Hive.Api", "Hive.DemoClient"],
     };
 

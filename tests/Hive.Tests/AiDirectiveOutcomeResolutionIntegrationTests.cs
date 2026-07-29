@@ -614,6 +614,190 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task Ai_agent_requests_one_bounded_correction_before_verifying_grounded_evidence()
+    {
+        var request = Request();
+        var audit = new RecordingJourneyAuditLog();
+        var invoker = new EvidenceCorrectionInvoker(correctionSucceeds: true);
+        var verifier = new StaticVerifier(
+            OutcomeVerifierResult.Classified(OutcomeVerifierClassification.ReportDone));
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            verifier);
+        var system = ActorSystem.Create($"outcome-evidence-correction-{Guid.NewGuid():N}");
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    invoker,
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    AllowingAiAgentActionGate.Instance,
+                    audit,
+                    NoopEvaluationResultProjector.Instance,
+                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    integrator)),
+                "agent");
+
+            actor.Tell(request);
+
+            var message = await actor.Ask<AiDirectiveResultMessageQueryResult>(
+                new GetAiDirectiveResultMessage(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+            var iterationAudit = await actor.Ask<AiDirectiveIterationAuditSnapshotQueryResult>(
+                new GetAiDirectiveIterationAuditSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(2, invoker.Requests.Count);
+            Assert.Equal(1, verifier.CallCount);
+            Assert.True(message.Found);
+            Assert.Equal(ReportKind.Done, Assert.IsType<Report>(message.Result!.Message).Kind);
+            Assert.Equal(
+                ["continue", "inference-succeeded", "completed"],
+                iterationAudit.Snapshot!.Entries.Select(entry => entry.Code));
+
+            var correction = invoker.Requests[1];
+            Assert.Equal(
+                "outcome-proposal-evidence",
+                correction.Metadata["hive.correction"]);
+            Assert.Contains(
+                "outcome_proposal.proposal.evidence_references.item.source:invalid-vocabulary",
+                correction.Content,
+                StringComparison.Ordinal);
+            Assert.Contains("\"directive.context\"", correction.Content, StringComparison.Ordinal);
+            Assert.Contains("\"directive.objective\"", correction.Content, StringComparison.Ordinal);
+            Assert.DoesNotContain("runtime.fabricated", correction.Content, StringComparison.Ordinal);
+
+            var evidenceProperties = correction.OutputConstraint!.JsonSchema
+                .GetProperty("properties")
+                .GetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName)
+                .GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+                .GetProperty("anyOf")[0]
+                .GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.EvidenceReferencesProperty)
+                .GetProperty("items")
+                .GetProperty("properties");
+            Assert.Equal(
+                ["DirectiveInput"],
+                evidenceProperties.GetProperty(OutcomeProposalConstraint.EvidenceSourceProperty)
+                    .GetProperty("enum")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+            Assert.Equal(
+                ["directive.context", "directive.objective"],
+                evidenceProperties.GetProperty(OutcomeProposalConstraint.EvidenceReferenceProperty)
+                    .GetProperty("enum")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Ai_agent_does_not_retry_a_second_invalid_evidence_proposal()
+    {
+        var request = Request();
+        var audit = new RecordingJourneyAuditLog();
+        var invoker = new EvidenceCorrectionInvoker(correctionSucceeds: false);
+        var verifier = new StaticVerifier(
+            OutcomeVerifierResult.Classified(OutcomeVerifierClassification.ReportDone));
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            verifier);
+        var system = ActorSystem.Create($"outcome-evidence-correction-invalid-{Guid.NewGuid():N}");
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    invoker,
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    AllowingAiAgentActionGate.Instance,
+                    audit,
+                    NoopEvaluationResultProjector.Instance,
+                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    integrator)),
+                "agent");
+
+            actor.Tell(request);
+
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(2, invoker.Requests.Count);
+            Assert.Equal(0, verifier.CallCount);
+            Assert.True(snapshot.Found);
+            Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
+            Assert.Contains(
+                "ai-output-invalid",
+                snapshot.Snapshot.TerminalReason,
+                StringComparison.Ordinal);
+            Assert.False(invoker.Requests[0].Metadata.ContainsKey("hive.correction"));
+            Assert.Equal(
+                "outcome-proposal-evidence",
+                invoker.Requests[1].Metadata["hive.correction"]);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Ai_agent_does_not_request_correction_when_the_iteration_limit_is_exhausted()
+    {
+        var request = Request(maxIterations: 1);
+        var audit = new RecordingJourneyAuditLog();
+        var invoker = new EvidenceCorrectionInvoker(correctionSucceeds: true);
+        var verifier = new StaticVerifier(
+            OutcomeVerifierResult.Classified(OutcomeVerifierClassification.ReportDone));
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            verifier);
+        var system = ActorSystem.Create($"outcome-evidence-correction-limit-{Guid.NewGuid():N}");
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    invoker,
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    AllowingAiAgentActionGate.Instance,
+                    audit,
+                    NoopEvaluationResultProjector.Instance,
+                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    integrator)),
+                "agent");
+
+            actor.Tell(request);
+
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+            var iterationAudit = await actor.Ask<AiDirectiveIterationAuditSnapshotQueryResult>(
+                new GetAiDirectiveIterationAuditSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+
+            Assert.Single(invoker.Requests);
+            Assert.Equal(0, verifier.CallCount);
+            Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
+            Assert.Equal("max-iterations-reached", iterationAudit.Snapshot!.TerminalCode);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static AiDirectiveOutcomeResolutionIntegrator CreateIntegrator(
         OutcomeResolutionMode mode,
         RecordingJourneyAuditLog audit,
@@ -723,7 +907,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
 
     private static AiDirectiveProcessingRequest Request(
         DateTimeOffset? deadline = null,
-        bool withoutDeadline = false)
+        bool withoutDeadline = false,
+        int? maxIterations = null)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var occupant = OccupantId.From("agent-17");
@@ -756,7 +941,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 aiGateway: new AiPositionRuntimeConfiguration(
                     new AiProviderMetadata("stub", "model-v1"),
                     new AiModelParameters(maxOutputTokens: 256),
-                    timeout: withoutDeadline ? null : TimeSpan.FromSeconds(15)),
+                    timeout: withoutDeadline ? null : TimeSpan.FromSeconds(15),
+                    maxIterations: maxIterations),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "coordinator-v1",
                     "prompts/coordinator-v1.md",
@@ -870,6 +1056,38 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiFinishReason.Stop,
                     new AiProviderMetadata("stub", "model-v1"))));
         }
+    }
+
+    private sealed class EvidenceCorrectionInvoker(bool correctionSucceeds)
+        : IAiAgentGatewayInvoker
+    {
+        public List<AiGatewayRequest> Requests { get; } = [];
+
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(invocation.Request);
+            var text = Requests.Count == 1 || !correctionSucceeds
+                ? InvalidEvidenceResponse()
+                : GroundedEvidenceResponse();
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Succeeded(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    text,
+                    AiFinishReason.Stop,
+                    new AiProviderMetadata("stub", "model-v1"))));
+        }
+
+        private static string InvalidEvidenceResponse() =>
+            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"RuntimeFact\",\"reference\":\"runtime.fabricated\"}]}}}";
+
+        private static string GroundedEvidenceResponse() =>
+            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]}}}";
     }
 
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog

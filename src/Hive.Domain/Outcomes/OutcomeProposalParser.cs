@@ -154,7 +154,9 @@ public static class OutcomeProposalParser
         OutcomeProposalConstraint.EvidenceReferenceProperty,
     ];
 
-    public static OutcomeProposalParseResult Parse(string? output)
+    public static OutcomeProposalParseResult Parse(
+        string? output,
+        OutcomeProposalEvidenceContext? evidenceContext = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -208,7 +210,20 @@ public static class OutcomeProposalParser
         var requiredIntervention = ReadRequiredIntervention(proposalElement, errors);
         var blockers = ReadBlockers(proposalElement, errors);
         var nextAction = ReadNextAction(proposalElement, errors);
-        var evidenceReferences = ReadEvidenceReferences(proposalElement, errors);
+        var evidenceReferences = ReadEvidenceReferences(
+            proposalElement,
+            evidenceContext,
+            errors);
+
+        if (evidenceContext is not null &&
+            proposedIntent is (OutcomeProposedIntent.ReportProgress or
+                OutcomeProposedIntent.ReportDone) &&
+            evidenceReferences is { IsEmpty: true })
+        {
+            errors.Add(Error(
+                OutcomeProposalParseDiagnosticContract.InvalidFieldCode,
+                ProposalPath(OutcomeProposalConstraint.EvidenceReferencesProperty)));
+        }
 
         OutcomeProposal? proposal = null;
         if (schemaVersionValid &&
@@ -443,6 +458,7 @@ public static class OutcomeProposalParser
 
     private static ImmutableArray<OutcomeEvidenceReference>? ReadEvidenceReferences(
         JsonElement proposal,
+        OutcomeProposalEvidenceContext? evidenceContext,
         ICollection<OutcomeProposalParseError> errors)
     {
         var path = ProposalPath(OutcomeProposalConstraint.EvidenceReferencesProperty);
@@ -481,6 +497,18 @@ public static class OutcomeProposalParser
             }
 
             var parsed = new OutcomeEvidenceReference(parsedSource, reference);
+            if (evidenceContext is not null && !evidenceContext.Allows(parsed))
+            {
+                errors.Add(Error(
+                    parsed.Source == OutcomeEvidenceSource.DirectiveInput
+                        ? OutcomeProposalParseDiagnosticContract.InvalidFieldCode
+                        : OutcomeProposalParseDiagnosticContract.InvalidVocabularyCode,
+                    parsed.Source == OutcomeEvidenceSource.DirectiveInput
+                        ? EvidencePath(OutcomeProposalConstraint.EvidenceReferenceProperty)
+                        : EvidencePath(OutcomeProposalConstraint.EvidenceSourceProperty)));
+                continue;
+            }
+
             if (builder.Contains(parsed))
             {
                 errors.Add(Error(OutcomeProposalParseDiagnosticContract.InvalidFieldCode, path));

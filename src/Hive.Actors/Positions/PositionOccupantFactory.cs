@@ -497,6 +497,11 @@ internal sealed class AiAgentActor : ReceiveActor
                 GatewayInvoker,
                 UnavailableAiDirectiveConnectorToolExecutor.Instance,
                 ActionGate);
+            var outcomeProposalEvidenceContext =
+                context.RequiresStructuredOutcomeProposal
+                    ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
+                    : null;
+            var outcomeProposalCorrectionAttempted = false;
             while (true)
             {
                 _directiveGatewayInvocations[request.CorrelationId] = result;
@@ -504,7 +509,8 @@ internal sealed class AiAgentActor : ReceiveActor
                     result,
                     context.Authority.CanDecide,
                     acceptEvaluationEnvelope: context.EvaluationInstruction is not null,
-                    requireOutcomeProposal: context.RequiresStructuredOutcomeProposal);
+                    requireOutcomeProposal: context.RequiresStructuredOutcomeProposal,
+                    outcomeProposalEvidenceContext: outcomeProposalEvidenceContext);
                 _directiveInterpretations[request.CorrelationId] = interpretation;
 
                 if (interpretation.IsDecision)
@@ -741,12 +747,55 @@ internal sealed class AiAgentActor : ReceiveActor
                 }
                 else if (interpretation.RequiresEscalation)
                 {
-                    var iterationAuditSnapshot = RecordInitialIterationAudit(
-                        iterationState,
-                        iterationAudit,
-                        result,
-                        prompt.Policy?.HasAvailableBudget ?? true,
-                        DateTimeOffset.UtcNow);
+                    if (!outcomeProposalCorrectionAttempted &&
+                        context.RequiresStructuredOutcomeProposal &&
+                        AiDirectiveOutcomeProposalCorrection.IsEligible(interpretation))
+                    {
+                        outcomeProposalCorrectionAttempted = true;
+                        var correctionObservedAt = DateTimeOffset.UtcNow;
+                        var correctionDecision = iterationState.EvaluateInference(
+                            correctionObservedAt,
+                            prompt.Policy?.HasAvailableBudget ?? true);
+                        iterationAudit = iterationAudit.RecordDecision(
+                            iterationState,
+                            correctionDecision,
+                            correctionObservedAt);
+                        _directiveIterationAudits[request.CorrelationId] = iterationAudit;
+                        if (correctionDecision.CanContinue)
+                        {
+                            var correctionResult = await continuationExecutor
+                                .ExecuteOutcomeProposalCorrectionAsync(
+                                    context,
+                                    iterationState,
+                                    correctionDecision,
+                                    prompt.Policy?.HasAvailableBudget ?? true,
+                                    interpretation.Failure!.ParseErrors,
+                                    CancellationToken.None)
+                                .ConfigureAwait(false);
+                            iterationAudit = iterationAudit.RecordExecution(
+                                iterationState,
+                                correctionResult,
+                                DateTimeOffset.UtcNow);
+                            _directiveIterationAudits[request.CorrelationId] = iterationAudit;
+                            if (correctionResult.IsSuccess)
+                            {
+                                iterationState = iterationState.Advance(
+                                    correctionDecision,
+                                    correctionObservedAt);
+                                result = correctionResult.InferenceResult!;
+                                continue;
+                            }
+                        }
+                    }
+
+                    var iterationAuditSnapshot = iterationAudit.IsTerminal
+                        ? iterationAudit
+                        : RecordInitialIterationAudit(
+                            iterationState,
+                            iterationAudit,
+                            result,
+                            prompt.Policy?.HasAvailableBudget ?? true,
+                            DateTimeOffset.UtcNow);
                     _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
                     var finalSnapshot = gatewayRequested.AdvanceTo(
                         AiDirectiveProcessingStatus.Escalated,

@@ -258,12 +258,43 @@ internal sealed class AiDirectiveIterationExecutor
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public async ValueTask<AiDirectiveIterationExecutionResult> ExecuteAsync(
+    public ValueTask<AiDirectiveIterationExecutionResult> ExecuteAsync(
         AiDirectiveExecutionContext context,
         AiDirectiveIterationState state,
         AiDirectiveIterationDecision decision,
         bool hasAvailableBudget,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget,
+            inferenceRequest: null,
+            cancellationToken);
+
+    public ValueTask<AiDirectiveIterationExecutionResult>
+        ExecuteOutcomeProposalCorrectionAsync(
+            AiDirectiveExecutionContext context,
+            AiDirectiveIterationState state,
+            AiDirectiveIterationDecision decision,
+            bool hasAvailableBudget,
+            IEnumerable<AiDirectiveDecisionParseError> parseErrors,
+            CancellationToken cancellationToken = default) =>
+        ExecuteCoreAsync(
+            context,
+            state,
+            decision,
+            hasAvailableBudget,
+            AiDirectivePrompt.CreateOutcomeProposalCorrectionRequest(context, parseErrors),
+            cancellationToken);
+
+    private async ValueTask<AiDirectiveIterationExecutionResult> ExecuteCoreAsync(
+        AiDirectiveExecutionContext context,
+        AiDirectiveIterationState state,
+        AiDirectiveIterationDecision decision,
+        bool hasAvailableBudget,
+        AiGatewayRequest? inferenceRequest,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(state);
@@ -306,7 +337,11 @@ internal sealed class AiDirectiveIterationExecutor
         return continuation.Kind switch
         {
             AiDirectiveIterationContinuationKind.Inference =>
-                await ExecuteInferenceAsync(context, state, cancellationToken).ConfigureAwait(false),
+                await ExecuteInferenceAsync(
+                    context,
+                    state,
+                    inferenceRequest,
+                    cancellationToken).ConfigureAwait(false),
             AiDirectiveIterationContinuationKind.ConnectorTool =>
                 await ExecuteConnectorToolAsync(
                     context,
@@ -323,11 +358,12 @@ internal sealed class AiDirectiveIterationExecutor
     private async ValueTask<AiDirectiveIterationExecutionResult> ExecuteInferenceAsync(
         AiDirectiveExecutionContext context,
         AiDirectiveIterationState state,
+        AiGatewayRequest? inferenceRequest,
         CancellationToken cancellationToken)
     {
         try
         {
-            var request = AiDirectivePrompt.CreateInitialRequest(context);
+            var request = inferenceRequest ?? AiDirectivePrompt.CreateInitialRequest(context);
             if (!TryGetEffectiveTimeout(
                     request.Timeout,
                     context.Directive.Deadline,

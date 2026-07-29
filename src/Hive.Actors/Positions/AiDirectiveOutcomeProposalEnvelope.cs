@@ -15,13 +15,18 @@ internal static class AiDirectiveOutcomeProposalEnvelope
 {
     public const string PropertyName = "outcome_proposal";
 
-    public static AiOutputConstraint ComposeOutputConstraint(AiOutputConstraint baseConstraint)
+    public static AiOutputConstraint ComposeOutputConstraint(
+        AiOutputConstraint baseConstraint,
+        OutcomeProposalEvidenceContext? evidenceContext = null)
     {
         ArgumentNullException.ThrowIfNull(baseConstraint);
 
         var root = JsonNode.Parse(baseConstraint.JsonSchema.GetRawText())!.AsObject();
+        var proposalConstraint = evidenceContext is null
+            ? OutcomeProposalConstraint.OutputConstraint
+            : OutcomeProposalConstraint.CreateOutputConstraint(evidenceContext);
         root["properties"]!.AsObject()[PropertyName] =
-            JsonNode.Parse(OutcomeProposalConstraint.OutputConstraint.JsonSchema.GetRawText());
+            JsonNode.Parse(proposalConstraint.JsonSchema.GetRawText());
         root["required"]!.AsArray().Add(PropertyName);
 
         using var document = JsonDocument.Parse(root.ToJsonString());

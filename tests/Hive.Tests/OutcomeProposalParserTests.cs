@@ -203,6 +203,105 @@ public sealed class OutcomeProposalParserTests
             interventions.OrderBy(value => value, StringComparer.Ordinal));
     }
 
+    [Fact]
+    public void Contextual_constraint_allows_only_exact_bounded_directive_input_references()
+    {
+        var evidenceContext = new OutcomeProposalEvidenceContext(
+        [
+            "directive.objective",
+            "directive.context",
+        ]);
+        var constraint = OutcomeProposalConstraint.CreateOutputConstraint(evidenceContext);
+
+        var branches = constraint.JsonSchema
+            .GetProperty("properties")
+            .GetProperty("proposal")
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .ToArray();
+        Assert.All(
+            branches,
+            branch =>
+            {
+                var evidenceProperties = branch.GetProperty("properties")
+                    .GetProperty("evidence_references")
+                    .GetProperty("items")
+                    .GetProperty("properties");
+                Assert.Equal(
+                    ["DirectiveInput"],
+                    Strings(evidenceProperties.GetProperty("source").GetProperty("enum")));
+                Assert.Equal(
+                    ["directive.context", "directive.objective"],
+                    Strings(evidenceProperties.GetProperty("reference").GetProperty("enum")));
+            });
+    }
+
+    [Fact]
+    public void Contextual_parser_rejects_disallowed_sources_and_ungrounded_references()
+    {
+        var evidenceContext = new OutcomeProposalEvidenceContext(
+        [
+            "directive.objective",
+            "directive.context",
+        ]);
+        var allowed = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]"),
+            evidenceContext);
+        var disallowedSource = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"RuntimeFact\",\"reference\":\"directive.context\"}]"),
+            evidenceContext);
+        var ungroundedReference = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.missing\"}]"),
+            evidenceContext);
+
+        AssertSuccess(allowed);
+        AssertFailure(
+            disallowedSource,
+            "invalid-vocabulary",
+            "proposal.evidence_references.item.source");
+        AssertFailure(
+            ungroundedReference,
+            "invalid-field",
+            "proposal.evidence_references.item.reference");
+    }
+
+    [Fact]
+    public void Contextual_parser_reports_missing_required_report_evidence_at_the_evidence_path()
+    {
+        var result = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[]"),
+            new OutcomeProposalEvidenceContext(["directive.context"]));
+
+        AssertFailure(
+            result,
+            "invalid-field",
+            "proposal.evidence_references");
+    }
+
     [Theory]
     [MemberData(nameof(ValidProposals))]
     public void Every_constraint_branch_parses_to_the_matching_closed_intent(

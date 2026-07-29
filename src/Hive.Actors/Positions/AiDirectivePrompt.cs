@@ -35,17 +35,64 @@ internal static class AiDirectivePrompt
             outputConstraint: OutputConstraint(context));
     }
 
+    public static AiGatewayRequest CreateOutcomeProposalCorrectionRequest(
+        AiDirectiveExecutionContext context,
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(parseErrors);
+        if (!context.RequiresStructuredOutcomeProposal)
+        {
+            throw new ArgumentException(
+                "Outcome proposal correction requires structured outcome resolution.",
+                nameof(context));
+        }
+
+        var initial = CreateInitialRequest(context);
+        var evidenceContext =
+            AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context);
+        var correction = AiDirectiveOutcomeProposalCorrection.CreateBoundedInstruction(
+            evidenceContext,
+            parseErrors);
+        var metadata = new Dictionary<string, string>(
+            initial.Metadata,
+            StringComparer.Ordinal)
+        {
+            ["hive.correction"] = "outcome-proposal-evidence",
+        };
+
+        return new AiGatewayRequest(
+            initial.OrganizationId,
+            initial.PositionId,
+            initial.ThreadId,
+            initial.MessageId,
+            $"{initial.Content}{Environment.NewLine}{Environment.NewLine}{correction}",
+            initial.SystemInstruction,
+            initial.ContextMessages,
+            initial.Tools,
+            initial.ModelParameters,
+            metadata,
+            initial.Provider,
+            initial.ProcessingMode,
+            initial.Timeout,
+            initial.Policy,
+            initial.OutputConstraint);
+    }
+
     internal static AiDirectiveSystemInstructionSections BuildSystemInstructionSections(
         AiDirectiveExecutionContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
         var identityPrompt = RequireIdentityPrompt(context);
+        var evidenceContext = context.RequiresStructuredOutcomeProposal
+            ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
+            : null;
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
             BuildHiveProtocolInstruction(
                 context.EvaluationInstruction is not null,
-                context.RequiresStructuredOutcomeProposal),
+                evidenceContext),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context),
             context.EvaluationInstruction?.Content);
@@ -53,7 +100,7 @@ internal static class AiDirectivePrompt
 
     private static string BuildHiveProtocolInstruction(
         bool hasEvaluationAppendix,
-        bool requiresStructuredOutcomeProposal)
+        OutcomeProposalEvidenceContext? evidenceContext)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -84,13 +131,14 @@ internal static class AiDirectivePrompt
                 "A runtime evaluation appendix is present below; when the enforced response format declares a top-level \"evaluation\" property, fill it, otherwise its single exact envelope line is mandatory in the selected payload — verify before returning JSON.");
         }
 
-        if (requiresStructuredOutcomeProposal)
+        if (evidenceContext is not null)
         {
             lines.AddRange(
             [
                 $"Include the required top-level \"{AiDirectiveOutcomeProposalEnvelope.PropertyName}\" object using OutcomeProposal schema version {OutcomeProposalConstraint.SchemaVersion}; it is a non-authoritative proposal that the runtime will validate and resolve.",
                 $"Keep the organizational decision and {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.ProposedIntentProperty} compatible: Done maps to Report.Done, Progress maps to Report.Progress or ContinueWork, escalation maps to Escalation or ApprovalRequired, and a child directive maps to Directive.",
-                $"A Report.Done proposal must cite only grounded known input references such as \"directive.objective\" or \"directive.context\" with source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\"; never invent runtime, tool, completion-criterion, or persisted-state evidence.",
+                $"Evidence may use only source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\" and these exact bounded references: {EvidenceReferenceVocabulary(evidenceContext)}.",
+                "A Report.Done proposal requires at least one grounded allowed reference; never invent runtime, tool, completion-criterion, persisted-state, or other evidence.",
             ]);
         }
 
@@ -105,9 +153,20 @@ internal static class AiDirectivePrompt
             ? AiDirectiveEvaluationEnvelope.ComposeOutputConstraint(evaluationInstruction)
             : AiDirectiveDecisionSchema.OutputConstraint;
         return context.RequiresStructuredOutcomeProposal
-            ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(constraint)
+            ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(
+                constraint,
+                AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context))
             : constraint;
     }
+
+    private static string EvidenceReferenceVocabulary(
+        OutcomeProposalEvidenceContext evidenceContext) =>
+        evidenceContext.DirectiveInputReferences.IsEmpty
+            ? "<empty>"
+            : string.Join(
+                ", ",
+                evidenceContext.DirectiveInputReferences.Select(
+                    reference => JsonSerializer.Serialize(reference)));
 
     private static string BuildRuntimeAuthorityInstruction(
         AiDirectiveExecutionContext context) =>

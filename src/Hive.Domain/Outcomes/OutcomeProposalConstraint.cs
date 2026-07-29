@@ -36,7 +36,8 @@ public static class OutcomeProposalConstraint
         EvidenceReferenceProperty,
     ];
 
-    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema();
+    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema(
+        evidenceContext: null);
 
     public static AiOutputConstraint OutputConstraint { get; } = new(
         SchemaName,
@@ -44,7 +45,20 @@ public static class OutcomeProposalConstraint
         CanonicalJsonSchema,
         [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
 
-    private static JsonElement CreateJsonSchema()
+    public static AiOutputConstraint CreateOutputConstraint(
+        OutcomeProposalEvidenceContext evidenceContext)
+    {
+        ArgumentNullException.ThrowIfNull(evidenceContext);
+
+        return new AiOutputConstraint(
+            SchemaName,
+            SchemaVersion,
+            CreateJsonSchema(evidenceContext),
+            [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+    }
+
+    private static JsonElement CreateJsonSchema(
+        OutcomeProposalEvidenceContext? evidenceContext)
     {
         var proposalBranches = new JsonArray
         {
@@ -54,21 +68,24 @@ public static class OutcomeProposalConstraint
                 [OutcomeRequiredIntervention.None],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
-                minimumEvidenceReferences: 0),
+                minimumEvidenceReferences: 0,
+                evidenceContext: evidenceContext),
             CreateProposalBranch(
                 OutcomeProposedIntent.ReportProgress,
                 [OutcomeWorkState.InProgress],
                 [OutcomeRequiredIntervention.None],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
-                minimumEvidenceReferences: 1),
+                minimumEvidenceReferences: 1,
+                evidenceContext: evidenceContext),
             CreateProposalBranch(
                 OutcomeProposedIntent.ReportDone,
                 [OutcomeWorkState.Completed],
                 [OutcomeRequiredIntervention.None],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Forbidden,
-                minimumEvidenceReferences: 1),
+                minimumEvidenceReferences: 1,
+                evidenceContext: evidenceContext),
             CreateProposalBranch(
                 OutcomeProposedIntent.Escalation,
                 [OutcomeWorkState.Blocked, OutcomeWorkState.Failed],
@@ -80,6 +97,7 @@ public static class OutcomeProposalConstraint
                     .Where(blocker => blocker is not OutcomeBlocker.HumanApproval),
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
+                evidenceContext: evidenceContext,
                 minimumBlockers: 1),
             CreateProposalBranch(
                 OutcomeProposedIntent.Directive,
@@ -87,7 +105,8 @@ public static class OutcomeProposalConstraint
                 [OutcomeRequiredIntervention.Delegation],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
-                minimumEvidenceReferences: 0),
+                minimumEvidenceReferences: 0,
+                evidenceContext: evidenceContext),
             CreateProposalBranch(
                 OutcomeProposedIntent.ApprovalRequired,
                 [OutcomeWorkState.Blocked],
@@ -95,6 +114,7 @@ public static class OutcomeProposalConstraint
                 blockersAllowed: [OutcomeBlocker.HumanApproval],
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
+                evidenceContext: evidenceContext,
                 minimumBlockers: 1),
         };
 
@@ -127,6 +147,7 @@ public static class OutcomeProposalConstraint
         IEnumerable<OutcomeBlocker> blockersAllowed,
         NextActionMode nextActionMode,
         int minimumEvidenceReferences,
+        OutcomeProposalEvidenceContext? evidenceContext,
         int minimumBlockers = 0)
     {
         var blockerWireValues = blockersAllowed
@@ -183,7 +204,8 @@ public static class OutcomeProposalConstraint
                 [BlockersProperty] = blockers,
                 [NextActionProperty] = CreateNextActionSchema(nextActionMode),
                 [EvidenceReferencesProperty] = CreateEvidenceReferencesSchema(
-                    minimumEvidenceReferences),
+                    minimumEvidenceReferences,
+                    evidenceContext),
             },
             ["required"] = JsonArray(ProposalRequiredFields),
             ["additionalProperties"] = false,
@@ -206,7 +228,9 @@ public static class OutcomeProposalConstraint
             _ => throw new InvalidOperationException("Unknown next-action schema mode."),
         };
 
-    private static JsonObject CreateEvidenceReferencesSchema(int minimumEvidenceReferences) =>
+    private static JsonObject CreateEvidenceReferencesSchema(
+        int minimumEvidenceReferences,
+        OutcomeProposalEvidenceContext? evidenceContext) =>
         new()
         {
             ["type"] = "array",
@@ -218,15 +242,16 @@ public static class OutcomeProposalConstraint
                     [EvidenceSourceProperty] = new JsonObject
                     {
                         ["type"] = "string",
-                        ["enum"] = JsonArray(OutcomeEvidenceSourceContract.WireValues),
+                        ["enum"] = JsonArray(evidenceContext is null
+                            ? OutcomeEvidenceSourceContract.WireValues
+                            :
+                            [
+                                OutcomeEvidenceSourceContract.ToWireValue(
+                                    OutcomeEvidenceSource.DirectiveInput),
+                            ]),
                     },
-                    [EvidenceReferenceProperty] = new JsonObject
-                    {
-                        ["type"] = "string",
-                        ["minLength"] = 1,
-                        ["maxLength"] = 128,
-                        ["pattern"] = "^[A-Za-z0-9._:/-]+$",
-                    },
+                    [EvidenceReferenceProperty] =
+                        CreateEvidenceReferenceSchema(evidenceContext),
                 },
                 ["required"] = JsonArray(EvidenceRequiredFields),
                 ["additionalProperties"] = false,
@@ -234,6 +259,24 @@ public static class OutcomeProposalConstraint
             ["minItems"] = minimumEvidenceReferences,
             ["uniqueItems"] = true,
         };
+
+    private static JsonObject CreateEvidenceReferenceSchema(
+        OutcomeProposalEvidenceContext? evidenceContext)
+    {
+        var schema = new JsonObject
+        {
+            ["type"] = "string",
+            ["minLength"] = 1,
+            ["maxLength"] = 128,
+            ["pattern"] = "^[A-Za-z0-9._:/-]+$",
+        };
+        if (evidenceContext is not null)
+        {
+            schema["enum"] = JsonArray(evidenceContext.DirectiveInputReferences);
+        }
+
+        return schema;
+    }
 
     private static JsonObject CreateNonBlankStringSchema() =>
         new()

@@ -154,7 +154,8 @@ internal static class AiDirectiveDecisionInterpreter
         AiAgentGatewayInvocationResult invocation,
         IEnumerable<AuthorityKey>? canDecide = null,
         bool acceptEvaluationEnvelope = false,
-        bool requireOutcomeProposal = false)
+        bool requireOutcomeProposal = false,
+        OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null)
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
@@ -170,7 +171,8 @@ internal static class AiDirectiveDecisionInterpreter
             invocation.Response.Text,
             canDecide,
             acceptEvaluationEnvelope,
-            requireOutcomeProposal);
+            requireOutcomeProposal,
+            outcomeProposalEvidenceContext);
         if (parseResult.IsSuccess)
         {
             return AiDirectiveInterpretationResult.AcceptedDecision(

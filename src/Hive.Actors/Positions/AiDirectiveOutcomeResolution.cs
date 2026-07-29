@@ -659,10 +659,6 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
     private OutcomeVerificationContext CreateVerificationContext(
         AiDirectiveExecutionContext context)
     {
-        var entries = new List<OutcomeVerificationContextEntry>();
-        var bytes = 0;
-        AddIfBounded(entries, "directive.objective", context.Directive.Objective, ref bytes);
-        AddIfBounded(entries, "directive.context", context.Directive.Context, ref bytes);
         var timeout = EffectiveVerifierTimeout(context);
         return new OutcomeVerificationContext(
             context.OrganizationId,
@@ -671,7 +667,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
             context.Directive.MessageId,
             context.Directive.DirectiveId,
             timeout,
-            entries);
+            AiDirectiveOutcomeEvidenceContext.CreateVerificationEntries(context));
     }
 
     private TimeSpan EffectiveVerifierTimeout(AiDirectiveExecutionContext context)
@@ -759,23 +755,6 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
             // the limited verifier unavailable and the orchestrator retains fail-safe behavior.
             return null;
         }
-    }
-
-    private static void AddIfBounded(
-        ICollection<OutcomeVerificationContextEntry> entries,
-        string reference,
-        string value,
-        ref int bytes)
-    {
-        var entryBytes = System.Text.Encoding.UTF8.GetByteCount(reference) +
-            System.Text.Encoding.UTF8.GetByteCount(value);
-        if (bytes + entryBytes > OutcomeVerificationContext.MaximumUtf8Bytes)
-        {
-            return;
-        }
-
-        entries.Add(new OutcomeVerificationContextEntry(reference, value));
-        bytes += entryBytes;
     }
 
     private static bool IsCompatible(OutcomePolicySnapshot policy) =>

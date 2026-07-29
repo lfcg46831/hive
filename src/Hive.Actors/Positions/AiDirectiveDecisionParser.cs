@@ -260,7 +260,8 @@ internal static class AiDirectiveDecisionParser
         string? output,
         IEnumerable<AuthorityKey>? canDecide = null,
         bool acceptEvaluationEnvelope = false,
-        bool requireOutcomeProposal = false)
+        bool requireOutcomeProposal = false,
+        OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -287,7 +288,11 @@ internal static class AiDirectiveDecisionParser
             out _);
         var decisionEnvelope = ReadDecisionEnvelope(root, errors);
         var evaluationEnvelopeJson = ReadEvaluationEnvelope(root, acceptEvaluationEnvelope);
-        var proposal = ReadOutcomeProposal(root, requireOutcomeProposal, errors);
+        var proposal = ReadOutcomeProposal(
+            root,
+            requireOutcomeProposal,
+            outcomeProposalEvidenceContext,
+            errors);
         AddUnknownFields(
             root,
             "$",
@@ -383,6 +388,7 @@ internal static class AiDirectiveDecisionParser
     private static OutcomeProposal? ReadOutcomeProposal(
         JsonElement root,
         bool requireOutcomeProposal,
+        OutcomeProposalEvidenceContext? evidenceContext,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
         if (!requireOutcomeProposal)
@@ -406,7 +412,9 @@ internal static class AiDirectiveDecisionParser
             return null;
         }
 
-        var parsed = OutcomeProposalParser.Parse(JsonSerializer.Serialize(value));
+        var parsed = OutcomeProposalParser.Parse(
+            JsonSerializer.Serialize(value),
+            evidenceContext);
         if (parsed.IsSuccess)
         {
             return parsed.Proposal;

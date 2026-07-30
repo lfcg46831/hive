@@ -250,6 +250,27 @@ The command posts the canonical root `Directive` for the ACME bug-triage example
 
 The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference manifest is prepared only, the latest candidate remains rejected for freeze, and historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes it.
 
+##### Post-F0.8 local qualification
+
+`US-F0-17-T01` qualifies a reviewed commit without calling an AI provider or consuming a corpus. The complete default suite may use its local PostgreSQL Testcontainers; the experiment and Compose steps do not create application/evaluation containers. Run from a functionally clean worktree:
+
+```powershell
+dotnet build Hive.sln --no-restore -v minimal
+dotnet test Hive.sln --no-restore -v minimal
+
+$manifest='config/experiments/bug-triage-lab-v1/experiment.v1.json'
+dotnet run --project src/Hive.Evaluation.Tooling --no-restore -- experiment prepare --manifest $manifest
+$experimentEnv='artifacts/evaluation/experiments/bug-triage-lab-v1/compose.env'
+$env:OPENAI_API_KEY='preflight-compose-validation-only'
+try {
+  docker compose --env-file .env.example --env-file $experimentEnv -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.experiment.yml config --quiet
+} finally {
+  Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+}
+```
+
+The placeholder is not a provider credential and Compose is rendered only for validation. Do not pass `.env`, run `docker compose up`, execute either opt-in real-provider smoke, or invoke `evaluate`. A successful local report has verdict `ready-for-real-smoke`, which permits only a separate authorization request for `US-F0-17-T02`.
+
 Historical bug-triage calibration and holdout runs used the evaluation-only audit/export profile below:
 
 ```powershell

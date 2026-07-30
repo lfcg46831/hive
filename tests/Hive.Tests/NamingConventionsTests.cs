@@ -19,6 +19,7 @@ public sealed class NamingConventionsTests
     /// <summary>Project folder (relative to the repository root) → root namespace.</summary>
     private static readonly (string RelativeDirectory, string RootNamespace)[] Projects =
     [
+        ("src/Hive.Contracts", "Hive.Contracts"),
         ("src/Hive.Domain", "Hive.Domain"),
         ("src/Hive.Application", "Hive.Application"),
         ("src/Hive.Actors", "Hive.Actors"),
@@ -36,14 +37,15 @@ public sealed class NamingConventionsTests
     /// </summary>
     private static readonly Dictionary<string, string[]> AllowedProjectReferences = new()
     {
+        ["Hive.Contracts"] = [],
         ["Hive.Domain"] = [],
         ["Hive.Application"] = ["Hive.Domain"],
         ["Hive.Infrastructure"] = ["Hive.Domain"],
         ["Hive.Actors"] = ["Hive.Domain", "Hive.Application", "Hive.Infrastructure"],
-        ["Hive.Api"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure"],
+        ["Hive.Api"] = ["Hive.Contracts", "Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure"],
         ["Hive.Worker"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure"],
         ["Hive.DemoClient"] = [],
-        ["Hive.Tests"] = ["Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure", "Hive.Api", "Hive.Worker"],
+        ["Hive.Tests"] = ["Hive.Contracts", "Hive.Domain", "Hive.Application", "Hive.Actors", "Hive.Infrastructure", "Hive.Api", "Hive.Worker"],
         ["Hive.DemoClient.Tests"] = ["Hive.Domain", "Hive.Api", "Hive.DemoClient"],
     };
 

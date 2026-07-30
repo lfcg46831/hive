@@ -6,6 +6,7 @@ public sealed class SolutionStructureTests
 {
     public static TheoryData<string, string, string> RequiredProjects => new()
     {
+        { "Hive.Contracts", "src/Hive.Contracts/Hive.Contracts.csproj", "Microsoft.NET.Sdk" },
         { "Hive.Domain", "src/Hive.Domain/Hive.Domain.csproj", "Microsoft.NET.Sdk" },
         { "Hive.Application", "src/Hive.Application/Hive.Application.csproj", "Microsoft.NET.Sdk" },
         { "Hive.Actors", "src/Hive.Actors/Hive.Actors.csproj", "Microsoft.NET.Sdk" },

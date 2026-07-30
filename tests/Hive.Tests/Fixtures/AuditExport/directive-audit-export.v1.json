@@ -1,0 +1,68 @@
+{
+  "contract": "hive.directive-audit-export",
+  "contract_version": 1,
+  "organization_id": "acme-delivery",
+  "thread_id": "11111111-1111-1111-1111-111111111111",
+  "directive_id": "22222222-2222-2222-2222-222222222222",
+  "after_sequence": 0,
+  "next_after_sequence": 2,
+  "is_terminal": true,
+  "events": [
+    {
+      "sequence": 1,
+      "event_id": "33333333-3333-3333-3333-333333333333",
+      "occurred_at_utc": "2026-07-30T08:00:00+00:00",
+      "persisted_at_utc": "2026-07-30T08:00:01+00:00",
+      "stage": "SubmissionReceived",
+      "outcome": "Accepted",
+      "message_id": "44444444-4444-4444-4444-444444444444",
+      "position_id": "bug-triage",
+      "message_type": "Directive",
+      "attributes": {
+        "redactions": "directive.objective,directive.context",
+        "source": "api"
+      }
+    },
+    {
+      "sequence": 2,
+      "event_id": "55555555-5555-5555-5555-555555555555",
+      "occurred_at_utc": "2026-07-30T08:00:02+00:00",
+      "persisted_at_utc": "2026-07-30T08:00:03+00:00",
+      "stage": "GatewayCostRecorded",
+      "outcome": "Completed",
+      "message_id": "44444444-4444-4444-4444-444444444444",
+      "position_id": "bug-triage",
+      "provider": {
+        "provider_id": "openai",
+        "model_id": "gpt-example"
+      },
+      "usage": {
+        "input_tokens": 120,
+        "output_tokens": 30,
+        "total_tokens": 150,
+        "estimated": false
+      },
+      "cost": {
+        "amount": 0.0012,
+        "currency": "USD",
+        "estimated": false,
+        "pricing_version": "pricing-v1",
+        "pricing_token_unit": 1000000,
+        "input_price_per_token_unit": 1,
+        "output_price_per_token_unit": 2
+      },
+      "latency_ms": 950,
+      "attributes": {
+        "operation": "directive-inference"
+      }
+    }
+  ],
+  "result": {
+    "message_type": "Report",
+    "schema_version": 1,
+    "media_type": "application/vnd.hive.org-message\u002Bjson",
+    "content_length_bytes": 416,
+    "sha256": "7d35a8caf232ba8c853ff4a4e34471d243c5caf3820c0f3e07dc77bb319223e0",
+    "content": "{\u0022Id\u0022:\u0022aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\u0022,\u0022OrganizationId\u0022:\u0022acme-delivery\u0022,\u0022From\u0022:{\u0022kind\u0022:\u0022position\u0022,\u0022positionId\u0022:\u0022bug-triage\u0022},\u0022To\u0022:{\u0022kind\u0022:\u0022position\u0022,\u0022positionId\u0022:\u0022delivery-lead\u0022},\u0022Thread\u0022:\u002211111111-1111-1111-1111-111111111111\u0022,\u0022Priority\u0022:\u0022normal\u0022,\u0022SchemaVersion\u0022:1,\u0022SentAt\u0022:\u00222026-07-30T08:00:02\u002B00:00\u0022,\u0022Deadline\u0022:null,\u0022AboutDirectiveId\u0022:\u002222222222-2222-2222-2222-222222222222\u0022,\u0022Kind\u0022:\u0022done\u0022,\u0022Body\u0022:\u0022Completed.\u0022}"
+  }
+}

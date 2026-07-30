@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -228,7 +229,124 @@ public sealed class AiDirectiveRecoveryGuardTests
         }
     }
 
+    [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Recovery)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Idempotency)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Audit)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Projections)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.PositionEffects)]
+    public async Task Redelivery_to_recreated_agent_does_not_repeat_gateway_or_effects()
+    {
+        var scenario = AiDirectiveIntegrationScenario.Create();
+        var auditLog = new RecordingJourneyAuditLog();
+        var invoker = new RecordingInvoker();
+        var projector = new RecordingEvaluationResultProjector();
+        var firstCompletion = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstCommand = new TaskCompletionSource<PositionCommand>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondCompletion = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondCommand = new TaskCompletionSource<PositionCommand>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        using var system = ActorSystem.Create($"ai-directive-redelivery-{Guid.NewGuid():N}");
+        var request = AiDirectiveProcessingRequest.Create(
+            scenario.Entity,
+            scenario.RuntimeConfiguration(new AiProviderMetadata("stub", "guard")),
+            PositionState.Restore(scenario.InitialSnapshot()),
+            scenario.Occupant,
+            scenario.Directive);
+
+        try
+        {
+            var firstParent = system.ActorOf(
+                Props.Create(() => new AgentParentProbe(
+                    invoker,
+                    auditLog,
+                    firstCompletion,
+                    firstCommand,
+                    projector)),
+                "first-parent");
+
+            firstParent.Tell(request);
+
+            var first = await firstCompletion.Task.WaitAsync(Timeout());
+            await firstCommand.Task.WaitAsync(Timeout());
+            await WaitForTerminalAuditAsync(auditLog, request);
+            Assert.True(await firstParent.GracefulStop(Timeout()));
+
+            var recreatedParent = system.ActorOf(
+                Props.Create(() => new AgentParentProbe(
+                    invoker,
+                    auditLog,
+                    secondCompletion,
+                    secondCommand,
+                    projector)),
+                "first-parent");
+
+            recreatedParent.Tell(request);
+
+            var redelivered = await secondCompletion.Task.WaitAsync(Timeout());
+
+            Assert.Equal(PositionOccupantProcessingStatus.Completed, first.Status);
+            Assert.Equal(PositionOccupantProcessingStatus.Completed, redelivered.Status);
+            Assert.Equal(first.CorrelationId, redelivered.CorrelationId);
+            Assert.Equal(1, invoker.InvocationCount);
+            Assert.Equal(1, projector.ProjectionCount);
+            Assert.False(secondCommand.Task.IsCompleted);
+            Assert.Single(auditLog.Records.Where(record =>
+                record.Stage == JourneyAuditStage.AgentDecided));
+            Assert.Single(auditLog.Records.Where(record =>
+                record.Stage == JourneyAuditStage.ResultMessageCreated));
+            var suppression = Assert.Single(auditLog.Records.Where(record =>
+                record.Stage == JourneyAuditStage.DuplicateSuppressed));
+            Assert.Equal(
+                "terminal-result-already-materialized",
+                suppression.ReasonCode);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
+
+    private static async Task WaitForTerminalAuditAsync(
+        RecordingJourneyAuditLog auditLog,
+        AiDirectiveProcessingRequest request)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (auditLog.Records.Any(record =>
+                record.Stage == JourneyAuditStage.ResultMessageCreated
+                && record.ThreadId == request.ThreadId
+                && record.DirectiveId == request.DirectiveId
+                && record.MessageId == request.MessageId))
+            {
+                return;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new TimeoutException(
+            "The first execution did not materialize its terminal audit record.");
+    }
 
     private sealed class AgentParentProbe : ReceiveActor
     {
@@ -243,11 +361,28 @@ public sealed class AiDirectiveRecoveryGuardTests
             IJourneyAuditLog auditLog,
             TaskCompletionSource<PositionOccupantProcessingCompleted> completion,
             TaskCompletionSource<PositionCommand> command)
+            : this(
+                invoker,
+                auditLog,
+                completion,
+                command,
+                NoopEvaluationResultProjector.Instance)
+        {
+        }
+
+        public AgentParentProbe(
+            IAiAgentGatewayInvoker invoker,
+            IJourneyAuditLog auditLog,
+            TaskCompletionSource<PositionOccupantProcessingCompleted> completion,
+            TaskCompletionSource<PositionCommand> command,
+            IEvaluationResultProjector evaluationResultProjector)
         {
             _invoker = invoker;
             _auditLog = auditLog;
             _completion = completion;
             _command = command;
+            EvaluationResultProjector = evaluationResultProjector
+                ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
 
             Receive<AiDirectiveProcessingRequest>(request => _agent!.Tell(request, Sender));
             Receive<PositionOccupantProcessingCompleted>(message => _completion.TrySetResult(message));
@@ -261,20 +396,26 @@ public sealed class AiDirectiveRecoveryGuardTests
                     OccupantId.From("agent-14a"),
                     _invoker,
                     AiDirectiveResultMessageEmissionGate.Instance,
-                    _auditLog)),
+                    AllowingAiAgentActionGate.Instance,
+                    _auditLog,
+                    EvaluationResultProjector)),
                 "agent");
         }
+
+        private IEvaluationResultProjector EvaluationResultProjector { get; }
     }
 
     private sealed class RecordingInvoker : IAiAgentGatewayInvoker
     {
-        public int InvocationCount { get; private set; }
+        private int _invocationCount;
+
+        public int InvocationCount => Volatile.Read(ref _invocationCount);
 
         public Task<AiAgentGatewayInvocationResult> InvokeAsync(
             AiAgentGatewayInvocation invocation,
             CancellationToken cancellationToken = default)
         {
-            InvocationCount++;
+            Interlocked.Increment(ref _invocationCount);
             return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
                 invocation.CorrelationId,
                 AiGatewayResponse.Succeeded(
@@ -297,15 +438,32 @@ public sealed class AiDirectiveRecoveryGuardTests
         }
     }
 
+    private sealed class RecordingEvaluationResultProjector : IEvaluationResultProjector
+    {
+        private int _projectionCount;
+
+        public int ProjectionCount => Volatile.Read(ref _projectionCount);
+
+        public ValueTask ProjectAsync(
+            DirectiveId directiveId,
+            OrgMessage resultMessage,
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _projectionCount);
+            return ValueTask.CompletedTask;
+        }
+    }
+
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
     {
-        private readonly List<JourneyAuditRecord> _records = [];
+        private readonly System.Collections.Concurrent.ConcurrentQueue<JourneyAuditRecord>
+            _records = new();
 
-        public IReadOnlyList<JourneyAuditRecord> Records => _records;
+        public IReadOnlyList<JourneyAuditRecord> Records => _records.ToArray();
 
         public void Append(JourneyAuditRecord record)
         {
-            _records.Add(record);
+            _records.Enqueue(record);
         }
 
         public IReadOnlyList<JourneyAuditRecord> ReadByThread(

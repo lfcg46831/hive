@@ -1,7 +1,12 @@
 using System.Reflection;
 using System.Xml.Linq;
+using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Application.Directives;
+using Hive.Domain.Auditing;
+using Hive.Domain.Evaluation;
+using Hive.Domain.Messaging;
+using Hive.Domain.Positions;
 
 namespace Hive.Tests;
 
@@ -135,6 +140,26 @@ public sealed class ApplicationBoundaryTests
             actorSource,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
+            "AiDirectivePrompt.CreateInitialRequest",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AiDirectiveDecisionInterpreter.Interpret",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AiDirectiveIterationExecutor",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "ExecutionBudget.",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AiDirectiveAuditSnapshotFactory",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
             ".ResolveAsync(",
             actorSource,
             StringComparison.Ordinal);
@@ -142,6 +167,82 @@ public sealed class ApplicationBoundaryTests
             ".ExecuteDetailedAsync(request",
             actorSource,
             StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Coordinator_has_no_actor_journal_event_stream_or_projection_dispatch_dependency()
+    {
+        var coordinatorType = typeof(AiDirectiveExecutionCoordinator);
+        Assert.False(typeof(ActorBase).IsAssignableFrom(coordinatorType));
+
+        var dependencyTypes = coordinatorType
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Select(field => field.FieldType)
+            .Concat(coordinatorType
+                .GetConstructors()
+                .SelectMany(constructor => constructor
+                    .GetParameters()
+                    .Select(parameter => parameter.ParameterType)))
+            .ToArray();
+        var forbiddenTypes = new[]
+        {
+            typeof(IActorRef),
+            typeof(IJourneyAuditLog),
+            typeof(IEvaluationResultProjector),
+        };
+
+        var violations = dependencyTypes
+            .Where(candidate => forbiddenTypes.Any(forbidden =>
+                forbidden.IsAssignableFrom(candidate)))
+            .Select(type => type.FullName)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Forbidden coordinator dispatch dependencies:\n" +
+            string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void Ai_actor_uses_one_neutral_completion_path_for_execution_and_recovery()
+    {
+        var completion = Assert.Single(typeof(AiAgentActor)
+            .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
+            .Where(method => method.Name == "ReturnCompletion"));
+
+        Assert.Equal(
+            [typeof(IActorRef), typeof(DirectiveExecutionResult)],
+            completion.GetParameters().Select(parameter => parameter.ParameterType));
+    }
+
+    [Fact]
+    public void Application_execution_contracts_do_not_extend_persisted_or_wire_protocols()
+    {
+        var applicationTypes = typeof(IDirectiveExecutionCoordinator)
+            .Assembly
+            .GetTypes();
+        var persistedProtocolRoots = new[]
+        {
+            typeof(OrgMessage),
+            typeof(PositionCommand),
+            typeof(PositionEvent),
+        };
+
+        var violations = applicationTypes
+            .Where(type => persistedProtocolRoots.Any(root =>
+                root.IsAssignableFrom(type)))
+            .Select(type => type.FullName)
+            .OfType<string>()
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Hive.Application types added to persisted or wire protocols:\n" +
+            string.Join("\n", violations));
     }
 
     private static IEnumerable<Type> PublicSurfaceTypes(Type type)

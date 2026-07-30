@@ -64,6 +64,11 @@ public sealed class AiDirectiveProcessingProtocolTests
         Assert.Equal(entity.Position, request.PositionId);
         Assert.Equal(occupant, request.Occupant);
         Assert.Same(directive, request.Directive);
+        Assert.Equal(entity, request.ExecutionRequest.PositionEntityId);
+        Assert.Same(configuration, request.ExecutionRequest.RuntimeConfiguration);
+        Assert.Same(state, request.ExecutionRequest.RecoveredState);
+        Assert.Same(occupant, request.ExecutionRequest.Occupant);
+        Assert.Same(directive, request.ExecutionRequest.Directive);
         Assert.Equal(directive.Thread, request.ThreadId);
         Assert.Equal(directive.DirectiveId, request.DirectiveId);
         Assert.Equal(directive.Id, request.MessageId);

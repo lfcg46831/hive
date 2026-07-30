@@ -196,6 +196,8 @@ internal sealed class AiAgentActor : ReceiveActor
         "gateway-call-already-materialized";
     private const string TerminalDecisionAlreadyMaterializedReason =
         "terminal-agent-decision-already-materialized";
+    private const string RecoveredRejectedResultCode =
+        "processing-escalated";
 
     private readonly Dictionary<string, AiDirectiveProcessingSnapshot> _directiveProcessingSnapshots =
         new(StringComparer.Ordinal);
@@ -487,7 +489,7 @@ internal sealed class AiAgentActor : ReceiveActor
 
     private sealed record AiDirectiveRecoveryDecision(
         AiDirectiveProcessingSnapshot Snapshot,
-        string? FailureCode = null);
+        DirectiveExecutionResult Result);
 
     private async Task HandleCoordinatedDirectiveProcessingAsync(
         AiDirectiveProcessingRequest request)
@@ -500,10 +502,7 @@ internal sealed class AiAgentActor : ReceiveActor
         {
             _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveProcessingSnapshots[request.CorrelationId] = recovered.Snapshot;
-            ReturnCompletion(
-                parent,
-                recovered.Snapshot,
-                failureCodeOverride: recovered.FailureCode);
+            ReturnCompletion(parent, recovered.Result);
             return;
         }
 
@@ -636,7 +635,13 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.Escalated,
                     reason: resultMessage.ReasonCode ?? "AI directive result message was already rejected.");
 
-            return new AiDirectiveRecoveryDecision(snapshot);
+            var result = resultMessage.Outcome == JourneyAuditOutcome.Succeeded
+                ? DirectiveExecutionResult.Completed(request.ExecutionRequest)
+                : DirectiveExecutionResult.Escalated(
+                    request.ExecutionRequest,
+                    RecoveredRejectedResultCode);
+
+            return new AiDirectiveRecoveryDecision(snapshot, result);
         }
 
         var terminalDecision = records
@@ -656,7 +661,11 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.Failed,
                     reason: failureCode);
 
-            return new AiDirectiveRecoveryDecision(snapshot, failureCode);
+            return new AiDirectiveRecoveryDecision(
+                snapshot,
+                DirectiveExecutionResult.Failed(
+                    request.ExecutionRequest,
+                    failureCode));
         }
 
         var gatewayCalled = records
@@ -676,7 +685,9 @@ internal sealed class AiAgentActor : ReceiveActor
 
             return new AiDirectiveRecoveryDecision(
                 snapshot,
-                GatewayCallWithoutTerminalResultCode);
+                DirectiveExecutionResult.Failed(
+                    request.ExecutionRequest,
+                    GatewayCallWithoutTerminalResultCode));
         }
 
         return null;
@@ -750,43 +761,6 @@ internal sealed class AiAgentActor : ReceiveActor
             result.DirectiveId,
             status,
             result.FailureCode));
-    }
-
-    private static void ReturnCompletion(
-        IActorRef parent,
-        AiDirectiveProcessingSnapshot processing,
-        AiDirectiveInterpretationResult? interpretation = null,
-        AiDirectiveResultMessage? resultMessage = null,
-        AiDirectiveIterationAuditTrail? iterationAudit = null,
-        string? failureCodeOverride = null)
-    {
-        if (!processing.IsTerminal)
-        {
-            throw new ArgumentException(
-                "Occupant processing completion requires a terminal processing snapshot.",
-                nameof(processing));
-        }
-
-        var status = processing.Status switch
-        {
-            AiDirectiveProcessingStatus.ResultEmitted => PositionOccupantProcessingStatus.Completed,
-            AiDirectiveProcessingStatus.Escalated => PositionOccupantProcessingStatus.Escalated,
-            _ => PositionOccupantProcessingStatus.Failed,
-        };
-
-        parent.Tell(new PositionOccupantProcessingCompleted(
-            processing.CorrelationId,
-            processing.MessageId,
-            processing.ThreadId,
-            processing.DirectiveId,
-            status,
-            status == PositionOccupantProcessingStatus.Completed
-                ? null
-                : failureCodeOverride ?? AiDirectiveAuditSnapshotFactory.TerminalCode(
-                    processing,
-                    interpretation,
-                    resultMessage,
-                    iterationAudit)));
     }
 
 }

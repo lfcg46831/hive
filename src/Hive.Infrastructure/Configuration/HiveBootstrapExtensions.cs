@@ -1,6 +1,5 @@
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Domain.Positions;
@@ -8,8 +7,6 @@ using Hive.Domain.Organization;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
-using Hive.Infrastructure.Evaluation;
-using Hive.Infrastructure.Evaluation.PostgreSql;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Logging;
@@ -36,21 +33,22 @@ public static class HiveBootstrapExtensions
 
         builder.Services.AddSingleton<IValidateOptions<HiveOptions>, HiveOptionsValidator>();
         builder.Services.AddSingleton<
-            IValidateOptions<EvaluationOptions>,
-            EvaluationOptionsValidator>();
+            IValidateOptions<DirectiveAuditExportOptions>,
+            DirectiveAuditExportOptionsValidator>();
         builder.Services
             .AddOptions<HiveOptions>()
             .Bind(builder.Configuration.GetSection(HiveOptions.SectionName))
             .ValidateOnStart();
         builder.Services
-            .AddOptions<EvaluationOptions>()
-            .Bind(builder.Configuration.GetSection(EvaluationOptions.SectionName))
+            .AddOptions<DirectiveAuditExportOptions>()
+            .Bind(builder.Configuration.GetSection(DirectiveAuditExportOptions.SectionName))
             .ValidateOnStart();
 
         builder.Services.TryAddSingleton(serviceProvider =>
-            EvaluationProfileCatalog.Load(
-                serviceProvider.GetRequiredService<IOptions<EvaluationOptions>>().Value,
-                serviceProvider.GetRequiredService<IHostEnvironment>().ContentRootPath));
+            DirectiveAuditExportScopeCatalog.Load(
+                serviceProvider
+                    .GetRequiredService<IOptions<DirectiveAuditExportOptions>>()
+                    .Value));
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
         builder.Services.AddHiveActionDomainContracts();
@@ -75,26 +73,37 @@ public static class HiveBootstrapExtensions
                 ? NoopJourneyAuditReadModel.Instance
                 : new PostgreSqlJourneyAuditReadModel(connectionString);
         });
-        builder.Services.TryAddSingleton<IEvaluationResultProjector>(serviceProvider =>
+        builder.Services.TryAddSingleton(serviceProvider =>
         {
-            var catalog = serviceProvider.GetRequiredService<EvaluationProfileCatalog>();
-            if (catalog.Count == 0)
-            {
-                return NoopEvaluationResultProjector.Instance;
-            }
-
             var connectionString = serviceProvider
                 .GetRequiredService<IConfiguration>()
                 .GetConnectionString(ConnectionStringNames.PostgreSql);
-            return new PostgreSqlEvaluationResultProjector(
-                connectionString
-                ?? throw new InvalidOperationException(
-                    "An enabled evaluation profile requires ConnectionStrings:PostgreSql for projection readiness."),
-                catalog);
+            return new DirectiveAuditExportStoreProvider(
+                serviceProvider.GetRequiredService<DirectiveAuditExportScopeCatalog>(),
+                connectionString);
         });
-        builder.Services.TryAddSingleton<
-            IEvaluationInstructionProvider,
-            ConfiguredEvaluationInstructionProvider>();
+        builder.Services.TryAddSingleton<IDirectiveAuditExportReader>(serviceProvider =>
+        {
+            var catalog = serviceProvider
+                .GetRequiredService<DirectiveAuditExportScopeCatalog>();
+            var reader = serviceProvider
+                .GetRequiredService<DirectiveAuditExportStoreProvider>()
+                .Reader;
+            return ReferenceEquals(reader, NoopDirectiveAuditExportStore.Instance)
+                ? NoopDirectiveAuditExportStore.Instance
+                : new ScopedDirectiveAuditExportReader(catalog, reader);
+        });
+        builder.Services.TryAddSingleton<IDirectiveAuditExportResultSink>(serviceProvider =>
+        {
+            var catalog = serviceProvider
+                .GetRequiredService<DirectiveAuditExportScopeCatalog>();
+            var sink = serviceProvider
+                .GetRequiredService<DirectiveAuditExportStoreProvider>()
+                .ResultSink;
+            return ReferenceEquals(sink, NoopDirectiveAuditExportStore.Instance)
+                ? NoopDirectiveAuditExportStore.Instance
+                : new ScopedDirectiveAuditExportResultSink(catalog, sink);
+        });
         builder.Services.Replace(ServiceDescriptor.Singleton<
             JourneyAuditAiGatewayPublisher,
             JourneyAuditAiGatewayPublisher>());
@@ -171,7 +180,6 @@ public static class HiveBootstrapExtensions
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlSchedulerPulseDeliveryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlJourneyAuditLogMigrationHostedService>();
-        builder.Services.AddHostedService<PostgreSqlEvaluationProjectionMigrationHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

@@ -29,14 +29,12 @@ internal sealed record AiDirectiveResultMessage
         string correlationId,
         OrgMessage? message,
         AiDirectiveResultMessageFailure? failure,
-        ActingUnderDeclaration actingUnder,
-        string? evaluationEnvelopeJson)
+        ActingUnderDeclaration actingUnder)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         Message = message;
         Failure = failure;
         ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
-        EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
 
     public string CorrelationId { get; }
@@ -47,13 +45,6 @@ internal sealed record AiDirectiveResultMessage
 
     public ActingUnderDeclaration ActingUnder { get; }
 
-    /// <summary>
-    /// Canonical structured evaluation transport retained independently of the selected
-    /// organizational payload so an authoritative outcome override can rematerialize the
-    /// message without dropping its evaluation projection.
-    /// </summary>
-    public string? EvaluationEnvelopeJson { get; }
-
     public bool IsSuccess => Message is not null;
 
     public bool IsFailure => !IsSuccess;
@@ -61,8 +52,7 @@ internal sealed record AiDirectiveResultMessage
     public static AiDirectiveResultMessage Success(
         string correlationId,
         OrgMessage message,
-        ActingUnderDeclaration? actingUnder = null,
-        string? evaluationEnvelopeJson = null)
+        ActingUnderDeclaration? actingUnder = null)
     {
         ArgumentNullException.ThrowIfNull(message);
 
@@ -70,15 +60,13 @@ internal sealed record AiDirectiveResultMessage
             correlationId,
             message,
             failure: null,
-            actingUnder ?? ActingUnderDeclaration.Missing(),
-            evaluationEnvelopeJson);
+            actingUnder ?? ActingUnderDeclaration.Missing());
     }
 
     public static AiDirectiveResultMessage Rejected(
         string correlationId,
         AiDirectiveResultMessageFailure failure,
-        ActingUnderDeclaration? actingUnder = null,
-        string? evaluationEnvelopeJson = null)
+        ActingUnderDeclaration? actingUnder = null)
     {
         ArgumentNullException.ThrowIfNull(failure);
 
@@ -86,8 +74,7 @@ internal sealed record AiDirectiveResultMessage
             correlationId,
             message: null,
             failure,
-            actingUnder ?? ActingUnderDeclaration.Missing(),
-            evaluationEnvelopeJson);
+            actingUnder ?? ActingUnderDeclaration.Missing());
     }
 }
 
@@ -100,8 +87,7 @@ internal static class AiDirectiveResultMessageFactory
         AiDirectiveDecision decision,
         Func<MessageId>? newMessageId = null,
         Func<DirectiveId>? newDirectiveId = null,
-        Func<DateTimeOffset>? clock = null,
-        string? evaluationEnvelopeJson = null)
+        Func<DateTimeOffset>? clock = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(decision);
@@ -116,14 +102,12 @@ internal static class AiDirectiveResultMessageFactory
                 context,
                 report,
                 messageIdFactory,
-                now,
-                evaluationEnvelopeJson),
+                now),
             AiDirectiveEscalationDecision escalation => CreateEscalation(
                 context,
                 escalation,
                 messageIdFactory,
-                now,
-                evaluationEnvelopeJson),
+                now),
             AiDirectiveChildDirectiveDecision directive => CreateChildDirective(
                 context,
                 directive,
@@ -138,8 +122,7 @@ internal static class AiDirectiveResultMessageFactory
         AiDirectiveExecutionContext context,
         AiDirectiveReportDecision decision,
         Func<MessageId> newMessageId,
-        Func<DateTimeOffset> clock,
-        string? evaluationEnvelopeJson)
+        Func<DateTimeOffset> clock)
     {
         if (context.Relation.ReportsTo is not { } superior)
         {
@@ -164,17 +147,15 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.Deadline,
                 context.Directive.DirectiveId,
                 decision.Kind,
-                ComposeSelectedPayload(decision.Body, evaluationEnvelopeJson)),
-            decision.ActingUnder,
-            evaluationEnvelopeJson);
+                decision.Body),
+            decision.ActingUnder);
     }
 
     private static AiDirectiveResultMessage CreateEscalation(
         AiDirectiveExecutionContext context,
         AiDirectiveEscalationDecision decision,
         Func<MessageId> newMessageId,
-        Func<DateTimeOffset> clock,
-        string? evaluationEnvelopeJson)
+        Func<DateTimeOffset> clock)
     {
         EndpointRef destination = context.Relation.ReportsTo is { } superior
             ? new PositionEndpointRef(superior)
@@ -193,27 +174,10 @@ internal static class AiDirectiveResultMessageFactory
                 clock(),
                 context.Directive.Deadline,
                 decision.Issue,
-                ComposeSelectedPayload(decision.Context, evaluationEnvelopeJson),
+                decision.Context,
                 decision.OptionsConsidered),
-            decision.ActingUnder,
-            evaluationEnvelopeJson);
+            decision.ActingUnder);
     }
-
-    /// <summary>
-    /// When an accepted structured evaluation section exists, the canonical envelope line is
-    /// materialized by the runtime in the selected payload field so the durable transport no
-    /// longer depends on model prompt discipline (US-F0-13-T12a). Without a structured
-    /// section, the payload is preserved verbatim and any model-emitted textual envelope
-    /// follows the hardened fallback path.
-    /// </summary>
-    private static string ComposeSelectedPayload(
-        string payloadText,
-        string? evaluationEnvelopeJson) =>
-        evaluationEnvelopeJson is null
-            ? payloadText
-            : AiDirectiveEvaluationEnvelope.ComposePayloadText(
-                payloadText,
-                evaluationEnvelopeJson);
 
     private static AiDirectiveResultMessage CreateChildDirective(
         AiDirectiveExecutionContext context,
@@ -247,8 +211,7 @@ internal static class AiDirectiveResultMessageFactory
                 context.Directive.DirectiveId,
                 decision.Objective,
                 decision.Context),
-            decision.ActingUnder,
-            evaluationEnvelopeJson: null);
+            decision.ActingUnder);
     }
 
     private static PositionEndpointRef FromCurrentPosition(AiDirectiveExecutionContext context) =>

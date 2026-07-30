@@ -2,7 +2,6 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -253,7 +252,7 @@ public sealed class AiDirectiveRecoveryGuardTests
         var scenario = AiDirectiveIntegrationScenario.Create();
         var auditLog = new RecordingJourneyAuditLog();
         var invoker = new RecordingInvoker();
-        var projector = new RecordingEvaluationResultProjector();
+        var resultSink = new RecordingAuditExportResultSink();
         var firstCompletion = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var firstCommand = new TaskCompletionSource<PositionCommand>(
@@ -278,7 +277,7 @@ public sealed class AiDirectiveRecoveryGuardTests
                     auditLog,
                     firstCompletion,
                     firstCommand,
-                    projector)),
+                    resultSink)),
                 "first-parent");
 
             firstParent.Tell(request);
@@ -294,7 +293,7 @@ public sealed class AiDirectiveRecoveryGuardTests
                     auditLog,
                     secondCompletion,
                     secondCommand,
-                    projector)),
+                    resultSink)),
                 "first-parent");
 
             recreatedParent.Tell(request);
@@ -305,7 +304,7 @@ public sealed class AiDirectiveRecoveryGuardTests
             Assert.Equal(PositionOccupantProcessingStatus.Completed, redelivered.Status);
             Assert.Equal(first.CorrelationId, redelivered.CorrelationId);
             Assert.Equal(1, invoker.InvocationCount);
-            Assert.Equal(1, projector.ProjectionCount);
+            Assert.Equal(1, resultSink.StoreCount);
             Assert.False(secondCommand.Task.IsCompleted);
             Assert.Single(auditLog.Records.Where(record =>
                 record.Stage == JourneyAuditStage.AgentDecided));
@@ -366,7 +365,7 @@ public sealed class AiDirectiveRecoveryGuardTests
                 auditLog,
                 completion,
                 command,
-                NoopEvaluationResultProjector.Instance)
+                NoopDirectiveAuditExportStore.Instance)
         {
         }
 
@@ -375,14 +374,14 @@ public sealed class AiDirectiveRecoveryGuardTests
             IJourneyAuditLog auditLog,
             TaskCompletionSource<PositionOccupantProcessingCompleted> completion,
             TaskCompletionSource<PositionCommand> command,
-            IEvaluationResultProjector evaluationResultProjector)
+            IDirectiveAuditExportResultSink auditExportResultSink)
         {
             _invoker = invoker;
             _auditLog = auditLog;
             _completion = completion;
             _command = command;
-            EvaluationResultProjector = evaluationResultProjector
-                ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
+            AuditExportResultSink = auditExportResultSink
+                ?? throw new ArgumentNullException(nameof(auditExportResultSink));
 
             Receive<AiDirectiveProcessingRequest>(request => _agent!.Tell(request, Sender));
             Receive<PositionOccupantProcessingCompleted>(message => _completion.TrySetResult(message));
@@ -398,11 +397,11 @@ public sealed class AiDirectiveRecoveryGuardTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     _auditLog,
-                    EvaluationResultProjector)),
+                    AuditExportResultSink)),
                 "agent");
         }
 
-        private IEvaluationResultProjector EvaluationResultProjector { get; }
+        private IDirectiveAuditExportResultSink AuditExportResultSink { get; }
     }
 
     private sealed class RecordingInvoker : IAiAgentGatewayInvoker
@@ -438,18 +437,17 @@ public sealed class AiDirectiveRecoveryGuardTests
         }
     }
 
-    private sealed class RecordingEvaluationResultProjector : IEvaluationResultProjector
+    private sealed class RecordingAuditExportResultSink : IDirectiveAuditExportResultSink
     {
-        private int _projectionCount;
+        private int _storeCount;
 
-        public int ProjectionCount => Volatile.Read(ref _projectionCount);
+        public int StoreCount => Volatile.Read(ref _storeCount);
 
-        public ValueTask ProjectAsync(
-            DirectiveId directiveId,
-            OrgMessage resultMessage,
+        public ValueTask StoreAsync(
+            DirectiveAuditExportResultData result,
             CancellationToken cancellationToken = default)
         {
-            Interlocked.Increment(ref _projectionCount);
+            Interlocked.Increment(ref _storeCount);
             return ValueTask.CompletedTask;
         }
     }

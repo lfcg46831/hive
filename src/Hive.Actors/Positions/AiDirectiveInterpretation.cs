@@ -65,15 +65,13 @@ internal sealed record AiDirectiveInterpretationResult
         AiDirectiveInterpretationOutcomeKind outcome,
         AiDirectiveDecision? decision,
         OutcomeProposal? proposal,
-        AiDirectiveInterpretationFailure? failure,
-        string? evaluationEnvelopeJson)
+        AiDirectiveInterpretationFailure? failure)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
         Outcome = outcome;
         Decision = decision;
         Proposal = proposal;
         Failure = failure;
-        EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
 
     public string CorrelationId { get; }
@@ -86,12 +84,6 @@ internal sealed record AiDirectiveInterpretationResult
 
     public AiDirectiveInterpretationFailure? Failure { get; }
 
-    /// <summary>
-    /// Compact canonical JSON of the accepted structured evaluation section, if any.
-    /// Present only alongside an accepted decision; purely transport, validated downstream.
-    /// </summary>
-    public string? EvaluationEnvelopeJson { get; }
-
     public bool IsDecision => Outcome == AiDirectiveInterpretationOutcomeKind.DecisionAccepted;
 
     public bool IsFailure => !IsDecision;
@@ -103,8 +95,7 @@ internal sealed record AiDirectiveInterpretationResult
     public static AiDirectiveInterpretationResult AcceptedDecision(
         string correlationId,
         AiDirectiveDecision decision,
-        OutcomeProposal? proposal = null,
-        string? evaluationEnvelopeJson = null)
+        OutcomeProposal? proposal = null)
     {
         ArgumentNullException.ThrowIfNull(decision);
 
@@ -113,8 +104,7 @@ internal sealed record AiDirectiveInterpretationResult
             AiDirectiveInterpretationOutcomeKind.DecisionAccepted,
             decision,
             proposal,
-            failure: null,
-            evaluationEnvelopeJson);
+            failure: null);
     }
 
     public static AiDirectiveInterpretationResult StructuredError(
@@ -128,8 +118,7 @@ internal sealed record AiDirectiveInterpretationResult
             AiDirectiveInterpretationOutcomeKind.StructuredError,
             decision: null,
             proposal: null,
-            failure,
-            evaluationEnvelopeJson: null);
+            failure);
     }
 
     public static AiDirectiveInterpretationResult EscalationRequired(
@@ -143,8 +132,7 @@ internal sealed record AiDirectiveInterpretationResult
             AiDirectiveInterpretationOutcomeKind.EscalationRequired,
             decision: null,
             proposal: null,
-            failure,
-            evaluationEnvelopeJson: null);
+            failure);
     }
 }
 
@@ -153,7 +141,6 @@ internal static class AiDirectiveDecisionInterpreter
     public static AiDirectiveInterpretationResult Interpret(
         AiAgentGatewayInvocationResult invocation,
         IEnumerable<AuthorityKey>? canDecide = null,
-        bool acceptEvaluationEnvelope = false,
         bool requireOutcomeProposal = false,
         OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null)
     {
@@ -170,7 +157,6 @@ internal static class AiDirectiveDecisionInterpreter
         var parseResult = AiDirectiveDecisionParser.Parse(
             invocation.Response.Text,
             canDecide,
-            acceptEvaluationEnvelope,
             requireOutcomeProposal,
             outcomeProposalEvidenceContext);
         if (parseResult.IsSuccess)
@@ -178,8 +164,7 @@ internal static class AiDirectiveDecisionInterpreter
             return AiDirectiveInterpretationResult.AcceptedDecision(
                 invocation.CorrelationId,
                 parseResult.Decision!,
-                parseResult.Proposal,
-                parseResult.EvaluationEnvelopeJson);
+                parseResult.Proposal);
         }
 
         var parseErrors = parseResult.Errors.Cast<AiDirectiveDecisionParseError>().ToArray();

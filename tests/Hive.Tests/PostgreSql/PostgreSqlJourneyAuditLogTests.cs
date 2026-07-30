@@ -58,8 +58,10 @@ public sealed class PostgreSqlJourneyAuditLogTests(PostgreSqlFixture fixture)
             }
         }
 
-        Assert.Equal(["journey_events", "schema_migrations"], tableNames);
-        Assert.Equal([1], appliedVersions);
+        Assert.Equal(
+            ["directive_export_results", "journey_events", "schema_migrations"],
+            tableNames);
+        Assert.Equal([1, 2], appliedVersions);
     }
 
     [Fact]

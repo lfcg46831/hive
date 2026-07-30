@@ -4,7 +4,6 @@ using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
-using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Actors.Positions;
 
@@ -30,7 +29,6 @@ internal sealed record AiDirectiveExecutionContext
         AiProcessingMode? processingMode,
         AiDirectiveProcessingLimits limits,
         PositionConfigurationStamp? lastConfigurationStamp,
-        EvaluationInstruction? evaluationInstruction,
         bool requiresStructuredOutcomeProposal)
     {
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
@@ -54,7 +52,6 @@ internal sealed record AiDirectiveExecutionContext
         ProcessingMode = processingMode;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
         LastConfigurationStamp = lastConfigurationStamp;
-        EvaluationInstruction = evaluationInstruction;
         RequiresStructuredOutcomeProposal = requiresStructuredOutcomeProposal;
     }
 
@@ -96,13 +93,10 @@ internal sealed record AiDirectiveExecutionContext
 
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
 
-    public EvaluationInstruction? EvaluationInstruction { get; }
-
     public bool RequiresStructuredOutcomeProposal { get; }
 
     public static AiDirectiveExecutionContext From(
         AiDirectiveProcessingRequest request,
-        EvaluationInstruction? evaluationInstruction = null,
         bool requiresStructuredOutcomeProposal = false)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -141,7 +135,6 @@ internal sealed record AiDirectiveExecutionContext
             request.RuntimeContext.OccupantConfiguration.AiGateway?.ProcessingMode,
             request.Limits,
             request.PersistedContext.LastConfigurationStamp,
-            evaluationInstruction,
             requiresStructuredOutcomeProposal);
     }
 

@@ -2,14 +2,12 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
-using Hive.Infrastructure.Evaluation;
 using OrgDirective = Hive.Domain.Messaging.Directive;
 
 namespace Hive.Tests;
@@ -94,7 +92,7 @@ public sealed class AiDirectivePromptTests
             request.SystemInstruction,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
-            AiDirectiveSystemInstructionSections.EvaluationHeader,
+            "## Evaluation",
             request.SystemInstruction,
             StringComparison.Ordinal);
         Assert.Contains("current position", request.SystemInstruction, StringComparison.Ordinal);
@@ -233,8 +231,7 @@ public sealed class AiDirectivePromptTests
     public void CreateInitialRequest_keeps_instruction_ownership_sections_separate()
     {
         var context = AiDirectiveExecutionContext.From(
-            Request(includeOptionalContext: true),
-            SampleEvaluationInstruction());
+            Request(includeOptionalContext: true));
 
         var sections = AiDirectivePrompt.BuildSystemInstructionSections(context);
 
@@ -257,7 +254,6 @@ public sealed class AiDirectivePromptTests
             "A recommendation about a future action is informational and does not by itself request or exercise authorization.",
             sections.HiveProtocol,
             StringComparison.Ordinal);
-        Assert.Contains("runtime evaluation appendix", sections.HiveProtocol, StringComparison.Ordinal);
         Assert.DoesNotContain("triaging incoming bugs", sections.HiveProtocol, StringComparison.Ordinal);
         Assert.DoesNotContain("severity", sections.HiveProtocol, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("evidence", sections.HiveProtocol, StringComparison.OrdinalIgnoreCase);
@@ -268,11 +264,6 @@ public sealed class AiDirectivePromptTests
 
         Assert.Contains("Authorized connector names: jira", sections.RuntimeTools, StringComparison.Ordinal);
         Assert.DoesNotContain("triaging incoming bugs", sections.RuntimeTools, StringComparison.Ordinal);
-
-        Assert.NotNull(sections.Evaluation);
-        Assert.Contains("hive-evaluation-v1:", sections.Evaluation, StringComparison.Ordinal);
-        Assert.Contains("missing-information", sections.Evaluation, StringComparison.Ordinal);
-        Assert.DoesNotContain("acting_under", sections.Evaluation, StringComparison.Ordinal);
 
         var composed = sections.Compose();
         AssertContainsInOrder(
@@ -287,20 +278,8 @@ public sealed class AiDirectivePromptTests
             composed,
             AiDirectiveSystemInstructionSections.RuntimeAuthorityHeader,
             AiDirectiveSystemInstructionSections.RuntimeToolsHeader);
-        AssertContainsInOrder(
-            composed,
-            AiDirectiveSystemInstructionSections.RuntimeToolsHeader,
-            AiDirectiveSystemInstructionSections.EvaluationHeader);
+        Assert.DoesNotContain("hive-evaluation-v1", composed, StringComparison.Ordinal);
     }
-
-    private static EvaluationInstruction SampleEvaluationInstruction() =>
-        new(
-            1,
-            """
-            Put one standalone hive-evaluation-v1:{"dimensions":{"severity":["high"],"missing-information":[]}} line in the configured result field.
-            Dimension "severity" is single-label.
-            Dimension "missing-information" is label-set.
-            """);
 
     [Fact]
     public void CreateInitialRequest_represents_missing_optional_context_explicitly()
@@ -602,7 +581,7 @@ public sealed class AiDirectivePromptTests
             Assert.Equal(processingRequest.MessageId, promptResult.Request!.MessageId);
             Assert.Contains("Return JSON only", promptResult.Request.SystemInstruction, StringComparison.Ordinal);
             Assert.DoesNotContain(
-                AiDirectiveSystemInstructionSections.EvaluationHeader,
+                "## Evaluation",
                 promptResult.Request.SystemInstruction,
                 StringComparison.Ordinal);
             Assert.Same(promptResult.Request, gatewayRequest);
@@ -647,51 +626,6 @@ public sealed class AiDirectivePromptTests
                     AiDirectiveProcessingStatus.ResultEmitted,
                 ],
                 snapshotResult.Snapshot.History.Select(transition => transition.Status).ToArray());
-        }
-        finally
-        {
-            await system.Terminate();
-        }
-    }
-
-    [Fact]
-    public async Task AiAgentActor_composes_scoped_evaluation_instruction_from_provider()
-    {
-        var processingRequest = Request(includeOptionalContext: true);
-        var invoker = new RecordingInvoker();
-        var provider = new RecordingEvaluationInstructionProvider(
-            processingRequest.OrganizationId,
-            processingRequest.PositionId,
-            SampleEvaluationInstruction());
-        var system = ActorSystem.Create($"ai-agent-evaluation-prompt-{Guid.NewGuid():N}");
-
-        try
-        {
-            var actor = system.ActorOf(
-                Props.Create(() => new AiAgentActor(
-                    processingRequest.Occupant,
-                    invoker,
-                    AiDirectiveResultMessageEmissionGate.Instance,
-                    AllowingAiAgentActionGate.Instance,
-                    NoopJourneyAuditLog.Instance,
-                    NoopEvaluationResultProjector.Instance,
-                    provider)),
-                "agent");
-
-            actor.Tell(processingRequest);
-
-            var prompt = await WaitForPromptAsync(actor, processingRequest.CorrelationId);
-
-            Assert.True(prompt.Found);
-            Assert.Contains(
-                AiDirectiveSystemInstructionSections.EvaluationHeader,
-                prompt.Request!.SystemInstruction,
-                StringComparison.Ordinal);
-            Assert.Contains(
-                EvaluationInstruction.EnvelopeMarker,
-                prompt.Request.SystemInstruction,
-                StringComparison.Ordinal);
-            Assert.Equal(1, provider.ResolveCount);
         }
         finally
         {
@@ -1017,35 +951,6 @@ public sealed class AiDirectivePromptTests
     }
 
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
-
-    private sealed class RecordingEvaluationInstructionProvider : IEvaluationInstructionProvider
-    {
-        private readonly OrganizationId _organizationId;
-        private readonly PositionId _positionId;
-        private readonly EvaluationInstruction _instruction;
-
-        public RecordingEvaluationInstructionProvider(
-            OrganizationId organizationId,
-            PositionId positionId,
-            EvaluationInstruction instruction)
-        {
-            _organizationId = organizationId;
-            _positionId = positionId;
-            _instruction = instruction;
-        }
-
-        public int ResolveCount { get; private set; }
-
-        public EvaluationInstruction? Resolve(
-            OrganizationId organizationId,
-            PositionId positionId)
-        {
-            ResolveCount++;
-            return organizationId == _organizationId && positionId == _positionId
-                ? _instruction
-                : null;
-        }
-    }
 
     private sealed class ThrowingInvoker : IAiAgentGatewayInvoker
     {

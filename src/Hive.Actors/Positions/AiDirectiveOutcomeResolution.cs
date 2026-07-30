@@ -709,7 +709,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                     [
                         new OutcomeVerificationArtifactEntry(
                             "report.body",
-                            AiDirectiveEvaluationEnvelope.RemoveEnvelopeLines(report.Body)),
+                            report.Body),
                     ]),
                 Escalation escalation => new OutcomeVerificationArtifact(
                     OutcomeKind.Escalation,
@@ -720,8 +720,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                             escalation.Issue),
                         new OutcomeVerificationArtifactEntry(
                             "escalation.context",
-                            AiDirectiveEvaluationEnvelope.RemoveEnvelopeLines(
-                                escalation.Context)),
+                            escalation.Context),
                     }.Concat(escalation.OptionsConsidered.Select(
                         (option, index) => new OutcomeVerificationArtifactEntry(
                             $"escalation.options.{index:D2}",
@@ -798,8 +797,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                 "Outcome policy requires escalation",
                 $"The authoritative outcome resolver closed this execution as escalation ({reasonCodes}).",
                 ["Review the authoritative execution facts and applied outcome policy."],
-                proposedMessage.ActingUnder),
-            evaluationEnvelopeJson: proposedMessage.EvaluationEnvelopeJson);
+                proposedMessage.ActingUnder));
     }
 }
 

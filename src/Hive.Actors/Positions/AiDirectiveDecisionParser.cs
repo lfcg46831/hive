@@ -130,13 +130,11 @@ internal sealed record AiDirectiveDecisionParseResult
     private AiDirectiveDecisionParseResult(
         AiDirectiveDecision? decision,
         OutcomeProposal? proposal,
-        ImmutableArray<AiDirectiveDecisionParseError> errors,
-        string? evaluationEnvelopeJson)
+        ImmutableArray<AiDirectiveDecisionParseError> errors)
     {
         Decision = decision;
         Proposal = proposal;
         Errors = errors;
-        EvaluationEnvelopeJson = evaluationEnvelopeJson;
     }
 
     public bool IsSuccess => Decision is not null;
@@ -149,25 +147,16 @@ internal sealed record AiDirectiveDecisionParseResult
 
     public IReadOnlyList<AiDirectiveDecisionParseError> Errors { get; }
 
-    /// <summary>
-    /// Compact canonical JSON of the accepted top-level evaluation section, present only when
-    /// the parse accepted an evaluation envelope. Transport-only: labels and shape are
-    /// validated downstream by the evaluation projection parser, never here.
-    /// </summary>
-    public string? EvaluationEnvelopeJson { get; }
-
     public static AiDirectiveDecisionParseResult Success(
         AiDirectiveDecision decision,
-        OutcomeProposal? proposal = null,
-        string? evaluationEnvelopeJson = null)
+        OutcomeProposal? proposal = null)
     {
         ArgumentNullException.ThrowIfNull(decision);
 
         return new AiDirectiveDecisionParseResult(
             decision,
             proposal,
-            ImmutableArray<AiDirectiveDecisionParseError>.Empty,
-            evaluationEnvelopeJson);
+            ImmutableArray<AiDirectiveDecisionParseError>.Empty);
     }
 
     public static AiDirectiveDecisionParseResult Failure(
@@ -199,8 +188,7 @@ internal sealed record AiDirectiveDecisionParseResult
         return new AiDirectiveDecisionParseResult(
             decision: null,
             proposal: null,
-            errors: ordered,
-            evaluationEnvelopeJson: null);
+            errors: ordered);
     }
 }
 
@@ -259,7 +247,6 @@ internal static class AiDirectiveDecisionParser
     public static AiDirectiveDecisionParseResult Parse(
         string? output,
         IEnumerable<AuthorityKey>? canDecide = null,
-        bool acceptEvaluationEnvelope = false,
         bool requireOutcomeProposal = false,
         OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null)
     {
@@ -287,7 +274,6 @@ internal static class AiDirectiveDecisionParser
             AiDirectiveDecisionSchema.DecisionProperty,
             out _);
         var decisionEnvelope = ReadDecisionEnvelope(root, errors);
-        var evaluationEnvelopeJson = ReadEvaluationEnvelope(root, acceptEvaluationEnvelope);
         var proposal = ReadOutcomeProposal(
             root,
             requireOutcomeProposal,
@@ -298,7 +284,6 @@ internal static class AiDirectiveDecisionParser
             "$",
             AllowedTopLevelFields(
                 hasCanonicalEnvelope,
-                acceptEvaluationEnvelope,
                 requireOutcomeProposal),
             errors);
         if (hasCanonicalEnvelope && !decisionEnvelope.HasValue)
@@ -362,24 +347,15 @@ internal static class AiDirectiveDecisionParser
         }
 
         return errors.Count == 0 && decision is not null
-            ? AiDirectiveDecisionParseResult.Success(
-                decision,
-                proposal,
-                evaluationEnvelopeJson)
+            ? AiDirectiveDecisionParseResult.Success(decision, proposal)
             : AiDirectiveDecisionParseResult.Failure(errors);
     }
 
     private static string[] AllowedTopLevelFields(
         bool hasCanonicalEnvelope,
-        bool acceptEvaluationEnvelope,
         bool requireOutcomeProposal)
     {
         var allowed = hasCanonicalEnvelope ? CanonicalTopLevelFields : TopLevelFields;
-        if (acceptEvaluationEnvelope)
-        {
-            allowed = [.. allowed, AiDirectiveEvaluationEnvelope.PropertyName];
-        }
-
         return requireOutcomeProposal
             ? [.. allowed, AiDirectiveOutcomeProposalEnvelope.PropertyName]
             : allowed;
@@ -430,23 +406,6 @@ internal static class AiDirectiveDecisionParser
         }
 
         return null;
-    }
-
-    private static string? ReadEvaluationEnvelope(
-        JsonElement root,
-        bool acceptEvaluationEnvelope)
-    {
-        // Transport-only capture: shape and label validity belong to the evaluation
-        // projection parser. A non-object section is treated as absent so evaluation
-        // noise can never fail the functional decision parse.
-        if (!acceptEvaluationEnvelope
-            || !root.TryGetProperty(AiDirectiveEvaluationEnvelope.PropertyName, out var value)
-            || value.ValueKind is not JsonValueKind.Object)
-        {
-            return null;
-        }
-
-        return AiDirectiveEvaluationEnvelope.Canonicalize(value);
     }
 
     private static JsonElement? ReadDecisionEnvelope(

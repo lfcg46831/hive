@@ -5,7 +5,6 @@ using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
-using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Tests;
 
@@ -22,7 +21,6 @@ public sealed class AiDirectiveExecutionCoordinatorTests
             new StaticResponseInvoker(ValidReportOutput()),
             AiDirectiveResultMessageEmissionGate.Instance,
             AllowingAiAgentActionGate.Instance,
-            NoopEvaluationInstructionProvider.Instance,
             PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
             () => At);
 
@@ -35,7 +33,7 @@ public sealed class AiDirectiveExecutionCoordinatorTests
         Assert.Equal(1, execution.Budget.ConsumedIterations);
         Assert.Collection(
             execution.Result.Effects,
-            effect => Assert.IsType<DirectiveEvaluationProjectionEffect>(effect),
+            effect => Assert.IsType<DirectiveAuditExportResultEffect>(effect),
             effect => Assert.IsType<DirectivePositionCommandEffect>(effect),
             effect => Assert.IsType<DirectiveJourneyAuditEffect>(effect),
             effect => Assert.IsType<DirectiveJourneyAuditEffect>(effect));

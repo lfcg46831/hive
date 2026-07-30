@@ -1,0 +1,71 @@
+using System.Text.Json;
+
+namespace Hive.Evaluation.Tooling.Evaluation;
+
+public static class EvaluationCommand
+{
+    private static readonly JsonSerializerOptions OutputJson = new(JsonSerializerDefaults.Web)
+    {
+        WriteIndented = true,
+    };
+
+    public static async Task<int> RunAsync(
+        string[] args,
+        HttpClient httpClient,
+        TextWriter output,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var options = EvaluationRunOptions.Parse(args, AppContext.BaseDirectory);
+            var corpus = EvaluationCorpus.Load(options.CorpusPath);
+            var rubric = EvaluationRubric.Load(options.RubricPath!);
+            rubric.ValidateCorpus(corpus);
+
+            await using var reader = new HttpEvaluationAuditReader(
+                httpClient,
+                options.BaseUrl,
+                rubric);
+            var runner = new EvaluationRunner(
+                httpClient,
+                reader,
+                projectionReader: reader,
+                rubric: rubric);
+            var dataset = await runner.RunAsync(corpus, options, cancellationToken).ConfigureAwait(false);
+
+            var directory = Path.GetDirectoryName(options.OutputPath);
+            if (!string.IsNullOrEmpty(directory)) Directory.CreateDirectory(directory);
+            await using var stream = File.Create(options.OutputPath);
+            await JsonSerializer.SerializeAsync(stream, dataset, OutputJson, cancellationToken).ConfigureAwait(false);
+            await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
+            await output.WriteLineAsync(options.OutputPath).ConfigureAwait(false);
+            if (dataset.RunAnalysis is not null)
+            {
+                return dataset.RunAnalysis.Status is "ready" or "gate-eligible" ? 0 : 1;
+            }
+
+            return dataset.Cases.All(item =>
+                    (item.Outcome is "succeeded" or "accepted")
+                    && item.Scoring?.Status == "scored")
+                    ? 0
+                    : 1;
+        }
+        catch (ArgumentException exception)
+        {
+            await output.WriteLineAsync(exception.Message).ConfigureAwait(false);
+            await WriteUsageAsync(output).ConfigureAwait(false);
+            return 2;
+        }
+        catch (InvalidDataException exception)
+        {
+            await output.WriteLineAsync(exception.Message).ConfigureAwait(false);
+            return 2;
+        }
+    }
+
+    private static Task WriteUsageAsync(TextWriter output) => output.WriteLineAsync(
+        "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id <id> " +
+        "[--base-url <url>] [--corpus <path>] [--rubric <path>] " +
+        "[--plan <path> --partition <calibration|holdout>] [--output <path>] " +
+        "[--timeout-seconds <n>] [--poll-milliseconds <n>]");
+}

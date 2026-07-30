@@ -246,13 +246,13 @@ dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost
 
 The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
 
-To run the frozen bug-triage calibration or holdout, add the evaluation-only projection profile and expose PostgreSQL only on loopback:
+To run the frozen bug-triage calibration or holdout, add the evaluation-only audit/export profile:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml up --build
 ```
 
-`docker-compose.evaluation.yml` activates the `Hive:Evaluation:Profiles:BUGTRIAGE` profile for the exact `acme-delivery` / `bug-triage` scope. Evaluation profiles are absent or disabled by default. Each enabled profile requires `Enabled=true`, `OrganizationId`, `PositionId`, `RubricPath`, and the expected positive `RubricVersion`; a relative rubric path is resolved from the host content root. Every dimension also declares the closed `scorer` id and its positive `scorer_version` (currently version `1` for `ordinal-distance`, `set-f1`, and `exact-match`). Two enabled profiles cannot target the same organization/position. Startup fails when a scope is ambiguous or its rubric is unavailable, version-incompatible, has duplicate dimensions, unknown sources/value kinds/scorers or scorer versions, incompatible cardinality/scorer pairs, invalid labels, invalid result-fact mappings, or weights that do not sum to one. Only the matching position receives the ephemeral evaluation appendix generated from dimensions whose rubric source is `evaluation-envelope`; all other positions run without the appendix header, `hive-evaluation-v1` marker, label vocabulary, or evaluation instructions.
+`docker-compose.evaluation.yml` activates the `Hive:Evaluation:Profiles:BUGTRIAGE` audit/export adapter for the exact `acme-delivery` / `bug-triage` scope. Evaluation profiles are absent or disabled by default. Each enabled runtime profile requires only `Enabled=true`, `OrganizationId`, and `PositionId`; two enabled profiles cannot target the same scope, and `ConnectionStrings:PostgreSql` must be available for result capture. Historical `RubricPath` and `RubricVersion` keys may remain in frozen Compose profiles, but the runtime deliberately ignores them. The runtime does not load rubrics, scorers, evaluation instructions, run ids, or projection schemas and does not alter the normal actor prompt. Rubric loading, observation-instruction construction, projection, scoring, and reporting belong exclusively to `Hive.Evaluation.Tooling`.
 
 To activate the tracked follow-up coordination fixture for an existing organizational position, add a separate scoped profile to that host configuration (replace the scope values with the position that will receive the evaluation workload):
 
@@ -260,44 +260,42 @@ To activate the tracked follow-up coordination fixture for an existing organizat
 HIVE__EVALUATION__PROFILES__FOLLOWUP__ENABLED=true
 HIVE__EVALUATION__PROFILES__FOLLOWUP__ORGANIZATIONID=<organization-id>
 HIVE__EVALUATION__PROFILES__FOLLOWUP__POSITIONID=<follow-up-position-id>
-HIVE__EVALUATION__PROFILES__FOLLOWUP__RUBRICPATH=config/organizations/acme-delivery/examples/evaluation/follow-up-coordination-rubric.v1.json
-HIVE__EVALUATION__PROFILES__FOLLOWUP__RUBRICVERSION=1
 ```
 
-Use `config/organizations/acme-delivery/examples/evaluation/follow-up-coordination-corpus.v1.json` as the matching corpus. The bundled evaluation Compose override and demo client defaults remain scoped to bug triage; do not enable the follow-up profile until its target organization/position exists and the submitting client routes the corpus to that same scope. Profile activation does not require a new projection schema, migration, scorer, or HIVE message contract.
+Use `config/organizations/acme-delivery/examples/evaluation/follow-up-coordination-corpus.v1.json` and its tracked rubric as tooling inputs. The bundled evaluation Compose override and tooling defaults remain scoped to bug triage; do not enable the follow-up profile until its target organization/position exists and the submitting tooling routes the corpus to that same scope. Profile activation does not add a scorer or evaluation concept to a HIVE message contract.
 
-The enabled evaluation profile is also the single owner of projection activation and rubric configuration; there is no separate `Hive:EvaluationProjection` switch or duplicate rubric path. Before the profile host becomes ready, startup requires `ConnectionStrings:PostgreSql` and migrates the isolated `evaluation` schema to its current version. The projector resolves the rubric by the result message's organization and source position, then stores a generic correlation/version header plus one line per declared dimension with `valid`, `missing`, or `invalid` status and an array of admitted labels. Dimension ids and labels remain opaque exact tokens, duplicate set labels are collapsed and ordered, and an invalid dimension stores no rejected values without discarding other valid dimensions. Message text, prompts, source context, human baselines, and the ephemeral evaluation appendix are never stored in this schema.
+An enabled profile activates only the bounded `hive.directive-audit-export` v1 adapter. The API route is `GET /api/v1/organizations/{organizationId}/threads/{threadId}/directives/{directiveId}/audit-export?after_sequence={n}`. It returns at most 100 scoped, redacted audit events per page and an opaque monotonic cursor. A terminal response may also contain the canonical organizational result as `application/vnd.hive.org-message+json`, capped at 64 KiB with byte length and SHA-256. Prompt/input text, memory, raw or rejected model output, reasoning, traces, tool payloads, authorization secrets/configuration, corpus references, baselines, rubric ids, dimensions, labels, scores, and run ids are never exported. Result capture uses the runtime-owned `audit.directive_export_results` table; the tooling has no database access.
 
-The override must be present when the `api` container is created; adding it only to a later runner command does not change an existing container. If the runner reports that evaluation projection storage is not ready at the required schema version, recreate the API with the evaluation Compose file set above and wait for the health check before retrying. The runner verifies the migration ledger and both generic projection tables before submitting the first corpus case, and returns an actionable configuration error instead of exposing a PostgreSQL exception.
+The override must be present when the `api` container is created; adding it only to a later tooling command does not change an existing container. If the audit/export endpoint remains non-terminal or unavailable, recreate the API with the evaluation Compose file set above and wait for the health check before retrying.
 
-Set the runner's read-only connection in the current shell and choose a new canonical `run-id` for each independent measurement. Gate-bearing bug-triage runs must use the tracked calibration/holdout plan; it verifies the SHA-256 of the corpus, baseline/rubric, business prompt, organization/provider/evaluation configuration, runner code, and calibration latency evidence before submitting the first case. The plan fixes the model aliases, pricing version, structured-output mode, 45-second provider deadline, two-minute polling deadline, and one-second interval, so `--corpus`, `--rubric`, `--timeout-seconds`, and `--poll-milliseconds` cannot override it.
+Choose a new canonical `run-id` for each independent measurement. Gate-bearing bug-triage runs must use the tracked calibration/holdout plan; it verifies the SHA-256 of the corpus, baseline/rubric, business prompt, organization/provider/evaluation configuration, tooling code, and calibration latency evidence before submitting the first case. The plan fixes the model aliases, pricing version, structured-output mode, 45-second provider deadline, two-minute polling deadline, and one-second interval, so `--corpus`, `--rubric`, `--timeout-seconds`, and `--poll-milliseconds` cannot override it.
+
+The existing v1 plan is a historical freeze and still names the former demo-client runner path. It therefore fails closed after the tooling extraction. Do not rewrite that frozen plan or run another gate-bearing partition until T03 publishes a new versioned lab manifest with the dedicated tooling path and hashes.
 
 ```powershell
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $plan='config/organizations/acme-delivery/examples/evaluation/bug-triage-evaluation-plan.v1.json'
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id calibration-ready-v1 --base-url http://localhost:8080 --plan $plan --partition calibration
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id calibration-ready-v1 --base-url http://localhost:8080 --plan $plan --partition calibration
 ```
 
-The runner submits cases sequentially through the generic directive API and writes temporary outputs under `artifacts/evaluation/` (for example, `artifacts/evaluation/calibration-ready-v1.json`). The complete `artifacts/` tree is ignored and remains disposable. After review, promote only the immutable inputs and results selected as evaluation evidence into `evidence/evaluation/<freeze-id>/`; the frozen plan must reference that curated location and its verified hashes before a dependent run. Do not keep a second copy under `artifacts/`. The runner polls the audit read model for at most two minutes per case, joins the safe evaluation projection by organization/thread/directive, validates the corpus references against the same tracked v1 rubric, and emits dimension rows ordered by `dimension_id` with `status`, admitted `labels`, and `score`, plus the unrounded corpus macro-mean. `run_analysis` reports terminal, explicit-cost, and scoreable-projection coverage; macro quality by dimension; the `report`/`escalation` decision matrix; escalation recall; available and unavailable cost; uncensored latency percentiles; and the declared censored-deadline calibration. Calibration readiness is `ready` only when every case has an auditable terminal, explicit cost state, and valid projection under the frozen provider/model/configuration. Quality thresholds are not applied here; they belong to the later go/no-go task.
+The tooling submits cases sequentially through the generic directive API and writes temporary outputs under `artifacts/evaluation/` (for example, `artifacts/evaluation/calibration-ready-v1.json`). The complete `artifacts/` tree is ignored and remains disposable. After review, promote only the immutable inputs and results selected as evaluation evidence into `evidence/evaluation/<freeze-id>/`; the frozen plan must reference that curated location and its verified hashes before a dependent run. Do not keep a second copy under `artifacts/`. The tooling polls only the public audit/export route for at most two minutes per case, projects the optional canonical result under the tracked v1 rubric, and emits dimension rows ordered by `dimension_id` with `status`, admitted `labels`, and `score`, plus the unrounded corpus macro-mean. `run_analysis` reports terminal, explicit-cost, and scoreable-projection coverage; macro quality by dimension; the `report`/`escalation` decision matrix; escalation recall; available and unavailable cost; uncensored latency percentiles; and the declared censored-deadline calibration. Calibration readiness is `ready` only when every case has an auditable terminal, explicit cost state, and valid projection under the frozen provider/model/configuration. Quality thresholds are not applied here; they belong to the later go/no-go task.
 
 The existing `bug-triage-corpus.v1.json` is calibration-only because its cases and earlier outputs have already been observed. Prompt, model, label, or deadline tuning may use only that partition. After a reviewed `ready` calibration dataset is recorded by path and SHA-256 in the plan's `calibration_readiness`, the runner unlocks the separately reviewed 30-case holdout:
 
 ```powershell
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id holdout-v1 --base-url http://localhost:8080 --plan $plan --partition holdout
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id holdout-v1 --base-url http://localhost:8080 --plan $plan --partition holdout
 ```
 
-The holdout command fails before network access when readiness evidence is missing/drifted, any frozen input changed, or an exact case id/normalized context overlaps calibration. Never inspect holdout results and then tune prompt, model, labels, or timeout against them; a changed frozen input requires a new freeze and a new unseen holdout. T05 reports only holdout evidence and marks incomplete coverage explicitly; only a `gate-eligible` complete holdout is valid input to the T06 decision. Reusing a `run-id` reuses deterministic message/thread/directive identities for safe retry and does not create an independent measurement. A missing, invalid, or version-incompatible projection remains a structured scoring failure. Output contains correlations, canonical predicted labels, aggregate matrix/recall, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, per-case human baseline, model text, credentials, or the connection string. Review populated result datasets before committing them as evaluation artefacts. Generic `--corpus`/`--rubric` runs without `--plan` remain available for non-gate fixture development, including the follow-up example.
+The holdout command fails before network access when readiness evidence is missing/drifted, any frozen input changed, or an exact case id/normalized context overlaps calibration. Never inspect holdout results and then tune prompt, model, labels, or timeout against them; a changed frozen input requires a new freeze and a new unseen holdout. T05 reports only holdout evidence and marks incomplete coverage explicitly; only a `gate-eligible` complete holdout is valid input to the T06 decision. Reusing a `run-id` reuses deterministic message/thread/directive identities for safe retry and does not create an independent measurement. A missing, invalid, or version-incompatible projection remains a structured scoring failure. Output contains correlations, canonical predicted labels, aggregate matrix/recall, scores, decision, outcome, provider/model, tokens, cost, and latency, but never corpus context, per-case human baseline, model text, credentials, or database configuration. Review populated result datasets before committing them as evaluation artefacts. Generic `--corpus`/`--rubric` runs without `--plan` remain available for non-gate fixture development, including the follow-up example.
 
 For the calibration-only GPT-5.6 Luna recovery experiment, layer the dedicated override last. It bind-mounts an experimental copy of `organization.yaml` that changes only the `bug-triage` position model, sets the gateway default to the same model, and adds the official USD 1.00 input / USD 6.00 output text-token rates per one million tokens ([official GPT-5.6 Luna model page](https://developers.openai.com/api/docs/models/gpt-5.6-luna), accessed 2026-07-15). It does not alter the tracked organization source, the historical evaluation plan, or either burned holdout:
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-luna.yml up --build -d
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
 $rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --timeout-seconds 120 --poll-milliseconds 1000
 ```
 
 These are exploratory generic runs, not gate-bearing plan partitions. Keep the prompt, corpus, rubric, 45-second provider timeout, output schema, and code unchanged between runs. The public `gpt-5.6-luna` alias is acceptable for this calibration, but a later freeze requires an immutable snapshot or a documented provider-resolved version. After the experiment, recreate the normal evaluation stack without `docker-compose.evaluation.gpt-5.6-luna.yml` to restore the tracked organization model in the PostgreSQL registry.
@@ -306,13 +304,12 @@ For the T14 prompt-recovery calibration, use the separate override below. It pre
 
 ```powershell
 docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-luna-prompt-recovery.yml up --build -d
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
 $rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
 $evidence='evidence/evaluation/bug-triage-luna-prompt-recovery-v1'
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-001.json" --timeout-seconds 120 --poll-milliseconds 1000
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-002.json" --timeout-seconds 120 --poll-milliseconds 1000
-dotnet run --project src/Hive.DemoClient -- evaluate --run-id luna-prompt-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-003.json" --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-prompt-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-001.json" --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-prompt-calibration-002 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-002.json" --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id luna-prompt-calibration-003 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/luna-prompt-calibration-003.json" --timeout-seconds 120 --poll-milliseconds 1000
 ```
 
 Each run must independently have 30/30 terminal, explicit-cost-state and scoreable coverage and meet the T14 thresholds recorded in the bible. Any authorization, invalid-output or projection failure rejects that run. This remains calibration-only: do not use `--plan`, do not execute a holdout, and restore the normal evaluation stack without this override when the experiment is complete.
@@ -343,14 +340,13 @@ Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/pos
 The configuration response must show `identityPromptRef` equal to `triage-v2` and `model` equal to `gpt-5.4-mini-2026-03-17`. Then execute all three runs in one block; do not inspect or tune between them:
 
 ```powershell
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
 $rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
 $evidence='evidence/evaluation/bug-triage-gpt-5.4-mini-recovery-v1'
 $runIds=@('gpt-5-4-mini-calibration-001','gpt-5-4-mini-calibration-002','gpt-5-4-mini-calibration-003')
 $statuses=@()
 foreach ($runId in $runIds) {
-  dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
+  dotnet run --project src/Hive.Evaluation.Tooling --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
   $statuses += "$runId=$LASTEXITCODE"
 }
 $statuses
@@ -383,11 +379,10 @@ Only after the smoke succeeds, start and verify the T16 profile, then execute it
 docker compose -f docker-compose.yml -f docker-compose.demo.yml -f docker-compose.evaluation.yml -f docker-compose.postgres-external.yml -f docker-compose.evaluation.gpt-5.6-terra.yml up --build -d
 Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
 Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
 $rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
 $output='evidence/evaluation/bug-triage-terra-v1/terra-calibration-001.json'
-dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id terra-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output $output --timeout-seconds 120 --poll-milliseconds 1000
+dotnet run --project src/Hive.Evaluation.Tooling --no-restore -- evaluate --run-id terra-calibration-001 --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output $output --timeout-seconds 120 --poll-milliseconds 1000
 ```
 
 The registry response must show `identityPromptRef=triage-v2`, `model=gpt-5.6-terra`, and `maxTokens=4096`. Preserve the dataset even when the runner exits with code `1`; do not run a holdout. Restore the normal profile afterwards with the same command shown above without the Terra override.
@@ -415,14 +410,13 @@ $compose=@('-f','docker-compose.yml','-f','docker-compose.demo.yml','-f','docker
 docker compose @compose up --build -d
 Invoke-WebRequest -UseBasicParsing http://localhost:8080/health/ready
 Invoke-RestMethod http://localhost:8080/internal/organizations/acme-delivery/positions/bug-triage/configuration | ConvertTo-Json -Depth 8
-$env:ConnectionStrings__PostgreSql='Host=localhost;Port=15432;Database=hive;Username=hive;Password=hive'
 $corpus='config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json'
 $rubric='config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json'
 $evidence='evidence/evaluation/bug-triage-hybrid-outcome-v2'
 $runIds=@('hybrid-outcome-corrected-calibration-001','hybrid-outcome-corrected-calibration-002','hybrid-outcome-corrected-calibration-003')
 $statuses=@()
 foreach ($runId in $runIds) {
-  dotnet run --project src/Hive.DemoClient --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
+  dotnet run --project src/Hive.Evaluation.Tooling --no-restore -- evaluate --run-id $runId --base-url http://localhost:8080 --corpus $corpus --rubric $rubric --output "$evidence/$runId.json" --timeout-seconds 120 --poll-milliseconds 1000
   $statuses += "$runId=$LASTEXITCODE"
 }
 $statuses
@@ -467,7 +461,7 @@ docker compose @compose config
 Generate the versioned T05 report from the holdout dataset and the tracked reporting profile:
 
 ```powershell
-dotnet run --project src/Hive.DemoClient -- report
+dotnet run --project src/Hive.Evaluation.Tooling -- report
 ```
 
 The defaults read `evidence/evaluation/bug-triage-holdout-v1/holdout-v1.json` and `config/organizations/acme-delivery/examples/evaluation/bug-triage-report-profile.v1.json`, then write `evidence/evaluation/bug-triage-holdout-v1/bug-triage-unit-economics-quality-report.v1.md`. Use `--dataset`, `--profile`, and `--output` to select other versioned inputs/outputs. The profile owns the explicit workload assumption and at least two provider/model price scenarios. The report includes hashes of both inputs, coverage and quality by configured dimension, decision matrix and positive-label rate/recall, measured cost with unavailable observations kept visible, position/day projection, token-price model sensitivity, and latency percentiles. Repricing holds observed input/output token usage constant and is not a quality or latency claim for an alternative model; the report never defines T06 thresholds or a go/no-go outcome.

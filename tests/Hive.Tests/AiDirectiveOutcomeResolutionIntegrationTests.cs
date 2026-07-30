@@ -2,14 +2,12 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
-using Hive.Infrastructure.Evaluation;
 using OrgDirective = Hive.Domain.Messaging.Directive;
 
 namespace Hive.Tests;
@@ -146,8 +144,6 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     [Fact]
     public async Task Enforcement_materializes_fail_safe_escalation_before_final_gates()
     {
-        const string envelopeJson =
-            "{\"dimensions\":{\"missing-information\":[],\"severity\":[\"medium\"]}}";
         var actingUnder = ActingUnderDeclaration.Declared(
             AuthorityKey.From("delivery.bug-triage"));
         var audit = new RecordingJourneyAuditLog();
@@ -159,8 +155,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             new AiDirectiveReportDecision(
                 ReportKind.Done,
                 "Complete.",
-                actingUnder),
-            evaluationEnvelopeJson: envelopeJson);
+                actingUnder));
 
         var result = await ResolveAsync(integrator, input);
 
@@ -172,25 +167,17 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         Assert.Empty(result.Diagnostics);
         Assert.DoesNotContain("Complete.", escalation.Context, StringComparison.Ordinal);
         Assert.Equal(actingUnder, result.ResultMessage.ActingUnder);
-        Assert.Equal(envelopeJson, result.ResultMessage.EvaluationEnvelopeJson);
-        Assert.EndsWith(
-            EvaluationInstruction.EnvelopeMarker + envelopeJson,
-            escalation.Context,
-            StringComparison.Ordinal);
     }
 
     [Fact]
     public async Task Triage_006_done_report_closes_after_grounded_semantic_verification()
     {
-        const string envelopeJson =
-            "{\"dimensions\":{\"missing-information\":[],\"severity\":[\"medium\"]}}";
         var verifier = new StaticVerifier(
             OutcomeVerifierResult.Classified(OutcomeVerifierClassification.ReportDone));
         var audit = new RecordingJourneyAuditLog();
         var integrator = CreateIntegrator(OutcomeResolutionMode.Enforcement, audit, verifier);
         var input = Input(
-            new AiDirectiveReportDecision(ReportKind.Done, "Triage completed."),
-            evaluationEnvelopeJson: envelopeJson);
+            new AiDirectiveReportDecision(ReportKind.Done, "Triage completed."));
 
         var result = await ResolveAsync(integrator, input);
 
@@ -203,7 +190,6 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 OutcomeResolutionReason.VerifierConfirmed,
             ],
             result.Resolution.Reasons);
-        Assert.Equal(envelopeJson, result.ResultMessage.EvaluationEnvelopeJson);
         Assert.Equal(1, verifier.CallCount);
         var artifact = Assert.IsType<OutcomeVerificationArtifact>(
             verifier.LastRequest!.Artifact);
@@ -213,7 +199,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             Assert.Single(artifact.Entries).Value);
         Assert.DoesNotContain(
             artifact.Entries,
-            entry => entry.Value.Contains(envelopeJson, StringComparison.Ordinal));
+            entry => entry.Value.Contains("hive-evaluation-v1", StringComparison.Ordinal));
         var auditRecord = Assert.Single(audit.Records);
         Assert.Equal("Classified", auditRecord.Payload["verifierStatus"]);
         Assert.Equal("Report.Done", auditRecord.Payload["verifierClassification"]);
@@ -530,8 +516,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopEvaluationResultProjector.Instance,
-                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    NoopDirectiveAuditExportStore.Instance,
                     integrator)),
                 "agent");
 
@@ -591,8 +576,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopEvaluationResultProjector.Instance,
-                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    NoopDirectiveAuditExportStore.Instance,
                     integrator)),
                 "agent");
 
@@ -661,8 +645,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopEvaluationResultProjector.Instance,
-                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    NoopDirectiveAuditExportStore.Instance,
                     integrator)),
                 "agent");
 
@@ -789,8 +772,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopEvaluationResultProjector.Instance,
-                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    NoopDirectiveAuditExportStore.Instance,
                     integrator)),
                 "agent");
 
@@ -871,8 +853,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopEvaluationResultProjector.Instance,
-                    Hive.Infrastructure.Evaluation.NoopEvaluationInstructionProvider.Instance,
+                    NoopDirectiveAuditExportStore.Instance,
                     integrator)),
                 "agent");
 
@@ -935,7 +916,6 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     private static ResolutionInput Input(
         AiDirectiveDecision decision,
         DateTimeOffset? deadline = null,
-        string? evaluationEnvelopeJson = null,
         bool withoutDeadline = false)
     {
         var request = Request(deadline, withoutDeadline);
@@ -944,8 +924,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var proposedMessage = AiDirectiveResultMessageFactory.Create(
             context,
             decision,
-            clock: () => At.AddMinutes(1),
-            evaluationEnvelopeJson: evaluationEnvelopeJson);
+            clock: () => At.AddMinutes(1));
         var response = AiGatewayResponse.Succeeded(
             Organization,
             Position,

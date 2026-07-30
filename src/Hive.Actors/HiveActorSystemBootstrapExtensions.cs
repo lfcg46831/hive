@@ -9,11 +9,9 @@ using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Application.Directives;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
-using Hive.Infrastructure.Evaluation;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Persistence.PostgreSql;
@@ -144,7 +142,6 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
-                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>(),
                 serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
         builder.Services.TryAddSingleton<IDirectiveExecutionCoordinator>(serviceProvider =>
             serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>());
@@ -154,8 +151,7 @@ public static class HiveActorSystemBootstrapExtensions
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>(),
-                serviceProvider.GetRequiredService<IEvaluationResultProjector>(),
-                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>(),
+                serviceProvider.GetRequiredService<IDirectiveAuditExportResultSink>(),
                 serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>(),
                 serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(

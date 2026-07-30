@@ -2,9 +2,7 @@ using System.Collections.Immutable;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Outcomes;
-using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Actors.Positions;
 
@@ -82,7 +80,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
     private readonly IAiAgentGatewayInvoker _gatewayInvoker;
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
     private readonly IAiAgentActionGate _actionGate;
-    private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
     private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
     private readonly Func<DateTimeOffset> _clock;
 
@@ -90,7 +87,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         IAiAgentGatewayInvoker gatewayInvoker,
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
-        IEvaluationInstructionProvider evaluationInstructionProvider,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
         Func<DateTimeOffset>? clock = null)
     {
@@ -99,8 +95,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         _resultMessageGate = resultMessageGate
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
         _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
-        _evaluationInstructionProvider = evaluationInstructionProvider
-            ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
         _outcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
@@ -224,7 +218,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 var interpretation = AiDirectiveDecisionInterpreter.Interpret(
                     result,
                     context.Authority.CanDecide,
-                    acceptEvaluationEnvelope: context.EvaluationInstruction is not null,
                     requireOutcomeProposal: context.RequiresStructuredOutcomeProposal,
                     outcomeProposalEvidenceContext: outcomeProposalEvidenceContext);
 
@@ -235,8 +228,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         reason: "AI gateway response interpreted");
                     var resultMessage = AiDirectiveResultMessageFactory.Create(
                         context,
-                        interpretation.Decision!,
-                        evaluationEnvelopeJson: interpretation.EvaluationEnvelopeJson);
+                        interpretation.Decision!);
                     var outcomeResolution = await _outcomeResolutionIntegrator.ResolveAsync(
                         context,
                         iterationState,
@@ -352,8 +344,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                                 new AiDirectiveResultMessageFailure(
                                     actionGateResult.Code,
                                     $"AI action was retained by the authority gate with code '{actionGateResult.Code}'."),
-                                resultMessage.ActingUnder,
-                                resultMessage.EvaluationEnvelopeJson);
+                                resultMessage.ActingUnder);
                         }
                         else
                         {
@@ -370,8 +361,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                                 resultMessage = AiDirectiveResultMessage.Rejected(
                                     request.CorrelationId,
                                     gateResult.Failure!,
-                                    resultMessage.ActingUnder,
-                                    resultMessage.EvaluationEnvelopeJson);
+                                    resultMessage.ActingUnder);
                             }
                         }
                     }
@@ -532,9 +522,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         ArgumentNullException.ThrowIfNull(request);
         return AiDirectiveExecutionContext.From(
             request,
-            _evaluationInstructionProvider.Resolve(
-                request.OrganizationId,
-                request.PositionId),
             _outcomeResolutionIntegrator.RequiresStructuredProposal);
     }
 
@@ -617,7 +604,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
     {
         if (resultMessage.IsSuccess)
         {
-            yield return new DirectiveEvaluationProjectionEffect(
+            yield return new DirectiveAuditExportResultEffect(
                 context.Directive.DirectiveId,
                 resultMessage.Message!);
         }

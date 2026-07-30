@@ -4,7 +4,6 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Application.Directives;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 
@@ -18,6 +17,7 @@ public sealed class ApplicationBoundaryTests
         "Hive.Actors",
         "Hive.Api",
         "Hive.DemoClient",
+        "Hive.Evaluation.Tooling",
         "Hive.Infrastructure",
         "Hive.Worker",
         "Microsoft.Extensions.AI",
@@ -63,6 +63,91 @@ public sealed class ApplicationBoundaryTests
             violations.Length == 0,
             "Forbidden Hive.Application assembly references:\n" +
             string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void Evaluation_tooling_depends_only_on_the_public_contracts_project()
+    {
+        var project = XDocument.Load(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Hive.Evaluation.Tooling",
+            "Hive.Evaluation.Tooling.csproj"));
+        var references = project
+            .Descendants("ProjectReference")
+            .Select(reference => reference.Attribute("Include")?.Value.Replace('\\', '/'))
+            .OfType<string>()
+            .ToArray();
+
+        Assert.Equal(["../Hive.Contracts/Hive.Contracts.csproj"], references);
+        Assert.Empty(project.Descendants("PackageReference"));
+    }
+
+    [Fact]
+    public void Normal_runtime_projects_have_no_evaluation_tooling_runner_scorer_or_rubric_dependencies()
+    {
+        string[] runtimeProjects =
+        [
+            "Hive.Domain",
+            "Hive.Application",
+            "Hive.Actors",
+            "Hive.Infrastructure",
+            "Hive.Api",
+            "Hive.Worker",
+        ];
+        string[] forbiddenSymbols =
+        [
+            "Hive.Evaluation.Tooling",
+            "IEvaluationInstructionProvider",
+            "IEvaluationResultProjector",
+            "EvaluationRubric",
+            "EvaluationRunner",
+            "EvaluationScorer",
+        ];
+        var violations = runtimeProjects
+            .SelectMany(project => Directory.EnumerateFiles(
+                Path.Combine(RepositoryRoot, "src", project),
+                "*.*",
+                SearchOption.AllDirectories)
+                .Where(path =>
+                    path.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) ||
+                    path.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase))
+                .SelectMany(path => forbiddenSymbols
+                    .Where(symbol => File.ReadAllText(path).Contains(
+                        symbol,
+                        StringComparison.Ordinal))
+                    .Select(symbol => $"{project}: {symbol}")))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Evaluation tooling leaked into the normal runtime:\n" +
+            string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void Demo_client_no_longer_hosts_evaluation_tooling_or_database_access()
+    {
+        var formerEvaluationDirectory = Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Hive.DemoClient",
+            "Evaluation");
+        Assert.False(
+            Directory.Exists(formerEvaluationDirectory) &&
+            Directory.EnumerateFiles(
+                formerEvaluationDirectory,
+                "*.cs",
+                SearchOption.AllDirectories).Any());
+        var project = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Hive.DemoClient",
+            "Hive.DemoClient.csproj"));
+
+        Assert.DoesNotContain("Npgsql", project, StringComparison.Ordinal);
+        Assert.DoesNotContain("Hive.Evaluation.Tooling", project, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -188,7 +273,6 @@ public sealed class ApplicationBoundaryTests
         {
             typeof(IActorRef),
             typeof(IJourneyAuditLog),
-            typeof(IEvaluationResultProjector),
         };
 
         var violations = dependencyTypes

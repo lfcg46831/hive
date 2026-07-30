@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Hive.Actors\Hive.Actors.csproj" />
+    <ProjectReference Include="..\Hive.Contracts\Hive.Contracts.csproj" />
     <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />
   </ItemGroup>
 

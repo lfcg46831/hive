@@ -202,9 +202,9 @@ public sealed record DirectiveJourneyAuditEffect : DirectiveExecutionEffect
     public JourneyAuditRecord Record { get; }
 }
 
-public sealed record DirectiveEvaluationProjectionEffect : DirectiveExecutionEffect
+public sealed record DirectiveAuditExportResultEffect : DirectiveExecutionEffect
 {
-    public DirectiveEvaluationProjectionEffect(
+    public DirectiveAuditExportResultEffect(
         DirectiveId directiveId,
         OrgMessage resultMessage)
     {

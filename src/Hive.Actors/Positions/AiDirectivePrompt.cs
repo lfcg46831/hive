@@ -90,16 +90,12 @@ internal static class AiDirectivePrompt
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
-            BuildHiveProtocolInstruction(
-                context.EvaluationInstruction is not null,
-                evidenceContext),
+            BuildHiveProtocolInstruction(evidenceContext),
             BuildRuntimeAuthorityInstruction(context),
-            BuildRuntimeToolsInstruction(context),
-            context.EvaluationInstruction?.Content);
+            BuildRuntimeToolsInstruction(context));
     }
 
     private static string BuildHiveProtocolInstruction(
-        bool hasEvaluationAppendix,
         OutcomeProposalEvidenceContext? evidenceContext)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
@@ -125,12 +121,6 @@ internal static class AiDirectivePrompt
             $"For {escalationIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
             $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
         };
-        if (hasEvaluationAppendix)
-        {
-            lines.Add(
-                "A runtime evaluation appendix is present below; when the enforced response format declares a top-level \"evaluation\" property, fill it, otherwise its single exact envelope line is mandatory in the selected payload — verify before returning JSON.");
-        }
-
         if (evidenceContext is not null)
         {
             lines.AddRange(
@@ -149,9 +139,7 @@ internal static class AiDirectivePrompt
 
     private static AiOutputConstraint OutputConstraint(AiDirectiveExecutionContext context)
     {
-        var constraint = context.EvaluationInstruction is { } evaluationInstruction
-            ? AiDirectiveEvaluationEnvelope.ComposeOutputConstraint(evaluationInstruction)
-            : AiDirectiveDecisionSchema.OutputConstraint;
+        var constraint = AiDirectiveDecisionSchema.OutputConstraint;
         return context.RequiresStructuredOutcomeProposal
             ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(
                 constraint,
@@ -485,8 +473,7 @@ internal sealed record AiDirectiveSystemInstructionSections(
     string BusinessIdentity,
     string HiveProtocol,
     string RuntimeAuthority,
-    string RuntimeTools,
-    string? Evaluation)
+    string RuntimeTools)
 {
     internal const string BusinessIdentityHeader =
         "## Business identity [owner: organization]";
@@ -496,9 +483,6 @@ internal sealed record AiDirectiveSystemInstructionSections(
         "## Runtime authority [owner: runtime]";
     internal const string RuntimeToolsHeader =
         "## Runtime tools [owner: runtime]";
-    internal const string EvaluationHeader =
-        "## Evaluation appendix [owner: runtime]";
-
     public string Compose()
     {
         var sections = new List<string>
@@ -508,11 +492,6 @@ internal sealed record AiDirectiveSystemInstructionSections(
             Section(RuntimeAuthorityHeader, RuntimeAuthority),
             Section(RuntimeToolsHeader, RuntimeTools),
         };
-        if (!string.IsNullOrWhiteSpace(Evaluation))
-        {
-            sections.Add(Section(EvaluationHeader, Evaluation));
-        }
-
         return string.Join($"{Environment.NewLine}{Environment.NewLine}", sections);
     }
 

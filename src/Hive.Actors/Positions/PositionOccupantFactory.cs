@@ -1,14 +1,14 @@
 using Akka.Actor;
+using System.Text;
+using Hive.Actors.Serialization;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
-using Hive.Infrastructure.Evaluation;
 
 namespace Hive.Actors.Positions;
 
@@ -25,8 +25,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
     private readonly IAiAgentActionGate _actionGate;
     private readonly IJourneyAuditLog _auditLog;
-    private readonly IEvaluationResultProjector _evaluationResultProjector;
-    private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
+    private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
     private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
     private readonly AiDirectiveExecutionCoordinator? _executionCoordinator;
 
@@ -62,8 +61,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             resultMessageGate,
             actionGate,
             auditLog,
-            NoopEvaluationResultProjector.Instance,
-            NoopEvaluationInstructionProvider.Instance)
+            NoopDirectiveAuditExportStore.Instance)
     {
     }
 
@@ -72,31 +70,13 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector)
+        IDirectiveAuditExportResultSink auditExportResultSink)
         : this(
             aiGatewayInvoker,
             resultMessageGate,
             actionGate,
             auditLog,
-            evaluationResultProjector,
-            NoopEvaluationInstructionProvider.Instance)
-    {
-    }
-
-    public PositionOccupantFactory(
-        IAiAgentGatewayInvoker aiGatewayInvoker,
-        IAiDirectiveResultMessageGate resultMessageGate,
-        IAiAgentActionGate actionGate,
-        IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider)
-        : this(
-            aiGatewayInvoker,
-            resultMessageGate,
-            actionGate,
-            auditLog,
-            evaluationResultProjector,
-            evaluationInstructionProvider,
+            auditExportResultSink,
             PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance)
     {
     }
@@ -106,16 +86,14 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator)
         : this(
             aiGatewayInvoker,
             resultMessageGate,
             actionGate,
             auditLog,
-            evaluationResultProjector,
-            evaluationInstructionProvider,
+            auditExportResultSink,
             outcomeResolutionIntegrator,
             executionCoordinator: null)
     {
@@ -126,8 +104,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
         AiDirectiveExecutionCoordinator? executionCoordinator)
     {
@@ -137,10 +114,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
         _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
-        _evaluationResultProjector = evaluationResultProjector
-            ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
-        _evaluationInstructionProvider = evaluationInstructionProvider
-            ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
+        _auditExportResultSink = auditExportResultSink
+            ?? throw new ArgumentNullException(nameof(auditExportResultSink));
         _outcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
         _executionCoordinator = executionCoordinator;
@@ -173,8 +148,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _resultMessageGate,
                 _actionGate,
                 _auditLog,
-                _evaluationResultProjector,
-                _evaluationInstructionProvider,
+                _auditExportResultSink,
                 _outcomeResolutionIntegrator,
                 _executionCoordinator)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
@@ -222,7 +196,7 @@ internal sealed class AiAgentActor : ReceiveActor
     private readonly Dictionary<string, AiDirectiveOutcomeResolutionResult>
         _directiveOutcomeResolutions = new(StringComparer.Ordinal);
     private readonly IJourneyAuditLog _auditLog;
-    private readonly IEvaluationResultProjector _evaluationResultProjector;
+    private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
     private readonly AiDirectiveExecutionCoordinator _executionCoordinator;
 
     public AiAgentActor(OccupantId occupant)
@@ -261,8 +235,7 @@ internal sealed class AiAgentActor : ReceiveActor
             resultMessageGate,
             actionGate,
             auditLog,
-            NoopEvaluationResultProjector.Instance,
-            NoopEvaluationInstructionProvider.Instance)
+            NoopDirectiveAuditExportStore.Instance)
     {
     }
 
@@ -272,34 +245,14 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector)
+        IDirectiveAuditExportResultSink auditExportResultSink)
         : this(
             occupant,
             gatewayInvoker,
             resultMessageGate,
             actionGate,
             auditLog,
-            evaluationResultProjector,
-            NoopEvaluationInstructionProvider.Instance)
-    {
-    }
-
-    public AiAgentActor(
-        OccupantId occupant,
-        IAiAgentGatewayInvoker gatewayInvoker,
-        IAiDirectiveResultMessageGate resultMessageGate,
-        IAiAgentActionGate actionGate,
-        IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider)
-        : this(
-            occupant,
-            gatewayInvoker,
-            resultMessageGate,
-            actionGate,
-            auditLog,
-            evaluationResultProjector,
-            evaluationInstructionProvider,
+            auditExportResultSink,
             PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance)
     {
     }
@@ -310,8 +263,7 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator)
         : this(
             occupant,
@@ -319,8 +271,7 @@ internal sealed class AiAgentActor : ReceiveActor
             resultMessageGate,
             actionGate,
             auditLog,
-            evaluationResultProjector,
-            evaluationInstructionProvider,
+            auditExportResultSink,
             outcomeResolutionIntegrator,
             executionCoordinator: null)
     {
@@ -332,8 +283,7 @@ internal sealed class AiAgentActor : ReceiveActor
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
-        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
         AiDirectiveExecutionCoordinator? executionCoordinator)
     {
@@ -344,10 +294,8 @@ internal sealed class AiAgentActor : ReceiveActor
             ?? throw new ArgumentNullException(nameof(resultMessageGate));
         ActionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
-        _evaluationResultProjector = evaluationResultProjector
-            ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
-        var requiredEvaluationInstructionProvider = evaluationInstructionProvider
-            ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
+        _auditExportResultSink = auditExportResultSink
+            ?? throw new ArgumentNullException(nameof(auditExportResultSink));
         var requiredOutcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
         _executionCoordinator = executionCoordinator
@@ -355,7 +303,6 @@ internal sealed class AiAgentActor : ReceiveActor
                 GatewayInvoker,
                 ResultMessageGate,
                 ActionGate,
-                requiredEvaluationInstructionProvider,
                 requiredOutcomeResolutionIntegrator);
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
@@ -582,10 +529,23 @@ internal sealed class AiAgentActor : ReceiveActor
     {
         switch (effect)
         {
-            case DirectiveEvaluationProjectionEffect projection:
-                await _evaluationResultProjector.ProjectAsync(
-                    projection.DirectiveId,
-                    projection.ResultMessage,
+            case DirectiveAuditExportResultEffect export:
+                if (export.ResultMessage.From is not PositionEndpointRef source)
+                {
+                    throw new InvalidOperationException(
+                        "Directive result export requires a position source.");
+                }
+
+                await _auditExportResultSink.StoreAsync(
+                    new DirectiveAuditExportResultData(
+                        export.ResultMessage.OrganizationId,
+                        export.ResultMessage.Thread,
+                        export.DirectiveId,
+                        source.PositionId,
+                        export.ResultMessage.GetType().Name,
+                        export.ResultMessage.SchemaVersion,
+                        Encoding.UTF8.GetString(
+                            OrgMessageJsonFormat.Serialize(export.ResultMessage))),
                     CancellationToken.None).ConfigureAwait(false);
                 break;
             case DirectivePositionCommandEffect position:

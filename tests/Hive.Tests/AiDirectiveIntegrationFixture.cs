@@ -7,7 +7,6 @@ using Hive.Actors.Sharding;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
-using Hive.Domain.Evaluation;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -28,7 +27,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private readonly IAiGateway _gateway;
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IJourneyAuditLog _auditLog;
-    private readonly IEvaluationResultProjector _evaluationResultProjector;
+    private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
     private IActorRef _position;
     private int _positionGeneration;
 
@@ -40,7 +39,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         IAiGateway gateway,
         IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         IActorRef position)
     {
         _services = services;
@@ -50,7 +49,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         _gateway = gateway;
         _configurationProvider = configurationProvider;
         _auditLog = auditLog;
-        _evaluationResultProjector = evaluationResultProjector;
+        _auditExportResultSink = auditExportResultSink;
         _position = position;
     }
 
@@ -63,12 +62,12 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         IJourneyAuditLog? auditLog = null,
         IPositionConfigurationProvider? configurationProvider = null,
         bool seedInitialSnapshot = true,
-        IEvaluationResultProjector? evaluationResultProjector = null)
+        IDirectiveAuditExportResultSink? auditExportResultSink = null)
     {
         var resolvedScenario = scenario ?? AiDirectiveIntegrationScenario.Create();
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
-        var resolvedEvaluationResultProjector = evaluationResultProjector
-            ?? NoopEvaluationResultProjector.Instance;
+        var resolvedAuditExportResultSink = auditExportResultSink
+            ?? NoopDirectiveAuditExportStore.Instance;
         var stubOptions = resolvedScenario.CreateStubOptions();
         var services = BuildGatewayProvider(stubOptions, resolvedAuditLog);
         var system = CreateActorSystem("ai-directive-integration");
@@ -95,7 +94,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 gateway,
                 resolvedConfigurationProvider,
                 resolvedAuditLog,
-                resolvedEvaluationResultProjector,
+                resolvedAuditExportResultSink,
                 generation: 0);
 
             var readyFixture = new AiDirectiveIntegrationFixture(
@@ -106,7 +105,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 gateway,
                 resolvedConfigurationProvider,
                 resolvedAuditLog,
-                resolvedEvaluationResultProjector,
+                resolvedAuditExportResultSink,
                 position);
             await readyFixture.WaitForReadyAsync().ConfigureAwait(false);
 
@@ -206,7 +205,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             _gateway,
             _configurationProvider,
             _auditLog,
-            _evaluationResultProjector,
+            _auditExportResultSink,
             _positionGeneration);
 
         await WaitForReadyAsync().ConfigureAwait(false);
@@ -328,7 +327,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         IAiGateway gateway,
         IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
-        IEvaluationResultProjector evaluationResultProjector,
+        IDirectiveAuditExportResultSink auditExportResultSink,
         int generation) =>
         system.ActorOf(
             Props.Create(() => new PositionActor(
@@ -339,7 +338,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     auditLog,
-                    evaluationResultProjector),
+                    auditExportResultSink),
                 new JourneyAuditPositionProjectionPublisher(auditLog, null),
                 scenario.Clock)),
             $"position-{generation}");

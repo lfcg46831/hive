@@ -34,9 +34,9 @@ no credential-like key.
 
 | Gate | Result |
 | --- | --- |
-| Complete solution suite on the reviewed commit | PASS — operator-confirmed green |
-| Solution build (`dotnet build Hive.sln --no-restore -v minimal`) | PASS — 0 warnings, 0 errors |
-| Architecture/boundary guards | PASS — 43/43 |
+| Complete solution suite on the reviewed commit | PASS — 2069/2069 |
+| Solution build (`dotnet build Hive.sln --no-restore -v minimal`) | BLOCKED — 1 warning, 0 errors |
+| Architecture/boundary guards | PASS — 15/15 |
 | Directive execution characterization | PASS — 12/12 |
 | Evaluation tooling tests | PASS — 74/74 |
 | DemoClient tests | PASS — 4/4 |
@@ -45,17 +45,52 @@ no credential-like key.
 | Generic Compose configuration (`config --quiet`) | PASS |
 | Functional worktree diff | PASS — empty |
 
-Two independent attempts to replay the unfiltered solution suite from this
-agent environment reached the runner timeout without a terminal test summary
-or assertion failure and left no Testcontainers running. Their orphaned
-`dotnet`/`testhost` processes were stopped. These attempts are recorded as
-inconclusive diagnostics, not as failures or as substitutes for the
-operator-confirmed complete green run.
+## Commands
+
+```powershell
+dotnet clean Hive.sln -v minimal
+dotnet build Hive.sln --no-restore -v minimal
+dotnet test Hive.sln --no-build --no-restore -v minimal
+dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-build --no-restore -v minimal `
+  --filter "FullyQualifiedName~ApplicationBoundaryTests|FullyQualifiedName~AuditExportContractTests"
+dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-build --no-restore -v minimal `
+  --filter "Category=DirectiveExecutionCharacterization"
+
+$manifest='config/experiments/bug-triage-lab-v1/experiment.v1.json'
+dotnet run --project src/Hive.Evaluation.Tooling --no-restore -- `
+  experiment prepare --manifest $manifest
+$experimentEnv='artifacts/evaluation/experiments/bug-triage-lab-v1/compose.env'
+$env:OPENAI_API_KEY='preflight-compose-validation-only'
+try {
+  docker compose --env-file .env.example --env-file $experimentEnv `
+    -f docker-compose.yml -f docker-compose.demo.yml `
+    -f docker-compose.experiment.yml config --quiet
+} finally {
+  Remove-Item Env:OPENAI_API_KEY -ErrorAction SilentlyContinue
+}
+```
+
+## Blocking diagnostics
+
+- The build emitted `CS0618` at
+  `tests/Hive.Tests/PositionMessageExtractorTests.cs:69` because
+  `HashCodeMessageExtractor.ShardId(object)` is obsolete.
+- With Docker Desktop available, the complete suite produced a terminal green
+  result: `Hive.Tests` passed 1991/1991, Evaluation Tooling passed 74/74, and
+  DemoClient passed 4/4.
+- The suite created only its local PostgreSQL Testcontainers. A post-run
+  `docker ps` returned no running containers, so no Testcontainer, application,
+  or evaluation container remained.
+- Compose rendering still exited successfully without contacting the daemon.
+  The Docker client reported that its user-level `config.json` was
+  inaccessible in this execution environment; no credential or file content
+  was read or recorded.
 
 ## Verdict
 
-`ready-for-real-smoke`
+`blocked`
 
-This verdict permits only a request to authorize `US-F0-17-T02`. It does not
-authorize or represent a real-provider smoke, corpus execution, calibration,
-freeze, holdout, go/no-go decision, or reopening of F1a.
+The warning-free build gate must pass on a new reviewed cut before requesting
+authorization for `US-F0-17-T02`. This verdict does not authorize or represent
+a real-provider smoke, corpus execution, calibration, freeze, holdout, go/no-go
+decision, or reopening of F1a.

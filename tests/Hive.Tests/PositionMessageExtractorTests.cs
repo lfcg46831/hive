@@ -66,7 +66,9 @@ public sealed class PositionMessageExtractorTests
         var entityId = EntityId("acme", "bug-triage");
         var envelope = new PositionEnvelope(entityId, new RequestPassivation());
 
-        Assert.Equal(extractor.ShardId(entityId.Value), extractor.ShardId(envelope));
+        Assert.Equal(
+            extractor.ShardId(entityId.Value, messageHint: null),
+            extractor.ShardId(entityId.Value, envelope));
     }
 
     [Fact]

@@ -80,7 +80,22 @@
     {
       "role": "tooling-entry-point",
       "path": "src/Hive.Evaluation.Tooling/Program.cs",
-      "sha256": "93f268ec0886762d917196dae4f7cbed0c9d39fc2e49c1373ddf431c84f733fa"
+      "sha256": "bd90199d2d8900596dc6580697db8365142aeb4fe313c590a8cc063d40a67e34"
+    },
+    {
+      "role": "artifact-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactCommand.cs",
+      "sha256": "8119e01483da7187c7b11c30bd6a11f3ca52855529cb4b8bae1d040cf1050569"
+    },
+    {
+      "role": "artifact-index-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactIndex.cs",
+      "sha256": "0634bd1833f5fadcb1dd1ddf529f857211ee2ecbe168bead46cdf4013d211406"
+    },
+    {
+      "role": "artifact-publisher",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactPublisher.cs",
+      "sha256": "0d7b815d3e83bbe18a57f23801e85213c570a8f280aaeb59af1e8726109e2497"
     },
     {
       "role": "experiment-command",

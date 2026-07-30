@@ -16,6 +16,14 @@ if (args.Length > 0 && string.Equals(args[0], "report", StringComparison.Ordinal
         CancellationToken.None);
 }
 
+if (args.Length > 0 && string.Equals(args[0], "artifact", StringComparison.Ordinal))
+{
+    return await EvaluationArtifactCommand.RunAsync(
+        args[1..],
+        Console.Out,
+        CancellationToken.None);
+}
+
 using var httpClient = new HttpClient();
 if (args.Length > 0 && string.Equals(args[0], "evaluate", StringComparison.Ordinal))
 {
@@ -27,5 +35,5 @@ if (args.Length > 0 && string.Equals(args[0], "evaluate", StringComparison.Ordin
 }
 
 await Console.Error.WriteLineAsync(
-    "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- <experiment|evaluate|report> [options]");
+    "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- <experiment|evaluate|report|artifact> [options]");
 return 2;

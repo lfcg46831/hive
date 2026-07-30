@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors;
 using Hive.Actors.Positions;
 using Hive.Actors.Sharding;
+using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -167,6 +168,8 @@ public sealed class AiAgentGatewayInvokerTests
             host.Services.GetRequiredService<IAiAgentGatewayInvoker>());
         Assert.IsType<AiAgentActionGate>(
             host.Services.GetRequiredService<IAiAgentActionGate>());
+        Assert.IsType<AiDirectiveExecutionCoordinator>(
+            host.Services.GetRequiredService<IDirectiveExecutionCoordinator>());
         Assert.IsType<PositionOccupantFactory>(
             host.Services.GetRequiredService<IPositionOccupantFactory>());
 

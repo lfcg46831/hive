@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Evaluation;
@@ -27,6 +28,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     private readonly IEvaluationResultProjector _evaluationResultProjector;
     private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
     private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
+    private readonly AiDirectiveExecutionCoordinator? _executionCoordinator;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -107,6 +109,27 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IEvaluationResultProjector evaluationResultProjector,
         IEvaluationInstructionProvider evaluationInstructionProvider,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator)
+        : this(
+            aiGatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            evaluationResultProjector,
+            evaluationInstructionProvider,
+            outcomeResolutionIntegrator,
+            executionCoordinator: null)
+    {
+    }
+
+    public PositionOccupantFactory(
+        IAiAgentGatewayInvoker aiGatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector,
+        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
+        AiDirectiveExecutionCoordinator? executionCoordinator)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
@@ -120,6 +143,7 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
             ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
         _outcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
+        _executionCoordinator = executionCoordinator;
     }
 
     public PositionOccupantFactory(
@@ -151,7 +175,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _auditLog,
                 _evaluationResultProjector,
                 _evaluationInstructionProvider,
-                _outcomeResolutionIntegrator)),
+                _outcomeResolutionIntegrator,
+                _executionCoordinator)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -196,8 +221,7 @@ internal sealed class AiAgentActor : ReceiveActor
         _directiveOutcomeResolutions = new(StringComparer.Ordinal);
     private readonly IJourneyAuditLog _auditLog;
     private readonly IEvaluationResultProjector _evaluationResultProjector;
-    private readonly IEvaluationInstructionProvider _evaluationInstructionProvider;
-    private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
+    private readonly AiDirectiveExecutionCoordinator _executionCoordinator;
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -287,6 +311,29 @@ internal sealed class AiAgentActor : ReceiveActor
         IEvaluationResultProjector evaluationResultProjector,
         IEvaluationInstructionProvider evaluationInstructionProvider,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator)
+        : this(
+            occupant,
+            gatewayInvoker,
+            resultMessageGate,
+            actionGate,
+            auditLog,
+            evaluationResultProjector,
+            evaluationInstructionProvider,
+            outcomeResolutionIntegrator,
+            executionCoordinator: null)
+    {
+    }
+
+    public AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IAiDirectiveResultMessageGate resultMessageGate,
+        IAiAgentActionGate actionGate,
+        IJourneyAuditLog auditLog,
+        IEvaluationResultProjector evaluationResultProjector,
+        IEvaluationInstructionProvider evaluationInstructionProvider,
+        IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
+        AiDirectiveExecutionCoordinator? executionCoordinator)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
@@ -297,10 +344,17 @@ internal sealed class AiAgentActor : ReceiveActor
         _auditLog = auditLog ?? throw new ArgumentNullException(nameof(auditLog));
         _evaluationResultProjector = evaluationResultProjector
             ?? throw new ArgumentNullException(nameof(evaluationResultProjector));
-        _evaluationInstructionProvider = evaluationInstructionProvider
+        var requiredEvaluationInstructionProvider = evaluationInstructionProvider
             ?? throw new ArgumentNullException(nameof(evaluationInstructionProvider));
-        _outcomeResolutionIntegrator = outcomeResolutionIntegrator
+        var requiredOutcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
+        _executionCoordinator = executionCoordinator
+            ?? new AiDirectiveExecutionCoordinator(
+                GatewayInvoker,
+                ResultMessageGate,
+                ActionGate,
+                requiredEvaluationInstructionProvider,
+                requiredOutcomeResolutionIntegrator);
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -310,7 +364,7 @@ internal sealed class AiAgentActor : ReceiveActor
                 .ConfigureAwait(false);
             replyTo.Tell(result);
         });
-        ReceiveAsync<AiDirectiveProcessingRequest>(HandleDirectiveProcessingRequestAsync);
+        ReceiveAsync<AiDirectiveProcessingRequest>(HandleCoordinatedDirectiveProcessingAsync);
         Receive<GetAiDirectiveProcessingSnapshot>(query =>
         {
             Sender.Tell(_directiveProcessingSnapshots.TryGetValue(
@@ -435,426 +489,129 @@ internal sealed class AiAgentActor : ReceiveActor
         AiDirectiveProcessingSnapshot Snapshot,
         string? FailureCode = null);
 
-    private async Task HandleDirectiveProcessingRequestAsync(AiDirectiveProcessingRequest request)
+    private async Task HandleCoordinatedDirectiveProcessingAsync(
+        AiDirectiveProcessingRequest request)
     {
         var parent = Context.Parent;
         Action<object> publishAudit = Context.System.EventStream.Publish;
-        var context = AiDirectiveExecutionContext.From(
-            request,
-            _evaluationInstructionProvider.Resolve(
-                request.OrganizationId,
-                request.PositionId),
-            _outcomeResolutionIntegrator.RequiresStructuredProposal);
+        var context = _executionCoordinator.CreateContext(request);
         var received = AiDirectiveProcessingSnapshot.Received(request);
-        if (TryRecoverJourney(context, received) is { } recovered)
+        if (TryRecoverJourney(request, received) is { } recovered)
         {
             _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveProcessingSnapshots[request.CorrelationId] = recovered.Snapshot;
-            ReturnCompletion(parent, recovered.Snapshot, failureCodeOverride: recovered.FailureCode);
+            ReturnCompletion(
+                parent,
+                recovered.Snapshot,
+                failureCodeOverride: recovered.FailureCode);
             return;
         }
 
-        if (context.IdentityPrompt is null)
+        var execution = await _executionCoordinator
+            .ExecuteDetailedAsync(request, context, CancellationToken.None)
+            .ConfigureAwait(false);
+        StoreExecutionTrace(execution);
+
+        foreach (var effect in execution.Result.Effects
+            .Where(effect => effect is not DirectiveJourneyAuditEffect))
         {
-            var failed = received.AdvanceTo(
-                AiDirectiveProcessingStatus.Failed,
-                reason: IdentityPromptFailureReason(context));
-            _directiveExecutionContexts[request.CorrelationId] = context;
-            _directiveProcessingSnapshots[request.CorrelationId] = failed;
-            RecordAudit(publishAudit, context, failed);
-            ReturnCompletion(parent, failed);
-            return;
+            await DispatchEffectAsync(parent, effect).ConfigureAwait(false);
         }
 
-        var prompt = AiDirectivePrompt.CreateInitialRequest(context);
-        var contextAssembled = received.AdvanceTo(
-            AiDirectiveProcessingStatus.ContextAssembled,
-            reason: "execution context assembled");
-        var gatewayRequested = contextAssembled.AdvanceTo(
-            AiDirectiveProcessingStatus.GatewayRequested,
-            reason: "AI gateway request submitted");
+        ReturnCompletion(parent, execution.Result);
 
-        _directiveExecutionContexts[request.CorrelationId] = context;
-        _directiveInitialPrompts[request.CorrelationId] = prompt;
-        _directiveProcessingSnapshots[request.CorrelationId] = gatewayRequested;
-
-        var iterationStartedAt = DateTimeOffset.UtcNow;
-        var iterationState = AiDirectiveIterationState.Start(context, iterationStartedAt);
-        var iterationAudit = AiDirectiveIterationAuditTrail.Start(iterationState);
-
-        try
+        foreach (var auditEffect in execution.Result.Effects
+            .OfType<DirectiveJourneyAuditEffect>())
         {
-            // The provider adapter owns the functional request deadline. Passing a
-            // second token scheduled for the same timeout would race that deadline
-            // and could bypass the gateway audit publishers by surfacing caller
-            // cancellation instead of the provider's structured timeout response.
-            var result = await GatewayInvoker
-                .InvokeAsync(
-                    new AiAgentGatewayInvocation(request.CorrelationId, prompt),
-                    CancellationToken.None)
-                .ConfigureAwait(false);
-            var continuationExecutor = new AiDirectiveIterationExecutor(
-                GatewayInvoker,
-                UnavailableAiDirectiveConnectorToolExecutor.Instance,
-                ActionGate);
-            var outcomeProposalEvidenceContext =
-                context.RequiresStructuredOutcomeProposal
-                    ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
-                    : null;
-            var outcomeProposalCorrectionAttempted = false;
-            while (true)
-            {
-                _directiveGatewayInvocations[request.CorrelationId] = result;
-                var interpretation = AiDirectiveDecisionInterpreter.Interpret(
-                    result,
-                    context.Authority.CanDecide,
-                    acceptEvaluationEnvelope: context.EvaluationInstruction is not null,
-                    requireOutcomeProposal: context.RequiresStructuredOutcomeProposal,
-                    outcomeProposalEvidenceContext: outcomeProposalEvidenceContext);
-                _directiveInterpretations[request.CorrelationId] = interpretation;
-
-                if (interpretation.IsDecision)
-                {
-                    var responseInterpreted = gatewayRequested.AdvanceTo(
-                        AiDirectiveProcessingStatus.ResponseInterpreted,
-                        reason: "AI gateway response interpreted");
-                    var resultMessage = AiDirectiveResultMessageFactory.Create(
-                        context,
-                        interpretation.Decision!,
-                        evaluationEnvelopeJson: interpretation.EvaluationEnvelopeJson);
-                    var outcomeResolution = await _outcomeResolutionIntegrator.ResolveAsync(
-                        context,
-                        iterationState,
-                        interpretation.Decision!,
-                        interpretation.Proposal,
-                        resultMessage,
-                        result.Response,
-                        prompt.Policy?.HasAvailableBudget ?? true,
-                        ActionGate,
-                        ResultMessageGate,
-                        CancellationToken.None).ConfigureAwait(false);
-                    if (outcomeResolution.WasEvaluated)
-                    {
-                        _directiveOutcomeResolutions[request.CorrelationId] = outcomeResolution;
-                    }
-
-                    if (outcomeResolution.ShouldContinue)
-                    {
-                        var continuationObservedAt = DateTimeOffset.UtcNow;
-                        var continuationDecision = iterationState.EvaluateInference(
-                            continuationObservedAt,
-                            prompt.Policy?.HasAvailableBudget ?? true);
-                        iterationAudit = iterationAudit.RecordDecision(
-                            iterationState,
-                            continuationDecision,
-                            continuationObservedAt);
-                        _directiveIterationAudits[request.CorrelationId] = iterationAudit;
-                        if (continuationDecision.ShouldStop)
-                        {
-                            var stoppedContinuation = responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.Failed,
-                                reason: continuationDecision.StopReason!.AuditReason);
-                            _directiveProcessingSnapshots[request.CorrelationId] = stoppedContinuation;
-                            ReturnCompletion(
-                                parent,
-                                stoppedContinuation,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit: iterationAudit);
-                            RecordAudit(
-                                publishAudit,
-                                context,
-                                stoppedContinuation,
-                                prompt,
-                                result,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit: iterationAudit,
-                                positionEffects: null);
-                            return;
-                        }
-
-                        var continuationResult = await continuationExecutor.ExecuteAsync(
-                            context,
-                            iterationState,
-                            continuationDecision,
-                            prompt.Policy?.HasAvailableBudget ?? true,
-                            CancellationToken.None).ConfigureAwait(false);
-                        iterationAudit = iterationAudit.RecordExecution(
-                            iterationState,
-                            continuationResult,
-                            DateTimeOffset.UtcNow);
-                        _directiveIterationAudits[request.CorrelationId] = iterationAudit;
-                        if (continuationResult.IsFailure)
-                        {
-                            var failedContinuation = responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.Failed,
-                                reason: continuationResult.Failure!.AuditReason);
-                            _directiveProcessingSnapshots[request.CorrelationId] = failedContinuation;
-                            ReturnCompletion(
-                                parent,
-                                failedContinuation,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit: iterationAudit);
-                            RecordAudit(
-                                publishAudit,
-                                context,
-                                failedContinuation,
-                                prompt,
-                                result,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit: iterationAudit,
-                                positionEffects: null);
-                            return;
-                        }
-
-                        iterationState = iterationState.Advance(
-                            continuationDecision,
-                            continuationObservedAt);
-                        result = continuationResult.InferenceResult!;
-                        continue;
-                    }
-
-                    var iterationAuditSnapshot = RecordInitialIterationAudit(
-                        iterationState,
-                        iterationAudit,
-                        result,
-                        prompt.Policy?.HasAvailableBudget ?? true,
-                        DateTimeOffset.UtcNow);
-                    _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
-                    resultMessage = outcomeResolution.ResultMessage ?? resultMessage;
-                    AiAgentActionGateResult? actionGateResult = outcomeResolution.ActionGateResult;
-                    if (resultMessage.IsSuccess)
-                    {
-                        actionGateResult ??= await ActionGate
-                            .EvaluateAsync(
-                                context,
-                                AiAgentActionCandidate.ForMessage(
-                                    resultMessage.Message!,
-                                    resultMessage.ActingUnder))
-                            .ConfigureAwait(false);
-                        _directiveActionGateResults[request.CorrelationId] = actionGateResult;
-
-                        if (actionGateResult.IsRetained)
-                        {
-                            resultMessage = AiDirectiveResultMessage.Rejected(
-                                request.CorrelationId,
-                                new AiDirectiveResultMessageFailure(
-                                    actionGateResult.Code,
-                                    $"AI action was retained by the authority gate with code '{actionGateResult.Code}'."),
-                                resultMessage.ActingUnder,
-                                resultMessage.EvaluationEnvelopeJson);
-                        }
-                        else
-                        {
-                            var gateResult = outcomeResolution.RoutingGateResult
-                                ?? await ResultMessageGate
-                                    .ValidateAsync(context, resultMessage.Message!)
-                                    .ConfigureAwait(false);
-
-                            if (gateResult.IsRejected)
-                            {
-                                resultMessage = AiDirectiveResultMessage.Rejected(
-                                    request.CorrelationId,
-                                    gateResult.Failure!,
-                                    resultMessage.ActingUnder,
-                                    resultMessage.EvaluationEnvelopeJson);
-                            }
-                        }
-                    }
-
-                    if (resultMessage.IsSuccess)
-                    {
-                        await _evaluationResultProjector.ProjectAsync(
-                            context.Directive.DirectiveId,
-                            resultMessage.Message!,
-                            CancellationToken.None).ConfigureAwait(false);
-                    }
-
-                    _directiveResultMessages[request.CorrelationId] = resultMessage;
-                    if (actionGateResult?.IsRetained == true)
-                    {
-                        parent.Tell(AiAgentRetainedActionFactory.Create(
-                            actionGateResult,
-                            DateTimeOffset.UtcNow));
-                    }
-                    var positionEffects = AiDirectivePositionEffectFactory.Create(
-                        context,
-                        resultMessage);
-                    _directivePositionEffects[request.CorrelationId] = positionEffects;
-                    if (positionEffects.IsSuccess)
-                    {
-                        foreach (var command in positionEffects.Commands)
-                        {
-                            parent.Tell(command);
-                        }
-                    }
-
-                    var finalSnapshot =
-                        resultMessage.IsSuccess
-                            ? responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.ResultEmitted,
-                                reason: "AI directive result message materialized")
-                            : responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.Escalated,
-                                reason: resultMessage.Failure!.AuditReason);
-                    _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-                    ReturnCompletion(
-                        parent,
-                        finalSnapshot,
-                        interpretation,
-                        resultMessage,
-                        iterationAuditSnapshot);
-                    RecordAudit(
-                        publishAudit,
-                        context,
-                        finalSnapshot,
-                        prompt,
-                        result,
-                        interpretation,
-                        resultMessage,
-                        iterationAuditSnapshot,
-                        positionEffects);
-                    return;
-                }
-                else if (interpretation.IsStructuredError)
-                {
-                    var iterationAuditSnapshot = RecordInitialIterationAudit(
-                        iterationState,
-                        iterationAudit,
-                        result,
-                        prompt.Policy?.HasAvailableBudget ?? true,
-                        DateTimeOffset.UtcNow);
-                    _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
-                    var finalSnapshot = gatewayRequested.AdvanceTo(
-                        AiDirectiveProcessingStatus.Failed,
-                        reason: interpretation.Failure!.AuditReason);
-                    _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-                    RecordAudit(
-                        publishAudit,
-                        context,
-                        finalSnapshot,
-                        prompt,
-                        result,
-                        interpretation,
-                        resultMessage: null,
-                        iterationAudit: iterationAuditSnapshot,
-                        positionEffects: null);
-                    ReturnCompletion(parent, finalSnapshot, interpretation);
-                    return;
-                }
-                else if (interpretation.RequiresEscalation)
-                {
-                    if (!outcomeProposalCorrectionAttempted &&
-                        context.RequiresStructuredOutcomeProposal &&
-                        AiDirectiveOutcomeProposalCorrection.IsEligible(interpretation))
-                    {
-                        outcomeProposalCorrectionAttempted = true;
-                        var correctionObservedAt = DateTimeOffset.UtcNow;
-                        var correctionDecision = iterationState.EvaluateInference(
-                            correctionObservedAt,
-                            prompt.Policy?.HasAvailableBudget ?? true);
-                        iterationAudit = iterationAudit.RecordDecision(
-                            iterationState,
-                            correctionDecision,
-                            correctionObservedAt);
-                        _directiveIterationAudits[request.CorrelationId] = iterationAudit;
-                        if (correctionDecision.CanContinue)
-                        {
-                            var correctionResult = await continuationExecutor
-                                .ExecuteOutcomeProposalCorrectionAsync(
-                                    context,
-                                    iterationState,
-                                    correctionDecision,
-                                    prompt.Policy?.HasAvailableBudget ?? true,
-                                    interpretation.Failure!.ParseErrors,
-                                    CancellationToken.None)
-                                .ConfigureAwait(false);
-                            iterationAudit = iterationAudit.RecordExecution(
-                                iterationState,
-                                correctionResult,
-                                DateTimeOffset.UtcNow);
-                            _directiveIterationAudits[request.CorrelationId] = iterationAudit;
-                            if (correctionResult.IsSuccess)
-                            {
-                                iterationState = iterationState.Advance(
-                                    correctionDecision,
-                                    correctionObservedAt);
-                                result = correctionResult.InferenceResult!;
-                                continue;
-                            }
-                        }
-                    }
-
-                    var iterationAuditSnapshot = iterationAudit.IsTerminal
-                        ? iterationAudit
-                        : RecordInitialIterationAudit(
-                            iterationState,
-                            iterationAudit,
-                            result,
-                            prompt.Policy?.HasAvailableBudget ?? true,
-                            DateTimeOffset.UtcNow);
-                    _directiveIterationAudits[request.CorrelationId] = iterationAuditSnapshot;
-                    var finalSnapshot = gatewayRequested.AdvanceTo(
-                        AiDirectiveProcessingStatus.Escalated,
-                        reason: interpretation.Failure!.AuditReason);
-                    _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-                    ReturnCompletion(parent, finalSnapshot, interpretation);
-                    RecordAudit(
-                        publishAudit,
-                        context,
-                        finalSnapshot,
-                        prompt,
-                        result,
-                        interpretation,
-                        resultMessage: null,
-                        iterationAudit: iterationAuditSnapshot,
-                        positionEffects: null);
-                    return;
-                }
-            }
+            _auditLog.Append(auditEffect.Record);
         }
-        catch (OperationCanceledException)
+
+        publishAudit(execution.Audit);
+    }
+
+    private void StoreExecutionTrace(AiDirectiveExecutionCoordinatorResult execution)
+    {
+        var correlationId = execution.Result.CorrelationId;
+        _directiveExecutionContexts[correlationId] = execution.Context;
+        _directiveProcessingSnapshots[correlationId] = execution.Processing;
+        _directiveAudits[correlationId] = execution.Audit;
+
+        if (execution.InitialPrompt is not null)
         {
-            var canceledAudit = iterationAudit.RecordExecution(
-                iterationState,
-                AiDirectiveIterationExecutionResult.Failed(
-                    request.CorrelationId,
-                    new AiDirectiveIterationExecutionFailure(
-                        "iteration-canceled",
-                        "AI directive iteration was canceled before a response was returned.")),
-                DateTimeOffset.UtcNow);
-            _directiveIterationAudits[request.CorrelationId] = canceledAudit;
-            var finalSnapshot = gatewayRequested.AdvanceTo(
-                AiDirectiveProcessingStatus.Failed,
-                reason: "AI gateway request was canceled before a response was returned.");
-            _directiveProcessingSnapshots[request.CorrelationId] = finalSnapshot;
-            ReturnCompletion(parent, finalSnapshot, iterationAudit: canceledAudit);
-            RecordAudit(
-                publishAudit,
-                context,
-                finalSnapshot,
-                prompt,
-                gatewayInvocation: null,
-                interpretation: null,
-                resultMessage: null,
-                iterationAudit: canceledAudit,
-                positionEffects: null);
+            _directiveInitialPrompts[correlationId] = execution.InitialPrompt;
+        }
+
+        if (execution.GatewayInvocation is not null)
+        {
+            _directiveGatewayInvocations[correlationId] = execution.GatewayInvocation;
+        }
+
+        if (execution.Interpretation is not null)
+        {
+            _directiveInterpretations[correlationId] = execution.Interpretation;
+        }
+
+        if (execution.ResultMessage is not null)
+        {
+            _directiveResultMessages[correlationId] = execution.ResultMessage;
+        }
+
+        if (execution.ActionGateResult is not null)
+        {
+            _directiveActionGateResults[correlationId] = execution.ActionGateResult;
+        }
+
+        if (execution.IterationAudit is not null)
+        {
+            _directiveIterationAudits[correlationId] = execution.IterationAudit;
+        }
+
+        if (execution.PositionEffects is not null)
+        {
+            _directivePositionEffects[correlationId] = execution.PositionEffects;
+        }
+
+        if (execution.OutcomeResolution?.WasEvaluated == true)
+        {
+            _directiveOutcomeResolutions[correlationId] = execution.OutcomeResolution;
         }
     }
 
+    private async ValueTask DispatchEffectAsync(
+        IActorRef parent,
+        DirectiveExecutionEffect effect)
+    {
+        switch (effect)
+        {
+            case DirectiveEvaluationProjectionEffect projection:
+                await _evaluationResultProjector.ProjectAsync(
+                    projection.DirectiveId,
+                    projection.ResultMessage,
+                    CancellationToken.None).ConfigureAwait(false);
+                break;
+            case DirectivePositionCommandEffect position:
+                parent.Tell(position.Command);
+                break;
+            case DirectiveMessageEffect message:
+                parent.Tell(message.Message);
+                break;
+            default:
+                throw new InvalidOperationException(
+                    $"Unsupported directive execution effect '{effect.GetType().Name}'.");
+        }
+    }
+
+
     private AiDirectiveRecoveryDecision? TryRecoverJourney(
-        AiDirectiveExecutionContext context,
+        AiDirectiveProcessingRequest request,
         AiDirectiveProcessingSnapshot received)
     {
         var records = _auditLog
-            .ReadByThread(context.Directive.ThreadId, context.Directive.DirectiveId)
+            .ReadByThread(request.ThreadId, request.DirectiveId)
             .Where(record =>
-                record.OrganizationId == context.OrganizationId
-                && record.MessageId == context.Directive.MessageId
-                && record.PositionId == context.PositionId)
+                record.OrganizationId == request.OrganizationId
+                && record.MessageId == request.MessageId
+                && record.PositionId == request.PositionId)
             .ToArray();
 
         var resultMessage = records
@@ -862,7 +619,7 @@ internal sealed class AiAgentActor : ReceiveActor
         if (resultMessage is not null)
         {
             RecordDuplicateSuppression(
-                context,
+                request,
                 resultMessage,
                 TerminalResultAlreadyMaterializedReason);
 
@@ -889,7 +646,7 @@ internal sealed class AiAgentActor : ReceiveActor
         if (terminalDecision is not null)
         {
             RecordDuplicateSuppression(
-                context,
+                request,
                 terminalDecision,
                 TerminalDecisionAlreadyMaterializedReason);
 
@@ -908,7 +665,7 @@ internal sealed class AiAgentActor : ReceiveActor
         if (gatewayCalled is not null && !agentDecided)
         {
             RecordDuplicateSuppression(
-                context,
+                request,
                 gatewayCalled,
                 GatewayCallAlreadyMaterializedReason);
 
@@ -932,18 +689,18 @@ internal sealed class AiAgentActor : ReceiveActor
             : terminalDecision.ReasonCode ?? "processing-failed";
 
     private void RecordDuplicateSuppression(
-        AiDirectiveExecutionContext context,
+        AiDirectiveProcessingRequest request,
         JourneyAuditRecord suppressed,
         string reasonCode)
     {
         _auditLog.Append(JourneyAuditRecord.Create(
             JourneyAuditStage.DuplicateSuppressed,
             JourneyAuditOutcome.Rejected,
-            context.OrganizationId,
-            context.Directive.ThreadId,
-            context.Directive.MessageId,
-            context.Directive.DirectiveId,
-            context.PositionId,
+            request.OrganizationId,
+            request.ThreadId,
+            request.MessageId,
+            request.DirectiveId,
+            request.PositionId,
             reasonCode: reasonCode,
             messageType: suppressed.MessageType,
             payload: new Dictionary<string, string>(StringComparer.Ordinal)
@@ -965,6 +722,35 @@ internal sealed class AiAgentActor : ReceiveActor
             .AdvanceTo(
                 AiDirectiveProcessingStatus.GatewayRequested,
                 reason: "recovered gateway request");
+
+    private static void ReturnCompletion(
+        IActorRef parent,
+        DirectiveExecutionResult result)
+    {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(result);
+
+        var status = result.Status switch
+        {
+            DirectiveExecutionStatus.Completed =>
+                PositionOccupantProcessingStatus.Completed,
+            DirectiveExecutionStatus.Escalated =>
+                PositionOccupantProcessingStatus.Escalated,
+            DirectiveExecutionStatus.Failed =>
+                PositionOccupantProcessingStatus.Failed,
+            _ => throw new ArgumentOutOfRangeException(
+                nameof(result),
+                result.Status,
+                "Unknown directive execution status."),
+        };
+        parent.Tell(new PositionOccupantProcessingCompleted(
+            result.CorrelationId,
+            result.MessageId,
+            result.ThreadId,
+            result.DirectiveId,
+            status,
+            result.FailureCode));
+    }
 
     private static void ReturnCompletion(
         IActorRef parent,
@@ -1003,164 +789,6 @@ internal sealed class AiAgentActor : ReceiveActor
                     iterationAudit)));
     }
 
-    private void RecordAudit(
-        Action<object> publishAudit,
-        AiDirectiveExecutionContext context,
-        AiDirectiveProcessingSnapshot processing,
-        AiGatewayRequest? gatewayRequest = null,
-        AiAgentGatewayInvocationResult? gatewayInvocation = null,
-        AiDirectiveInterpretationResult? interpretation = null,
-        AiDirectiveResultMessage? resultMessage = null,
-        AiDirectiveIterationAuditTrail? iterationAudit = null,
-        AiDirectivePositionEffects? positionEffects = null)
-    {
-        var snapshot = AiDirectiveAuditSnapshotFactory.Create(
-            context,
-            processing,
-            gatewayRequest,
-            gatewayInvocation,
-            interpretation,
-            resultMessage,
-            iterationAudit,
-            positionEffects);
-
-        _directiveAudits[context.CorrelationId] = snapshot;
-        RecordJourneyAudit(snapshot);
-        publishAudit(snapshot);
-    }
-
-    private void RecordJourneyAudit(AiDirectiveAuditSnapshot snapshot)
-    {
-        if (snapshot.Decision is { } decision)
-        {
-            _auditLog.Append(JourneyAuditRecord.Create(
-                JourneyAuditStage.AgentDecided,
-                DecisionOutcome(decision),
-                snapshot.Context.OrganizationId,
-                snapshot.Context.ThreadId,
-                snapshot.Context.MessageId,
-                snapshot.Context.DirectiveId,
-                snapshot.Context.PositionId,
-                decision.FailureCode,
-                payload: DecisionPayload(snapshot, decision),
-                occurredAtUtc: snapshot.RecordedAt,
-                idempotencyDiscriminator: decision.DecisionKind ?? "none"));
-        }
-
-        if (snapshot.ResultMessage is { } resultMessage)
-        {
-            _auditLog.Append(JourneyAuditRecord.Create(
-                JourneyAuditStage.ResultMessageCreated,
-                resultMessage.FailureCode is null
-                    ? JourneyAuditOutcome.Succeeded
-                    : JourneyAuditOutcome.Rejected,
-                snapshot.Context.OrganizationId,
-                snapshot.Context.ThreadId,
-                snapshot.Context.MessageId,
-                snapshot.Context.DirectiveId,
-                snapshot.Context.PositionId,
-                resultMessage.FailureCode,
-                resultMessage.MessageType,
-                payload: new Dictionary<string, string>(StringComparer.Ordinal)
-                {
-                    ["status"] = snapshot.Status.ToString(),
-                    ["terminalCode"] = snapshot.TerminalCode,
-                    ["resultMessageType"] = resultMessage.MessageType ?? "none",
-                    ["actingUnderState"] = resultMessage.ActingUnder?.State.ToString() ?? "none",
-                    ["actingUnderCode"] = resultMessage.ActingUnder?.Code ?? "none",
-                    ["actingUnderKey"] = resultMessage.ActingUnder?.Key?.Value ?? "none",
-                    ["redactions"] = RedactionPayload(snapshot),
-                },
-                occurredAtUtc: snapshot.RecordedAt));
-        }
-    }
-
-    private static JourneyAuditOutcome DecisionOutcome(AiDirectiveAuditDecisionSnapshot decision) =>
-        decision.FailureCode is null
-            ? JourneyAuditOutcome.Succeeded
-            : JourneyAuditOutcome.Failed;
-
-    private static IReadOnlyDictionary<string, string> DecisionPayload(
-        AiDirectiveAuditSnapshot snapshot,
-        AiDirectiveAuditDecisionSnapshot decision)
-    {
-        var payload = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["status"] = snapshot.Status.ToString(),
-            ["terminalCode"] = snapshot.TerminalCode,
-            ["decisionKind"] = decision.DecisionKind ?? "none",
-            ["actingUnderState"] = decision.ActingUnder?.State.ToString() ?? "none",
-            ["actingUnderCode"] = decision.ActingUnder?.Code ?? "none",
-            ["actingUnderKey"] = decision.ActingUnder?.Key?.Value ?? "none",
-            ["parseErrorContractVersion"] = decision.ParseErrorContractVersion.ToString(
-                System.Globalization.CultureInfo.InvariantCulture),
-            ["parseErrorCount"] = decision.ParseErrorCount.ToString(
-                System.Globalization.CultureInfo.InvariantCulture),
-            ["redactions"] = RedactionPayload(snapshot),
-        };
-        for (var index = 0; index < decision.ParseErrors.Length; index++)
-        {
-            var diagnostic = decision.ParseErrors[index];
-            payload[$"parseError.{index}.path"] = diagnostic.Path;
-            payload[$"parseError.{index}.code"] = diagnostic.Code;
-        }
-
-        return payload;
-    }
-
-    private static string RedactionPayload(AiDirectiveAuditSnapshot snapshot) =>
-        string.Join(
-            ",",
-            snapshot.Redactions.Select(redaction => $"{redaction.Path}:{redaction.Reason}"));
-
-    private static string IdentityPromptFailureReason(AiDirectiveExecutionContext context) =>
-        $"Identity prompt '{context.IdentityPromptRef ?? "<missing>"}' was not resolved; directive processing stopped before gateway request.";
-
-    private static AiDirectiveIterationAuditTrail RecordInitialIterationAudit(
-        AiDirectiveIterationState state,
-        AiDirectiveIterationAuditTrail audit,
-        AiAgentGatewayInvocationResult result,
-        bool hasAvailableBudget,
-        DateTimeOffset observedAt)
-    {
-        if (result.IsSuccess)
-        {
-            return audit.RecordDecision(
-                state,
-                state.Evaluate(result.Response, observedAt, hasAvailableBudget),
-                observedAt);
-        }
-
-        var failure = result.FailureReason;
-        if (failure?.Code == AiGatewayErrorCode.Timeout)
-        {
-            return audit.RecordDecision(
-                state,
-                AiDirectiveIterationDecision.Stop(new AiDirectiveIterationStopReason(
-                    AiDirectiveIterationStopKind.Timeout,
-                    "timeout",
-                    GatewayTimeoutReason(state.Deadline - state.StartedAt))),
-                observedAt);
-        }
-
-        var reason = failure is null
-            ? new AiDirectiveIterationExecutionFailure(
-                "ai-gateway-failure",
-                "AI gateway iteration failed without a structured reason.")
-            : new AiDirectiveIterationExecutionFailure(
-                "ai-gateway-" + AiGatewayErrorCodeContract.ToWireValue(failure.Code),
-                $"AI gateway iteration failed with '{AiGatewayErrorCodeContract.ToWireValue(failure.Code)}'.");
-
-        return audit.RecordExecution(
-            state,
-            AiDirectiveIterationExecutionResult.Failed(state.CorrelationId, reason),
-            observedAt);
-    }
-
-    private static string GatewayTimeoutReason(TimeSpan? timeout) =>
-        timeout is { } value
-            ? $"AI gateway timeout after {value}."
-            : "AI gateway timeout.";
 }
 
 internal sealed class HumanProxyActor : ReceiveActor

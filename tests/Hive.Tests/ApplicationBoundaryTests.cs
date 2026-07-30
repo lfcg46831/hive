@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Xml.Linq;
+using Hive.Actors.Positions;
 using Hive.Application.Directives;
 
 namespace Hive.Tests;
@@ -99,6 +100,48 @@ public sealed class ApplicationBoundaryTests
             violations.Length == 0,
             "Forbidden public Hive.Application contract types:\n" +
             string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void Ai_actor_delegates_execution_without_owning_the_loop_or_outcome_composition()
+    {
+        Assert.Contains(
+            typeof(IDirectiveExecutionCoordinator),
+            typeof(AiDirectiveExecutionCoordinator).GetInterfaces());
+
+        var source = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "src",
+            "Hive.Actors",
+            "Positions",
+            "PositionOccupantFactory.cs"));
+        var actorStart = source.IndexOf(
+            "internal sealed class AiAgentActor",
+            StringComparison.Ordinal);
+        var actorEnd = source.IndexOf(
+            "internal sealed class HumanProxyActor",
+            actorStart,
+            StringComparison.Ordinal);
+        Assert.True(actorStart >= 0 && actorEnd > actorStart);
+
+        var actorSource = source[actorStart..actorEnd];
+        Assert.DoesNotContain("while (true)", actorSource, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AiDirectiveIterationState.Start",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "AiDirectivePositionEffectFactory.Create",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            ".ResolveAsync(",
+            actorSource,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            ".ExecuteDetailedAsync(request",
+            actorSource,
+            StringComparison.Ordinal);
     }
 
     private static IEnumerable<Type> PublicSurfaceTypes(Type type)

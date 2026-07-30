@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -10,6 +11,7 @@ namespace Hive.Actors.Positions;
 internal sealed record AiDirectiveProcessingRequest
 {
     private AiDirectiveProcessingRequest(
+        DirectiveExecutionRequest executionRequest,
         AiDirectiveRuntimeContext runtimeContext,
         Directive directive,
         AiDirectiveProcessingLimits limits,
@@ -17,6 +19,8 @@ internal sealed record AiDirectiveProcessingRequest
         AiDirectiveTaskState taskState,
         string correlationId)
     {
+        ExecutionRequest = executionRequest
+            ?? throw new ArgumentNullException(nameof(executionRequest));
         RuntimeContext = runtimeContext ?? throw new ArgumentNullException(nameof(runtimeContext));
         Directive = directive ?? throw new ArgumentNullException(nameof(directive));
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
@@ -24,6 +28,8 @@ internal sealed record AiDirectiveProcessingRequest
         TaskState = taskState ?? throw new ArgumentNullException(nameof(taskState));
         CorrelationId = AiAgentGatewayText.Require(correlationId, nameof(correlationId));
     }
+
+    public DirectiveExecutionRequest ExecutionRequest { get; }
 
     public AiDirectiveRuntimeContext RuntimeContext { get; }
 
@@ -70,6 +76,12 @@ internal sealed record AiDirectiveProcessingRequest
         }
 
         return new AiDirectiveProcessingRequest(
+            new DirectiveExecutionRequest(
+                entityId,
+                runtimeConfiguration,
+                persistedState,
+                occupant,
+                directive),
             new AiDirectiveRuntimeContext(
                 entityId,
                 runtimeConfiguration.Position,

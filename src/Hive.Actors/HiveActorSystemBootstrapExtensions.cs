@@ -7,6 +7,7 @@ using Hive.Actors.Positions;
 using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
+using Hive.Application.Directives;
 using Hive.Domain.Auditing;
 using Hive.Domain.Evaluation;
 using Hive.Domain.Messaging;
@@ -138,6 +139,15 @@ public static class HiveActorSystemBootstrapExtensions
                     .Outcomes
                     .VerifierTimeout);
         });
+        builder.Services.TryAddSingleton<AiDirectiveExecutionCoordinator>(serviceProvider =>
+            new AiDirectiveExecutionCoordinator(
+                serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
+                AiDirectiveResultMessageEmissionGate.Instance,
+                serviceProvider.GetRequiredService<IAiAgentActionGate>(),
+                serviceProvider.GetRequiredService<IEvaluationInstructionProvider>(),
+                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
+        builder.Services.TryAddSingleton<IDirectiveExecutionCoordinator>(serviceProvider =>
+            serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>());
         builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
             new PositionOccupantFactory(
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
@@ -146,7 +156,8 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IJourneyAuditLog>(),
                 serviceProvider.GetRequiredService<IEvaluationResultProjector>(),
                 serviceProvider.GetRequiredService<IEvaluationInstructionProvider>(),
-                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
+                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>(),
+                serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
         builder.Services.TryAddSingleton<IRetainedActionExecutor>(

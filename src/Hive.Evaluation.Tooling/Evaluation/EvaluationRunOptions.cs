@@ -13,7 +13,8 @@ public sealed partial record EvaluationRunOptions(
     DateTimeOffset SentAt,
     string? RubricPath = null,
     EvaluationPlan? Plan = null,
-    string? Partition = null)
+    string? Partition = null,
+    EvaluationExperimentManifest? Experiment = null)
 {
     public static readonly Uri DefaultBaseUrl = new("http://localhost:8080");
 
@@ -29,6 +30,7 @@ public sealed partial record EvaluationRunOptions(
         string? outputPath = null;
         string? rubricPath = null;
         string? planPath = null;
+        string? manifestPath = null;
         string? partition = null;
         var corpusOverride = false;
         var rubricOverride = false;
@@ -55,6 +57,7 @@ public sealed partial record EvaluationRunOptions(
                     rubricOverride = true;
                     break;
                 case "--plan": planPath = Path.GetFullPath(Read(args, ref index, argument)); break;
+                case "--manifest": manifestPath = Path.GetFullPath(Read(args, ref index, argument)); break;
                 case "--partition": partition = Read(args, ref index, argument); break;
                 case "--timeout-seconds":
                     timeout = PositiveDuration(Read(args, ref index, argument), argument, 1000);
@@ -78,7 +81,13 @@ public sealed partial record EvaluationRunOptions(
             throw new ArgumentException("--plan and --partition must be supplied together.");
         }
 
+        if (planPath is not null && manifestPath is not null)
+        {
+            throw new ArgumentException("--plan and --manifest cannot be supplied together.");
+        }
+
         EvaluationPlan? plan = null;
+        EvaluationExperimentManifest? experiment = null;
         if (planPath is not null)
         {
             if (corpusOverride || rubricOverride || timeoutOverride || pollOverride)
@@ -93,6 +102,22 @@ public sealed partial record EvaluationRunOptions(
             rubricPath = selection.RubricPath;
             timeout = TimeSpan.FromSeconds(plan.Runner.TimeoutSeconds);
             pollInterval = TimeSpan.FromMilliseconds(plan.Runner.PollMilliseconds);
+        }
+        else if (manifestPath is not null)
+        {
+            if (corpusOverride || rubricOverride || timeoutOverride || pollOverride)
+            {
+                throw new ArgumentException(
+                    "--corpus, --rubric, --timeout-seconds, and --poll-milliseconds cannot override an experiment manifest.");
+            }
+
+            experiment = EvaluationExperimentManifest.Load(manifestPath);
+            corpusPath = experiment.CorpusPath;
+            rubricPath = experiment.RubricPath;
+            timeout = TimeSpan.FromMilliseconds(
+                experiment.Limits.RunnerTimeoutMilliseconds);
+            pollInterval = TimeSpan.FromMilliseconds(
+                experiment.Limits.PollIntervalMilliseconds);
         }
 
         corpusPath ??= Path.Combine(repositoryRoot, "config", "organizations", "acme-delivery", "examples", "evaluation", "bug-triage-corpus.v1.json");
@@ -109,7 +134,8 @@ public sealed partial record EvaluationRunOptions(
             DefaultSentAt,
             rubricPath,
             plan,
-            partition);
+            partition,
+            experiment);
     }
 
     private static string Read(IReadOnlyList<string> args, ref int index, string argument)

@@ -1,5 +1,13 @@
 using Hive.Evaluation.Tooling.Evaluation;
 
+if (args.Length > 0 && string.Equals(args[0], "experiment", StringComparison.Ordinal))
+{
+    return await EvaluationExperimentCommand.RunAsync(
+        args[1..],
+        Console.Out,
+        CancellationToken.None);
+}
+
 if (args.Length > 0 && string.Equals(args[0], "report", StringComparison.Ordinal))
 {
     return await EvaluationReportCommand.RunAsync(
@@ -19,5 +27,5 @@ if (args.Length > 0 && string.Equals(args[0], "evaluate", StringComparison.Ordin
 }
 
 await Console.Error.WriteLineAsync(
-    "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- <evaluate|report> [options]");
+    "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- <experiment|evaluate|report> [options]");
 return 2;

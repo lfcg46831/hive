@@ -18,7 +18,16 @@ public sealed record EvaluationDataset(
     [property: JsonPropertyName("evaluation_partition")] string? EvaluationPartition = null,
     [property: JsonPropertyName("code_version")] string? CodeVersion = null,
     [property: JsonPropertyName("configuration_version")] string? ConfigurationVersion = null,
-    [property: JsonPropertyName("run_analysis")] EvaluationRunAnalysis? RunAnalysis = null);
+    [property: JsonPropertyName("run_analysis")] EvaluationRunAnalysis? RunAnalysis = null,
+    [property: JsonPropertyName("experiment_manifest_version")]
+    int? ExperimentManifestVersion = null,
+    [property: JsonPropertyName("experiment_id")] string? ExperimentId = null,
+    [property: JsonPropertyName("experiment_manifest_sha256")]
+    string? ExperimentManifestSha256 = null,
+    [property: JsonPropertyName("effective_configuration_sha256")]
+    string? EffectiveConfigurationSha256 = null,
+    [property: JsonPropertyName("effective_configuration_validation")]
+    EvaluationExperimentValidation? EffectiveConfigurationValidation = null);
 
 public sealed record EvaluationCaseResult(
     [property: JsonPropertyName("case_id")] string CaseId,

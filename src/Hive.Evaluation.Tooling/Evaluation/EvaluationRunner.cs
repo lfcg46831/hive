@@ -57,6 +57,20 @@ public sealed class EvaluationRunner
             _rubric is null ? null : 1,
             _rubric?.RubricVersion,
             corpusScore);
+        if (options.Experiment is { } experiment)
+        {
+            dataset = dataset with
+            {
+                ExperimentManifestVersion = experiment.ManifestVersion,
+                ExperimentId = experiment.ExperimentId,
+                ExperimentManifestSha256 = experiment.ManifestSha256,
+                EffectiveConfigurationSha256 =
+                    experiment.EffectiveConfigurationSha256,
+                EffectiveConfigurationValidation =
+                    EvaluationExperimentValidator.Validate(results, experiment),
+            };
+        }
+
         if (options.Plan is null || options.Partition is null)
         {
             return dataset;
@@ -93,7 +107,8 @@ public sealed class EvaluationRunner
             ids,
             options.SentAt.AddSeconds(index),
             item.Context,
-            _rubric?.BuildObservationInstruction());
+            _rubric?.BuildObservationInstruction(),
+            options.Experiment);
 
         int? httpStatus = null;
         try
@@ -118,14 +133,14 @@ public sealed class EvaluationRunner
         while (_timeProvider.GetUtcNow() < deadline)
         {
             var journey = await _auditReader.ReadAsync(
-                EvaluationDirectiveFactory.OrganizationId,
+                submission.OrganizationId,
                 ids.ThreadId,
                 ids.DirectiveId,
                 cancellationToken).ConfigureAwait(false);
             if (journey is not null)
             {
                 var prediction = await _projectionReader.ReadAsync(
-                    EvaluationDirectiveFactory.OrganizationId,
+                    submission.OrganizationId,
                     ids.ThreadId,
                     ids.DirectiveId,
                     cancellationToken).ConfigureAwait(false);

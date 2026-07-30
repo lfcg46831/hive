@@ -62,25 +62,37 @@ internal static class EvaluationDirectiveFactory
     private const string Objective =
         "Triage the submitted production issue and report severity, missing information, and next action.";
 
-    private const string CompletionCriteria = """
-        Completion criteria:
-        - Severity and user impact are classified from the provided facts.
-        - Missing information is called out explicitly when the context is incomplete.
-        - The next action is returned as a report or escalated when it is outside the position authority.
-        """;
+    private static readonly IReadOnlyList<string> CompletionCriteria =
+    [
+        "Severity and user impact are classified from the provided facts.",
+        "Missing information is called out explicitly when the context is incomplete.",
+        "The next action is returned as a report or escalated when it is outside the position authority.",
+    ];
 
     public static EvaluationDirectiveSubmission Create(
         EvaluationDirectiveIds ids,
         DateTimeOffset sentAt,
         string context,
-        string? observationInstruction = null)
+        string? observationInstruction = null,
+        EvaluationExperimentManifest? experiment = null)
     {
         ArgumentNullException.ThrowIfNull(ids);
         ArgumentException.ThrowIfNullOrWhiteSpace(context);
+        var organizationId = experiment?.Organization.OrganizationId ?? OrganizationId;
+        var sourcePositionId =
+            experiment?.Organization.SourcePositionId ?? SourcePositionId;
+        var destinationPositionId =
+            experiment?.Organization.PositionId ?? DestinationPositionId;
+        var objective = experiment?.Directive.Objective ?? Objective;
+        var completionCriteria =
+            experiment?.Directive.CompletionCriteria ?? CompletionCriteria;
         var contextSections = new List<string>
         {
             context.TrimEnd(),
-            CompletionCriteria,
+            "Completion criteria:" + Environment.NewLine
+                + string.Join(
+                    Environment.NewLine,
+                    completionCriteria.Select(item => $"- {item}")),
         };
         if (!string.IsNullOrWhiteSpace(observationInstruction))
         {
@@ -89,8 +101,8 @@ internal static class EvaluationDirectiveFactory
 
         var request = new EvaluationDirectiveRequest(
             ids.MessageId.ToString("D"),
-            new EvaluationDirectiveEndpointRef("position", SourcePositionId),
-            new EvaluationDirectiveEndpointRef("position", DestinationPositionId),
+            new EvaluationDirectiveEndpointRef("position", sourcePositionId),
+            new EvaluationDirectiveEndpointRef("position", destinationPositionId),
             ids.ThreadId.ToString("D"),
             "high",
             SchemaVersion: 1,
@@ -98,14 +110,14 @@ internal static class EvaluationDirectiveFactory
             Deadline: null,
             ids.DirectiveId.ToString("D"),
             ParentDirectiveId: null,
-            Objective,
+            objective,
             string.Join(
                 $"{Environment.NewLine}{Environment.NewLine}",
                 contextSections));
 
         return new EvaluationDirectiveSubmission(
-            OrganizationId,
-            $"/api/v1/organizations/{OrganizationId}/directives",
+            organizationId,
+            $"/api/v1/organizations/{organizationId}/directives",
             request);
     }
 }

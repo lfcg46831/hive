@@ -1,0 +1,24 @@
+# Generic Evaluation Lab adapter for hive.evaluation-experiment v1.
+#
+# Generate the interpolation variables with:
+#   dotnet run --project src/Hive.Evaluation.Tooling -- experiment prepare --manifest <path>
+#
+# Layer this file after docker-compose.demo.yml. The generated env file contains
+# no credentials; pass the normal ignored .env file first so PostgreSQL and the
+# real provider keep using their existing secret configuration.
+
+services:
+  api:
+    environment:
+      HIVE__EVALUATION__PROFILES__LAB__ENABLED: "true"
+      HIVE__EVALUATION__PROFILES__LAB__ORGANIZATIONID: "${HIVE_EXPERIMENT_ORGANIZATION_ID:?Prepare an experiment manifest first}"
+      HIVE__EVALUATION__PROFILES__LAB__POSITIONID: "${HIVE_EXPERIMENT_POSITION_ID:?Prepare an experiment manifest first}"
+      HIVE__AIGATEWAY__REAL__PROVIDERID: "${HIVE_EXPERIMENT_PROVIDER_ID:?Prepare an experiment manifest first}"
+      HIVE__AIGATEWAY__REAL__MODELID: "${HIVE_EXPERIMENT_MODEL_ID:?Prepare an experiment manifest first}"
+      HIVE__OUTCOMES__MODE: "${HIVE_EXPERIMENT_OUTCOME_MODE:?Prepare an experiment manifest first}"
+      HIVE__OUTCOMES__VERIFIERTIMEOUT: "${HIVE_EXPERIMENT_VERIFIER_TIMEOUT:?Prepare an experiment manifest first}"
+    volumes:
+      - type: bind
+        source: "${HIVE_EXPERIMENT_ORGANIZATION_SOURCE:?Prepare an experiment manifest first}"
+        target: "/app/config/organizations/${HIVE_EXPERIMENT_ORGANIZATION_ID:?Prepare an experiment manifest first}/organization.yaml"
+        read_only: true

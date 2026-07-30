@@ -39,6 +39,12 @@ public static class EvaluationCommand
             await JsonSerializer.SerializeAsync(stream, dataset, OutputJson, cancellationToken).ConfigureAwait(false);
             await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(options.OutputPath).ConfigureAwait(false);
+            if (dataset.EffectiveConfigurationValidation is { } validation
+                && validation.Status != "validated")
+            {
+                return 1;
+            }
+
             if (dataset.RunAnalysis is not null)
             {
                 return dataset.RunAnalysis.Status is "ready" or "gate-eligible" ? 0 : 1;
@@ -66,6 +72,6 @@ public static class EvaluationCommand
     private static Task WriteUsageAsync(TextWriter output) => output.WriteLineAsync(
         "Usage: dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id <id> " +
         "[--base-url <url>] [--corpus <path>] [--rubric <path>] " +
-        "[--plan <path> --partition <calibration|holdout>] [--output <path>] " +
+        "[--plan <path> --partition <calibration|holdout> | --manifest <path>] [--output <path>] " +
         "[--timeout-seconds <n>] [--poll-milliseconds <n>]");
 }

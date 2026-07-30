@@ -1,0 +1,136 @@
+{
+  "contract_name": "hive.evaluation-experiment",
+  "manifest_version": 1,
+  "experiment_id": "bug-triage-lab-v1",
+  "status": "prepared",
+  "organization": {
+    "organization_id": "acme-delivery",
+    "source_position_id": "delivery-lead",
+    "position_id": "bug-triage",
+    "configuration": {
+      "path": "config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml",
+      "sha256": "2d531b8fde0ee141d7c0e48562917a2c9ae9d2e29c2f01422204f0b62f4ac421"
+    }
+  },
+  "directive": {
+    "objective": "Triage the submitted production issue and report severity, missing information, and next action.",
+    "completion_criteria": [
+      "Severity and user impact are classified from the provided facts.",
+      "Missing information is called out explicitly when the context is incomplete.",
+      "The next action is returned as a report or escalated when it is outside the position authority."
+    ]
+  },
+  "model": {
+    "provider_id": "openai",
+    "model_id": "gpt-5-mini-2025-08-07",
+    "output_constraint_mode": "json-schema"
+  },
+  "limits": {
+    "provider_timeout_ms": 60000,
+    "max_output_tokens": 8192,
+    "max_iterations": 4,
+    "verifier_timeout_ms": 30000,
+    "runner_timeout_ms": 120000,
+    "poll_interval_ms": 1000
+  },
+  "policy": {
+    "outcome_mode": "enforcement"
+  },
+  "evaluation": {
+    "corpus": {
+      "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json",
+      "sha256": "329c133848897503227b460fbd5beec3550149bc8c51e8a0dfb6dc138d5580f7"
+    },
+    "rubric": {
+      "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json",
+      "sha256": "7e046acb0e4d8ee51e881646ba7fa0881e8dbebf43d4e51273a7d2cf3d907d43"
+    }
+  },
+  "reproducibility": [
+    {
+      "role": "business-prompt",
+      "path": "config/organizations/acme-delivery/prompts/triage-v2.md",
+      "sha256": "7e96f79b53b05da339eceb6423986f85befefdf16427ececb543526ca203e0f7"
+    },
+    {
+      "role": "experiment-compose",
+      "path": "docker-compose.experiment.yml",
+      "sha256": "c42bffb77fa551e4d8c7c5f30bfea2ed137209e78060d11e8bee999f8c515482"
+    },
+    {
+      "role": "evaluation-tooling",
+      "path": "src/Hive.Evaluation.Tooling/Hive.Evaluation.Tooling.csproj",
+      "sha256": "a9889c9c7015f4c3359e7f93661de39d9bfa9ba3b7c1cf81fbab491c394eb138"
+    },
+    {
+      "role": "evaluation-runner",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunner.cs",
+      "sha256": "dac70585f2fa19449525f7fe2a989a1e3ed72587e7df5e5baaa768cb194cfb8e"
+    },
+    {
+      "role": "experiment-manifest-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentManifest.cs",
+      "sha256": "0a7dff2432adb674e3b96aa004c04058f371c76105a1fa99988c5a3ca4c1abad"
+    },
+    {
+      "role": "organization-snapshot-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationOrganizationSnapshotReader.cs",
+      "sha256": "67418f54553169bedf93c60bc695ebedd72844488de70753a979e7f34347d422"
+    },
+    {
+      "role": "tooling-entry-point",
+      "path": "src/Hive.Evaluation.Tooling/Program.cs",
+      "sha256": "93f268ec0886762d917196dae4f7cbed0c9d39fc2e49c1373ddf431c84f733fa"
+    },
+    {
+      "role": "experiment-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentCommand.cs",
+      "sha256": "925e2dd472144235098e189bab3896e721057e0310746aca781dc6eb5a530c9d"
+    },
+    {
+      "role": "experiment-validation",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentValidation.cs",
+      "sha256": "0097e0b28a1f1e1026ebb614a9b158e139124c8973bddb108b5e399d0778341f"
+    },
+    {
+      "role": "evaluation-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationCommand.cs",
+      "sha256": "33643070d86aa60be88a68239ba0b95d218d27c064bd2073d353eca158f9c58b"
+    },
+    {
+      "role": "evaluation-options",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunOptions.cs",
+      "sha256": "a20ee3253b4c31fcd60dd4e5b167f87af783632e5c306ddc373aec7e0ce6b55a"
+    },
+    {
+      "role": "evaluation-directive",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationDirectiveSubmission.cs",
+      "sha256": "718087ba460464a6b940d9f0d8428821045e6a3d153e40418d600fc002ea4607"
+    },
+    {
+      "role": "evaluation-dataset",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationDataset.cs",
+      "sha256": "2a8ad49c06106714209f3b4242bae2d5aae6dc85d0a5d879dcd8997d88aceb17"
+    },
+    {
+      "role": "evaluation-audit-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationAuditReader.cs",
+      "sha256": "5d33253991343f644bf114cf4e14e7935a3857e5952053b9a71d251fb541b8c7"
+    },
+    {
+      "role": "evaluation-projection-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationProjectionReader.cs",
+      "sha256": "ffbe2e1ca8b1e85b4bd5445bc9f951991229e0ac079c3814146c25cf53794b25"
+    },
+    {
+      "role": "evaluation-corpus-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationCorpus.cs",
+      "sha256": "57280da556488f5e73db12e9668409ea262833115d578958e1eb8258a520fda8"
+    },
+    {
+      "role": "evaluation-rubric-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRubric.cs",
+      "sha256": "fb97f28eaa9301eefaa4ae74d0fdf9d1367d52bf24879d4f7829825207f2dc58"
+    }
+  ]
+}

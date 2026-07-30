@@ -246,6 +246,10 @@ dotnet run --project src/Hive.DemoClient -- --submit --base-url http://localhost
 
 The command posts the canonical root `Directive` for the ACME bug-triage example to `/api/v1/organizations/acme-delivery/directives` with deterministic `MessageId`, `ThreadId`, `DirectiveId`, and `SentAt`. Reusing the same seed is intentional for restart/retry demonstrations because the vertical slice idempotency guards can recognize the same logical submission. Unlike the identifiers, the provider response is not deterministic when this real-provider demo profile is active.
 
+#### Evaluation Lab (experimental)
+
+The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference manifest is prepared only, the latest candidate remains rejected for freeze, and historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes it.
+
 Historical bug-triage calibration and holdout runs used the evaluation-only audit/export profile below:
 
 ```powershell

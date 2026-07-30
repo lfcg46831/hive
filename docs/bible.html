@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 2.43 (rascunho evolutivo) <strong>Data:</strong> 2026-07-29 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 2.50 (rascunho evolutivo) <strong>Data:</strong> 2026-07-30 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -346,12 +346,13 @@
 <tr><td>2.47</td><td>2026-07-30</td><td>Contrato de <code>US-F0-16-T01</code>: <code>Hive.Contracts</code> passa a ser o assembly sem dependências que possui superfícies wire públicas, começando por <code>hive.directive-audit-export</code> v1. O export é paginado por sequência, limitado a 100 eventos por página, conserva apenas factos de audit e atributos redigidos bounded e pode incluir um único resultado organizacional canónico de no máximo 64 KiB, com comprimento e SHA-256 verificados, apenas para um perfil experimental explicitamente ativado e uma jornada terminal. Organização, thread e diretiva são scope obrigatório; prompt, contexto de entrada, reasoning, output rejeitado, credenciais e qualquer conceito de rubrica, dimensão, scorer, run, caso ou partição ficam fora do contrato. Runtime, tooling de avaliação e artefactos têm ownership separado; T01 não cria endpoint, não muda DI/composição do ator ou coordenador, não altera schemas e não migra o runner, passos reservados a T02.</td></tr>
 <tr><td>2.48</td><td>2026-07-30</td><td>Contrato de <code>US-F0-16-T03</code>: novos experimentos são definidos por <code>hive.evaluation-experiment</code> v1, um manifesto JSON estrito e provider-neutral que fixa por localização e SHA-256 o alvo organizacional, template de diretiva, modelo, limites, política, corpus, rubrica e ficheiros necessários à reprodução. O tooling valida o manifesto e a posição no snapshot YAML, produz um env file sem segredos e uma configuração efetiva normalizada/hash-addressed; um único <code>docker-compose.experiment.yml</code> aplica qualquer manifesto futuro ao runtime através do adapter audit/export, sem criar overlays por variação. Runs iniciados com manifesto repetem ids/hashes no dataset e fecham como inválidos quando provider, modelo, timeout, teto de output ou modo de outcome observáveis divergem. Overlays, perfis, planos e evidência históricos não são alterados; o manifesto de referência fica apenas preparado e T03 não autoriza calibração, holdout, freeze ou go/no-go.</td></tr>
 <tr><td>2.49</td><td>2026-07-30</td><td>Contrato de publicação de <code>US-F0-16-T04</code>: novos raw datasets manifest-driven deixam de ser promovidos para a árvore Git e são copiados pelo tooling, sem transformação, para storage externo num path content-addressed pelo SHA-256 dos bytes. O índice único <code>evidence/evaluation/artifact-index.v1.json</code> conserva apenas localização absoluta sem credenciais, hash, tamanho, scope de experiência/run, estado de validação da configuração, instantes explícitos de publicação/retenção e referências com hash ao manifesto e relatório resumido versionados; o manifesto continua a possuir os restantes inputs/scripts reprodutíveis. Publicação é idempotente para a mesma entrada e falha fechada perante drift, colisão de run, tentativa de usar storage dentro do repositório, dataset não descartável dentro da árvore Git, URI com credenciais/query/fragment ou retenção não posterior à publicação. O adapter de filesystem nunca sobrescreve nem elimina um objecto e o backend externo é responsável por controlo de acesso e enforcement do prazo registado. Evidência histórica já versionada permanece intocada.</td></tr>
+<tr><td>2.50</td><td>2026-07-30</td><td>Fronteira documental de <code>US-F0-16-T05</code>: o <code>README</code> é a entrada curta e classifica explicitamente o repositório como implementação F0 atual, Evaluation Lab experimental e roadmap F1–F3 ainda não implementado, usando deep links estáveis para as secções canónicas sem copiar contratos ou runbooks. O bible possui visão, decisões duradouras, ADRs, roadmap e critérios; <code>docs/configuration.md</code> possui configuração e operação; relatórios e índices de <code>evidence/</code> conservam resultados experimentais; e a narrativa de implementação pertence ao histórico Git. Planos, overlays, datasets, relatórios e registos históricos permanecem intactos. A presença de tooling ou comandos experimentais não autoriza calibração, freeze ou holdout, e o último candidato continua rejeitado para freeze.</td></tr>
 </tbody>
 </table>
 
 <hr>
 
-<h2>1. Visão</h2>
+<h2 id="vision">1. Visão</h2>
 
 <p>Criar uma plataforma que permita modelar uma <strong>estrutura empresarial completa</strong> — departamentos, equipas, cadeias de comando — onde os &quot;colaboradores&quot; são uma mistura de <strong>agentes de AI</strong> e <strong>pessoas reais</strong>, todos representados como atores num sistema baseado no actor model (Akka.NET).</p>
 
@@ -1855,7 +1856,7 @@ record AuthorizationDenial(
 
 <hr>
 
-<h2>12. Roadmap Incremental (proposta)</h2>
+<h2 id="roadmap">12. Roadmap Incremental (proposta)</h2>
 
 <table>
 <thead>
@@ -3046,7 +3047,7 @@ public interface IPositionConfigurationProvider
 <p><strong>Estimativa total:</strong> 16.</p>
 </article>
 
-<article>
+<article id="evaluation-lab">
 <h5>US-F0-16 — Isolar o Evaluation Lab e recuperar legibilidade operacional</h5>
 <p><strong>Como</strong> responsável pelo produto e pela avaliação, <strong>quero</strong> que calibração observe o runtime por contratos estáveis sem participar na composição normal do agente, <strong>para</strong> distinguir evolução do produto, experiências e evidência histórica.</p>
 <p><strong>Critérios de aceitação:</strong></p>
@@ -3078,6 +3079,7 @@ public interface IPositionConfigurationProvider
 <p><strong>Política de publicação de raw datasets v1 (<code>US-F0-16-T04</code>):</strong> aplica-se apenas a novos datasets v1 produzidos por um manifesto experimental v1. O tooling valida o vínculo entre dataset e manifesto, calcula SHA-256 sobre os bytes exatos e copia-os sem transformação para <code>sha256/&lt;prefixo&gt;/&lt;hash&gt;.json</code> num filesystem de storage fora do repositório; um objecto existente só é aceite quando tamanho e hash coincidem e nunca é sobrescrito ou eliminado. A localização pública/lógica é uma URI absoluta, sem credenciais, query ou fragment, construída sobre o mesmo path content-addressed; autenticação, autorização, encriptação, disponibilidade e enforcement de retenção pertencem ao backend externo, não ao repositório nem ao runtime do produto.</p>
 <p>O único índice Git para novos raw datasets chama-se <code>hive.evaluation-artifact-index</code>, usa <code>index_version=1</code> e vive em <code>evidence/evaluation/artifact-index.v1.json</code>. Cada entrada imutável e ordenada contém <code>experiment_id</code>/<code>run_id</code>, media type, localização, SHA-256 lowercase, tamanho, número de casos, estado fechado da validação da configuração efetiva, <code>published_at</code> UTC e <code>retain_until</code> UTC posterior, mais referências repo-relative e hashed ao manifesto e ao relatório resumido. O manifesto referenciado continua a indexar corpus, rubrica, snapshot, prompt, Compose e scripts/código necessários à reprodução; o índice não duplica essa lista. Repetir exatamente uma publicação é idempotente; reutilizar o mesmo scope com qualquer divergência, detetar drift de uma referência já indexada, apontar o storage para dentro do repositório ou tentar publicar um dataset guardado na árvore Git fora de <code>artifacts/</code> falha antes de alterar o índice. A escrita do objecto precede a atualização atómica do índice, pelo que uma falha pode deixar apenas um objecto órfão seguro para retry, nunca uma entrada que aponte para bytes ainda não publicados.</p>
 <p>Esta política não migra nem reescreve datasets, raw files, relatórios ou scripts históricos já presentes em <code>evidence/</code>, não autoriza publicar o manifesto preparado de T03, executar corpus/holdout, decidir qualidade, apagar artefactos ou reduzir retenção. Para conteúdo novo, o repositório conserva o manifesto, o relatório resumido, este índice e os inputs/scripts hashed; o raw dataset permanece apenas no storage externo e na área local descartável <code>artifacts/</code> até publicação/revisão.</p>
+<p><strong>Fronteira documental e navegação (<code>US-F0-16-T05</code>):</strong> o <code>README</code> é apenas a landing page e usa três estados fechados: <em>atual</em> para a implementação F0 presente e executável pelos runbooks correntes, <em>experimental</em> para tooling/perfis desativados por omissão e evidência que não concede autorização, e <em>planeado</em> para F1–F3 ainda não materializadas. O resumo liga por fragmentos estáveis a esta secção, às fases do roadmap e à operação, sem reproduzir contratos, critérios ou comandos. A navegação do bible ativa automaticamente a tab documental e a fase que contém o fragmento pedido. Decisões duradouras e roadmap permanecem no bible; configuração e operação em <code>docs/configuration.md</code>; resultados e relatórios experimentais em <code>evidence/</code>; narrativa do que mudou no histórico Git. Novo conteúdo segue esta fronteira, mas planos, overlays, datasets, relatórios, histórico de versões e restante documentação histórica não são reorganizados nem reescritos por T05.</p>
 <p><strong>Tarefas:</strong></p>
 <ul>
 <li><strong>US-F0-16-T01</strong> — Definir o contrato versionado de audit/export e os boundaries entre runtime, tooling e artefactos. <em>Estimativa: 3.</em></li>
@@ -3995,7 +3997,7 @@ public interface IPositionConfigurationProvider
 
 <hr>
 
-<h2>13. Não-Objetivos (v1)</h2>
+<h2 id="non-goals">13. Não-Objetivos (v1)</h2>
 
 <ol>
 <li><strong>Agentes autónomos sem supervisão</strong> — toda a ação relevante é auditada e sujeita a alçadas; não é objetivo criar uma organização que opere sem qualquer controlo humano.</li>
@@ -4037,7 +4039,7 @@ public interface IPositionConfigurationProvider
 
 <hr>
 
-<h2>15. Registo de Decisões (ADRs)</h2>
+<h2 id="architecture-decisions">15. Registo de Decisões (ADRs)</h2>
 
 <table>
 <thead>
@@ -4461,6 +4463,16 @@ public interface IPositionConfigurationProvider
     }
   }
 
+  function activatePhaseTab(tab) {
+    var targetId = tab.getAttribute('data-phase-tab');
+    document.querySelectorAll('[data-phase-tab]').forEach(function (candidate) {
+      candidate.setAttribute('aria-selected', candidate === tab ? 'true' : 'false');
+    });
+    document.querySelectorAll('.phase-panel').forEach(function (panel) {
+      panel.hidden = panel.id !== targetId;
+    });
+  }
+
   var headings = Array.prototype.slice.call(document.querySelectorAll('body > h2')).filter(isDocumentHeading);
   if (headings.length === 0) {
     return;
@@ -4536,19 +4548,54 @@ public interface IPositionConfigurationProvider
 
     tabList.appendChild(tab);
   });
-})();
 
-document.querySelectorAll('[data-phase-tab]').forEach(function (tab) {
-  tab.addEventListener('click', function () {
-    var targetId = tab.getAttribute('data-phase-tab');
-    document.querySelectorAll('[data-phase-tab]').forEach(function (candidate) {
-      candidate.setAttribute('aria-selected', candidate === tab ? 'true' : 'false');
-    });
-    document.querySelectorAll('.phase-panel').forEach(function (panel) {
-      panel.hidden = panel.id !== targetId;
+  document.querySelectorAll('[data-phase-tab]').forEach(function (tab) {
+    tab.addEventListener('click', function () {
+      activatePhaseTab(tab);
     });
   });
-});
+
+  function activateHashTarget() {
+    if (!window.location.hash || window.location.hash.length < 2) {
+      return;
+    }
+
+    var target;
+    try {
+      target = document.getElementById(decodeURIComponent(window.location.hash.substring(1)));
+    } catch (error) {
+      return;
+    }
+    if (!target) {
+      return;
+    }
+
+    var documentPanel = target.closest('.document-panel');
+    if (documentPanel) {
+      var documentTab = document.querySelector('[data-document-tab="' + documentPanel.id + '"]');
+      if (documentTab) {
+        activateDocumentTab(documentTab, false);
+      }
+    }
+
+    var phasePanel = target.classList.contains('phase-panel')
+      ? target
+      : target.closest('.phase-panel');
+    if (phasePanel) {
+      var phaseTab = document.querySelector('[data-phase-tab="' + phasePanel.id + '"]');
+      if (phaseTab) {
+        activatePhaseTab(phaseTab);
+      }
+    }
+
+    window.requestAnimationFrame(function () {
+      target.scrollIntoView({ block: 'start' });
+    });
+  }
+
+  window.addEventListener('hashchange', activateHashTarget);
+  activateHashTarget();
+})();
 </script>
 </body>
 </html>

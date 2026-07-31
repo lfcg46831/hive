@@ -2,8 +2,8 @@
 
 Date: 2026-07-30  
 Scope: `US-F0-17-T01`  
-Reviewed commit: `eee0b21fd782043b06e1dfb26d8ee4d0c2321472`  
-Reviewed tree: `1a5aedbfc96293128b1d8b43202e5841feb6fdb1`
+Reviewed commit: `ada96f8efa355e50dd75cbdd95b4785c56c58fb6`<br>
+Reviewed tree: `5323586bf2e191dd1854acd82c88443bdb2264e1`
 
 ## Isolation
 
@@ -35,7 +35,7 @@ no credential-like key.
 | Gate | Result |
 | --- | --- |
 | Complete solution suite on the reviewed commit | PASS — 2069/2069 |
-| Solution build (`dotnet build Hive.sln --no-restore -v minimal`) | BLOCKED — 1 warning, 0 errors |
+| Solution build (`dotnet build Hive.sln --no-restore -v minimal`) | PASS — 0 warnings, 0 errors |
 | Architecture/boundary guards | PASS — 15/15 |
 | Directive execution characterization | PASS — 12/12 |
 | Evaluation tooling tests | PASS — 74/74 |
@@ -70,11 +70,8 @@ try {
 }
 ```
 
-## Blocking diagnostics
+## Qualification diagnostics
 
-- The build emitted `CS0618` at
-  `tests/Hive.Tests/PositionMessageExtractorTests.cs:69` because
-  `HashCodeMessageExtractor.ShardId(object)` is obsolete.
 - With Docker Desktop available, the complete suite produced a terminal green
   result: `Hive.Tests` passed 1991/1991, Evaluation Tooling passed 74/74, and
   DemoClient passed 4/4.
@@ -88,9 +85,8 @@ try {
 
 ## Verdict
 
-`blocked`
+`ready-for-real-smoke`
 
-The warning-free build gate must pass on a new reviewed cut before requesting
-authorization for `US-F0-17-T02`. This verdict does not authorize or represent
-a real-provider smoke, corpus execution, calibration, freeze, holdout, go/no-go
-decision, or reopening of F1a.
+This verdict permits only a separate request to authorize `US-F0-17-T02`. It
+does not authorize or represent a real-provider smoke, corpus execution,
+calibration, freeze, holdout, go/no-go decision, or reopening of F1a.

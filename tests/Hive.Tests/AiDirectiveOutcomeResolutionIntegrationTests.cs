@@ -39,7 +39,9 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             audit,
             new StaticVerifier(OutcomeVerifierResult.Unavailable()),
             clockAt: At.AddSeconds(5));
-        var input = Input(new AiDirectiveReportDecision(ReportKind.Done, "Complete."));
+        var input = Input(
+            new AiDirectiveReportDecision(ReportKind.Done, "Complete."),
+            executionTimeout: TimeSpan.FromSeconds(15));
 
         var result = await ResolveAsync(integrator, input);
 
@@ -505,7 +507,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var integrator = CreateIntegrator(
             OutcomeResolutionMode.Enforcement,
             audit,
-            new StaticVerifier(OutcomeVerifierResult.Unavailable()));
+            new StaticVerifier(OutcomeVerifierResult.Unavailable()),
+            clockAt: DateTimeOffset.UtcNow);
         var system = ActorSystem.Create($"outcome-enforcement-{Guid.NewGuid():N}");
         try
         {
@@ -565,7 +568,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var integrator = CreateIntegrator(
             OutcomeResolutionMode.Enforcement,
             audit,
-            new StaticVerifier(OutcomeVerifierResult.Unavailable()));
+            new StaticVerifier(OutcomeVerifierResult.Unavailable()),
+            clockAt: DateTimeOffset.UtcNow);
         var system = ActorSystem.Create($"outcome-continue-{Guid.NewGuid():N}");
         try
         {
@@ -634,7 +638,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var integrator = CreateIntegrator(
             OutcomeResolutionMode.Enforcement,
             audit,
-            verifier);
+            verifier,
+            clockAt: DateTimeOffset.UtcNow);
         var system = ActorSystem.Create($"outcome-evidence-correction-{Guid.NewGuid():N}");
         try
         {
@@ -761,7 +766,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var integrator = CreateIntegrator(
             OutcomeResolutionMode.Enforcement,
             audit,
-            verifier);
+            verifier,
+            clockAt: DateTimeOffset.UtcNow);
         var system = ActorSystem.Create($"outcome-evidence-correction-invalid-{Guid.NewGuid():N}");
         try
         {
@@ -842,7 +848,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         var integrator = CreateIntegrator(
             OutcomeResolutionMode.Enforcement,
             audit,
-            verifier);
+            verifier,
+            clockAt: DateTimeOffset.UtcNow);
         var system = ActorSystem.Create($"outcome-evidence-correction-limit-{Guid.NewGuid():N}");
         try
         {
@@ -916,9 +923,13 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     private static ResolutionInput Input(
         AiDirectiveDecision decision,
         DateTimeOffset? deadline = null,
-        bool withoutDeadline = false)
+        bool withoutDeadline = false,
+        TimeSpan? executionTimeout = null)
     {
-        var request = Request(deadline, withoutDeadline);
+        var request = Request(
+            deadline,
+            withoutDeadline,
+            executionTimeout: executionTimeout);
         var context = AiDirectiveExecutionContext.From(request);
         var iteration = AiDirectiveIterationState.Start(context, At);
         var proposedMessage = AiDirectiveResultMessageFactory.Create(
@@ -986,6 +997,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         DateTimeOffset? deadline = null,
         bool withoutDeadline = false,
         int? maxIterations = null,
+        TimeSpan? executionTimeout = null,
         PositionId? positionId = null,
         string identityPromptRef = "coordinator-v1",
         string identityPrompt = "Coordinate the assigned organizational work.",
@@ -1026,7 +1038,13 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     new AiProviderMetadata("stub", "model-v1"),
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: withoutDeadline ? null : TimeSpan.FromSeconds(15),
-                    maxIterations: maxIterations),
+                    maxIterations: maxIterations,
+                    limitsVersion: withoutDeadline
+                        ? AiPositionRuntimeConfiguration.LegacyLimitsVersion
+                        : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: withoutDeadline
+                        ? null
+                        : executionTimeout ?? TimeSpan.FromHours(2)),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     identityPromptRef,
                     $"prompts/{identityPromptRef}.md",

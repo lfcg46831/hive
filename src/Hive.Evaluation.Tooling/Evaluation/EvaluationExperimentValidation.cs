@@ -55,6 +55,8 @@ public static class EvaluationExperimentValidator
                 failures.Add("max-output-tokens-drift");
             }
 
+            ValidateExecutionLimits(inferenceCalls, manifest, failures);
+
             ValidateInferenceTimeouts(cases, manifest, failures);
         }
 
@@ -69,6 +71,10 @@ public static class EvaluationExperimentValidator
                 > manifest.Limits.VerifierTimeoutMilliseconds))
         {
             failures.Add("verifier-timeout-drift");
+        }
+        if (verifierCalls.Length > 0)
+        {
+            ValidateExecutionLimits(verifierCalls, manifest, failures);
         }
 
         var resolutions = cases
@@ -124,6 +130,47 @@ public static class EvaluationExperimentValidator
             {
                 failures.Add("provider-timeout-expanded");
             }
+
+            if (calls.Zip(calls.Skip(1)).Any(pair =>
+                pair.Second.RequestTimeoutMilliseconds >
+                    pair.First.RequestTimeoutMilliseconds))
+            {
+                failures.Add("provider-timeout-expanded");
+            }
+        }
+    }
+
+    private static void ValidateExecutionLimits(
+        IReadOnlyList<EvaluationGatewayCall> calls,
+        EvaluationExperimentManifest manifest,
+        ISet<string> failures)
+    {
+        if (manifest.Limits.LimitsVersion == 0 && calls.All(call =>
+            call.ExecutionLimitsVersion is null
+            && call.ExecutionBudgetMilliseconds is null
+            && call.PerCallTimeoutMilliseconds is null))
+        {
+            return;
+        }
+
+        if (calls.Any(call =>
+            call.ExecutionLimitsVersion != manifest.Limits.LimitsVersion))
+        {
+            failures.Add("execution-limits-version-drift");
+        }
+
+        if (calls.Any(call =>
+            call.ExecutionBudgetMilliseconds !=
+                manifest.Limits.EffectiveExecutionTimeoutMilliseconds))
+        {
+            failures.Add("execution-budget-drift");
+        }
+
+        if (calls.Any(call =>
+            call.PerCallTimeoutMilliseconds !=
+                manifest.Limits.ProviderTimeoutMilliseconds))
+        {
+            failures.Add("per-call-timeout-drift");
         }
     }
 }

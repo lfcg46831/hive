@@ -35,6 +35,9 @@ public sealed class AiGatewayOutcomeVerifierTests
             sent.Metadata["directive_id"]);
         Assert.Equal("1", sent.Metadata["iteration"]);
         Assert.Equal("outcome-verification", sent.Metadata["hive.operation"]);
+        Assert.Equal("1", sent.Metadata["hive.execution-limits-version"]);
+        Assert.Equal("90000", sent.Metadata["hive.execution-budget-ms"]);
+        Assert.Equal("60000", sent.Metadata["hive.per-call-timeout-ms"]);
         Assert.Contains("schema_version 1", sent.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("Report.Done", sent.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains(
@@ -208,7 +211,10 @@ public sealed class AiGatewayOutcomeVerifierTests
                 TimeSpan.FromSeconds(7),
                 [new OutcomeVerificationContextEntry(
                     "directive.objective",
-                    "Assess the work item.")]),
+                    "Assess the work item.")],
+                executionLimitsVersion: 1,
+                executionBudget: TimeSpan.FromSeconds(90),
+                perCallTimeout: TimeSpan.FromSeconds(60)),
             new ExecutionFacts(
                 iterationCount: 1,
                 retryCount: 0,

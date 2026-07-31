@@ -214,6 +214,42 @@ public sealed class AiDirectiveIterationExecutorTests
     }
 
     [Fact]
+    public async Task ExecuteAsync_keeps_three_calls_at_per_call_cap_until_total_budget_is_nearer()
+    {
+        var context = Context(
+            maxIterations: 4,
+            timeout: TimeSpan.FromSeconds(15),
+            executionTimeout: TimeSpan.FromSeconds(40));
+        var state = AiDirectiveIterationState.Start(context, At);
+        var now = At.AddSeconds(2);
+        var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            new RecordingToolExecutor(),
+            AllowingAiAgentActionGate.Instance,
+            () => now);
+        var timeouts = new List<TimeSpan?>();
+
+        foreach (var elapsed in new[] { 2, 17, 32 })
+        {
+            now = At.AddSeconds(elapsed);
+            var decision = state.EvaluateInference(now.AddSeconds(-1), hasAvailableBudget: true);
+            var result = await executor.ExecuteAsync(
+                context,
+                state,
+                decision,
+                hasAvailableBudget: true);
+            Assert.True(result.IsSuccess);
+            timeouts.Add(invoker.Invocation!.Request.Timeout);
+            state = state.Advance(decision, now);
+        }
+
+        Assert.Equal(
+            [TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(8)],
+            timeouts);
+    }
+
+    [Fact]
     public async Task ExecuteOutcomeProposalCorrectionAsync_keeps_the_single_correction_inside_the_remaining_deadline()
     {
         var context = Context(
@@ -328,7 +364,11 @@ public sealed class AiDirectiveIterationExecutorTests
             hasAvailableBudget: true);
         var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
         var toolExecutor = new RecordingToolExecutor();
-        var executor = new AiDirectiveIterationExecutor(invoker, toolExecutor);
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            toolExecutor,
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(2));
 
         var result = await executor.ExecuteAsync(
             context,
@@ -346,6 +386,7 @@ public sealed class AiDirectiveIterationExecutorTests
         Assert.Equal(2, toolExecutor.Execution.Iteration);
         Assert.Equal("files", toolExecutor.Execution.ToolCall.Name);
         Assert.Equal("HIVE-123", toolExecutor.Execution.ToolCall.Arguments["ticket"]);
+        Assert.Equal(TimeSpan.FromSeconds(13), toolExecutor.Execution.Timeout);
     }
 
     [Fact]
@@ -396,7 +437,11 @@ public sealed class AiDirectiveIterationExecutorTests
             At.AddSeconds(1),
             hasAvailableBudget: true);
         var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
-        var executor = new AiDirectiveIterationExecutor(invoker);
+        var executor = new AiDirectiveIterationExecutor(
+            invoker,
+            UnavailableAiDirectiveConnectorToolExecutor.Instance,
+            AllowingAiAgentActionGate.Instance,
+            () => At.AddSeconds(2));
 
         var result = await executor.ExecuteAsync(
             context,
@@ -440,6 +485,7 @@ public sealed class AiDirectiveIterationExecutorTests
         IEnumerable<ToolConfiguration>? tools = null,
         DateTimeOffset? deadline = null,
         TimeSpan? timeout = null,
+        TimeSpan? executionTimeout = null,
         bool configureTimeout = true,
         bool requiresStructuredOutcomeProposal = false)
     {
@@ -477,7 +523,11 @@ public sealed class AiDirectiveIterationExecutorTests
                     timeout: configureTimeout
                         ? timeout ?? TimeSpan.FromSeconds(15)
                         : null,
-                    maxIterations: maxIterations),
+                    maxIterations: maxIterations,
+                    limitsVersion: executionTimeout is null
+                        ? AiPositionRuntimeConfiguration.LegacyLimitsVersion
+                        : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: executionTimeout),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",

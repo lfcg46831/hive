@@ -32,6 +32,7 @@ public sealed class AiDirectiveIterationStateTests
     {
         var context = Context(
             timeout: TimeSpan.FromSeconds(30),
+            executionTimeout: TimeSpan.FromSeconds(90),
             maxIterations: 3,
             tools: [new ToolConfiguration("files", ["bugs/read"])]);
 
@@ -40,7 +41,7 @@ public sealed class AiDirectiveIterationStateTests
         Assert.Equal(context.CorrelationId, state.CorrelationId);
         Assert.Equal(1, state.CurrentIteration);
         Assert.Equal(At, state.StartedAt);
-        Assert.Equal(At.AddSeconds(30), state.Deadline);
+        Assert.Equal(At.AddSeconds(90), state.Deadline);
         Assert.Equal(3, state.MaxIterations);
         Assert.Equal(["files"], state.AuthorizedToolNames.ToArray());
         var entry = Assert.Single(state.History);
@@ -245,6 +246,7 @@ public sealed class AiDirectiveIterationStateTests
 
     private static AiDirectiveExecutionContext Context(
         TimeSpan? timeout = null,
+        TimeSpan? executionTimeout = null,
         int? maxIterations = null,
         IEnumerable<ToolConfiguration>? tools = null,
         IEnumerable<string>? canDecide = null)
@@ -282,7 +284,11 @@ public sealed class AiDirectiveIterationStateTests
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: timeout,
                     costLimits: new AiCostLimits(maxCallsPerHour: 5),
-                    maxIterations: maxIterations),
+                    maxIterations: maxIterations,
+                    limitsVersion: executionTimeout is null
+                        ? AiPositionRuntimeConfiguration.LegacyLimitsVersion
+                        : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: executionTimeout),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",

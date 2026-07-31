@@ -99,7 +99,10 @@ public sealed record OutcomeVerificationContext
         MessageId messageId,
         DirectiveId directiveId,
         TimeSpan timeout,
-        IEnumerable<OutcomeVerificationContextEntry>? entries = null)
+        IEnumerable<OutcomeVerificationContextEntry>? entries = null,
+        int? executionLimitsVersion = null,
+        TimeSpan? executionBudget = null,
+        TimeSpan? perCallTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -112,6 +115,30 @@ public sealed record OutcomeVerificationContext
                 nameof(timeout),
                 timeout,
                 "Outcome verifier timeout must be greater than zero.");
+        }
+
+        if (executionLimitsVersion is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(executionLimitsVersion),
+                executionLimitsVersion,
+                "Execution limits version cannot be negative.");
+        }
+
+        if (executionBudget is { } budget && budget <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(executionBudget),
+                executionBudget,
+                "Execution budget must be greater than zero.");
+        }
+
+        if (perCallTimeout is { } perCall && perCall <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(perCallTimeout),
+                perCallTimeout,
+                "Per-call timeout must be greater than zero.");
         }
 
         var snapshot = entries is null
@@ -159,6 +186,9 @@ public sealed record OutcomeVerificationContext
         MessageId = messageId;
         DirectiveId = directiveId;
         Timeout = timeout;
+        ExecutionLimitsVersion = executionLimitsVersion;
+        ExecutionBudget = executionBudget;
+        PerCallTimeout = perCallTimeout;
         Entries = ordered;
     }
 
@@ -181,6 +211,12 @@ public sealed record OutcomeVerificationContext
     /// the remaining directive deadline.
     /// </summary>
     public TimeSpan Timeout { get; }
+
+    public int? ExecutionLimitsVersion { get; }
+
+    public TimeSpan? ExecutionBudget { get; }
+
+    public TimeSpan? PerCallTimeout { get; }
 
     public ImmutableArray<OutcomeVerificationContextEntry> Entries { get; }
 }

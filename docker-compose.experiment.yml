@@ -9,6 +9,10 @@
 
 services:
   api:
+    labels:
+      hive.experiment.limits-version: "${HIVE_EXPERIMENT_LIMITS_VERSION:?Prepare an experiment manifest first}"
+      hive.experiment.execution-timeout: "${HIVE_EXPERIMENT_EXECUTION_TIMEOUT:?Prepare an experiment manifest first}"
+      hive.experiment.per-call-timeout: "${HIVE_EXPERIMENT_PER_CALL_TIMEOUT:?Prepare an experiment manifest first}"
     environment:
       HIVE__EVALUATION__PROFILES__LAB__ENABLED: "true"
       HIVE__EVALUATION__PROFILES__LAB__ORGANIZATIONID: "${HIVE_EXPERIMENT_ORGANIZATION_ID:?Prepare an experiment manifest first}"

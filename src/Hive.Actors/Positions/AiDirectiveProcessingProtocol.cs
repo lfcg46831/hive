@@ -145,7 +145,9 @@ internal sealed record AiDirectiveProcessingLimits
         TimeSpan? timeout = null,
         int? maxOutputTokens = null,
         int? maxIterations = null,
-        AiCostLimits? costLimits = null)
+        AiCostLimits? costLimits = null,
+        int limitsVersion = AiPositionRuntimeConfiguration.LegacyLimitsVersion,
+        TimeSpan? executionTimeout = null)
     {
         if (timeout is { } timeoutValue && timeoutValue <= TimeSpan.Zero)
         {
@@ -171,13 +173,57 @@ internal sealed record AiDirectiveProcessingLimits
                 "Directive processing max iterations must be greater than zero.");
         }
 
+        if (limitsVersion is not AiPositionRuntimeConfiguration.LegacyLimitsVersion and
+            not AiPositionRuntimeConfiguration.CurrentLimitsVersion)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(limitsVersion),
+                limitsVersion,
+                "Directive processing limits version is not supported.");
+        }
+
+        if (executionTimeout is { } executionTimeoutValue &&
+            executionTimeoutValue <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(executionTimeout),
+                executionTimeout,
+                "Directive execution timeout must be greater than zero.");
+        }
+
+        if (limitsVersion == AiPositionRuntimeConfiguration.CurrentLimitsVersion &&
+            (timeout is null || executionTimeout is null))
+        {
+            throw new ArgumentException(
+                "Directive processing limits version 1 requires both per-call and end-to-end timeouts.",
+                nameof(executionTimeout));
+        }
+
+        if (limitsVersion == AiPositionRuntimeConfiguration.LegacyLimitsVersion &&
+            executionTimeout is not null)
+        {
+            throw new ArgumentException(
+                "A separate directive execution timeout requires limits version 1.",
+                nameof(executionTimeout));
+        }
+
         Timeout = timeout;
+        LimitsVersion = limitsVersion;
+        ExecutionTimeout = limitsVersion == AiPositionRuntimeConfiguration.LegacyLimitsVersion
+            ? timeout
+            : executionTimeout;
         MaxOutputTokens = maxOutputTokens;
         MaxIterations = maxIterations;
         CostLimits = costLimits;
     }
 
     public TimeSpan? Timeout { get; }
+
+    public TimeSpan? PerCallTimeout => Timeout;
+
+    public TimeSpan? ExecutionTimeout { get; }
+
+    public int LimitsVersion { get; }
 
     public int? MaxOutputTokens { get; }
 
@@ -190,7 +236,11 @@ internal sealed record AiDirectiveProcessingLimits
             configuration?.Timeout,
             configuration?.Parameters.MaxOutputTokens,
             configuration?.MaxIterations,
-            configuration?.CostLimits);
+            configuration?.CostLimits,
+            configuration?.LimitsVersion ?? AiPositionRuntimeConfiguration.LegacyLimitsVersion,
+            configuration?.LimitsVersion == AiPositionRuntimeConfiguration.CurrentLimitsVersion
+                ? configuration.ExecutionTimeout
+                : null);
 }
 
 internal sealed record AiDirectivePersistedContext

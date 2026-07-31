@@ -63,6 +63,9 @@ public sealed class AiGatewayCostAuditEventTests
         Assert.Null(audit.IsRetryable);
         Assert.Equal("outcome-verification", audit.Operation);
         Assert.Equal(2, audit.Iteration);
+        Assert.Equal(1, audit.ExecutionLimitsVersion);
+        Assert.Equal(TimeSpan.FromSeconds(90), audit.ExecutionBudget);
+        Assert.Equal(TimeSpan.FromSeconds(60), audit.PerCallTimeout);
     }
 
     [Fact]
@@ -220,6 +223,9 @@ public sealed class AiGatewayCostAuditEventTests
             {
                 ["hive.operation"] = "outcome-verification",
                 ["iteration"] = "2",
+                ["hive.execution-limits-version"] = "1",
+                ["hive.execution-budget-ms"] = "90000",
+                ["hive.per-call-timeout-ms"] = "60000",
             },
             provider: Provider,
             timeout: TimeSpan.FromSeconds(60));

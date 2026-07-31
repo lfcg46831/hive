@@ -34,7 +34,8 @@ internal sealed record AiDirectiveConnectorToolExecution
     public AiDirectiveConnectorToolExecution(
         AiDirectiveExecutionContext context,
         int iteration,
-        AiToolCall toolCall)
+        AiToolCall toolCall,
+        TimeSpan? timeout = null)
     {
         Context = context ?? throw new ArgumentNullException(nameof(context));
         if (iteration <= 0)
@@ -45,8 +46,17 @@ internal sealed record AiDirectiveConnectorToolExecution
                 "AI directive connector tool iteration must be greater than zero.");
         }
 
+        if (timeout is { } timeoutValue && timeoutValue <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(timeout),
+                timeout,
+                "AI directive connector tool timeout must be greater than zero.");
+        }
+
         Iteration = iteration;
         ToolCall = toolCall ?? throw new ArgumentNullException(nameof(toolCall));
+        Timeout = timeout;
     }
 
     public AiDirectiveExecutionContext Context { get; }
@@ -54,6 +64,8 @@ internal sealed record AiDirectiveConnectorToolExecution
     public int Iteration { get; }
 
     public AiToolCall ToolCall { get; }
+
+    public TimeSpan? Timeout { get; }
 }
 
 internal sealed record AiDirectiveConnectorToolExecutionResult
@@ -433,15 +445,38 @@ internal sealed class AiDirectiveIterationExecutor
                     gateResult));
         }
 
+        if (!TryGetEffectiveTimeout(
+                context.Limits.PerCallTimeout,
+                context.Directive.Deadline,
+                state.Deadline,
+                _clock(),
+                out var effectiveTimeout))
+        {
+            return Failed(
+                state.CorrelationId,
+                "timeout",
+                "AI directive connector tool cannot start because its deadline has been reached.");
+        }
+
         var execution = new AiDirectiveConnectorToolExecution(
             context,
             state.CurrentIteration + 1,
-            toolCall);
+            toolCall,
+            effectiveTimeout);
+
+        using var timeoutCts = effectiveTimeout is null
+            ? null
+            : CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        if (effectiveTimeout is { } timeout)
+        {
+            timeoutCts!.CancelAfter(timeout);
+        }
+        var effectiveCancellationToken = timeoutCts?.Token ?? cancellationToken;
 
         try
         {
             var result = await _toolExecutor
-                .ExecuteAsync(execution, cancellationToken)
+                .ExecuteAsync(execution, effectiveCancellationToken)
                 .ConfigureAwait(false);
 
             return result.IsSuccess
@@ -454,6 +489,15 @@ internal sealed class AiDirectiveIterationExecutor
         }
         catch (OperationCanceledException)
         {
+            if (!cancellationToken.IsCancellationRequested &&
+                timeoutCts?.IsCancellationRequested == true)
+            {
+                return Failed(
+                    state.CorrelationId,
+                    "timeout",
+                    "AI directive connector tool reached its effective timeout.");
+            }
+
             throw;
         }
         catch (Exception)

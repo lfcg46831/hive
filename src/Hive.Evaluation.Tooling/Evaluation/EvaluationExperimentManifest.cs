@@ -129,6 +129,14 @@ public sealed partial class EvaluationExperimentManifest
             ["HIVE_EXPERIMENT_OUTCOME_MODE"] = Policy.OutcomeMode,
             ["HIVE_EXPERIMENT_POSITION_ID"] = Organization.PositionId,
             ["HIVE_EXPERIMENT_PROVIDER_ID"] = Model.ProviderId,
+            ["HIVE_EXPERIMENT_LIMITS_VERSION"] = Limits.LimitsVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["HIVE_EXPERIMENT_EXECUTION_TIMEOUT"] =
+                TimeSpan.FromMilliseconds(Limits.EffectiveExecutionTimeoutMilliseconds)
+                    .ToString("c", System.Globalization.CultureInfo.InvariantCulture),
+            ["HIVE_EXPERIMENT_PER_CALL_TIMEOUT"] =
+                TimeSpan.FromMilliseconds(Limits.ProviderTimeoutMilliseconds)
+                    .ToString("c", System.Globalization.CultureInfo.InvariantCulture),
             ["HIVE_EXPERIMENT_VERIFIER_TIMEOUT"] =
                 TimeSpan.FromMilliseconds(Limits.VerifierTimeoutMilliseconds)
                     .ToString("c", System.Globalization.CultureInfo.InvariantCulture),
@@ -205,13 +213,19 @@ public sealed partial class EvaluationExperimentManifest
                 "Experiment output constraint mode is invalid.");
         }
 
-        if (Limits.ProviderTimeoutMilliseconds <= 0
+        var executionTimeoutMilliseconds = Limits.EffectiveExecutionTimeoutMilliseconds;
+        if (Limits.LimitsVersion is not 0 and not 1
+            || (Limits.LimitsVersion == 0 && Limits.ExecutionTimeoutMilliseconds != 0)
+            || (Limits.LimitsVersion == 1 && Limits.ExecutionTimeoutMilliseconds <= 0)
+            || Limits.ProviderTimeoutMilliseconds <= 0
             || Limits.MaxOutputTokens <= 0
             || Limits.MaxIterations <= 0
             || Limits.VerifierTimeoutMilliseconds <= 0
-            || Limits.RunnerTimeoutMilliseconds <= Limits.ProviderTimeoutMilliseconds
+            || Limits.RunnerTimeoutMilliseconds <= executionTimeoutMilliseconds
             || Limits.PollIntervalMilliseconds <= 0
-            || Limits.PollIntervalMilliseconds >= Limits.RunnerTimeoutMilliseconds)
+            || Limits.PollIntervalMilliseconds >= Limits.RunnerTimeoutMilliseconds
+            || Limits.RunnerTimeoutMilliseconds - executionTimeoutMilliseconds
+                <= Limits.PollIntervalMilliseconds)
         {
             throw new InvalidDataException("Experiment limits are invalid.");
         }
@@ -239,7 +253,9 @@ public sealed partial class EvaluationExperimentManifest
             Model.ProviderId,
             Model.ModelId,
             Model.OutputConstraintMode,
+            Limits.LimitsVersion,
             Limits.ProviderTimeoutMilliseconds,
+            executionTimeoutMilliseconds,
             Limits.MaxOutputTokens,
             Limits.MaxIterations,
             Limits.VerifierTimeoutMilliseconds,
@@ -316,9 +332,17 @@ public sealed partial class EvaluationExperimentManifest
                 Limits.MaxIterations,
                 "max iterations");
             RequireEqual(
+                target.LimitsVersion,
+                Limits.LimitsVersion,
+                "execution limits version");
+            RequireEqual(
                 target.ProviderTimeoutMilliseconds,
                 Limits.ProviderTimeoutMilliseconds,
                 "provider timeout");
+            RequireEqual(
+                target.ExecutionTimeoutMilliseconds,
+                Limits.EffectiveExecutionTimeoutMilliseconds,
+                "execution timeout");
         }
         catch (InvalidDataException)
         {
@@ -470,8 +494,20 @@ public sealed class EvaluationExperimentModel
 
 public sealed class EvaluationExperimentLimits
 {
+    [JsonPropertyName("limits_version")]
+    public int LimitsVersion { get; init; }
+
     [JsonPropertyName("provider_timeout_ms")]
     public int ProviderTimeoutMilliseconds { get; init; }
+
+    [JsonPropertyName("execution_timeout_ms")]
+    public int ExecutionTimeoutMilliseconds { get; init; }
+
+    [JsonIgnore]
+    public int EffectiveExecutionTimeoutMilliseconds =>
+        LimitsVersion == 0
+            ? ProviderTimeoutMilliseconds
+            : ExecutionTimeoutMilliseconds;
 
     [JsonPropertyName("max_output_tokens")]
     public int MaxOutputTokens { get; init; }
@@ -532,7 +568,9 @@ public sealed record EvaluationExperimentEffectiveConfiguration(
     [property: JsonPropertyName("provider_id")] string ProviderId,
     [property: JsonPropertyName("model_id")] string ModelId,
     [property: JsonPropertyName("output_constraint_mode")] string OutputConstraintMode,
+    [property: JsonPropertyName("limits_version")] int LimitsVersion,
     [property: JsonPropertyName("provider_timeout_ms")] int ProviderTimeoutMilliseconds,
+    [property: JsonPropertyName("execution_timeout_ms")] int ExecutionTimeoutMilliseconds,
     [property: JsonPropertyName("max_output_tokens")] int MaxOutputTokens,
     [property: JsonPropertyName("max_iterations")] int MaxIterations,
     [property: JsonPropertyName("verifier_timeout_ms")] int VerifierTimeoutMilliseconds,
@@ -561,6 +599,8 @@ public sealed record EvaluationExperimentEffectiveConfiguration(
             0,
             0,
             0,
+            0,
+            0,
             string.Empty,
             string.Empty,
             string.Empty,
@@ -578,5 +618,5 @@ public sealed record EvaluationExperimentPreparedConfiguration(
     EvaluationExperimentEffectiveConfiguration Configuration)
 {
     public const string ContractName = "hive.evaluation-effective-configuration";
-    public const int ContractVersion = 1;
+    public const int ContractVersion = 2;
 }

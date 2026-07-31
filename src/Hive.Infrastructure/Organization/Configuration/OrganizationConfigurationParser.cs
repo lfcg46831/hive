@@ -426,9 +426,11 @@ public sealed class OrganizationConfigurationParser
         var temperature = OptionalDouble(ai, "temperature", aiPath, context);
         var maxTokens = OptionalInt(ai, "max_tokens", aiPath, context);
         var maxIterations = OptionalInt(ai, "max_iterations", aiPath, context);
+        var limitsVersion = OptionalInt(ai, "limits_version", aiPath, context);
         var processing = OptionalScalar(ai, "processing", aiPath, context);
         var batchWindow = OptionalScalar(ai, "batch_window", aiPath, context);
         var timeout = OptionalScalar(ai, "timeout", aiPath, context);
+        var executionTimeout = OptionalScalar(ai, "execution_timeout", aiPath, context);
         var fallback = ReadFallback(ai, aiPath, context);
         var budget = ReadBudget(ai, aiPath, context);
 
@@ -447,7 +449,9 @@ public sealed class OrganizationConfigurationParser
             fallback,
             budget,
             timeout,
-            maxIterations);
+            maxIterations,
+            limitsVersion,
+            executionTimeout);
     }
 
     private static IReadOnlyList<AiFallbackConfiguration> ReadFallback(YamlMappingNode ai, string path, ParseContext context)

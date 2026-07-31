@@ -164,6 +164,9 @@ internal static class OrganizationRegistryResponseMapper
             ai.Temperature,
             ai.MaxTokens,
             ai.MaxIterations,
+            ai.LimitsVersion,
+            ai.Timeout,
+            ai.ExecutionTimeout,
             ai.Processing,
             ai.BatchWindow,
             ai.Fallback

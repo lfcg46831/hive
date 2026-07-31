@@ -153,7 +153,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         var budget = ExecutionBudget.Start(
             request.CorrelationId,
             startedAt,
-            context.Limits.Timeout,
+            context.Limits.ExecutionTimeout,
             context.Directive.Deadline,
             context.Limits.MaxIterations,
             hasAvailableBudget);
@@ -171,6 +171,27 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         }
 
         var prompt = AiDirectivePrompt.CreateInitialRequest(context);
+        TimeSpan? initialTimeout = null;
+        if (context.Limits.LimitsVersion == AiPositionRuntimeConfiguration.CurrentLimitsVersion &&
+            !budget.TryGetEffectiveTimeout(
+                context.Limits.PerCallTimeout,
+                startedAt,
+                out initialTimeout))
+        {
+            var failed = received.AdvanceTo(
+                AiDirectiveProcessingStatus.Failed,
+                reason: "Directive execution budget was exhausted before the first gateway request.");
+            return CreateTrace(
+                request,
+                budget,
+                context,
+                failed);
+        }
+
+        if (context.Limits.LimitsVersion == AiPositionRuntimeConfiguration.CurrentLimitsVersion)
+        {
+            prompt = WithTimeout(prompt, initialTimeout);
+        }
         hasAvailableBudget = prompt.Policy?.HasAvailableBudget ?? true;
         if (!hasAvailableBudget)
         {
@@ -756,6 +777,26 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         timeout is { } value
             ? $"AI gateway timeout after {value}."
             : "AI gateway timeout.";
+
+    private static AiGatewayRequest WithTimeout(
+        AiGatewayRequest request,
+        TimeSpan? timeout) =>
+        new(
+            request.OrganizationId,
+            request.PositionId,
+            request.ThreadId,
+            request.MessageId,
+            request.Content,
+            request.SystemInstruction,
+            request.ContextMessages,
+            request.Tools,
+            request.ModelParameters,
+            request.Metadata,
+            request.Provider,
+            request.ProcessingMode,
+            timeout,
+            request.Policy,
+            request.OutputConstraint);
 
     private static void ConsumeContinuation(
         ref ExecutionBudget budget,

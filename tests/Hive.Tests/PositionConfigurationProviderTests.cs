@@ -57,6 +57,9 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal(4096, aiGateway.Parameters.MaxOutputTokens);
         Assert.Equal(4, aiGateway.MaxIterations);
         Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.PerCallTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(30), aiGateway.ExecutionTimeout);
+        Assert.Equal(AiPositionRuntimeConfiguration.LegacyLimitsVersion, aiGateway.LimitsVersion);
         Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
         Assert.Empty(aiGateway.Fallback);
         var limits = aiGateway.CostLimits;
@@ -194,6 +197,9 @@ public sealed class PositionConfigurationProviderTests
         { new AiConfiguration("stub", "deterministic", timeout: "soon"), "timeout" },
         { new AiConfiguration("stub", "deterministic", temperature: 4.5), "temperature" },
         { new AiConfiguration("stub", "deterministic", maxIterations: 0), "iterations" },
+        { new AiConfiguration("stub", "deterministic", timeout: "PT10S", limitsVersion: 2, executionTimeout: "PT20S"), "version" },
+        { new AiConfiguration("stub", "deterministic", timeout: "PT10S", limitsVersion: 1), "end-to-end" },
+        { new AiConfiguration("stub", "deterministic", timeout: "PT10S", executionTimeout: "PT20S"), "version 1" },
         { new AiConfiguration("stub", "deterministic", budget: new BudgetConfiguration(maxCallsPerHour: -1)), "budget" },
     };
 

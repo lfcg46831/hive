@@ -30,7 +30,7 @@ internal static class AiDirectivePrompt
             metadata: Metadata(context),
             provider: context.Provider,
             processingMode: context.ProcessingMode,
-            timeout: context.Limits.Timeout,
+            timeout: context.Limits.PerCallTimeout,
             policy: Policy(context),
             outputConstraint: OutputConstraint(context));
     }
@@ -345,7 +345,9 @@ internal static class AiDirectivePrompt
     private static void AppendLimits(StringBuilder builder, AiDirectiveExecutionContext context)
     {
         builder.AppendLine("Limits:");
-        builder.AppendLine($"Timeout: {ValueOrNone(context.Limits.Timeout?.ToString())}");
+        builder.AppendLine($"ContractVersion: {context.Limits.LimitsVersion}");
+        builder.AppendLine($"ExecutionTimeout: {ValueOrNone(context.Limits.ExecutionTimeout?.ToString())}");
+        builder.AppendLine($"PerCallTimeout: {ValueOrNone(context.Limits.PerCallTimeout?.ToString())}");
         builder.AppendLine($"MaxOutputTokens: {ValueOrNone(context.Limits.MaxOutputTokens?.ToString())}");
         builder.AppendLine($"MaxIterations: {ValueOrNone(context.Limits.MaxIterations?.ToString())}");
         builder.AppendLine($"CostLimits: {(context.Limits.CostLimits is null ? "<none>" : "<configured>")}");
@@ -365,7 +367,18 @@ internal static class AiDirectivePrompt
             ["message_id"] = context.Directive.MessageId.ToString(),
             ["iteration"] = "1",
             ["hive.operation"] = "directive-inference",
+            ["hive.execution-limits-version"] = context.Limits.LimitsVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
         };
+
+        AddTimeoutMetadata(
+            metadata,
+            "hive.execution-budget-ms",
+            context.Limits.ExecutionTimeout);
+        AddTimeoutMetadata(
+            metadata,
+            "hive.per-call-timeout-ms",
+            context.Limits.PerCallTimeout);
 
         if (context.IdentityPromptRef is { } identityPromptRef)
         {
@@ -397,11 +410,24 @@ internal static class AiDirectivePrompt
             [context.Provider],
             hasAvailableBudget: true,
             maxOutputTokens: context.Limits.MaxOutputTokens,
-            maxTimeout: context.Limits.Timeout,
+            maxTimeout: context.Limits.PerCallTimeout,
             allowedProcessingModes: context.ProcessingMode is { } mode
                 ? [mode]
                 : null,
             authorizedTools: context.AuthorizedTools.Select(tool => tool.Connector));
+    }
+
+    private static void AddTimeoutMetadata(
+        IDictionary<string, string> metadata,
+        string key,
+        TimeSpan? timeout)
+    {
+        if (timeout is { } value)
+        {
+            metadata[key] = value.TotalMilliseconds.ToString(
+                "R",
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     private static IEnumerable<AiToolDefinition> GatewayTools(

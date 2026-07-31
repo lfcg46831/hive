@@ -7,28 +7,22 @@ namespace Hive.Evaluation.Tooling.Tests;
 public sealed class EvaluationExperimentManifestTests
 {
     [Fact]
-    public void Historical_manifest_stays_immutable_while_current_fixture_resolves_configuration()
+    public void Bug005_manifest_resolves_versioned_execution_limits_and_configuration()
     {
-        Assert.Equal(
-            "e3ee9c5911129395b34fd68611088206eaa33bfa56c94e9a6264793c6357697d",
-            EvaluationArtifactIndex.FileSha256(ManifestPath));
-        var historical = Assert.Throws<InvalidDataException>(
-            () => EvaluationExperimentManifest.Load(ManifestPath));
-        Assert.Contains("has drifted from SHA-256", historical.Message, StringComparison.Ordinal);
-
-        using var fixture = CurrentManifestFixture.Create();
-        var manifest = fixture.Manifest;
+        var manifest = EvaluationExperimentManifest.Load(ManifestPath);
 
         Assert.Equal(EvaluationExperimentManifest.ContractName, manifest.Name);
         Assert.Equal(1, manifest.ManifestVersion);
-        Assert.Equal("bug-triage-lab-v1", manifest.ExperimentId);
+        Assert.Equal("bug-triage-lab-v2", manifest.ExperimentId);
         Assert.Equal("prepared", manifest.Status);
         Assert.Equal("acme-delivery", manifest.Organization.OrganizationId);
         Assert.Equal("delivery-lead", manifest.Organization.SourcePositionId);
         Assert.Equal("bug-triage", manifest.Organization.PositionId);
         Assert.Equal("openai", manifest.Model.ProviderId);
         Assert.Equal("gpt-5-mini-2025-08-07", manifest.Model.ModelId);
+        Assert.Equal(1, manifest.Limits.LimitsVersion);
         Assert.Equal(60_000, manifest.Limits.ProviderTimeoutMilliseconds);
+        Assert.Equal(90_000, manifest.Limits.ExecutionTimeoutMilliseconds);
         Assert.Equal(8_192, manifest.Limits.MaxOutputTokens);
         Assert.Equal(30_000, manifest.Limits.VerifierTimeoutMilliseconds);
         Assert.Matches("^[0-9a-f]{64}$", manifest.ManifestSha256);
@@ -43,6 +37,14 @@ public sealed class EvaluationExperimentManifestTests
             "HIVE_EXPERIMENT_VERIFIER_TIMEOUT=00:00:30",
             environment,
             StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE_EXPERIMENT_EXECUTION_TIMEOUT=00:01:30",
+            environment,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE_EXPERIMENT_PER_CALL_TIMEOUT=00:01:00",
+            environment,
+            StringComparison.Ordinal);
         Assert.DoesNotContain("APIKEY", environment, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("PASSWORD", environment, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("SECRET", environment, StringComparison.OrdinalIgnoreCase);
@@ -51,13 +53,58 @@ public sealed class EvaluationExperimentManifestTests
         Assert.Equal(
             EvaluationExperimentPreparedConfiguration.ContractName,
             prepared.Name);
+        Assert.Equal(2, prepared.Version);
         Assert.Equal(manifest.ManifestSha256, prepared.ManifestSha256);
         Assert.Equal(
             manifest.EffectiveConfigurationSha256,
             prepared.EffectiveConfigurationSha256);
         Assert.Equal(
-            "config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml",
+            "config/experiments/bug-triage-lab-v2/organization.yaml",
             prepared.Configuration.OrganizationConfigurationPath);
+    }
+
+    [Fact]
+    public void Historical_manifest_remains_byte_identical()
+    {
+        var historicalPath = Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "bug-triage-lab-v1",
+            "experiment.v1.json");
+
+        Assert.Equal(
+            "e3ee9c5911129395b34fd68611088206eaa33bfa56c94e9a6264793c6357697d",
+            EvaluationArtifactIndex.FileSha256(historicalPath));
+    }
+
+    [Fact]
+    public void Legacy_manifest_and_dataset_without_split_metadata_remain_compatible()
+    {
+        using var fixture = CurrentManifestFixture.Create(HistoricalManifestPath);
+        var manifest = fixture.Manifest;
+        var legacyCall = GatewayCall(
+            1,
+            "directive-inference",
+            1,
+            "openai",
+            "gpt-5-mini-2025-08-07",
+            60_000,
+            8_192) with
+        {
+            ExecutionLimitsVersion = null,
+            ExecutionBudgetMilliseconds = null,
+            PerCallTimeoutMilliseconds = null,
+        };
+
+        var validation = EvaluationExperimentValidator.Validate(
+            [Result([legacyCall], "enforcement")],
+            manifest);
+
+        Assert.Equal(0, manifest.Limits.LimitsVersion);
+        Assert.Equal(60_000, manifest.Limits.EffectiveExecutionTimeoutMilliseconds);
+        Assert.Equal("validated", validation.Status);
+        Assert.Empty(validation.FailureCodes);
     }
 
     [Fact]
@@ -78,7 +125,7 @@ public sealed class EvaluationExperimentManifestTests
 
         WithManifestCopy(
             original.Replace(
-                "2d531b8fde0ee141d7c0e48562917a2c9ae9d2e29c2f01422204f0b62f4ac421",
+                fixture.Manifest.Organization.Configuration.Sha256,
                 new string('0', 64),
                 StringComparison.Ordinal),
             path =>
@@ -89,6 +136,30 @@ public sealed class EvaluationExperimentManifestTests
                     "organization configuration has drifted",
                     exception.Message,
                     StringComparison.Ordinal);
+            });
+
+        WithManifestCopy(
+            original.Replace(
+                "\"execution_timeout_ms\": 90000",
+                "\"execution_timeout_ms\": 0",
+                StringComparison.Ordinal),
+            path =>
+            {
+                var exception = Assert.Throws<InvalidDataException>(
+                    () => EvaluationExperimentManifest.Load(path));
+                Assert.Equal("Experiment limits are invalid.", exception.Message);
+            });
+
+        WithManifestCopy(
+            original.Replace(
+                "\"runner_timeout_ms\": 120000",
+                "\"runner_timeout_ms\": 91000",
+                StringComparison.Ordinal),
+            path =>
+            {
+                var exception = Assert.Throws<InvalidDataException>(
+                    () => EvaluationExperimentManifest.Load(path));
+                Assert.Equal("Experiment limits are invalid.", exception.Message);
             });
     }
 
@@ -164,16 +235,22 @@ public sealed class EvaluationExperimentManifestTests
         Assert.Equal("validated", validated.Status);
         Assert.Empty(validated.FailureCodes);
 
-        var drifted = Result(
-            [
-                GatewayCall(
+        var driftedCall = GatewayCall(
                     1,
                     "directive-inference",
                     1,
                     "other",
                     "other-model",
                     61_000,
-                    4_096),
+                    4_096) with
+                {
+                    ExecutionLimitsVersion = 2,
+                    ExecutionBudgetMilliseconds = 91_000,
+                    PerCallTimeoutMilliseconds = 61_000,
+                };
+        var drifted = Result(
+            [
+                driftedCall,
                 GatewayCall(
                     2,
                     "outcome-verification",
@@ -189,9 +266,12 @@ public sealed class EvaluationExperimentManifestTests
         Assert.Equal("invalid", invalid.Status);
         Assert.Equal(
             [
+                "execution-budget-drift",
+                "execution-limits-version-drift",
                 "max-output-tokens-drift",
                 "model-drift",
                 "outcome-mode-drift",
+                "per-call-timeout-drift",
                 "provider-drift",
                 "provider-timeout-drift",
                 "provider-timeout-expanded",
@@ -426,7 +506,7 @@ public sealed class EvaluationExperimentManifestTests
             var environmentPath = Path.Combine(outputDirectory, "compose.env");
             var configurationPath = Path.Combine(
                 outputDirectory,
-                "effective-configuration.v1.json");
+                "effective-configuration.v2.json");
             Assert.True(File.Exists(environmentPath));
             Assert.True(File.Exists(configurationPath));
             using var document = JsonDocument.Parse(
@@ -464,6 +544,14 @@ public sealed class EvaluationExperimentManifestTests
             StringComparison.Ordinal);
         Assert.Contains(
             "HIVE_EXPERIMENT_VERIFIER_TIMEOUT",
+            compose,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE_EXPERIMENT_EXECUTION_TIMEOUT",
+            compose,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "HIVE_EXPERIMENT_PER_CALL_TIMEOUT",
             compose,
             StringComparison.Ordinal);
         Assert.Contains("read_only: true", compose, StringComparison.Ordinal);
@@ -587,7 +675,10 @@ public sealed class EvaluationExperimentManifestTests
             0.25m,
             2m,
             RequestTimeoutMilliseconds: timeoutMilliseconds,
-            MaxOutputTokens: maxOutputTokens);
+            MaxOutputTokens: maxOutputTokens,
+            ExecutionLimitsVersion: 1,
+            ExecutionBudgetMilliseconds: 90_000,
+            PerCallTimeoutMilliseconds: 60_000);
 
     private static void WithManifestCopy(string contents, Action<string> assertion)
     {
@@ -671,7 +762,7 @@ public sealed class EvaluationExperimentManifestTests
 
         public EvaluationExperimentManifest Manifest { get; }
 
-        public static CurrentManifestFixture Create()
+        public static CurrentManifestFixture Create(string? sourceManifestPath = null)
         {
             var directory = Path.Combine(
                 RepositoryRoot,
@@ -679,7 +770,10 @@ public sealed class EvaluationExperimentManifestTests
                 "evaluation-tests",
                 Guid.NewGuid().ToString("N"));
             var path = Path.Combine(directory, "experiment.v1.json");
-            CurrentExperimentManifest.Write(ManifestPath, path, RepositoryRoot);
+            CurrentExperimentManifest.Write(
+                sourceManifestPath ?? ManifestPath,
+                path,
+                RepositoryRoot);
             return new CurrentManifestFixture(
                 directory,
                 EvaluationExperimentManifest.Load(path));
@@ -695,6 +789,13 @@ public sealed class EvaluationExperimentManifestTests
     }
 
     private static string ManifestPath => Path.Combine(
+        RepositoryRoot,
+        "config",
+        "experiments",
+        "bug-triage-lab-v2",
+        "experiment.v1.json");
+
+    private static string HistoricalManifestPath => Path.Combine(
         RepositoryRoot,
         "config",
         "experiments",

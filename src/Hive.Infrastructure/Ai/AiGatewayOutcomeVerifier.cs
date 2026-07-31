@@ -114,7 +114,7 @@ public sealed class AiGatewayOutcomeVerifier : IOutcomeVerifier
         var maxOutputTokens = Math.Min(
             verifierMaxOutputTokens,
             gatewayConfiguration?.Parameters.MaxOutputTokens ?? verifierMaxOutputTokens);
-        var timeout = gatewayConfiguration?.Timeout is { } configuredTimeout &&
+        var timeout = gatewayConfiguration?.PerCallTimeout is { } configuredTimeout &&
             configuredTimeout < request.Context.Timeout
                 ? configuredTimeout
                 : request.Context.Timeout;
@@ -143,21 +143,55 @@ public sealed class AiGatewayOutcomeVerifier : IOutcomeVerifier
             // verifier is constrained by its closed schema and prompt; leave sampling at the
             // provider/model default instead of making the call configuration-invalid.
             modelParameters: new AiModelParameters(temperature: null, maxOutputTokens),
-            metadata: new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["directive_id"] = request.Context.DirectiveId.ToString(),
-                ["iteration"] = request.Facts.IterationCount.ToString(
-                    System.Globalization.CultureInfo.InvariantCulture),
-                ["hive.operation"] = "outcome-verification",
-                ["hive.contract-version"] = request.ContractVersion.ToString(
-                    System.Globalization.CultureInfo.InvariantCulture),
-                ["hive.policy-fingerprint"] = request.Policy.Fingerprint,
-            },
+            metadata: Metadata(request),
             provider: gatewayConfiguration?.Primary,
             processingMode: gatewayConfiguration?.ProcessingMode,
             timeout,
             policy,
             outputConstraint: OutcomeVerifierConstraint.OutputConstraint);
+    }
+
+    private static IReadOnlyDictionary<string, string> Metadata(
+        OutcomeVerificationRequest request)
+    {
+        var metadata = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["directive_id"] = request.Context.DirectiveId.ToString(),
+            ["iteration"] = request.Facts.IterationCount.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["hive.operation"] = "outcome-verification",
+            ["hive.contract-version"] = request.ContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["hive.policy-fingerprint"] = request.Policy.Fingerprint,
+        };
+        if (request.Context.ExecutionLimitsVersion is { } version)
+        {
+            metadata["hive.execution-limits-version"] = version.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        AddTimeoutMetadata(
+            metadata,
+            "hive.execution-budget-ms",
+            request.Context.ExecutionBudget);
+        AddTimeoutMetadata(
+            metadata,
+            "hive.per-call-timeout-ms",
+            request.Context.PerCallTimeout);
+        return metadata;
+    }
+
+    private static void AddTimeoutMetadata(
+        IDictionary<string, string> metadata,
+        string key,
+        TimeSpan? timeout)
+    {
+        if (timeout is { } value)
+        {
+            metadata[key] = value.TotalMilliseconds.ToString(
+                "R",
+                System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     private static object CreatePayload(OutcomeVerificationRequest request) => new

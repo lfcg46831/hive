@@ -92,7 +92,10 @@ public sealed record EvaluationGatewayCall(
     [property: JsonPropertyName("finish_reason")] string? FinishReason = null,
     [property: JsonPropertyName("provider_status_code")] int? ProviderStatusCode = null,
     [property: JsonPropertyName("request_timeout_ms")] double? RequestTimeoutMilliseconds = null,
-    [property: JsonPropertyName("max_output_tokens")] int? MaxOutputTokens = null);
+    [property: JsonPropertyName("max_output_tokens")] int? MaxOutputTokens = null,
+    [property: JsonPropertyName("execution_limits_version")] int? ExecutionLimitsVersion = null,
+    [property: JsonPropertyName("execution_budget_ms")] double? ExecutionBudgetMilliseconds = null,
+    [property: JsonPropertyName("per_call_timeout_ms")] double? PerCallTimeoutMilliseconds = null);
 
 public sealed record EvaluationOutcomeResolution(
     [property: JsonPropertyName("mode")] string Mode,

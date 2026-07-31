@@ -20,7 +20,9 @@ public sealed record AiConfiguration
         IReadOnlyList<AiFallbackConfiguration>? fallback = null,
         BudgetConfiguration? budget = null,
         string? timeout = null,
-        int? maxIterations = null)
+        int? maxIterations = null,
+        int? limitsVersion = null,
+        string? executionTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(model);
@@ -33,6 +35,8 @@ public sealed record AiConfiguration
         Processing = processing;
         BatchWindow = batchWindow;
         Timeout = timeout;
+        LimitsVersion = limitsVersion;
+        ExecutionTimeout = executionTimeout;
         Fallback = fallback ?? Array.Empty<AiFallbackConfiguration>();
         Budget = budget;
     }
@@ -58,8 +62,17 @@ public sealed record AiConfiguration
     /// <summary>The optional batch window descriptor, relevant for batch processing.</summary>
     public string? BatchWindow { get; }
 
-    /// <summary>The optional per-call timeout descriptor declared for the gateway.</summary>
+    /// <summary>The optional maximum per-call timeout descriptor declared for the gateway.</summary>
     public string? Timeout { get; }
+
+    /// <summary>
+    /// The optional execution-limits contract version. Absence preserves the legacy shared-timeout
+    /// interpretation; version 1 requires a separate <see cref="ExecutionTimeout"/>.
+    /// </summary>
+    public int? LimitsVersion { get; }
+
+    /// <summary>The optional end-to-end timeout descriptor for one directive execution.</summary>
+    public string? ExecutionTimeout { get; }
 
     /// <summary>The ordered fallback chain tried when the primary provider fails; empty when none.</summary>
     public IReadOnlyList<AiFallbackConfiguration> Fallback { get; }

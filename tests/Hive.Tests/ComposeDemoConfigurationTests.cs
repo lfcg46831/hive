@@ -152,10 +152,22 @@ public sealed class ComposeDemoConfigurationTests
             "experiments",
             "hybrid-outcome-resolution-reliability-v1",
             "organization.yaml"));
+        var bug005Organization = File.ReadAllText(Path.Combine(
+            RepositoryRoot,
+            "config",
+            "experiments",
+            "bug-triage-lab-v2",
+            "organization.yaml"));
 
         Assert.Contains("max_tokens: 4096", timeout60Organization, StringComparison.Ordinal);
         Assert.Contains("timeout: PT60S", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.DoesNotContain("limits_version:", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.DoesNotContain("execution_timeout:", reliabilityOrganization, StringComparison.Ordinal);
         Assert.Contains("max_tokens: 8192", reliabilityOrganization, StringComparison.Ordinal);
+        Assert.Contains("limits_version: 1", bug005Organization, StringComparison.Ordinal);
+        Assert.Contains("timeout: PT60S", bug005Organization, StringComparison.Ordinal);
+        Assert.Contains("execution_timeout: PT90S", bug005Organization, StringComparison.Ordinal);
+        Assert.Contains("max_tokens: 8192", bug005Organization, StringComparison.Ordinal);
         Assert.Contains(
             "./config/experiments/hybrid-outcome-resolution-reliability-v1/organization.yaml",
             reliabilityProfile,

@@ -60,7 +60,9 @@ public sealed class OrganizationConfigurationParserTests
                 temperature: 0.7
                 max_tokens: 4096
                 max_iterations: 4
+                limits_version: 1
                 timeout: PT30S
+                execution_timeout: PT90S
                 processing: interactive
                 batch_window: null
                 fallback:

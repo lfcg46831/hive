@@ -10,6 +10,9 @@ public sealed class JourneyAuditAiGatewayPublisher :
     IAiGatewayDetailedAuditPublisher
 {
     private const string DirectiveIdMetadataKey = "directive_id";
+    private const string ExecutionLimitsVersionMetadataKey = "hive.execution-limits-version";
+    private const string ExecutionBudgetMetadataKey = "hive.execution-budget-ms";
+    private const string PerCallTimeoutMetadataKey = "hive.per-call-timeout-ms";
 
     private readonly IJourneyAuditLog _auditLog;
 
@@ -103,6 +106,8 @@ public sealed class JourneyAuditAiGatewayPublisher :
                 maxOutputTokens.ToString(CultureInfo.InvariantCulture);
         }
 
+        AddExecutionLimitsPayload(payload, envelope.Request.Metadata);
+
         var finishReason =
             envelope.Response?.FinishReason ??
             envelope.Error?.Diagnostics?.FinishReason;
@@ -169,6 +174,26 @@ public sealed class JourneyAuditAiGatewayPublisher :
                 maxOutputTokens.ToString(CultureInfo.InvariantCulture);
         }
 
+        if (@event.ExecutionLimitsVersion is { } executionLimitsVersion)
+        {
+            payload["executionLimitsVersion"] = executionLimitsVersion.ToString(
+                CultureInfo.InvariantCulture);
+        }
+
+        if (@event.ExecutionBudget is { } executionBudget)
+        {
+            payload["executionBudgetMilliseconds"] = executionBudget.TotalMilliseconds.ToString(
+                "R",
+                CultureInfo.InvariantCulture);
+        }
+
+        if (@event.PerCallTimeout is { } perCallTimeout)
+        {
+            payload["perCallTimeoutMilliseconds"] = perCallTimeout.TotalMilliseconds.ToString(
+                "R",
+                CultureInfo.InvariantCulture);
+        }
+
         if (@event.OutputConstraintMode is { } outputConstraintMode)
         {
             payload["outputConstraintMode"] =
@@ -204,6 +229,26 @@ public sealed class JourneyAuditAiGatewayPublisher :
                 ? parsed
                 : (int?)null;
         AddGatewayCallIdentity(payload, operation, iteration);
+    }
+
+    private static void AddExecutionLimitsPayload(
+        IDictionary<string, string> payload,
+        IReadOnlyDictionary<string, string> metadata)
+    {
+        if (metadata.TryGetValue(ExecutionLimitsVersionMetadataKey, out var version))
+        {
+            payload["executionLimitsVersion"] = version;
+        }
+
+        if (metadata.TryGetValue(ExecutionBudgetMetadataKey, out var executionBudget))
+        {
+            payload["executionBudgetMilliseconds"] = executionBudget;
+        }
+
+        if (metadata.TryGetValue(PerCallTimeoutMetadataKey, out var perCallTimeout))
+        {
+            payload["perCallTimeoutMilliseconds"] = perCallTimeout;
+        }
     }
 
     private static void AddGatewayCallIdentity(

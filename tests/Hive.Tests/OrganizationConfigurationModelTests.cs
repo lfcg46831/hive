@@ -85,7 +85,9 @@ public sealed class OrganizationConfigurationModelTests
         Assert.Equal(0.7, ai.Temperature);
         Assert.Equal(4096, ai.MaxTokens);
         Assert.Equal(4, ai.MaxIterations);
+        Assert.Equal(1, ai.LimitsVersion);
         Assert.Equal("PT30S", ai.Timeout);
+        Assert.Equal("PT90S", ai.ExecutionTimeout);
         Assert.Equal("interactive", ai.Processing);
         Assert.Collection(
             ai.Fallback,
@@ -261,7 +263,9 @@ public sealed class OrganizationConfigurationModelTests
                     temperature: 0.7,
                     maxTokens: 4096,
                     maxIterations: 4,
+                    limitsVersion: 1,
                     timeout: "PT30S",
+                    executionTimeout: "PT90S",
                     processing: "interactive",
                     fallback: [new AiFallbackConfiguration("openai", "gpt-4.1")],
                     budget: new BudgetConfiguration(

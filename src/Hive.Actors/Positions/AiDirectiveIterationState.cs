@@ -258,9 +258,20 @@ internal sealed record AiDirectiveIterationState
     {
         ArgumentNullException.ThrowIfNull(context);
 
-        var deadline = context.Limits.Timeout is { } timeout
+        var executionDeadline = context.Limits.ExecutionTimeout is { } timeout
             ? startedAt.Add(timeout)
             : (DateTimeOffset?)null;
+        var deadline = context.Limits.LimitsVersion ==
+            AiPositionRuntimeConfiguration.CurrentLimitsVersion
+                ? (executionDeadline, context.Directive.Deadline) switch
+                {
+                    ({ } execution, { } directive) =>
+                        execution <= directive ? execution : directive,
+                    ({ } execution, null) => execution,
+                    (null, { } directive) => directive,
+                    _ => (DateTimeOffset?)null,
+                }
+                : executionDeadline;
 
         return new AiDirectiveIterationState(
             context.CorrelationId,

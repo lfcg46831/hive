@@ -133,6 +133,32 @@ public sealed class ExecutionBudgetTests
     }
 
     [Fact]
+    public void One_two_and_three_calls_share_end_to_end_budget_without_reusing_per_call_timeout()
+    {
+        var budget = ExecutionBudget.Start(
+            "directive:multi-call-test",
+            StartedAt,
+            configuredTimeout: TimeSpan.FromSeconds(90),
+            maxIterations: 3);
+        var perCall = TimeSpan.FromSeconds(40);
+
+        Assert.True(budget.TryGetEffectiveTimeout(perCall, StartedAt, out var first));
+        Assert.True(budget.TryGetEffectiveTimeout(
+            perCall,
+            StartedAt.AddSeconds(35),
+            out var second));
+        Assert.True(budget.TryGetEffectiveTimeout(
+            perCall,
+            StartedAt.AddSeconds(70),
+            out var third));
+
+        Assert.Equal(TimeSpan.FromSeconds(40), first);
+        Assert.Equal(TimeSpan.FromSeconds(40), second);
+        Assert.Equal(TimeSpan.FromSeconds(20), third);
+        Assert.Equal(StartedAt.AddSeconds(90), budget.DeadlineUtc);
+    }
+
+    [Fact]
     public void Cost_availability_can_only_be_narrowed()
     {
         var budget = ExecutionBudget.Start("directive:cost-lineage", StartedAt);

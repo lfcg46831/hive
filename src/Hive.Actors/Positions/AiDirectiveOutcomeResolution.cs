@@ -290,7 +290,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
         try
         {
             var verificationRequest = new OutcomeVerificationRequest(
-                CreateVerificationContext(context),
+                CreateVerificationContext(context, iteration),
                 facts,
                 directive,
                 proposal,
@@ -631,7 +631,7 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
             iteration.CurrentIteration,
             retryCount: gatewayResponse.Error?.IsRetryable == true ? 1 : 0,
             _clock(),
-            context.Directive.Deadline ?? iteration.Deadline,
+            Earliest(context.Directive.Deadline, iteration.Deadline),
             hasAvailableBudget:
                 hasAvailableBudget &&
                 gatewayResponse.Error?.Code != AiGatewayErrorCode.BudgetInsufficient,
@@ -657,9 +657,10 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
     }
 
     private OutcomeVerificationContext CreateVerificationContext(
-        AiDirectiveExecutionContext context)
+        AiDirectiveExecutionContext context,
+        AiDirectiveIterationState iteration)
     {
-        var timeout = EffectiveVerifierTimeout(context);
+        var timeout = EffectiveVerifierTimeout(context, iteration);
         return new OutcomeVerificationContext(
             context.OrganizationId,
             context.PositionId,
@@ -667,18 +668,23 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
             context.Directive.MessageId,
             context.Directive.DirectiveId,
             timeout,
-            AiDirectiveOutcomeEvidenceContext.CreateVerificationEntries(context));
+            AiDirectiveOutcomeEvidenceContext.CreateVerificationEntries(context),
+            context.Limits.LimitsVersion,
+            context.Limits.ExecutionTimeout,
+            context.Limits.PerCallTimeout);
     }
 
-    private TimeSpan EffectiveVerifierTimeout(AiDirectiveExecutionContext context)
+    private TimeSpan EffectiveVerifierTimeout(
+        AiDirectiveExecutionContext context,
+        AiDirectiveIterationState iteration)
     {
         var timeout = _verifierTimeout;
-        if (context.Limits.Timeout is { } positionTimeout && positionTimeout < timeout)
+        if (context.Limits.PerCallTimeout is { } positionTimeout && positionTimeout < timeout)
         {
             timeout = positionTimeout;
         }
 
-        if (context.Directive.Deadline is { } deadline)
+        if (Earliest(context.Directive.Deadline, iteration.Deadline) is { } deadline)
         {
             var remaining = deadline - _clock();
             if (remaining <= TimeSpan.Zero)
@@ -694,6 +700,17 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
 
         return timeout;
     }
+
+    private static DateTimeOffset? Earliest(
+        DateTimeOffset? first,
+        DateTimeOffset? second) =>
+        (first, second) switch
+        {
+            ({ } left, { } right) => left <= right ? left : right,
+            ({ } left, null) => left,
+            (null, { } right) => right,
+            _ => null,
+        };
 
     private static OutcomeVerificationArtifact? CreateVerificationArtifact(
         AiDirectiveResultMessage proposedMessage)

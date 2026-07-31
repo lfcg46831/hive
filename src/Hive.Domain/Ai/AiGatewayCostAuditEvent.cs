@@ -7,6 +7,9 @@ public sealed record AiGatewayCostAuditEvent
     private const string DirectiveIdMetadataKey = "directive_id";
     private const string OperationMetadataKey = "hive.operation";
     private const string IterationMetadataKey = "iteration";
+    private const string ExecutionLimitsVersionMetadataKey = "hive.execution-limits-version";
+    private const string ExecutionBudgetMetadataKey = "hive.execution-budget-ms";
+    private const string PerCallTimeoutMetadataKey = "hive.per-call-timeout-ms";
 
     public AiGatewayCostAuditEvent(
         OrganizationId organizationId,
@@ -29,7 +32,10 @@ public sealed record AiGatewayCostAuditEvent
         AiFinishReason? finishReason = null,
         int? providerStatusCode = null,
         TimeSpan? requestTimeout = null,
-        int? maxOutputTokens = null)
+        int? maxOutputTokens = null,
+        int? executionLimitsVersion = null,
+        TimeSpan? executionBudget = null,
+        TimeSpan? perCallTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
@@ -116,6 +122,30 @@ public sealed record AiGatewayCostAuditEvent
                 "AI gateway audit max output tokens must be greater than zero.");
         }
 
+        if (executionLimitsVersion is < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(executionLimitsVersion),
+                executionLimitsVersion,
+                "AI gateway audit execution limits version cannot be negative.");
+        }
+
+        if (executionBudget is { } budget && budget <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(executionBudget),
+                executionBudget,
+                "AI gateway audit execution budget must be greater than zero.");
+        }
+
+        if (perCallTimeout is { } perCall && perCall <= TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(perCallTimeout),
+                perCallTimeout,
+                "AI gateway audit per-call timeout must be greater than zero.");
+        }
+
         OrganizationId = organizationId;
         PositionId = positionId;
         ThreadId = threadId;
@@ -144,6 +174,9 @@ public sealed record AiGatewayCostAuditEvent
         ProviderStatusCode = providerStatusCode;
         RequestTimeout = requestTimeout;
         MaxOutputTokens = maxOutputTokens;
+        ExecutionLimitsVersion = executionLimitsVersion;
+        ExecutionBudget = executionBudget;
+        PerCallTimeout = perCallTimeout;
         OutputConstraintMode = outputConstraintMode is null
             ? null
             : AiOutputConstraintModeContract.RequireDefined(
@@ -195,6 +228,12 @@ public sealed record AiGatewayCostAuditEvent
 
     public int? MaxOutputTokens { get; }
 
+    public int? ExecutionLimitsVersion { get; }
+
+    public TimeSpan? ExecutionBudget { get; }
+
+    public TimeSpan? PerCallTimeout { get; }
+
     public AiOutputConstraintMode? OutputConstraintMode { get; }
 
     public static AiGatewayCostAuditEvent FromResponse(
@@ -226,7 +265,10 @@ public sealed record AiGatewayCostAuditEvent
                 iteration: IterationFrom(request),
                 finishReason: response.FinishReason,
                 requestTimeout: request.Timeout,
-                maxOutputTokens: request.ModelParameters.MaxOutputTokens);
+                maxOutputTokens: request.ModelParameters.MaxOutputTokens,
+                executionLimitsVersion: ExecutionLimitsVersionFrom(request),
+                executionBudget: TimeoutFromMetadata(request, ExecutionBudgetMetadataKey),
+                perCallTimeout: TimeoutFromMetadata(request, PerCallTimeoutMetadataKey));
         }
 
         var error = response.Error!;
@@ -252,7 +294,10 @@ public sealed record AiGatewayCostAuditEvent
             finishReason: diagnostics?.FinishReason,
             providerStatusCode: diagnostics?.ProviderStatusCode,
             requestTimeout: request.Timeout,
-            maxOutputTokens: request.ModelParameters.MaxOutputTokens);
+            maxOutputTokens: request.ModelParameters.MaxOutputTokens,
+            executionLimitsVersion: ExecutionLimitsVersionFrom(request),
+            executionBudget: TimeoutFromMetadata(request, ExecutionBudgetMetadataKey),
+            perCallTimeout: TimeoutFromMetadata(request, PerCallTimeoutMetadataKey));
     }
 
     private static DirectiveId? DirectiveIdFrom(AiGatewayRequest request)
@@ -282,5 +327,30 @@ public sealed record AiGatewayCostAuditEvent
             out var parsed) &&
         parsed > 0
             ? parsed
+            : null;
+
+    private static int? ExecutionLimitsVersionFrom(AiGatewayRequest request) =>
+        request.Metadata.TryGetValue(ExecutionLimitsVersionMetadataKey, out var value) &&
+        int.TryParse(
+            value,
+            System.Globalization.NumberStyles.None,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var parsed) &&
+        parsed >= 0
+            ? parsed
+            : null;
+
+    private static TimeSpan? TimeoutFromMetadata(
+        AiGatewayRequest request,
+        string key) =>
+        request.Metadata.TryGetValue(key, out var value) &&
+        double.TryParse(
+            value,
+            System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture,
+            out var milliseconds) &&
+        double.IsFinite(milliseconds) &&
+        milliseconds > 0
+            ? TimeSpan.FromMilliseconds(milliseconds)
             : null;
 }

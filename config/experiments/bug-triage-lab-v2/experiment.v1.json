@@ -1,0 +1,198 @@
+{
+  "contract_name": "hive.evaluation-experiment",
+  "manifest_version": 1,
+  "experiment_id": "bug-triage-lab-v2",
+  "status": "prepared",
+  "organization": {
+    "organization_id": "acme-delivery",
+    "source_position_id": "delivery-lead",
+    "position_id": "bug-triage",
+    "configuration": {
+      "path": "config/experiments/bug-triage-lab-v2/organization.yaml",
+      "sha256": "e15a9c9dfc0e063b5779804dadf6e734cdf339d3a29c2343f9b857febd2c85e9"
+    }
+  },
+  "directive": {
+    "objective": "Triage the submitted production issue and report severity, missing information, and next action.",
+    "completion_criteria": [
+      "Severity and user impact are classified from the provided facts.",
+      "Missing information is called out explicitly when the context is incomplete.",
+      "The next action is returned as a report or escalated when it is outside the position authority."
+    ]
+  },
+  "model": {
+    "provider_id": "openai",
+    "model_id": "gpt-5-mini-2025-08-07",
+    "output_constraint_mode": "json-schema"
+  },
+  "limits": {
+    "limits_version": 1,
+    "provider_timeout_ms": 60000,
+    "execution_timeout_ms": 90000,
+    "max_output_tokens": 8192,
+    "max_iterations": 4,
+    "verifier_timeout_ms": 30000,
+    "runner_timeout_ms": 120000,
+    "poll_interval_ms": 1000
+  },
+  "policy": {
+    "outcome_mode": "enforcement"
+  },
+  "evaluation": {
+    "corpus": {
+      "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-corpus.v1.json",
+      "sha256": "329c133848897503227b460fbd5beec3550149bc8c51e8a0dfb6dc138d5580f7"
+    },
+    "rubric": {
+      "path": "config/organizations/acme-delivery/examples/evaluation/bug-triage-rubric.v1.json",
+      "sha256": "7e046acb0e4d8ee51e881646ba7fa0881e8dbebf43d4e51273a7d2cf3d907d43"
+    }
+  },
+  "reproducibility": [
+    {
+      "role": "business-prompt",
+      "path": "config/organizations/acme-delivery/prompts/triage-v2.md",
+      "sha256": "7e96f79b53b05da339eceb6423986f85befefdf16427ececb543526ca203e0f7"
+    },
+    {
+      "role": "experiment-compose",
+      "path": "docker-compose.experiment.yml",
+      "sha256": "37607ac93a0afeb561fbb2d8826d64543cf92c71e78876cee260c30041198db6"
+    },
+    {
+      "role": "evaluation-tooling",
+      "path": "src/Hive.Evaluation.Tooling/Hive.Evaluation.Tooling.csproj",
+      "sha256": "a9889c9c7015f4c3359e7f93661de39d9bfa9ba3b7c1cf81fbab491c394eb138"
+    },
+    {
+      "role": "evaluation-runner",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunner.cs",
+      "sha256": "8b9473bf4c8d8410b9d419c7819fb0b62a1687e109fd2255b3e56680d3680e25"
+    },
+    {
+      "role": "experiment-manifest-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentManifest.cs",
+      "sha256": "969af5736cd2f0f9cae5cdb092dbffe18dea450e72cac8234fa01b4ee7cae2b1"
+    },
+    {
+      "role": "runtime-ai-limits",
+      "path": "src/Hive.Domain/Ai/AiPositionRuntimeConfiguration.cs",
+      "sha256": "4416cc1e358433dad63bf072f1cbe5aee7b10cebbf1f6f369c65c8f27dfe1caf"
+    },
+    {
+      "role": "organization-config-parser",
+      "path": "src/Hive.Infrastructure/Organization/Configuration/OrganizationConfigurationParser.cs",
+      "sha256": "933842bcc6873ac9d139c6683cf353ab8d385d98a1b42ae941812b7224361c21"
+    },
+    {
+      "role": "directive-execution-budget",
+      "path": "src/Hive.Application/Directives/ExecutionBudget.cs",
+      "sha256": "0c84a542a7672259d012889d1aa216132f9a45001fdfc51632408affe697f35a"
+    },
+    {
+      "role": "directive-execution-coordinator",
+      "path": "src/Hive.Actors/Positions/AiDirectiveExecutionCoordinator.cs",
+      "sha256": "ee9e5ae252fc16955413e97f92d73543eeb678a9a48eadf94aedf188041ebf0c"
+    },
+    {
+      "role": "directive-iteration-state",
+      "path": "src/Hive.Actors/Positions/AiDirectiveIterationState.cs",
+      "sha256": "ca59919311cdd1db8b869f30591002ce13f1088c3bfed8cecf857b428aaabe7f"
+    },
+    {
+      "role": "directive-iteration-executor",
+      "path": "src/Hive.Actors/Positions/AiDirectiveIterationExecutor.cs",
+      "sha256": "d55ae6b0cbf4e03a9ede4c8889e732ead246bbfd80e166ed3248f0a748cf6636"
+    },
+    {
+      "role": "directive-outcome-resolution",
+      "path": "src/Hive.Actors/Positions/AiDirectiveOutcomeResolution.cs",
+      "sha256": "912e5e9209af40c6b4b8a7c12c54fc1471788faaea56eb669e79073bb5ae07be"
+    },
+    {
+      "role": "outcome-verifier",
+      "path": "src/Hive.Infrastructure/Ai/AiGatewayOutcomeVerifier.cs",
+      "sha256": "3291d4f18a6cee1055164e98fc462e44eb895693aec1259e0ba1a9a9a3984de8"
+    },
+    {
+      "role": "gateway-audit-publisher",
+      "path": "src/Hive.Infrastructure/Auditing/JourneyAuditAiGatewayPublisher.cs",
+      "sha256": "1334576bcfa111c9717d9f130f30bb853cd8e565283c0e124e1b1598ddce1fa2"
+    },
+    {
+      "role": "organization-snapshot-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationOrganizationSnapshotReader.cs",
+      "sha256": "2e985e73fb257bfce212c8b6dc0ad610e83736a4f6d764cbbb32a038bdd7896a"
+    },
+    {
+      "role": "tooling-entry-point",
+      "path": "src/Hive.Evaluation.Tooling/Program.cs",
+      "sha256": "bd90199d2d8900596dc6580697db8365142aeb4fe313c590a8cc063d40a67e34"
+    },
+    {
+      "role": "artifact-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactCommand.cs",
+      "sha256": "8119e01483da7187c7b11c30bd6a11f3ca52855529cb4b8bae1d040cf1050569"
+    },
+    {
+      "role": "artifact-index-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactIndex.cs",
+      "sha256": "0634bd1833f5fadcb1dd1ddf529f857211ee2ecbe168bead46cdf4013d211406"
+    },
+    {
+      "role": "artifact-publisher",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationArtifactPublisher.cs",
+      "sha256": "0d7b815d3e83bbe18a57f23801e85213c570a8f280aaeb59af1e8726109e2497"
+    },
+    {
+      "role": "experiment-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentCommand.cs",
+      "sha256": "2d32ccd2c21226d50d8c6f2f9139da9c870015e090b437449aabb5241095132a"
+    },
+    {
+      "role": "experiment-validation",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationExperimentValidation.cs",
+      "sha256": "dbb92853e8a7265b697f82215ce589761b704b8c010db482a1b6fec567958ff8"
+    },
+    {
+      "role": "evaluation-command",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationCommand.cs",
+      "sha256": "b471648c3093aa7ad8a25085e865592b6078f57b454ab5f30364757385ebe3f0"
+    },
+    {
+      "role": "evaluation-options",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunOptions.cs",
+      "sha256": "a20ee3253b4c31fcd60dd4e5b167f87af783632e5c306ddc373aec7e0ce6b55a"
+    },
+    {
+      "role": "evaluation-directive",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationDirectiveSubmission.cs",
+      "sha256": "718087ba460464a6b940d9f0d8428821045e6a3d153e40418d600fc002ea4607"
+    },
+    {
+      "role": "evaluation-dataset",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationDataset.cs",
+      "sha256": "5b2bebdd42024fa2b3beea9f83322474671374f4da5ff6e42a3f31fd92717982"
+    },
+    {
+      "role": "evaluation-audit-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationAuditReader.cs",
+      "sha256": "81b41261fb2d8d68ecb17217c56e440ed9e96502572e76f6de6b8fe8e0f8920f"
+    },
+    {
+      "role": "evaluation-projection-reader",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationProjectionReader.cs",
+      "sha256": "ffbe2e1ca8b1e85b4bd5445bc9f951991229e0ac079c3814146c25cf53794b25"
+    },
+    {
+      "role": "evaluation-corpus-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationCorpus.cs",
+      "sha256": "57280da556488f5e73db12e9668409ea262833115d578958e1eb8258a520fda8"
+    },
+    {
+      "role": "evaluation-rubric-code",
+      "path": "src/Hive.Evaluation.Tooling/Evaluation/EvaluationRubric.cs",
+      "sha256": "7c804fa128dc1a629e700b262864eff50a1c8e7e7005c3c3085c7fd097916860"
+    }
+  ]
+}

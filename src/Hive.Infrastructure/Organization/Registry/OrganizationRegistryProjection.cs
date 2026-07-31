@@ -235,7 +235,9 @@ internal sealed class OrganizationRegistryProjection
             ReadOnly(ai.Fallback.Select(item => new AiFallbackConfiguration(item.Provider, item.Model))),
             budget,
             ai.Timeout,
-            ai.MaxIterations);
+            ai.MaxIterations,
+            ai.LimitsVersion,
+            ai.ExecutionTimeout);
     }
 
     private static Hive.Domain.Outcomes.OutcomePolicyOverlay? Clone(

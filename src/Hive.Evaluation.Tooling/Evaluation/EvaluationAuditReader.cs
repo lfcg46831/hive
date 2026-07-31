@@ -172,7 +172,10 @@ internal static class EvaluationJourneyProjector
             PayloadValue(row.Payload, "finishReason"),
             PayloadInt(row.Payload, "providerStatusCode"),
             PayloadDouble(row.Payload, "requestTimeoutMilliseconds"),
-            PayloadInt(row.Payload, "maxOutputTokens"));
+            PayloadInt(row.Payload, "maxOutputTokens"),
+            PayloadInt(row.Payload, "executionLimitsVersion"),
+            PayloadDouble(row.Payload, "executionBudgetMilliseconds"),
+            PayloadDouble(row.Payload, "perCallTimeoutMilliseconds"));
 
     private static EvaluationGatewayAggregate AggregateGatewayCalls(
         IReadOnlyList<EvaluationGatewayCall> calls)

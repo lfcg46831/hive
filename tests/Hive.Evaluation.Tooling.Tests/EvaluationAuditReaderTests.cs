@@ -184,7 +184,7 @@ public sealed class EvaluationAuditReaderTests
                 providerId: "openai",
                 modelId: "gpt-test",
                 latencyMilliseconds: 30,
-                payload: "{\"operation\":\"outcome-verification\",\"iteration\":\"1\",\"outputConstraintMode\":\"json-schema\",\"costStatus\":\"cost-unavailable\",\"finishReason\":\"Length\",\"providerStatusCode\":\"400\",\"requestTimeoutMilliseconds\":\"60000\",\"maxOutputTokens\":\"2048\"}"),
+                payload: "{\"operation\":\"outcome-verification\",\"iteration\":\"1\",\"outputConstraintMode\":\"json-schema\",\"costStatus\":\"cost-unavailable\",\"finishReason\":\"Length\",\"providerStatusCode\":\"400\",\"requestTimeoutMilliseconds\":\"30000\",\"maxOutputTokens\":\"2048\",\"executionLimitsVersion\":\"1\",\"executionBudgetMilliseconds\":\"90000\",\"perCallTimeoutMilliseconds\":\"60000\"}"),
             Row(3, "AgentDecided", "Succeeded", payload: "{\"terminalCode\":\"result-emitted\"}"),
             Row(4, "ResultMessageCreated", "Succeeded", messageType: "Escalation"),
         ]);
@@ -207,8 +207,11 @@ public sealed class EvaluationAuditReaderTests
         Assert.Equal("provider-rejected", calls[1].ReasonCode);
         Assert.Equal("Length", calls[1].FinishReason);
         Assert.Equal(400, calls[1].ProviderStatusCode);
-        Assert.Equal(60_000d, calls[1].RequestTimeoutMilliseconds);
+        Assert.Equal(30_000d, calls[1].RequestTimeoutMilliseconds);
         Assert.Equal(2048, calls[1].MaxOutputTokens);
+        Assert.Equal(1, calls[1].ExecutionLimitsVersion);
+        Assert.Equal(90_000d, calls[1].ExecutionBudgetMilliseconds);
+        Assert.Equal(60_000d, calls[1].PerCallTimeoutMilliseconds);
     }
 
     [Fact]

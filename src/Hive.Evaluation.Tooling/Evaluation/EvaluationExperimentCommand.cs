@@ -31,7 +31,7 @@ public static class EvaluationExperimentCommand
             var environmentPath = Path.Combine(outputDirectory, "compose.env");
             var configurationPath = Path.Combine(
                 outputDirectory,
-                "effective-configuration.v1.json");
+                "effective-configuration.v2.json");
             await File.WriteAllTextAsync(
                     environmentPath,
                     manifest.RenderEnvironmentFile(),

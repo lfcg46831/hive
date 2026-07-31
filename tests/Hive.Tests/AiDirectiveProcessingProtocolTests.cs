@@ -51,7 +51,9 @@ public sealed class AiDirectiveProcessingProtocolTests
                 new AiProviderMetadata("stub", "triage"),
                 new AiModelParameters(maxOutputTokens: 512),
                 timeout: TimeSpan.FromSeconds(20),
-                costLimits: new AiCostLimits(maxCallsPerHour: 12)));
+                costLimits: new AiCostLimits(maxCallsPerHour: 12),
+                limitsVersion: AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                executionTimeout: TimeSpan.FromSeconds(60)));
 
         var request = AiDirectiveProcessingRequest.Create(
             entity,
@@ -76,6 +78,9 @@ public sealed class AiDirectiveProcessingProtocolTests
             "directive:cccccccc000000000000000000000801:message:aaaaaaaa000000000000000000000801",
             request.CorrelationId);
         Assert.Equal(TimeSpan.FromSeconds(20), request.Limits.Timeout);
+        Assert.Equal(TimeSpan.FromSeconds(20), request.Limits.PerCallTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(60), request.Limits.ExecutionTimeout);
+        Assert.Equal(1, request.Limits.LimitsVersion);
         Assert.Equal(512, request.Limits.MaxOutputTokens);
         Assert.Null(request.Limits.MaxIterations);
         Assert.Equal(12, request.Limits.CostLimits!.MaxCallsPerHour);
@@ -197,6 +202,23 @@ public sealed class AiDirectiveProcessingProtocolTests
             timeout,
             maxOutputTokens,
             maxIterations));
+    }
+
+    [Fact]
+    public void Legacy_limits_keep_shared_timeout_while_v1_requires_two_positive_values()
+    {
+        var legacy = new AiDirectiveProcessingLimits(TimeSpan.FromSeconds(15));
+
+        Assert.Equal(AiPositionRuntimeConfiguration.LegacyLimitsVersion, legacy.LimitsVersion);
+        Assert.Equal(TimeSpan.FromSeconds(15), legacy.PerCallTimeout);
+        Assert.Equal(TimeSpan.FromSeconds(15), legacy.ExecutionTimeout);
+        Assert.Throws<ArgumentException>(() => new AiDirectiveProcessingLimits(
+            TimeSpan.FromSeconds(15),
+            limitsVersion: AiPositionRuntimeConfiguration.CurrentLimitsVersion));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new AiDirectiveProcessingLimits(
+            TimeSpan.FromSeconds(15),
+            limitsVersion: AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+            executionTimeout: TimeSpan.Zero));
     }
 
     private static Directive Directive(

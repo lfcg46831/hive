@@ -145,6 +145,11 @@ internal static class EvaluationOrganizationSnapshotReader
                 current.SetMaxIterations(PositiveInt(maxIterations, "max_iterations"));
             }
             else if (indentation == 8 && inAi
+                && TryField(content, "limits_version", out var limitsVersion))
+            {
+                current.SetLimitsVersion(PositiveInt(limitsVersion, "limits_version"));
+            }
+            else if (indentation == 8 && inAi
                 && TryField(content, "timeout", out var timeout))
             {
                 var duration = XmlConvert.ToTimeSpan(timeout);
@@ -156,6 +161,19 @@ internal static class EvaluationOrganizationSnapshotReader
                 }
 
                 current.SetProviderTimeout(milliseconds);
+            }
+            else if (indentation == 8 && inAi
+                && TryField(content, "execution_timeout", out var executionTimeout))
+            {
+                var duration = XmlConvert.ToTimeSpan(executionTimeout);
+                var milliseconds = checked((int)duration.TotalMilliseconds);
+                if (milliseconds <= 0)
+                {
+                    throw new InvalidDataException(
+                        "Experiment organization execution timeout must be positive.");
+                }
+
+                current.SetExecutionTimeout(milliseconds);
             }
         }
 
@@ -299,7 +317,9 @@ internal static class EvaluationOrganizationSnapshotReader
         private string? _model;
         private int? _maxOutputTokens;
         private int? _maxIterations;
+        private int? _limitsVersion;
         private int? _providerTimeoutMilliseconds;
+        private int? _executionTimeoutMilliseconds;
 
         public void SetReportsTo(string value) =>
             EvaluationOrganizationSnapshotReader.SetOnce(
@@ -331,14 +351,41 @@ internal static class EvaluationOrganizationSnapshotReader
         public void SetMaxIterations(int value) =>
             SetOnce(ref _maxIterations, value, "occupant.ai.max_iterations");
 
+        public void SetLimitsVersion(int value) =>
+            SetOnce(ref _limitsVersion, value, "occupant.ai.limits_version");
+
         public void SetProviderTimeout(int value) =>
             SetOnce(
                 ref _providerTimeoutMilliseconds,
                 value,
                 "occupant.ai.timeout");
 
-        public EvaluationPositionSnapshot Build() =>
-            new(
+        public void SetExecutionTimeout(int value) =>
+            SetOnce(
+                ref _executionTimeoutMilliseconds,
+                value,
+                "occupant.ai.execution_timeout");
+
+        public EvaluationPositionSnapshot Build()
+        {
+            if (_limitsVersion is not null and not 1
+                || (_executionTimeoutMilliseconds.HasValue && !_limitsVersion.HasValue)
+                || (_limitsVersion == 1
+                    && (!_providerTimeoutMilliseconds.HasValue
+                        || !_executionTimeoutMilliseconds.HasValue)))
+            {
+                throw new InvalidDataException(
+                    "Experiment organization execution limits are invalid.");
+            }
+
+            var effectiveLimitsVersion = _providerTimeoutMilliseconds.HasValue
+                ? _limitsVersion ?? 0
+                : _limitsVersion;
+            var effectiveExecutionTimeout = _limitsVersion.HasValue
+                ? _executionTimeoutMilliseconds
+                : _providerTimeoutMilliseconds;
+
+            return new(
                 positionId,
                 _reportsTo,
                 _occupantType,
@@ -346,7 +393,10 @@ internal static class EvaluationOrganizationSnapshotReader
                 _model,
                 _maxOutputTokens,
                 _maxIterations,
-                _providerTimeoutMilliseconds);
+                effectiveLimitsVersion,
+                _providerTimeoutMilliseconds,
+                effectiveExecutionTimeout);
+        }
 
         private static void SetOnce<T>(
             ref T? target,
@@ -384,4 +434,6 @@ internal sealed record EvaluationPositionSnapshot(
     string? ModelId,
     int? MaxOutputTokens,
     int? MaxIterations,
-    int? ProviderTimeoutMilliseconds);
+    int? LimitsVersion,
+    int? ProviderTimeoutMilliseconds,
+    int? ExecutionTimeoutMilliseconds);

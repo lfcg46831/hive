@@ -17,8 +17,9 @@ public sealed class AiDirectiveExecutionCoordinatorTests
     public async Task Coordinator_owns_primary_budget_and_returns_ordered_dispatch_effects()
     {
         var request = ProcessingRequest();
+        var invoker = new StaticResponseInvoker(ValidReportOutput());
         var coordinator = new AiDirectiveExecutionCoordinator(
-            new StaticResponseInvoker(ValidReportOutput()),
+            invoker,
             AiDirectiveResultMessageEmissionGate.Instance,
             AllowingAiAgentActionGate.Instance,
             PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
@@ -31,6 +32,8 @@ public sealed class AiDirectiveExecutionCoordinatorTests
             [ExecutionBudgetOperation.PrimaryInference],
             execution.Budget.ConsumedOperations);
         Assert.Equal(1, execution.Budget.ConsumedIterations);
+        Assert.Equal(At.AddSeconds(90), execution.Budget.DeadlineUtc);
+        Assert.Equal(TimeSpan.FromSeconds(30), invoker.Invocation!.Request.Timeout);
         Assert.Collection(
             execution.Result.Effects,
             effect => Assert.IsType<DirectiveAuditExportResultEffect>(effect),
@@ -48,7 +51,45 @@ public sealed class AiDirectiveExecutionCoordinatorTests
         Assert.Equal(request.CorrelationId, publicResult.CorrelationId);
     }
 
-    private static AiDirectiveProcessingRequest ProcessingRequest()
+    [Fact]
+    public async Task Coordinator_caps_first_call_at_shorter_directive_deadline()
+    {
+        var invoker = new StaticResponseInvoker(ValidReportOutput());
+        var coordinator = new AiDirectiveExecutionCoordinator(
+            invoker,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            AllowingAiAgentActionGate.Instance,
+            PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
+            () => At);
+
+        var execution = await coordinator.ExecuteDetailedAsync(
+            ProcessingRequest(At.AddSeconds(10)));
+
+        Assert.Equal(DirectiveExecutionStatus.Completed, execution.Result.Status);
+        Assert.Equal(At.AddSeconds(10), execution.Budget.DeadlineUtc);
+        Assert.Equal(TimeSpan.FromSeconds(10), invoker.Invocation!.Request.Timeout);
+    }
+
+    [Fact]
+    public async Task Coordinator_does_not_start_provider_after_budget_is_exhausted()
+    {
+        var invoker = new StaticResponseInvoker(ValidReportOutput());
+        var coordinator = new AiDirectiveExecutionCoordinator(
+            invoker,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            AllowingAiAgentActionGate.Instance,
+            PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
+            () => At);
+
+        var execution = await coordinator.ExecuteDetailedAsync(ProcessingRequest(At));
+
+        Assert.Equal(DirectiveExecutionStatus.Failed, execution.Result.Status);
+        Assert.Null(invoker.Invocation);
+        Assert.Empty(execution.Budget.ConsumedOperations);
+    }
+
+    private static AiDirectiveProcessingRequest ProcessingRequest(
+        DateTimeOffset? directiveDeadline = null)
     {
         var organization = OrganizationId.From("acme");
         var position = PositionId.From("bug-triage");
@@ -63,7 +104,7 @@ public sealed class AiDirectiveExecutionCoordinatorTests
             Priority.High,
             schemaVersion: 1,
             sentAt: At,
-            deadline: At.AddMinutes(5),
+            deadline: directiveDeadline ?? At.AddMinutes(5),
             DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000815")),
             parentDirectiveId: null,
             objective: "Triage checkout regression",
@@ -84,7 +125,9 @@ public sealed class AiDirectiveExecutionCoordinatorTests
                     new AiProviderMetadata("stub", "triage"),
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: TimeSpan.FromSeconds(30),
-                    maxIterations: 3),
+                    maxIterations: 3,
+                    limitsVersion: AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: TimeSpan.FromSeconds(90)),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",
@@ -113,10 +156,14 @@ public sealed class AiDirectiveExecutionCoordinatorTests
 
     private sealed class StaticResponseInvoker(string output) : IAiAgentGatewayInvoker
     {
+        public AiAgentGatewayInvocation? Invocation { get; private set; }
+
         public Task<AiAgentGatewayInvocationResult> InvokeAsync(
             AiAgentGatewayInvocation invocation,
-            CancellationToken cancellationToken = default) =>
-            Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+            CancellationToken cancellationToken = default)
+        {
+            Invocation = invocation;
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
                 invocation.CorrelationId,
                 AiGatewayResponse.Succeeded(
                     invocation.Request.OrganizationId,
@@ -125,5 +172,6 @@ public sealed class AiDirectiveExecutionCoordinatorTests
                     invocation.Request.MessageId,
                     output,
                     AiFinishReason.Stop)));
+        }
     }
 }

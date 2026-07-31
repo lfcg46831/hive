@@ -430,7 +430,9 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                 ParseProcessing(ai.Processing),
                 ai.Fallback.Select(item => new AiProviderMetadata(item.Provider, item.Model)),
                 ProjectCostLimits(ai.Budget),
-                ai.MaxIterations);
+                ai.MaxIterations,
+                ai.LimitsVersion ?? AiPositionRuntimeConfiguration.LegacyLimitsVersion,
+                ParseTimeout(ai.ExecutionTimeout));
 
             return true;
         }

@@ -79,6 +79,30 @@ public sealed class AiDirectiveInterpretationTests
     }
 
     [Fact]
+    public void Interpret_rejects_progress_that_bypasses_a_single_shot_output_constraint()
+    {
+        var invocation = AiAgentGatewayInvocationResult.FromResponse(
+            "directive:single-shot-progress",
+            AiGatewayResponse.Succeeded(
+                Organization,
+                Position,
+                Thread,
+                Message,
+                """{"schema_version":1,"intent":"Report","report":{"kind":"Progress","body":"Partial."}}""",
+                AiFinishReason.Stop));
+
+        var result = AiDirectiveDecisionInterpreter.Interpret(invocation);
+
+        Assert.Equal(AiDirectiveInterpretationOutcomeKind.EscalationRequired, result.Outcome);
+        var failure = Assert.IsType<AiDirectiveInterpretationFailure>(result.Failure);
+        Assert.Equal("directive-execution-policy-violation", failure.Code);
+        Assert.Contains(
+            failure.ParseErrors,
+            error => error.Code == "invalid-vocabulary" &&
+                error.Path == "decision.report.kind");
+    }
+
+    [Fact]
     public async Task AiAgentActor_stores_accepted_interpretation_and_advances_to_result_emitted()
     {
         var request = Request();

@@ -150,7 +150,8 @@ internal static class AiDirectiveDecisionInterpreter
         AiAgentGatewayInvocationResult invocation,
         IEnumerable<AuthorityKey>? canDecide = null,
         bool requireOutcomeProposal = false,
-        OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null)
+        OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null,
+        bool allowProgressReports = false)
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
@@ -169,6 +170,22 @@ internal static class AiDirectiveDecisionInterpreter
             outcomeProposalEvidenceContext);
         if (parseResult.IsSuccess)
         {
+            if (!allowProgressReports &&
+                (parseResult.Decision is
+                    AiDirectiveReportDecision { Kind: Hive.Domain.Messaging.ReportKind.Progress } ||
+                 parseResult.Proposal?.ProposedIntent == OutcomeProposedIntent.ReportProgress))
+            {
+                return AiDirectiveInterpretationResult.EscalationRequired(
+                    invocation.CorrelationId,
+                    new AiDirectiveInterpretationFailure(
+                        "directive-execution-policy-violation",
+                        "directive-execution-policy-violation: a single-shot directive cannot return a progress report.",
+                        isRetryable: false,
+                        [new AiDirectiveDecisionParseError(
+                            AiDirectiveDecisionParseDiagnosticContract.InvalidVocabularyCode,
+                            $"{AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField}")]));
+            }
+
             return AiDirectiveInterpretationResult.AcceptedDecision(
                 invocation.CorrelationId,
                 parseResult.Decision!,

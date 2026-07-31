@@ -59,6 +59,7 @@ internal static class OrgMessageJsonFormat
         options.Converters.Add(new MessageStateJsonConverter());
         options.Converters.Add(new RejectionReasonJsonConverter());
         options.Converters.Add(new ReportKindJsonConverter());
+        options.Converters.Add(new DirectiveExecutionModeJsonConverter());
 
         // Discriminated union of endpoints (§9.2).
         options.Converters.Add(new EndpointRefJsonConverter());
@@ -115,6 +116,17 @@ internal static class OrgMessageJsonFormat
         for (var index = typeInfo.Properties.Count - 1; index >= 0; index--)
         {
             var property = typeInfo.Properties[index];
+            if (typeInfo.Type == typeof(Directive) &&
+                string.Equals(
+                    property.Name,
+                    nameof(Directive.ExecutionPolicy),
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                // The additive policy request must not drift the byte-pinned v1 wire payload when
+                // absent. Tolerant reads still bind it when a newer directive supplies the field.
+                property.ShouldSerialize = static (_, value) => value is not null;
+            }
+
             if (property.Set is null && !parameterNames.Contains(property.Name))
             {
                 typeInfo.Properties.RemoveAt(index);

@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Outcomes;
 
 namespace Hive.Actors.Positions;
@@ -157,6 +158,22 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
             context.Directive.Deadline,
             context.Limits.MaxIterations,
             hasAvailableBudget);
+        var effectiveExecutionBudget = budget.RemainingTime(startedAt);
+        context = context with
+        {
+            ExecutionPolicy = DirectiveExecutionPolicyComposer.ComposeV1(
+                context.Directive.ExecutionPolicy,
+                request.RuntimeContext.OccupantConfiguration.AiGateway
+                    ?.DirectiveExecutionPolicy,
+                context.Limits.LimitsVersion ==
+                    AiPositionRuntimeConfiguration.CurrentLimitsVersion
+                    ? effectiveExecutionBudget
+                    : null,
+                context.Limits.LimitsVersion ==
+                    AiPositionRuntimeConfiguration.CurrentLimitsVersion
+                    ? effectiveExecutionBudget
+                    : null),
+        };
 
         if (context.IdentityPrompt is null)
         {
@@ -240,7 +257,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     result,
                     context.Authority.CanDecide,
                     requireOutcomeProposal: context.RequiresStructuredOutcomeProposal,
-                    outcomeProposalEvidenceContext: outcomeProposalEvidenceContext);
+                    outcomeProposalEvidenceContext: outcomeProposalEvidenceContext,
+                    allowProgressReports: context.ExecutionPolicy.AllowsProgressReports);
 
                 if (interpretation.IsDecision)
                 {

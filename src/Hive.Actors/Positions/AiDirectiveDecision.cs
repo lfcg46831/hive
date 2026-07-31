@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Hive.Domain.Ai;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
@@ -95,13 +96,25 @@ internal static class AiDirectiveDecisionSchema
     public const string DirectiveObjectiveField = "objective";
     public const string DirectiveContextField = "context";
 
-    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema();
+    private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema(
+        allowProgressReports: false);
+    private static readonly JsonElement CheckpointableJsonSchema = CreateJsonSchema(
+        allowProgressReports: true);
 
     public static AiOutputConstraint OutputConstraint { get; } = new(
         SchemaName,
         SchemaVersion,
         CanonicalJsonSchema,
         [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+
+    private static AiOutputConstraint CheckpointableOutputConstraint { get; } = new(
+        SchemaName,
+        SchemaVersion,
+        CheckpointableJsonSchema,
+        [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+
+    public static AiOutputConstraint CreateOutputConstraint(bool allowProgressReports) =>
+        allowProgressReports ? CheckpointableOutputConstraint : OutputConstraint;
 
     public static ImmutableArray<string> AllowedIntents { get; } =
     [
@@ -130,7 +143,7 @@ internal static class AiDirectiveDecisionSchema
         DirectiveContextField,
     ];
 
-    private static JsonElement CreateJsonSchema()
+    private static JsonElement CreateJsonSchema(bool allowProgressReports)
     {
         using var document = JsonDocument.Parse(
             """
@@ -231,8 +244,16 @@ internal static class AiDirectiveDecisionSchema
               "additionalProperties": false
             }
             """);
+        if (allowProgressReports)
+        {
+            return document.RootElement.Clone();
+        }
 
-        return document.RootElement.Clone();
+        var root = JsonNode.Parse(document.RootElement.GetRawText())!.AsObject();
+        root["properties"]![DecisionProperty]!["anyOf"]![0]!["properties"]!
+            [ReportPayloadProperty]!["properties"]![ReportKindField]!["enum"] =
+            new JsonArray("Done");
+        return JsonSerializer.SerializeToElement(root);
     }
 }
 

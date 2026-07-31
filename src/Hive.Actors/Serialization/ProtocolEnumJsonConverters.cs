@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
@@ -79,6 +80,18 @@ internal sealed class ReportKindJsonConverter : WireEnumJsonConverter<ReportKind
 
     protected override bool TryParseWire(string? value, out ReportKind result) =>
         ReportKindContract.TryParseWireValue(value, out result);
+}
+
+internal sealed class DirectiveExecutionModeJsonConverter :
+    WireEnumJsonConverter<DirectiveExecutionMode>
+{
+    protected override string ToWire(DirectiveExecutionMode value) =>
+        DirectiveExecutionModeContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out DirectiveExecutionMode result) =>
+        DirectiveExecutionModeContract.TryParseWireValue(value, out result);
 }
 
 internal sealed class OccupantTypeJsonConverter : WireEnumJsonConverter<OccupantType>

@@ -1,4 +1,5 @@
 using Hive.Domain.Governance;
+using Hive.Domain.Directives;
 using Hive.Domain.Organization.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
 
@@ -63,6 +64,10 @@ public sealed class OrganizationConfigurationParserTests
                 limits_version: 1
                 timeout: PT30S
                 execution_timeout: PT90S
+                directive_execution_policy:
+                  contract_version: 1
+                  maximum_mode: checkpointable
+                  checkpoint_lead_time: PT15S
                 processing: interactive
                 batch_window: null
                 fallback:
@@ -165,8 +170,16 @@ public sealed class OrganizationConfigurationParserTests
         Assert.Equal(4096, ai.MaxTokens);
         Assert.Equal(4, ai.MaxIterations);
         Assert.Equal("PT30S", ai.Timeout);
+        Assert.Equal(1, ai.LimitsVersion);
+        Assert.Equal("PT90S", ai.ExecutionTimeout);
         Assert.Equal("interactive", ai.Processing);
         Assert.Null(ai.BatchWindow);
+        Assert.Equal(
+            DirectiveExecutionMode.Checkpointable,
+            ai.DirectiveExecutionPolicy!.MaximumMode);
+        Assert.Equal(
+            TimeSpan.FromSeconds(15),
+            ai.DirectiveExecutionPolicy.CheckpointLeadTime);
 
         Assert.Collection(
             ai.Fallback,
@@ -217,6 +230,31 @@ public sealed class OrganizationConfigurationParserTests
         Assert.Equal("comms.external-official", authorityOverride.Key.Value);
         Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
         Assert.Equal("ceo", authorityOverride.Approver);
+    }
+
+    [Fact]
+    public void Directive_execution_policy_rejects_non_positive_time_and_unknown_fields()
+    {
+        var yaml = FullDocument.Replace(
+            "checkpoint_lead_time: PT15S",
+            "checkpoint_lead_time: PT0S\n          relaxed: true",
+            StringComparison.Ordinal);
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(
+            result.Errors,
+            error => error.FieldPath.EndsWith(
+                ".directive_execution_policy.relaxed",
+                StringComparison.Ordinal) &&
+                error.Message.Contains("unknown", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(
+            result.Errors,
+            error => error.FieldPath.EndsWith(
+                ".directive_execution_policy",
+                StringComparison.Ordinal) &&
+                error.Message.Contains("greater than zero", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

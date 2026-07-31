@@ -1,5 +1,6 @@
 using System.Reflection;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
@@ -77,6 +78,41 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("relatorio-diario", schedule.Id);
         Assert.Equal("0 55 17 ? * MON-FRI", schedule.Cron);
         Assert.Equal("Compilar e enviar relatorio diario ao superior", schedule.Instruction);
+    }
+
+    [Fact]
+    public async Task Provider_projects_checkpointable_position_capability_into_effective_runtime_configuration()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = new RegistryEntry<RegistryOccupant>(
+            original.Value with
+            {
+                Ai = new AiConfiguration(
+                    "openai",
+                    "gpt-5-mini",
+                    timeout: "PT30S",
+                    limitsVersion: 1,
+                    executionTimeout: "PT90S",
+                    directiveExecutionPolicy: new DirectiveExecutionPolicyCapability(
+                        1,
+                        DirectiveExecutionMode.Checkpointable,
+                        TimeSpan.FromSeconds(15))),
+            },
+            original.Fingerprint,
+            original.UpdatedAt);
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        var policy = configuration.Occupant.AiGateway!.DirectiveExecutionPolicy;
+        Assert.NotNull(policy);
+        Assert.Equal(DirectiveExecutionMode.Checkpointable, policy.MaximumMode);
+        Assert.Equal(TimeSpan.FromSeconds(15), policy.CheckpointLeadTime);
     }
 
     [Fact]

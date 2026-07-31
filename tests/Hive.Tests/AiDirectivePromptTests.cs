@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -48,6 +49,92 @@ public sealed class AiDirectivePromptTests
                 .GetProperty(OutcomeProposalConstraint.SchemaVersionProperty)
                 .GetProperty("const")
                 .GetInt32());
+    }
+
+    [Fact]
+    public void CreateInitialRequest_defaults_to_single_shot_and_omits_progress_from_both_schemas()
+    {
+        var context = AiDirectiveExecutionContext.From(
+            Request(includeOptionalContext: false),
+            requiresStructuredOutcomeProposal: true);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Equal(DirectiveExecutionMode.SingleShot, context.ExecutionPolicy.Mode);
+        Assert.Equal("single-shot", request.Metadata["hive.directive-execution-mode"]);
+        Assert.DoesNotContain("Report.Progress", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Progress",
+            ReportKindVocabulary(request.OutputConstraint!),
+            StringComparer.Ordinal);
+        Assert.DoesNotContain(
+            "Report.Progress",
+            OutcomeProposalIntentVocabulary(request.OutputConstraint!),
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void CreateInitialRequest_exposes_checkpointable_relative_budget_and_progress_gates()
+    {
+        var context = AiDirectiveExecutionContext.From(
+            Request(
+                includeOptionalContext: true,
+                executionTimeout: TimeSpan.FromSeconds(90),
+                executionPolicy: new DirectiveExecutionPolicyRequest(
+                    1,
+                    DirectiveExecutionMode.Checkpointable),
+                executionCapability: new DirectiveExecutionPolicyCapability(
+                    1,
+                    DirectiveExecutionMode.Checkpointable,
+                    TimeSpan.FromSeconds(15))),
+            requiresStructuredOutcomeProposal: true);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Equal(DirectiveExecutionMode.Checkpointable, context.ExecutionPolicy.Mode);
+        Assert.Equal(TimeSpan.FromSeconds(90), context.ExecutionPolicy.TotalExecutionBudget);
+        Assert.Equal(TimeSpan.FromSeconds(90), context.ExecutionPolicy.RemainingExecutionTime);
+        Assert.Contains("Report.Progress", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("00:01:30", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("00:00:15", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("Deadline: <managed-by-runtime>", request.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain(At.AddHours(2).ToString("O"), request.Content, StringComparison.Ordinal);
+        Assert.Contains(
+            "Progress",
+            ReportKindVocabulary(request.OutputConstraint!),
+            StringComparer.Ordinal);
+        Assert.Contains(
+            "Report.Progress",
+            OutcomeProposalIntentVocabulary(request.OutputConstraint!),
+            StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public void CreateInitialRequest_fails_checkpointable_request_closed_on_legacy_shared_timeout()
+    {
+        var context = AiDirectiveExecutionContext.From(
+            Request(
+                includeOptionalContext: false,
+                executionPolicy: new DirectiveExecutionPolicyRequest(
+                    1,
+                    DirectiveExecutionMode.Checkpointable),
+                executionCapability: new DirectiveExecutionPolicyCapability(
+                    1,
+                    DirectiveExecutionMode.Checkpointable,
+                    TimeSpan.FromSeconds(5))),
+            requiresStructuredOutcomeProposal: true);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Equal(DirectiveExecutionMode.SingleShot, context.ExecutionPolicy.Mode);
+        Assert.Equal(
+            DirectiveExecutionPolicyDecisionCode.ExecutionBudgetMissing,
+            context.ExecutionPolicy.DecisionCode);
+        Assert.DoesNotContain("Report.Progress", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Progress",
+            ReportKindVocabulary(request.OutputConstraint!),
+            StringComparer.Ordinal);
     }
 
     [Fact]
@@ -988,7 +1075,10 @@ public sealed class AiDirectivePromptTests
         int? maxIterations = null,
         IReadOnlyList<string>? canDecide = null,
         IReadOnlyList<ToolConfiguration>? tools = null,
-        Func<OrgDirective, OccupantId, PositionConfigurationStamp, PositionState>? stateFactory = null)
+        Func<OrgDirective, OccupantId, PositionConfigurationStamp, PositionState>? stateFactory = null,
+        TimeSpan? executionTimeout = null,
+        DirectiveExecutionPolicyRequest? executionPolicy = null,
+        DirectiveExecutionPolicyCapability? executionCapability = null)
     {
         var entity = PositionEntityId.From(
             OrganizationId.From("acme"),
@@ -1011,7 +1101,8 @@ public sealed class AiDirectivePromptTests
             DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000904")),
             parentDirective,
             objective: "Triage checkout regression",
-            context: "Customer reports checkout failures.");
+            context: "Customer reports checkout failures.",
+            executionPolicy: executionPolicy);
         IReadOnlyList<ToolConfiguration> effectiveTools = tools ??
             (includeOptionalContext
                 ? [new ToolConfiguration("jira", ["issues/read", "issues/comment"])]
@@ -1037,7 +1128,12 @@ public sealed class AiDirectivePromptTests
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: timeout ?? TimeSpan.FromSeconds(15),
                     processingMode: AiProcessingMode.Batch,
-                    maxIterations: maxIterations),
+                    maxIterations: maxIterations,
+                    limitsVersion: executionTimeout is null
+                        ? AiPositionRuntimeConfiguration.LegacyLimitsVersion
+                        : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: executionTimeout,
+                    directiveExecutionPolicy: executionCapability),
                 identityPrompt: includeIdentityPrompt
                     ? new IdentityPromptRuntimeConfiguration(
                         "triage-v1",
@@ -1129,6 +1225,39 @@ public sealed class AiDirectivePromptTests
     private static string[] SchemaStrings(object? value) =>
         Assert.IsAssignableFrom<IEnumerable<string>>(value).ToArray();
 
+    private static string[] ReportKindVocabulary(AiOutputConstraint constraint) =>
+        constraint.JsonSchema
+            .GetProperty("properties")
+            .GetProperty(AiDirectiveDecisionSchema.DecisionProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .Single(branch => branch.GetProperty("properties")
+                .GetProperty(AiDirectiveDecisionSchema.IntentProperty)
+                .GetProperty("const")
+                .GetString() == "Report")
+            .GetProperty("properties")
+            .GetProperty(AiDirectiveDecisionSchema.ReportPayloadProperty)
+            .GetProperty("properties")
+            .GetProperty(AiDirectiveDecisionSchema.ReportKindField)
+            .GetProperty("enum")
+            .EnumerateArray()
+            .Select(value => value.GetString()!)
+            .ToArray();
+
+    private static string[] OutcomeProposalIntentVocabulary(AiOutputConstraint constraint) =>
+        constraint.JsonSchema
+            .GetProperty("properties")
+            .GetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName)
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .Select(branch => branch.GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposedIntentProperty)
+                .GetProperty("const")
+                .GetString()!)
+            .ToArray();
+
     private static void AssertContainsInOrder(string text, string first, string second)
     {
         var firstIndex = text.IndexOf(first, StringComparison.Ordinal);
@@ -1178,7 +1307,7 @@ public sealed class AiDirectivePromptTests
                     invocation.Request.PositionId,
                     invocation.Request.ThreadId,
                     invocation.Request.MessageId,
-                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}",
+                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Completed.\"}}",
                     AiFinishReason.Stop)));
         }
     }

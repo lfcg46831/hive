@@ -1,4 +1,6 @@
+using System.Xml;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Governance;
 using Hive.Infrastructure.Organization.Registry;
@@ -178,7 +180,16 @@ internal static class OrganizationRegistryResponseMapper
                     ai.Budget.ReactiveMaxEurPerDay,
                     ai.Budget.ProactiveMaxEurPerDay,
                     ai.Budget.TotalMaxEurPerDay,
-                    ai.Budget.MaxCallsPerHour));
+                    ai.Budget.MaxCallsPerHour),
+            ai.DirectiveExecutionPolicy is null
+                ? null
+                : new DirectiveExecutionPolicyResponse(
+                    ai.DirectiveExecutionPolicy.ContractVersion,
+                    DirectiveExecutionModeContract.ToWireValue(
+                        ai.DirectiveExecutionPolicy.MaximumMode),
+                    ai.DirectiveExecutionPolicy.CheckpointLeadTime is { } leadTime
+                        ? XmlConvert.ToString(leadTime)
+                        : null));
 
     private static string GateWireValue(ActionDomainGate gate) =>
         gate switch

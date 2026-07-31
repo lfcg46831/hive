@@ -154,7 +154,11 @@ public sealed class OutcomeProposalParserTests
 
         var proposal = root.GetProperty("properties").GetProperty("proposal");
         var branches = proposal.GetProperty("anyOf").EnumerateArray().ToArray();
-        Assert.Equal(OutcomeProposedIntentContract.WireValues.Length, branches.Length);
+        var singleShotIntents = OutcomeProposedIntentContract.WireValues
+            .Where(value => value != OutcomeProposedIntentContract.ToWireValue(
+                OutcomeProposedIntent.ReportProgress))
+            .ToArray();
+        Assert.Equal(singleShotIntents.Length, branches.Length);
         Assert.All(
             branches,
             branch =>
@@ -180,7 +184,25 @@ public sealed class OutcomeProposalParserTests
                 .GetProperty("const")
                 .GetString())
             .ToArray();
-        Assert.Equal(OutcomeProposedIntentContract.WireValues, branchIntents);
+        Assert.Equal(singleShotIntents, branchIntents);
+
+        var checkpointableBranches = OutcomeProposalConstraint
+            .CreateOutputConstraint(allowProgressReports: true)
+            .JsonSchema
+            .GetProperty("properties")
+            .GetProperty("proposal")
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .ToArray();
+        Assert.Equal(OutcomeProposedIntentContract.WireValues.Length, checkpointableBranches.Length);
+        Assert.Equal(
+            OutcomeProposedIntentContract.WireValues,
+            checkpointableBranches
+                .Select(branch => branch.GetProperty("properties")
+                    .GetProperty("proposed_intent")
+                    .GetProperty("const")
+                    .GetString())
+                .ToArray());
 
         var workStates = branches
             .SelectMany(branch => Strings(branch.GetProperty("properties")

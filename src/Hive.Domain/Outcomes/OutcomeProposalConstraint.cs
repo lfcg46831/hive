@@ -37,7 +37,11 @@ public static class OutcomeProposalConstraint
     ];
 
     private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema(
-        evidenceContext: null);
+        evidenceContext: null,
+        allowProgressReports: false);
+    private static readonly JsonElement CheckpointableJsonSchema = CreateJsonSchema(
+        evidenceContext: null,
+        allowProgressReports: true);
 
     public static AiOutputConstraint OutputConstraint { get; } = new(
         SchemaName,
@@ -45,20 +49,31 @@ public static class OutcomeProposalConstraint
         CanonicalJsonSchema,
         [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
 
+    private static AiOutputConstraint CheckpointableOutputConstraint { get; } = new(
+        SchemaName,
+        SchemaVersion,
+        CheckpointableJsonSchema,
+        [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+
+    public static AiOutputConstraint CreateOutputConstraint(bool allowProgressReports) =>
+        allowProgressReports ? CheckpointableOutputConstraint : OutputConstraint;
+
     public static AiOutputConstraint CreateOutputConstraint(
-        OutcomeProposalEvidenceContext evidenceContext)
+        OutcomeProposalEvidenceContext evidenceContext,
+        bool allowProgressReports = false)
     {
         ArgumentNullException.ThrowIfNull(evidenceContext);
 
         return new AiOutputConstraint(
             SchemaName,
             SchemaVersion,
-            CreateJsonSchema(evidenceContext),
+            CreateJsonSchema(evidenceContext, allowProgressReports),
             [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
     }
 
     private static JsonElement CreateJsonSchema(
-        OutcomeProposalEvidenceContext? evidenceContext)
+        OutcomeProposalEvidenceContext? evidenceContext,
+        bool allowProgressReports)
     {
         var proposalBranches = new JsonArray
         {
@@ -70,23 +85,28 @@ public static class OutcomeProposalConstraint
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 0,
                 evidenceContext: evidenceContext),
-            CreateProposalBranch(
+        };
+        if (allowProgressReports)
+        {
+            proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.ReportProgress,
                 [OutcomeWorkState.InProgress],
                 [OutcomeRequiredIntervention.None],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 1,
-                evidenceContext: evidenceContext),
-            CreateProposalBranch(
+                evidenceContext: evidenceContext));
+        }
+
+        proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.ReportDone,
                 [OutcomeWorkState.Completed],
                 [OutcomeRequiredIntervention.None],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Forbidden,
                 minimumEvidenceReferences: 1,
-                evidenceContext: evidenceContext),
-            CreateProposalBranch(
+                evidenceContext: evidenceContext));
+        proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.Escalation,
                 [OutcomeWorkState.Blocked, OutcomeWorkState.Failed],
                 [
@@ -98,16 +118,16 @@ public static class OutcomeProposalConstraint
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
                 evidenceContext: evidenceContext,
-                minimumBlockers: 1),
-            CreateProposalBranch(
+                minimumBlockers: 1));
+        proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.Directive,
                 [OutcomeWorkState.NotStarted, OutcomeWorkState.InProgress],
                 [OutcomeRequiredIntervention.Delegation],
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 0,
-                evidenceContext: evidenceContext),
-            CreateProposalBranch(
+                evidenceContext: evidenceContext));
+        proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.ApprovalRequired,
                 [OutcomeWorkState.Blocked],
                 [OutcomeRequiredIntervention.HumanApproval],
@@ -115,8 +135,7 @@ public static class OutcomeProposalConstraint
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
                 evidenceContext: evidenceContext,
-                minimumBlockers: 1),
-        };
+                minimumBlockers: 1));
 
         var root = new JsonObject
         {

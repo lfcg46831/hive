@@ -432,7 +432,8 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                 ProjectCostLimits(ai.Budget),
                 ai.MaxIterations,
                 ai.LimitsVersion ?? AiPositionRuntimeConfiguration.LegacyLimitsVersion,
-                ParseTimeout(ai.ExecutionTimeout));
+                ParseTimeout(ai.ExecutionTimeout),
+                ai.DirectiveExecutionPolicy);
 
             return true;
         }

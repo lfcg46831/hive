@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -562,7 +563,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         DirectiveExecutionCharacterization.Outcomes)]
     public async Task Ai_agent_progress_proposal_without_operation_does_not_repeat_inference()
     {
-        var request = Request();
+        var request = Request(checkpointable: true);
         var audit = new RecordingJourneyAuditLog();
         var invoker = new SequencedResponseInvoker();
         var integrator = CreateIntegrator(
@@ -1012,7 +1013,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         string identityPrompt = "Coordinate the assigned organizational work.",
         string positionName = "Coordinator",
         string objective = "Classify incoming work",
-        string context = "A bounded business context.")
+        string context = "A bounded business context.",
+        bool checkpointable = false)
     {
         var effectivePosition = positionId ?? Position;
         var entity = PositionEntityId.From(Organization, effectivePosition);
@@ -1030,7 +1032,12 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             IncomingDirective,
             parentDirectiveId: null,
             objective,
-            context);
+            context,
+            executionPolicy: checkpointable
+                ? new DirectiveExecutionPolicyRequest(
+                    DirectiveExecutionPolicyContractVersions.V1,
+                    DirectiveExecutionMode.Checkpointable)
+                : null);
         var configuration = new PositionRuntimeConfiguration(
             new PositionConfigurationStamp(17, "sha256:t17e"),
             Organization,
@@ -1053,7 +1060,13 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                         : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
                     executionTimeout: withoutDeadline
                         ? null
-                        : executionTimeout ?? TimeSpan.FromHours(2)),
+                        : executionTimeout ?? TimeSpan.FromHours(2),
+                    directiveExecutionPolicy: checkpointable
+                        ? new DirectiveExecutionPolicyCapability(
+                            DirectiveExecutionPolicyContractVersions.V1,
+                            DirectiveExecutionMode.Checkpointable,
+                            TimeSpan.FromMinutes(5))
+                        : null),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     identityPromptRef,
                     $"prompts/{identityPromptRef}.md",

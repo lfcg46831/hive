@@ -4,6 +4,7 @@ using System.Text.Json;
 using Hive.Actors.Sharding;
 using Hive.Api.Directives;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization;
@@ -65,6 +66,81 @@ public sealed class DirectiveSubmissionEndpointTests
         Assert.Null(directive.ParentDirectiveId);
         Assert.Equal("Review the incoming production request and report the conclusion.", directive.Objective);
         Assert.Contains("Completion criteria", directive.Context, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Submit_root_directive_preserves_explicit_checkpointable_opt_in()
+    {
+        var sink = new CapturingDirectiveSubmissionSink();
+        var audit = new RecordingJourneyAuditLog();
+        await using var app = BuildApp(sink, audit);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            new
+            {
+                messageId = "aaaaaaaa-0000-0000-0000-000000000010",
+                from = new { kind = "position", positionId = "ceo" },
+                to = new { kind = "position", positionId = "delivery-lead" },
+                threadId = "aaaaaaaa-0000-0000-0000-000000000011",
+                priority = "high",
+                schemaVersion = 1,
+                sentAt = SentAt,
+                directiveId = "aaaaaaaa-0000-0000-0000-000000000012",
+                objective = "Perform checkpointable work.",
+                context = "Use only grounded evidence.",
+                executionPolicy = new { contractVersion = 1, mode = "checkpointable" },
+            });
+
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var directive = Assert.IsType<Directive>(sink.Submitted);
+        Assert.Equal(1, directive.ExecutionPolicy!.ContractVersion);
+        Assert.Equal(DirectiveExecutionMode.Checkpointable, directive.ExecutionPolicy.Mode);
+        Assert.All(audit.Records, record =>
+        {
+            Assert.Equal("1", record.Payload["executionPolicyVersion"]);
+            Assert.Equal("checkpointable", record.Payload["requestedExecutionMode"]);
+        });
+    }
+
+    [Theory]
+    [InlineData(0, "checkpointable", "executionPolicy.contractVersion")]
+    [InlineData(1, "relaxed", "executionPolicy.mode")]
+    public async Task Submit_root_directive_rejects_invalid_execution_policy(
+        int version,
+        string mode,
+        string expectedPath)
+    {
+        var sink = new CapturingDirectiveSubmissionSink();
+        await using var app = BuildApp(sink);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync(
+            $"{DirectiveSubmissionEndpointExtensions.BasePath}/acme-delivery/directives",
+            new
+            {
+                messageId = "aaaaaaaa-0000-0000-0000-000000000010",
+                from = new { kind = "position", positionId = "ceo" },
+                to = new { kind = "position", positionId = "delivery-lead" },
+                threadId = "aaaaaaaa-0000-0000-0000-000000000011",
+                priority = "high",
+                schemaVersion = 1,
+                sentAt = SentAt,
+                directiveId = "aaaaaaaa-0000-0000-0000-000000000012",
+                objective = "Perform work.",
+                context = "Use only grounded evidence.",
+                executionPolicy = new { contractVersion = version, mode },
+            });
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            expectedPath,
+            Assert.IsType<JsonElement>(problem!.Extensions["path"]).GetString());
+        Assert.Null(sink.Submitted);
     }
 
     [Fact]

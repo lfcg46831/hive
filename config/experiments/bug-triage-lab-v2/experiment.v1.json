@@ -77,12 +77,12 @@
     {
       "role": "runtime-ai-limits",
       "path": "src/Hive.Domain/Ai/AiPositionRuntimeConfiguration.cs",
-      "sha256": "4416cc1e358433dad63bf072f1cbe5aee7b10cebbf1f6f369c65c8f27dfe1caf"
+      "sha256": "6180c984741cba11c59da9e5ed4f19028568f3db89aa51c030c65b8e75c95878"
     },
     {
       "role": "organization-config-parser",
       "path": "src/Hive.Infrastructure/Organization/Configuration/OrganizationConfigurationParser.cs",
-      "sha256": "933842bcc6873ac9d139c6683cf353ab8d385d98a1b42ae941812b7224361c21"
+      "sha256": "40ded6ba28de51a822401fc0cf67e696f7b35117b604d27186dd65eaab3776b5"
     },
     {
       "role": "directive-execution-budget",
@@ -92,7 +92,7 @@
     {
       "role": "directive-execution-coordinator",
       "path": "src/Hive.Actors/Positions/AiDirectiveExecutionCoordinator.cs",
-      "sha256": "49c5c02ad8fb938377d5c55cb97993128efbd3d6a03e878f12d0153d66ea4a8f"
+      "sha256": "2bc159e9377d588dd6a99e528d8b4e13a851a20988d44690a20abd7576cdbffb"
     },
     {
       "role": "directive-iteration-state",

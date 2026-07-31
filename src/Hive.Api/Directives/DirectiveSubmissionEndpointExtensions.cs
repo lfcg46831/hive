@@ -1,5 +1,6 @@
 using Hive.Domain.Identity;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
@@ -86,7 +87,8 @@ public static class DirectiveSubmissionEndpointExtensions
                 ParseGuidId(request.DirectiveId, DirectiveId.From, "directiveId"),
                 parentDirectiveId: null,
                 RequiredText(request.Objective, "objective"),
-                RequiredText(request.Context, "context"));
+                RequiredText(request.Context, "context"),
+                ParseExecutionPolicy(request.ExecutionPolicy));
             return true;
         }
         catch (ArgumentException exception)
@@ -159,6 +161,33 @@ public static class DirectiveSubmissionEndpointExtensions
             "priority");
     }
 
+    private static DirectiveExecutionPolicyRequest? ParseExecutionPolicy(
+        DirectiveExecutionPolicySubmissionRequest? request)
+    {
+        if (request is null)
+        {
+            return null;
+        }
+
+        var version = request.ContractVersion ?? throw Missing("executionPolicy.contractVersion");
+        if (version <= 0)
+        {
+            throw new ArgumentException(
+                "Directive execution policy contract version must be positive.",
+                "executionPolicy.contractVersion");
+        }
+
+        var modeValue = RequiredText(request.Mode, "executionPolicy.mode");
+        if (!DirectiveExecutionModeContract.TryParseWireValue(modeValue, out var mode))
+        {
+            throw new ArgumentException(
+                "Directive execution mode must be 'single-shot' or 'checkpointable'.",
+                "executionPolicy.mode");
+        }
+
+        return new DirectiveExecutionPolicyRequest(version, mode);
+    }
+
     private static string RequiredText(string? value, string path)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -222,6 +251,13 @@ internal static class DirectiveSubmissionAudit
             ["toKind"] = directive.To.GetType().Name,
             ["redactions"] = "directive.objective,directive.context",
         };
+        if (directive.ExecutionPolicy is { } executionPolicy)
+        {
+            payload["executionPolicyVersion"] = executionPolicy.ContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+            payload["requestedExecutionMode"] =
+                DirectiveExecutionModeContract.ToWireValue(executionPolicy.Mode);
+        }
 
         auditLog.Append(JourneyAuditRecord.Create(
             JourneyAuditStage.SubmissionReceived,

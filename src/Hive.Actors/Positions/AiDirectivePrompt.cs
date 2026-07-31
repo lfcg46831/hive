@@ -2,6 +2,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -94,13 +95,14 @@ internal static class AiDirectivePrompt
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
-            BuildHiveProtocolInstruction(evidenceContext),
+            BuildHiveProtocolInstruction(evidenceContext, context.ExecutionPolicy),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context));
     }
 
     private static string BuildHiveProtocolInstruction(
-        OutcomeProposalEvidenceContext? evidenceContext)
+        OutcomeProposalEvidenceContext? evidenceContext,
+        EffectiveDirectiveExecutionPolicy executionPolicy)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Report);
@@ -108,6 +110,9 @@ internal static class AiDirectivePrompt
             AiDirectiveDecisionIntent.Escalation);
         var directiveIntent = AiDirectiveDecisionIntentContract.ToWireValue(
             AiDirectiveDecisionIntent.Directive);
+        var reportPayloadInstruction = executionPolicy.AllowsProgressReports
+            ? $"For {reportIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}."
+            : $"For {reportIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Done\" and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.";
 
         var lines = new List<string>
         {
@@ -121,19 +126,39 @@ internal static class AiDirectivePrompt
             $"Choose {escalationIntent} whenever the response asks the superior to decide, authorize, or choose; never place such a request inside {reportIntent}.",
             $"A recommendation about a future action is informational and does not by itself request or exercise authorization. Normal downstream implementation, deployment, prioritization, or change control does not alone make it an {escalationIntent}; choose {escalationIntent} only when the response asks the superior to decide, authorize, or choose now.",
             "Apply these intent rules without exposing intermediate reasoning; return only the required structured fields.",
-            $"For {reportIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportKindField} as \"Progress\" or \"Done\" and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.ReportBodyField}.",
+            reportPayloadInstruction,
             $"For {escalationIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationIssueField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationContextField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.EscalationPayloadProperty}.{AiDirectiveDecisionSchema.EscalationOptionsConsideredField}.",
             $"For {directiveIntent}, include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveTargetPositionIdField}, {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveObjectiveField}, and {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.DirectivePayloadProperty}.{AiDirectiveDecisionSchema.DirectiveContextField}.",
         };
-        if (evidenceContext is not null)
+        if (executionPolicy.AllowsProgressReports)
         {
             lines.AddRange(
             [
-                $"Include the required top-level \"{AiDirectiveOutcomeProposalEnvelope.PropertyName}\" object using OutcomeProposal schema version {OutcomeProposalConstraint.SchemaVersion}; it is a non-authoritative proposal that the runtime will validate and resolve.",
-                $"Keep the organizational decision and {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.ProposedIntentProperty} compatible: Done maps to Report.Done, Progress maps to Report.Progress or ContinueWork, escalation maps to Escalation or ApprovalRequired, and a child directive maps to Directive.",
-                $"Evidence may use only source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\" and these exact bounded references: {EvidenceReferenceVocabulary(evidenceContext)}.",
-                "A Report.Done proposal requires at least one grounded allowed reference; never invent runtime, tool, completion-criterion, persisted-state, or other evidence.",
+                "The effective directive execution mode is checkpointable.",
+                "Report.Progress is available only after grounded work has been checkpointed; it terminates this activation and does not schedule another call.",
+                $"Total execution budget: {Duration(executionPolicy.TotalExecutionBudget)}.",
+                $"Execution time actually remaining: {Duration(executionPolicy.RemainingExecutionTime)}.",
+                $"Checkpoint lead time: {Duration(executionPolicy.CheckpointLeadTime)}.",
+                "Use these relative durations for checkpoint planning; no absolute execution deadline is provided.",
             ]);
+        }
+        else
+        {
+            lines.Add(
+                "The effective directive execution mode is single-shot; a Report is terminal and must use kind Done.");
+        }
+
+        if (evidenceContext is not null)
+        {
+            lines.Add(
+                $"Include the required top-level \"{AiDirectiveOutcomeProposalEnvelope.PropertyName}\" object using OutcomeProposal schema version {OutcomeProposalConstraint.SchemaVersion}; it is a non-authoritative proposal that the runtime will validate and resolve.");
+            lines.Add(executionPolicy.AllowsProgressReports
+                ? $"Keep the organizational decision and {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.ProposedIntentProperty} compatible: Done maps to Report.Done, Progress maps to Report.Progress or ContinueWork, escalation maps to Escalation or ApprovalRequired, and a child directive maps to Directive."
+                : $"Keep the organizational decision and {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.ProposedIntentProperty} compatible: Done maps to Report.Done, escalation maps to Escalation or ApprovalRequired, and a child directive maps to Directive.");
+            lines.Add(
+                $"Evidence may use only source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\" and these exact bounded references: {EvidenceReferenceVocabulary(evidenceContext)}.");
+            lines.Add(
+                "A Report.Done proposal requires at least one grounded allowed reference; never invent runtime, tool, completion-criterion, persisted-state, or other evidence.");
         }
 
         return string.Join(
@@ -143,11 +168,13 @@ internal static class AiDirectivePrompt
 
     private static AiOutputConstraint OutputConstraint(AiDirectiveExecutionContext context)
     {
-        var constraint = AiDirectiveDecisionSchema.OutputConstraint;
+        var allowProgressReports = context.ExecutionPolicy.AllowsProgressReports;
+        var constraint = AiDirectiveDecisionSchema.CreateOutputConstraint(allowProgressReports);
         return context.RequiresStructuredOutcomeProposal
             ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(
                 constraint,
-                AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context))
+                AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context),
+                allowProgressReports)
             : constraint;
     }
 
@@ -228,7 +255,9 @@ internal static class AiDirectivePrompt
         builder.AppendLine($"To: {Endpoint(directive.To)}");
         builder.AppendLine($"Priority: {directive.Priority}");
         builder.AppendLine($"SentAt: {directive.SentAt:O}");
-        builder.AppendLine($"Deadline: {ValueOrNone(directive.Deadline?.ToString("O"))}");
+        builder.AppendLine(context.ExecutionPolicy.AllowsProgressReports
+            ? "Deadline: <managed-by-runtime>"
+            : $"Deadline: {ValueOrNone(directive.Deadline?.ToString("O"))}");
         builder.AppendLine($"Objective: {directive.Objective}");
         builder.AppendLine($"Context: {directive.Context}");
         builder.AppendLine();
@@ -357,6 +386,18 @@ internal static class AiDirectivePrompt
         builder.AppendLine($"MaxOutputTokens: {ValueOrNone(context.Limits.MaxOutputTokens?.ToString())}");
         builder.AppendLine($"MaxIterations: {ValueOrNone(context.Limits.MaxIterations?.ToString())}");
         builder.AppendLine($"CostLimits: {(context.Limits.CostLimits is null ? "<none>" : "<configured>")}");
+        builder.AppendLine("DirectiveExecutionPolicy:");
+        builder.AppendLine($"- ContractVersion: {context.ExecutionPolicy.ContractVersion}");
+        builder.AppendLine(
+            $"- Mode: {DirectiveExecutionModeContract.ToWireValue(context.ExecutionPolicy.Mode)}");
+        builder.AppendLine(
+            $"- DecisionCode: {DirectiveExecutionPolicyDecisionCodeContract.ToWireValue(context.ExecutionPolicy.DecisionCode)}");
+        builder.AppendLine(
+            $"- TotalExecutionBudget: {ValueOrNone(context.ExecutionPolicy.TotalExecutionBudget?.ToString())}");
+        builder.AppendLine(
+            $"- RemainingExecutionTime: {ValueOrNone(context.ExecutionPolicy.RemainingExecutionTime?.ToString())}");
+        builder.AppendLine(
+            $"- CheckpointLeadTime: {ValueOrNone(context.ExecutionPolicy.CheckpointLeadTime?.ToString())}");
     }
 
     private static AiModelParameters EffectiveModelParameters(AiDirectiveExecutionContext context) =>
@@ -385,6 +426,26 @@ internal static class AiDirectivePrompt
             metadata,
             "hive.per-call-timeout-ms",
             context.Limits.PerCallTimeout);
+        metadata["hive.directive-execution-policy-version"] =
+            context.ExecutionPolicy.ContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture);
+        metadata["hive.directive-execution-mode"] =
+            DirectiveExecutionModeContract.ToWireValue(context.ExecutionPolicy.Mode);
+        metadata["hive.directive-execution-policy-decision"] =
+            DirectiveExecutionPolicyDecisionCodeContract.ToWireValue(
+                context.ExecutionPolicy.DecisionCode);
+        AddTimeoutMetadata(
+            metadata,
+            "hive.directive-execution-budget-ms",
+            context.ExecutionPolicy.TotalExecutionBudget);
+        AddTimeoutMetadata(
+            metadata,
+            "hive.directive-execution-remaining-ms",
+            context.ExecutionPolicy.RemainingExecutionTime);
+        AddTimeoutMetadata(
+            metadata,
+            "hive.checkpoint-lead-time-ms",
+            context.ExecutionPolicy.CheckpointLeadTime);
 
         if (context.IdentityPromptRef is { } identityPromptRef)
         {
@@ -499,6 +560,10 @@ internal static class AiDirectivePrompt
     }
 
     private static string ValueOrNone(string? value) => value ?? "<none>";
+
+    private static string Duration(TimeSpan? value) => value is { } duration
+        ? duration.ToString()
+        : "<none>";
 }
 
 internal sealed record AiDirectiveSystemInstructionSections(

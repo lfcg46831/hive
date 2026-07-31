@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Akka.Actor;
 using Hive.Actors.Serialization;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -100,6 +101,27 @@ public sealed class OrgMessageJsonSerializerTests : IClassFixture<OrgMessageJson
     }
 
     [Fact]
+    public void Round_trips_additive_directive_execution_policy_with_canonical_mode()
+    {
+        var directive = CreateDirective(new DirectiveExecutionPolicyRequest(
+            1,
+            DirectiveExecutionMode.Checkpointable));
+
+        var node = Serialize(directive);
+        var policy = node["ExecutionPolicy"]!.AsObject();
+        var restored = (Domain.Messaging.Directive)_serializer.FromBinary(
+            _serializer.ToBinary(directive),
+            "directive");
+
+        Assert.Equal(1, policy["ContractVersion"]!.GetValue<int>());
+        Assert.Equal("checkpointable", policy["Mode"]!.GetValue<string>());
+        Assert.Equal(1, restored.ExecutionPolicy!.ContractVersion);
+        Assert.Equal(
+            DirectiveExecutionMode.Checkpointable,
+            restored.ExecutionPolicy.Mode);
+    }
+
+    [Fact]
     public void Encodes_each_endpoint_variant_with_a_kind_discriminator()
     {
         var pulse = CreatePulse();
@@ -189,7 +211,8 @@ public sealed class OrgMessageJsonSerializerTests : IClassFixture<OrgMessageJson
         yield return ("event-trigger", CreateEventTrigger());
     }
 
-    private static Domain.Messaging.Directive CreateDirective() =>
+    private static Domain.Messaging.Directive CreateDirective(
+        DirectiveExecutionPolicyRequest? executionPolicy = null) =>
         new(
             MessageId.New(),
             OrganizationId.From("acme"),
@@ -203,7 +226,8 @@ public sealed class OrgMessageJsonSerializerTests : IClassFixture<OrgMessageJson
             DirectiveId.New(),
             DirectiveId.New(),
             "Triage the reported bug",
-            "Customer impact is under investigation");
+            "Customer impact is under investigation",
+            executionPolicy);
 
     private static Report CreateReport(ReportKind kind) =>
         new(

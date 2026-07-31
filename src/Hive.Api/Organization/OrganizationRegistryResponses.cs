@@ -72,7 +72,13 @@ public sealed record AiResponse(
     string? Processing,
     string? BatchWindow,
     IReadOnlyList<AiFallbackResponse> Fallback,
-    BudgetResponse? Budget);
+    BudgetResponse? Budget,
+    DirectiveExecutionPolicyResponse? DirectiveExecutionPolicy);
+
+public sealed record DirectiveExecutionPolicyResponse(
+    int ContractVersion,
+    string MaximumMode,
+    string? CheckpointLeadTime);
 
 public sealed record AiFallbackResponse(string Provider, string Model);
 

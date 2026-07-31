@@ -323,7 +323,7 @@ public sealed class AiDirectiveExecutionContextTests
                     invocation.Request.PositionId,
                     invocation.Request.ThreadId,
                     invocation.Request.MessageId,
-                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Working.\"}}",
+                    "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"}}",
                     AiFinishReason.Stop)));
     }
 }

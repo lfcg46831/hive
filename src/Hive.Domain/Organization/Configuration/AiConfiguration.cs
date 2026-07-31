@@ -1,3 +1,5 @@
+using Hive.Domain.Directives;
+
 namespace Hive.Domain.Organization.Configuration;
 
 /// <summary>
@@ -22,7 +24,8 @@ public sealed record AiConfiguration
         string? timeout = null,
         int? maxIterations = null,
         int? limitsVersion = null,
-        string? executionTimeout = null)
+        string? executionTimeout = null,
+        DirectiveExecutionPolicyCapability? directiveExecutionPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(provider);
         ArgumentNullException.ThrowIfNull(model);
@@ -37,6 +40,7 @@ public sealed record AiConfiguration
         Timeout = timeout;
         LimitsVersion = limitsVersion;
         ExecutionTimeout = executionTimeout;
+        DirectiveExecutionPolicy = directiveExecutionPolicy;
         Fallback = fallback ?? Array.Empty<AiFallbackConfiguration>();
         Budget = budget;
     }
@@ -73,6 +77,9 @@ public sealed record AiConfiguration
 
     /// <summary>The optional end-to-end timeout descriptor for one directive execution.</summary>
     public string? ExecutionTimeout { get; }
+
+    /// <summary>The optional tighten-only directive execution capability of this position.</summary>
+    public DirectiveExecutionPolicyCapability? DirectiveExecutionPolicy { get; }
 
     /// <summary>The ordered fallback chain tried when the primary provider fails; empty when none.</summary>
     public IReadOnlyList<AiFallbackConfiguration> Fallback { get; }

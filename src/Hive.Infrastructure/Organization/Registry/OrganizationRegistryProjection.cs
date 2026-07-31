@@ -237,7 +237,8 @@ internal sealed class OrganizationRegistryProjection
             ai.Timeout,
             ai.MaxIterations,
             ai.LimitsVersion,
-            ai.ExecutionTimeout);
+            ai.ExecutionTimeout,
+            ai.DirectiveExecutionPolicy);
     }
 
     private static Hive.Domain.Outcomes.OutcomePolicyOverlay? Clone(

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Directives;
 
 namespace Hive.Domain.Ai;
 
@@ -16,7 +17,8 @@ public sealed record AiPositionRuntimeConfiguration
         AiCostLimits? costLimits = null,
         int? maxIterations = null,
         int limitsVersion = LegacyLimitsVersion,
-        TimeSpan? executionTimeout = null)
+        TimeSpan? executionTimeout = null,
+        DirectiveExecutionPolicyCapability? directiveExecutionPolicy = null)
     {
         ArgumentNullException.ThrowIfNull(primary);
         if (timeout is { } value && value <= TimeSpan.Zero)
@@ -83,6 +85,7 @@ public sealed record AiPositionRuntimeConfiguration
         Fallback = AiContractGuards.Snapshot(fallback, nameof(fallback));
         CostLimits = costLimits;
         MaxIterations = maxIterations;
+        DirectiveExecutionPolicy = directiveExecutionPolicy;
     }
 
     public AiProviderMetadata Primary { get; }
@@ -110,4 +113,7 @@ public sealed record AiPositionRuntimeConfiguration
     public AiCostLimits? CostLimits { get; }
 
     public int? MaxIterations { get; }
+
+    /// <summary>The position ceiling used when composing a directive execution request.</summary>
+    public DirectiveExecutionPolicyCapability? DirectiveExecutionPolicy { get; }
 }

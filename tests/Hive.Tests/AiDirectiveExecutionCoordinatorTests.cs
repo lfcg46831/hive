@@ -1,6 +1,7 @@
 using Hive.Actors.Positions;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -71,6 +72,29 @@ public sealed class AiDirectiveExecutionCoordinatorTests
     }
 
     [Fact]
+    public async Task Coordinator_projects_actual_shorter_budget_without_exposing_absolute_deadline()
+    {
+        var invoker = new StaticResponseInvoker(ValidReportOutput());
+        var coordinator = new AiDirectiveExecutionCoordinator(
+            invoker,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            AllowingAiAgentActionGate.Instance,
+            PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
+            () => At);
+
+        var execution = await coordinator.ExecuteDetailedAsync(
+            ProcessingRequest(At.AddSeconds(20), checkpointable: true));
+
+        Assert.Equal(DirectiveExecutionMode.Checkpointable, execution.Context.ExecutionPolicy.Mode);
+        Assert.Equal(TimeSpan.FromSeconds(20), execution.Context.ExecutionPolicy.TotalExecutionBudget);
+        Assert.Equal(TimeSpan.FromSeconds(20), execution.Context.ExecutionPolicy.RemainingExecutionTime);
+        Assert.Equal(TimeSpan.FromSeconds(5), execution.Context.ExecutionPolicy.CheckpointLeadTime);
+        Assert.Contains("Report.Progress", execution.InitialPrompt!.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("Deadline: <managed-by-runtime>", execution.InitialPrompt.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain(At.AddSeconds(20).ToString("O"), execution.InitialPrompt.Content, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Coordinator_does_not_start_provider_after_budget_is_exhausted()
     {
         var invoker = new StaticResponseInvoker(ValidReportOutput());
@@ -89,7 +113,8 @@ public sealed class AiDirectiveExecutionCoordinatorTests
     }
 
     private static AiDirectiveProcessingRequest ProcessingRequest(
-        DateTimeOffset? directiveDeadline = null)
+        DateTimeOffset? directiveDeadline = null,
+        bool checkpointable = false)
     {
         var organization = OrganizationId.From("acme");
         var position = PositionId.From("bug-triage");
@@ -108,7 +133,12 @@ public sealed class AiDirectiveExecutionCoordinatorTests
             DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000815")),
             parentDirectiveId: null,
             objective: "Triage checkout regression",
-            context: "Customer reports checkout failures.");
+            context: "Customer reports checkout failures.",
+            executionPolicy: checkpointable
+                ? new DirectiveExecutionPolicyRequest(
+                    1,
+                    DirectiveExecutionMode.Checkpointable)
+                : null);
         var configuration = new PositionRuntimeConfiguration(
             new PositionConfigurationStamp(15, "sha256:f0-15-t03"),
             organization,
@@ -127,7 +157,13 @@ public sealed class AiDirectiveExecutionCoordinatorTests
                     timeout: TimeSpan.FromSeconds(30),
                     maxIterations: 3,
                     limitsVersion: AiPositionRuntimeConfiguration.CurrentLimitsVersion,
-                    executionTimeout: TimeSpan.FromSeconds(90)),
+                    executionTimeout: TimeSpan.FromSeconds(90),
+                    directiveExecutionPolicy: checkpointable
+                        ? new DirectiveExecutionPolicyCapability(
+                            1,
+                            DirectiveExecutionMode.Checkpointable,
+                            TimeSpan.FromSeconds(5))
+                        : null),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",

@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.Xml;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
@@ -431,6 +433,7 @@ public sealed class OrganizationConfigurationParser
         var batchWindow = OptionalScalar(ai, "batch_window", aiPath, context);
         var timeout = OptionalScalar(ai, "timeout", aiPath, context);
         var executionTimeout = OptionalScalar(ai, "execution_timeout", aiPath, context);
+        var directiveExecutionPolicy = ReadDirectiveExecutionPolicy(ai, aiPath, context);
         var fallback = ReadFallback(ai, aiPath, context);
         var budget = ReadBudget(ai, aiPath, context);
 
@@ -451,7 +454,112 @@ public sealed class OrganizationConfigurationParser
             timeout,
             maxIterations,
             limitsVersion,
-            executionTimeout);
+            executionTimeout,
+            directiveExecutionPolicy);
+    }
+
+    private static DirectiveExecutionPolicyCapability? ReadDirectiveExecutionPolicy(
+        YamlMappingNode ai,
+        string path,
+        ParseContext context)
+    {
+        var policyPath = $"{path}.directive_execution_policy";
+        var node = Child(ai, "directive_execution_policy");
+        if (node is null || IsNull(node))
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode policy)
+        {
+            context.AddAt(
+                node,
+                policyPath,
+                "field 'directive_execution_policy' must be a mapping.");
+            return null;
+        }
+
+        var allowedFields = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "contract_version",
+            "maximum_mode",
+            "checkpoint_lead_time",
+        };
+        foreach (var pair in policy.Children)
+        {
+            if (pair.Key is not YamlScalarNode key ||
+                key.Value is null ||
+                !allowedFields.Contains(key.Value))
+            {
+                var renderedKey = pair.Key is YamlScalarNode scalar
+                    ? scalar.Value ?? "<null>"
+                    : "<non-scalar>";
+                context.AddAt(
+                    pair.Key,
+                    $"{policyPath}.{renderedKey}",
+                    $"unknown directive-execution-policy field '{renderedKey}'.");
+            }
+        }
+
+        var contractVersion = RequiredInt(
+            policy,
+            "contract_version",
+            policyPath,
+            context);
+        var modeNode = Child(policy, "maximum_mode");
+        var modeValue = RequireScalar(policy, "maximum_mode", policyPath, context);
+        DirectiveExecutionMode? maximumMode = null;
+        if (modeValue is not null)
+        {
+            if (DirectiveExecutionModeContract.TryParseWireValue(modeValue, out var parsed))
+            {
+                maximumMode = parsed;
+            }
+            else
+            {
+                context.AddAt(
+                    modeNode!,
+                    $"{policyPath}.maximum_mode",
+                    $"unknown directive execution mode '{modeValue}'; expected 'single-shot' or 'checkpointable'.");
+            }
+        }
+
+        var leadTimeValue = OptionalScalar(
+            policy,
+            "checkpoint_lead_time",
+            policyPath,
+            context);
+        TimeSpan? leadTime = null;
+        if (leadTimeValue is not null &&
+            !TryParseDuration(leadTimeValue, out leadTime))
+        {
+            context.AddAt(
+                Child(policy, "checkpoint_lead_time")!,
+                $"{policyPath}.checkpoint_lead_time",
+                $"field 'checkpoint_lead_time' must be an ISO-8601 duration or TimeSpan text; got '{leadTimeValue}'.");
+        }
+
+        if (contractVersion is null || maximumMode is null ||
+            (leadTimeValue is not null && leadTime is null))
+        {
+            return null;
+        }
+
+        try
+        {
+            return new DirectiveExecutionPolicyCapability(
+                contractVersion.Value,
+                maximumMode.Value,
+                leadTime);
+        }
+        catch (ArgumentException exception)
+        {
+            context.AddAt(
+                node,
+                policyPath,
+                $"invalid directive execution policy: {exception.Message}");
+            return null;
+        }
     }
 
     private static IReadOnlyList<AiFallbackConfiguration> ReadFallback(YamlMappingNode ai, string path, ParseContext context)
@@ -912,6 +1020,51 @@ public sealed class OrganizationConfigurationParser
 
         context.AddAt(Child(map, key)!, $"{path}.{key}", $"field '{key}' must be an integer; got '{raw}'.");
         return null;
+    }
+
+    private static int? RequiredInt(
+        YamlMappingNode map,
+        string key,
+        string path,
+        ParseContext context)
+    {
+        var raw = RequireScalar(map, key, path, context);
+        if (raw is null)
+        {
+            return null;
+        }
+
+        if (int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value))
+        {
+            return value;
+        }
+
+        context.AddAt(
+            Child(map, key)!,
+            $"{path}.{key}",
+            $"field '{key}' must be an integer; got '{raw}'.");
+        return null;
+    }
+
+    private static bool TryParseDuration(string value, out TimeSpan? duration)
+    {
+        try
+        {
+            duration = XmlConvert.ToTimeSpan(value);
+            return true;
+        }
+        catch (Exception exception)
+            when (exception is FormatException or OverflowException)
+        {
+            if (TimeSpan.TryParse(value, CultureInfo.InvariantCulture, out var parsed))
+            {
+                duration = parsed;
+                return true;
+            }
+
+            duration = null;
+            return false;
+        }
     }
 
     private static (bool Ok, bool? Value) OptionalBool(

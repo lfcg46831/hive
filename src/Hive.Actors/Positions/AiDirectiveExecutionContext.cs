@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -29,6 +30,7 @@ internal sealed record AiDirectiveExecutionContext
         AiModelParameters modelParameters,
         AiProcessingMode? processingMode,
         AiDirectiveProcessingLimits limits,
+        EffectiveDirectiveExecutionPolicy executionPolicy,
         PositionConfigurationStamp? lastConfigurationStamp,
         bool requiresStructuredOutcomeProposal)
     {
@@ -55,6 +57,8 @@ internal sealed record AiDirectiveExecutionContext
         ModelParameters = modelParameters ?? throw new ArgumentNullException(nameof(modelParameters));
         ProcessingMode = processingMode;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
+        ExecutionPolicy = executionPolicy
+            ?? throw new ArgumentNullException(nameof(executionPolicy));
         LastConfigurationStamp = lastConfigurationStamp;
         RequiresStructuredOutcomeProposal = requiresStructuredOutcomeProposal;
     }
@@ -97,6 +101,8 @@ internal sealed record AiDirectiveExecutionContext
 
     public AiDirectiveProcessingLimits Limits { get; }
 
+    public EffectiveDirectiveExecutionPolicy ExecutionPolicy { get; init; }
+
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
 
     public bool RequiresStructuredOutcomeProposal { get; }
@@ -106,6 +112,15 @@ internal sealed record AiDirectiveExecutionContext
         bool requiresStructuredOutcomeProposal = false)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        var aiGateway = request.RuntimeContext.OccupantConfiguration.AiGateway;
+        var limits = request.Limits;
+        var executionPolicy = DirectiveExecutionPolicyComposer.ComposeV1(
+            request.Directive.ExecutionPolicy,
+            aiGateway?.DirectiveExecutionPolicy,
+            limits.LimitsVersion == AiPositionRuntimeConfiguration.CurrentLimitsVersion
+                ? limits.ExecutionTimeout
+                : null);
 
         return new AiDirectiveExecutionContext(
             request.CorrelationId,
@@ -136,11 +151,12 @@ internal sealed record AiDirectiveExecutionContext
                 .ToImmutableArray(),
             request.PersistedContext.RecentHistory,
             request.PersistedContext.MaterializedHistory,
-            request.RuntimeContext.OccupantConfiguration.AiGateway?.Primary,
-            request.RuntimeContext.OccupantConfiguration.AiGateway?.Parameters
+            aiGateway?.Primary,
+            aiGateway?.Parameters
                 ?? AiModelParameters.Default,
-            request.RuntimeContext.OccupantConfiguration.AiGateway?.ProcessingMode,
-            request.Limits,
+            aiGateway?.ProcessingMode,
+            limits,
+            executionPolicy,
             request.PersistedContext.LastConfigurationStamp,
             requiresStructuredOutcomeProposal);
     }
@@ -180,7 +196,8 @@ internal sealed record AiDirectiveExecutionDirective
         DateTimeOffset sentAt,
         DateTimeOffset? deadline,
         string objective,
-        string context)
+        string context,
+        DirectiveExecutionPolicyRequest? executionPolicy)
     {
         MessageId = messageId ?? throw new ArgumentNullException(nameof(messageId));
         ThreadId = threadId ?? throw new ArgumentNullException(nameof(threadId));
@@ -193,6 +210,7 @@ internal sealed record AiDirectiveExecutionDirective
         Deadline = deadline;
         Objective = AiAgentGatewayText.Require(objective, nameof(objective));
         Context = AiAgentGatewayText.Require(context, nameof(context));
+        ExecutionPolicy = executionPolicy;
     }
 
     public MessageId MessageId { get; }
@@ -217,6 +235,8 @@ internal sealed record AiDirectiveExecutionDirective
 
     public string Context { get; }
 
+    public DirectiveExecutionPolicyRequest? ExecutionPolicy { get; }
+
     public static AiDirectiveExecutionDirective FromDirective(Directive directive)
     {
         ArgumentNullException.ThrowIfNull(directive);
@@ -232,7 +252,8 @@ internal sealed record AiDirectiveExecutionDirective
             directive.SentAt,
             directive.Deadline,
             directive.Objective,
-            directive.Context);
+            directive.Context,
+            directive.ExecutionPolicy);
     }
 }
 

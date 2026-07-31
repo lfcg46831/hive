@@ -6,6 +6,10 @@ public sealed record DirectiveSubmissionEndpointRefRequest(
     string? Kind,
     string? PositionId);
 
+public sealed record DirectiveExecutionPolicySubmissionRequest(
+    int? ContractVersion,
+    string? Mode);
+
 public sealed record SubmitDirectiveRequest(
     string? MessageId,
     DirectiveSubmissionEndpointRefRequest? From,
@@ -18,7 +22,8 @@ public sealed record SubmitDirectiveRequest(
     string? DirectiveId,
     string? ParentDirectiveId,
     string? Objective,
-    string? Context);
+    string? Context,
+    DirectiveExecutionPolicySubmissionRequest? ExecutionPolicy = null);
 
 public sealed record SubmitDirectiveResponse(
     string Status,

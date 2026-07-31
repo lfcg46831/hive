@@ -84,8 +84,10 @@ public sealed class EvaluationPlanTests
         Assert.Equal(0d, analysis.PositiveRecall.Recall);
         Assert.Equal(0.03m, Assert.Single(analysis.Cost.Totals).Amount);
         Assert.Equal(200, analysis.Latency.P95Milliseconds);
-        Assert.Equal(15, analysis.DeadlineCalibration.SourceRightCensoredCount);
-        Assert.Equal(45_000, analysis.DeadlineCalibration.SelectedTimeoutMilliseconds);
+        var deadline = Assert.IsType<EvaluationDeadlineAnalysis>(
+            analysis.DeadlineCalibration);
+        Assert.Equal(15, deadline.SourceRightCensoredCount);
+        Assert.Equal(45_000, deadline.SelectedTimeoutMilliseconds);
         Assert.Equal(
             new EvaluationInvalidOutputDiagnosticAggregate(
                 "decision.report.body",

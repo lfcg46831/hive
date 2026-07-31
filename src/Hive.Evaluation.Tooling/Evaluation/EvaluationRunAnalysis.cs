@@ -22,6 +22,63 @@ public static class EvaluationRunAnalyzer
         ArgumentNullException.ThrowIfNull(dataset);
         ArgumentNullException.ThrowIfNull(plan);
 
+        return Analyze(
+            corpus,
+            dataset,
+            new AnalysisContract(
+                plan.Provider.ProviderId,
+                plan.Provider.ModelIds,
+                plan.Provider.OutputConstraintMode,
+                plan.Provider.PricingVersion,
+                new EvaluationDecisionAnalysisConfiguration(
+                    plan.DecisionAnalysis.DimensionId,
+                    plan.DecisionAnalysis.NegativeLabel,
+                    plan.DecisionAnalysis.PositiveLabel),
+                new EvaluationDeadlineAnalysis(
+                    plan.DeadlineCalibration.Method,
+                    plan.DeadlineCalibration.SourceRunIds,
+                    plan.DeadlineCalibration.ObservedUncensoredP95Milliseconds,
+                    plan.DeadlineCalibration.RightCensoredCount,
+                    plan.DeadlineCalibration.CensoringBoundaryMilliseconds,
+                    plan.DeadlineCalibration.OperationalMarginMilliseconds,
+                    plan.DeadlineCalibration.SelectedTimeoutMilliseconds,
+                    null,
+                    0),
+                partition == EvaluationPlan.CalibrationPartition ? "ready" : "gate-eligible",
+                partition == EvaluationPlan.CalibrationPartition ? "not-ready" : "incomplete"));
+    }
+
+    public static EvaluationRunAnalysis Analyze(
+        EvaluationCorpus corpus,
+        EvaluationDataset dataset,
+        EvaluationExperimentManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(corpus);
+        ArgumentNullException.ThrowIfNull(dataset);
+        ArgumentNullException.ThrowIfNull(manifest);
+
+        var rubric = EvaluationRubric.Load(manifest.RubricPath);
+        var validation = EvaluationExperimentValidator.Validate(dataset.Cases, manifest);
+        return Analyze(
+            corpus,
+            dataset,
+            new AnalysisContract(
+                manifest.Model.ProviderId,
+                [manifest.Model.ModelId],
+                manifest.Model.OutputConstraintMode,
+                PricingVersion: null,
+                DecisionAnalysis: rubric.DecisionAnalysis(),
+                DeadlineCalibration: null,
+                ReadyStatus: "ready",
+                IncompleteStatus: "not-ready",
+                FailureCodes: validation.FailureCodes));
+    }
+
+    private static EvaluationRunAnalysis Analyze(
+        EvaluationCorpus corpus,
+        EvaluationDataset dataset,
+        AnalysisContract contract)
+    {
         var total = corpus.Cases.Count;
         var terminalCount = dataset.Cases.Count(IsAuditableTerminal);
         var explicitCostCount = dataset.Cases.Count(item =>
@@ -35,7 +92,8 @@ public static class EvaluationRunAnalyzer
         AddCoverageFailure(failures, terminalCount, total, "terminal-incomplete");
         AddCoverageFailure(failures, explicitCostCount, total, "cost-state-incomplete");
         AddCoverageFailure(failures, scoreableCount, total, "projection-incomplete");
-        ValidateFrozenRuntime(dataset.Cases, plan, failures);
+        ValidateRuntime(dataset.Cases, contract, failures);
+        failures.UnionWith(contract.AdditionalFailureCodes);
 
         var dimensionQuality = dataset.Cases
             .SelectMany(item => item.Scoring?.Dimensions ?? [])
@@ -46,7 +104,7 @@ public static class EvaluationRunAnalyzer
                 group.Count(),
                 group.Average(item => item.Score)))
             .ToArray();
-        var matrix = BuildDecisionMatrix(corpus, dataset, plan, failures);
+        var matrix = BuildDecisionMatrix(corpus, dataset, contract.DecisionAnalysis, failures);
         var invalidOutputDiagnostics = dataset.Cases
             .Where(item => item.InvalidOutputDiagnostics is not null)
             .SelectMany(item => item.InvalidOutputDiagnostics!.Errors.Select(error => new
@@ -85,22 +143,20 @@ public static class EvaluationRunAnalyzer
             .ToArray();
         var latency = BuildLatency(dataset.Cases);
         var cost = BuildCost(dataset.Cases);
-        var outcomeResolution = BuildOutcomeResolutionAnalysis(corpus, dataset, plan);
-        var deadline = new EvaluationDeadlineAnalysis(
-            plan.DeadlineCalibration.Method,
-            plan.DeadlineCalibration.SourceRunIds,
-            plan.DeadlineCalibration.ObservedUncensoredP95Milliseconds,
-            plan.DeadlineCalibration.RightCensoredCount,
-            plan.DeadlineCalibration.CensoringBoundaryMilliseconds,
-            plan.DeadlineCalibration.OperationalMarginMilliseconds,
-            plan.DeadlineCalibration.SelectedTimeoutMilliseconds,
-            latency.P95Milliseconds,
-            latency.RightCensoredCount);
+        var outcomeResolution = BuildOutcomeResolutionAnalysis(
+            corpus,
+            dataset,
+            contract.DecisionAnalysis);
+        var deadline = contract.DeadlineCalibration is null
+            ? null
+            : contract.DeadlineCalibration with
+            {
+                RunUncensoredP95Milliseconds = latency.P95Milliseconds,
+                RunRightCensoredCount = latency.RightCensoredCount,
+            };
 
         var complete = failures.Count == 0;
-        var status = complete
-            ? partition == EvaluationPlan.CalibrationPartition ? "ready" : "gate-eligible"
-            : partition == EvaluationPlan.CalibrationPartition ? "not-ready" : "incomplete";
+        var status = complete ? contract.ReadyStatus : contract.IncompleteStatus;
         return new EvaluationRunAnalysis(
             status,
             failures.OrderBy(value => value, StringComparer.Ordinal).ToArray(),
@@ -124,20 +180,20 @@ public static class EvaluationRunAnalyzer
         && item.Outcome is "succeeded" or "failed" or "rejected"
         && !string.IsNullOrWhiteSpace(item.TerminalCode);
 
-    private static void ValidateFrozenRuntime(
+    private static void ValidateRuntime(
         IReadOnlyList<EvaluationCaseResult> cases,
-        EvaluationPlan plan,
+        AnalysisContract contract,
         ISet<string> failures)
     {
         var terminal = cases.Where(IsAuditableTerminal).ToArray();
         if (terminal.Any(item =>
-            !string.Equals(item.ProviderId, plan.Provider.ProviderId, StringComparison.Ordinal)))
+            !string.Equals(item.ProviderId, contract.ProviderId, StringComparison.Ordinal)))
         {
             failures.Add("provider-drift");
         }
 
         if (terminal.Any(item =>
-            item.ModelId is null || !plan.Provider.ModelIds.Contains(item.ModelId, StringComparer.Ordinal)))
+            item.ModelId is null || !contract.ModelIds.Contains(item.ModelId, StringComparer.Ordinal)))
         {
             failures.Add("model-drift");
         }
@@ -145,17 +201,17 @@ public static class EvaluationRunAnalyzer
         if (terminal.Any(item =>
             !string.Equals(
                 item.OutputConstraintMode,
-                plan.Provider.OutputConstraintMode,
+                contract.OutputConstraintMode,
                 StringComparison.Ordinal)))
         {
             failures.Add("output-constraint-drift");
         }
 
-        if (terminal.Any(item =>
+        if (contract.PricingVersion is not null && terminal.Any(item =>
             item.CostStatus == "estimated"
             && !string.Equals(
                 item.PricingVersion,
-                plan.Provider.PricingVersion,
+                contract.PricingVersion,
                 StringComparison.Ordinal)))
         {
             failures.Add("pricing-drift");
@@ -165,12 +221,12 @@ public static class EvaluationRunAnalyzer
     private static DecisionMatrixResult BuildDecisionMatrix(
         EvaluationCorpus corpus,
         EvaluationDataset dataset,
-        EvaluationPlan plan,
+        EvaluationDecisionAnalysisConfiguration decisionAnalysis,
         ISet<string> failures)
     {
         var byId = dataset.Cases.ToDictionary(item => item.CaseId, StringComparer.Ordinal);
-        var negative = plan.DecisionAnalysis.NegativeLabel;
-        var positive = plan.DecisionAnalysis.PositiveLabel;
+        var negative = decisionAnalysis.NegativeLabel;
+        var positive = decisionAnalysis.PositiveLabel;
         var counts = new Dictionary<(string Actual, string Predicted), int>();
         foreach (var actual in new[] { negative, positive })
         {
@@ -184,7 +240,7 @@ public static class EvaluationRunAnalyzer
         var positiveUnclassified = 0;
         foreach (var item in corpus.Cases)
         {
-            var actual = SingleLabel(item.HumanReference, plan.DecisionAnalysis.DimensionId);
+            var actual = SingleLabel(item.HumanReference, decisionAnalysis.DimensionId);
             if (actual is null || (actual != negative && actual != positive))
             {
                 failures.Add("decision-reference-invalid");
@@ -193,7 +249,7 @@ public static class EvaluationRunAnalyzer
             }
 
             var predicted = byId.TryGetValue(item.CaseId, out var result)
-                ? SinglePredictionLabel(result.Prediction, plan.DecisionAnalysis.DimensionId)
+                ? SinglePredictionLabel(result.Prediction, decisionAnalysis.DimensionId)
                 : null;
             if (predicted is null || (predicted != negative && predicted != positive))
             {
@@ -248,7 +304,7 @@ public static class EvaluationRunAnalyzer
     private static EvaluationOutcomeResolutionAnalysis? BuildOutcomeResolutionAnalysis(
         EvaluationCorpus corpus,
         EvaluationDataset dataset,
-        EvaluationPlan plan)
+        EvaluationDecisionAnalysisConfiguration decisionAnalysis)
     {
         var resolved = dataset.Cases
             .Where(item => item.OutcomeResolution is not null)
@@ -316,7 +372,7 @@ public static class EvaluationRunAnalyzer
         var falsePositive = 0;
         foreach (var item in corpus.Cases)
         {
-            var actual = SingleLabel(item.HumanReference, plan.DecisionAnalysis.DimensionId);
+            var actual = SingleLabel(item.HumanReference, decisionAnalysis.DimensionId);
             if (actual is null || !byId.TryGetValue(item.CaseId, out var result) ||
                 result.OutcomeResolution is null)
             {
@@ -325,11 +381,11 @@ public static class EvaluationRunAnalyzer
 
             var predictedPositive = result.OutcomeResolution.ResolvedOutcome is
                 "Escalation" or "ApprovalRequired";
-            if (actual == plan.DecisionAnalysis.PositiveLabel && !predictedPositive)
+            if (actual == decisionAnalysis.PositiveLabel && !predictedPositive)
             {
                 falseNegative++;
             }
-            else if (actual == plan.DecisionAnalysis.NegativeLabel && predictedPositive)
+            else if (actual == decisionAnalysis.NegativeLabel && predictedPositive)
             {
                 falsePositive++;
             }
@@ -427,7 +483,26 @@ public static class EvaluationRunAnalyzer
         IReadOnlyList<EvaluationDecisionMatrixCell> Rows,
         int UnclassifiedCount,
         EvaluationPositiveRecall Recall);
+
+    private sealed record AnalysisContract(
+        string ProviderId,
+        IReadOnlyList<string> ModelIds,
+        string OutputConstraintMode,
+        string? PricingVersion,
+        EvaluationDecisionAnalysisConfiguration DecisionAnalysis,
+        EvaluationDeadlineAnalysis? DeadlineCalibration,
+        string ReadyStatus,
+        string IncompleteStatus,
+        IReadOnlyList<string>? FailureCodes = null)
+    {
+        public IReadOnlyList<string> AdditionalFailureCodes { get; } = FailureCodes ?? [];
+    }
 }
+
+internal sealed record EvaluationDecisionAnalysisConfiguration(
+    string DimensionId,
+    string NegativeLabel,
+    string PositiveLabel);
 
 public sealed record EvaluationRunAnalysis(
     [property: JsonPropertyName("status")] string Status,
@@ -445,7 +520,7 @@ public sealed record EvaluationRunAnalysis(
     IReadOnlyList<EvaluationInvalidOutputDiagnosticAggregate> InvalidOutputDiagnostics,
     [property: JsonPropertyName("cost")] EvaluationCostAnalysis Cost,
     [property: JsonPropertyName("latency")] EvaluationLatencyAnalysis Latency,
-    [property: JsonPropertyName("deadline_calibration")] EvaluationDeadlineAnalysis DeadlineCalibration,
+    [property: JsonPropertyName("deadline_calibration")] EvaluationDeadlineAnalysis? DeadlineCalibration,
     [property: JsonPropertyName("envelope_diagnostics")]
     IReadOnlyList<EvaluationEnvelopeDiagnosticAggregate>? EnvelopeDiagnostics = null,
     [property: JsonPropertyName("outcome_resolution")]

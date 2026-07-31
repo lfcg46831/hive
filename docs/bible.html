@@ -4567,11 +4567,11 @@ public interface IPositionConfigurationProvider
 </tr>
 <tr>
 <td><code>BUG-003</code></td>
-<td><code>None</code></td>
+<td><code>Completed</code></td>
 <td>Datasets manifest-driven omitem a análise agregada do run.</td>
 <td><code>EvaluationRunner</code> acrescenta identidade e validação efetiva quando recebe <code>--manifest</code>, mas retorna o dataset antes de chamar <code>EvaluationRunAnalyzer</code>; só o ramo de plano histórico produz <code>run_analysis</code>. Assim, um dataset manifest-driven conserva os casos e <code>corpus_score</code>, mas omite cobertura, matriz de decisão, recall, custo e latência agregados prometidos pela referência operacional. Conclui quando: (1) a análise aceita a configuração fechada de um manifesto sem depender de freeze/holdout; (2) datasets manifest-driven materializam <code>run_analysis</code> determinístico e o exit code usa o seu estado; (3) testes cobrem runs completos, incompletos e drift; e (4) datasets históricos e os três ids já consumidos não são alterados nem repetidos.</td>
 <td>3</td>
-<td><code>src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunner.cs</code><br><code>evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md</code></td>
+<td><code>src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunner.cs</code><br><code>src/Hive.Evaluation.Tooling/Evaluation/EvaluationRunAnalysis.cs</code><br><code>tests/Hive.Evaluation.Tooling.Tests/EvaluationExperimentManifestTests.cs</code><br><code>evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md</code></td>
 </tr>
 <tr>
 <td><code>BUG-004</code></td>

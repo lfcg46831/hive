@@ -39,22 +39,7 @@ public static class EvaluationCommand
             await JsonSerializer.SerializeAsync(stream, dataset, OutputJson, cancellationToken).ConfigureAwait(false);
             await stream.WriteAsync("\n"u8.ToArray(), cancellationToken).ConfigureAwait(false);
             await output.WriteLineAsync(options.OutputPath).ConfigureAwait(false);
-            if (dataset.EffectiveConfigurationValidation is { } validation
-                && validation.Status != "validated")
-            {
-                return 1;
-            }
-
-            if (dataset.RunAnalysis is not null)
-            {
-                return dataset.RunAnalysis.Status is "ready" or "gate-eligible" ? 0 : 1;
-            }
-
-            return dataset.Cases.All(item =>
-                    (item.Outcome is "succeeded" or "accepted")
-                    && item.Scoring?.Status == "scored")
-                    ? 0
-                    : 1;
+            return ExitCode(dataset);
         }
         catch (ArgumentException exception)
         {
@@ -67,6 +52,27 @@ public static class EvaluationCommand
             await output.WriteLineAsync(exception.Message).ConfigureAwait(false);
             return 2;
         }
+    }
+
+    internal static int ExitCode(EvaluationDataset dataset)
+    {
+        ArgumentNullException.ThrowIfNull(dataset);
+        if (dataset.EffectiveConfigurationValidation is { } validation
+            && validation.Status != "validated")
+        {
+            return 1;
+        }
+
+        if (dataset.RunAnalysis is not null)
+        {
+            return dataset.RunAnalysis.Status is "ready" or "gate-eligible" ? 0 : 1;
+        }
+
+        return dataset.Cases.All(item =>
+                (item.Outcome is "succeeded" or "accepted")
+                && item.Scoring?.Status == "scored")
+                ? 0
+                : 1;
     }
 
     private static Task WriteUsageAsync(TextWriter output) => output.WriteLineAsync(

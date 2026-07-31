@@ -37,6 +37,26 @@ public sealed class EvaluationRubric
 
     public IReadOnlyList<EvaluationDimensionDescriptor> Dimensions { get; }
 
+    internal EvaluationDecisionAnalysisConfiguration DecisionAnalysis()
+    {
+        var candidates = _dimensions
+            .Where(item => item.Descriptor.Source == "result-message-kind")
+            .ToArray();
+        if (candidates.Length != 1
+            || !candidates[0].SourceMapping.TryGetValue("report", out var negativeLabel)
+            || !candidates[0].SourceMapping.TryGetValue("escalation", out var positiveLabel)
+            || string.Equals(negativeLabel, positiveLabel, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException(
+                "Evaluation rubric must define one report/escalation decision dimension for run analysis.");
+        }
+
+        return new EvaluationDecisionAnalysisConfiguration(
+            candidates[0].Descriptor.Id,
+            negativeLabel,
+            positiveLabel);
+    }
+
     public string BuildObservationInstruction()
     {
         var envelopeDimensions = _dimensions

@@ -389,6 +389,16 @@ public sealed class EvaluationArtifactPublicationTests
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(source, target);
             }
+
+            CurrentExperimentManifest.Write(
+                sourceManifestPath,
+                Path.Combine(
+                    targetRepositoryRoot,
+                    "config",
+                    "experiments",
+                    "bug-triage-lab-v1",
+                    "experiment.v1.json"),
+                targetRepositoryRoot);
         }
     }
 

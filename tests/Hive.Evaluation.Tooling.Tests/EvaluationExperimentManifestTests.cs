@@ -7,9 +7,17 @@ namespace Hive.Evaluation.Tooling.Tests;
 public sealed class EvaluationExperimentManifestTests
 {
     [Fact]
-    public void Tracked_manifest_resolves_hashes_and_effective_configuration()
+    public void Historical_manifest_stays_immutable_while_current_fixture_resolves_configuration()
     {
-        var manifest = EvaluationExperimentManifest.Load(ManifestPath);
+        Assert.Equal(
+            "e3ee9c5911129395b34fd68611088206eaa33bfa56c94e9a6264793c6357697d",
+            EvaluationArtifactIndex.FileSha256(ManifestPath));
+        var historical = Assert.Throws<InvalidDataException>(
+            () => EvaluationExperimentManifest.Load(ManifestPath));
+        Assert.Contains("has drifted from SHA-256", historical.Message, StringComparison.Ordinal);
+
+        using var fixture = CurrentManifestFixture.Create();
+        var manifest = fixture.Manifest;
 
         Assert.Equal(EvaluationExperimentManifest.ContractName, manifest.Name);
         Assert.Equal(1, manifest.ManifestVersion);
@@ -55,7 +63,8 @@ public sealed class EvaluationExperimentManifestTests
     [Fact]
     public void Manifest_rejects_unknown_properties_and_hash_drift()
     {
-        var original = File.ReadAllText(ManifestPath);
+        using var fixture = CurrentManifestFixture.Create();
+        var original = File.ReadAllText(fixture.Manifest.ManifestPath);
         WithManifestCopy(
             original.TrimEnd()[..^1] + ",\"unexpected\":true}",
             path =>
@@ -86,10 +95,11 @@ public sealed class EvaluationExperimentManifestTests
     [Fact]
     public void Manifest_drives_run_scope_and_disallows_runtime_overrides()
     {
+        using var fixture = CurrentManifestFixture.Create();
         var options = EvaluationRunOptions.Parse(
             [
                 "--run-id", "manifest-test",
-                "--manifest", ManifestPath,
+                "--manifest", fixture.Manifest.ManifestPath,
             ],
             AppContext.BaseDirectory);
 
@@ -105,7 +115,7 @@ public sealed class EvaluationExperimentManifestTests
             EvaluationRunOptions.Parse(
                 [
                     "--run-id", "manifest-test",
-                    "--manifest", ManifestPath,
+                    "--manifest", fixture.Manifest.ManifestPath,
                     "--timeout-seconds", "10",
                 ],
                 AppContext.BaseDirectory));
@@ -118,7 +128,8 @@ public sealed class EvaluationExperimentManifestTests
     [Fact]
     public void Validator_accepts_bounded_runtime_and_reports_closed_drift_codes()
     {
-        var manifest = EvaluationExperimentManifest.Load(ManifestPath);
+        using var fixture = CurrentManifestFixture.Create();
+        var manifest = fixture.Manifest;
         var valid = Result(
             [
                 GatewayCall(
@@ -192,7 +203,9 @@ public sealed class EvaluationExperimentManifestTests
     [Fact]
     public async Task Runner_carries_manifest_scope_hashes_and_validation_into_dataset()
     {
-        var manifest = EvaluationExperimentManifest.Load(ManifestPath);
+        using var fixture = CurrentManifestFixture.Create();
+        var manifest = fixture.Manifest;
+        var rubric = EvaluationRubric.Load(manifest.RubricPath);
         var resolution = Resolution("enforcement");
         var calls = new[]
         {
@@ -251,10 +264,15 @@ public sealed class EvaluationExperimentManifestTests
                     "case-001",
                     "test",
                     "A bounded synthetic context used to verify manifest-driven submission.",
-                    new Dictionary<string, IReadOnlyList<string>>()),
+                    CompleteReference()),
             ]);
+        var projection = CompletePrediction();
 
-        var dataset = await new EvaluationRunner(client, audit)
+        var dataset = await new EvaluationRunner(
+                client,
+                audit,
+                projectionReader: new SingleProjectionReader(projection),
+                rubric: rubric)
             .RunAsync(corpus, options, CancellationToken.None);
 
         Assert.Equal(1, dataset.ExperimentManifestVersion);
@@ -266,6 +284,16 @@ public sealed class EvaluationExperimentManifestTests
         Assert.Equal(
             "validated",
             dataset.EffectiveConfigurationValidation?.Status);
+        var analysis = Assert.IsType<EvaluationRunAnalysis>(dataset.RunAnalysis);
+        Assert.Equal("ready", analysis.Status);
+        Assert.Empty(analysis.FailureCodes);
+        Assert.Equal(1d, analysis.TerminalCoverage.Rate);
+        Assert.Equal(1d, analysis.CostStateCoverage.Rate);
+        Assert.Equal(1d, analysis.ProjectionCoverage.Rate);
+        Assert.Equal(1, analysis.DecisionMatrix.Single(item =>
+            item.Actual == "report" && item.Predicted == "report").Count);
+        Assert.Null(analysis.DeadlineCalibration);
+        Assert.Equal(0, EvaluationCommand.ExitCode(dataset));
         Assert.Equal("acme-delivery", audit.OrganizationId);
         Assert.Contains(
             "\"positionId\":\"delivery-lead\"",
@@ -278,8 +306,105 @@ public sealed class EvaluationExperimentManifestTests
     }
 
     [Fact]
+    public void Manifest_analysis_is_deterministic_and_fails_incomplete_or_drifted_runs()
+    {
+        using var fixture = CurrentManifestFixture.Create();
+        var manifest = fixture.Manifest;
+        var rubric = EvaluationRubric.Load(manifest.RubricPath);
+        var corpus = new EvaluationCorpus(
+            1,
+            "evaluation-example",
+            [
+                new EvaluationCase(
+                    "case-001",
+                    "test",
+                    "A bounded synthetic context used to verify manifest analysis.",
+                    CompleteReference()),
+            ]);
+        var prediction = CompletePrediction();
+        var completeResult = Result(
+            [
+                GatewayCall(
+                    1,
+                    "directive-inference",
+                    1,
+                    "openai",
+                    "gpt-5-mini-2025-08-07",
+                    60_000,
+                    8_192),
+            ],
+            "enforcement") with
+        {
+            CostStatus = "estimated",
+            Prediction = prediction,
+            Scoring = rubric.Score(CompleteReference(), prediction),
+        };
+        var completeDataset = Dataset([completeResult]);
+        var complete = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            completeDataset,
+            manifest);
+        var repeated = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            completeDataset,
+            manifest);
+
+        Assert.Equal("ready", complete.Status);
+        Assert.Equal(
+            JsonSerializer.Serialize(complete),
+            JsonSerializer.Serialize(repeated));
+
+        var incomplete = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            Dataset([]),
+            manifest);
+
+        Assert.Equal("not-ready", incomplete.Status);
+        Assert.Equal(
+            [
+                "cost-state-incomplete",
+                "inference-configuration-unobserved",
+                "outcome-mode-unobserved",
+                "projection-incomplete",
+                "terminal-incomplete",
+            ],
+            incomplete.FailureCodes);
+        Assert.Equal(
+            1,
+            EvaluationCommand.ExitCode(
+                completeDataset with { RunAnalysis = incomplete }));
+
+        var driftedResult = completeResult with
+        {
+            GatewayCalls =
+            [
+                GatewayCall(
+                    1,
+                    "directive-inference",
+                    1,
+                    "other-provider",
+                    "other-model",
+                    60_000,
+                    8_192),
+            ],
+        };
+        var drifted = EvaluationRunAnalyzer.Analyze(
+            corpus,
+            Dataset([driftedResult]),
+            manifest);
+
+        Assert.Equal("not-ready", drifted.Status);
+        Assert.Equal(["model-drift", "provider-drift"], drifted.FailureCodes);
+        Assert.Equal(
+            1,
+            EvaluationCommand.ExitCode(
+                completeDataset with { RunAnalysis = drifted }));
+    }
+
+    [Fact]
     public async Task Prepare_command_writes_only_disposable_effective_artifacts()
     {
+        using var manifestFixture = CurrentManifestFixture.Create();
         var outputDirectory = Path.Combine(
             RepositoryRoot,
             "artifacts",
@@ -291,7 +416,7 @@ public sealed class EvaluationExperimentManifestTests
             var exitCode = await EvaluationExperimentCommand.RunAsync(
                 [
                     "prepare",
-                    "--manifest", ManifestPath,
+                    "--manifest", manifestFixture.Manifest.ManifestPath,
                     "--output-directory", outputDirectory,
                 ],
                 output,
@@ -377,6 +502,35 @@ public sealed class EvaluationExperimentManifestTests
             OutcomeResolutionSteps:
             [
                 Resolution(outcomeMode),
+            ]);
+
+    private static EvaluationDataset Dataset(
+        IReadOnlyList<EvaluationCaseResult> cases) =>
+        new(
+            1,
+            1,
+            "manifest-analysis",
+            "http://localhost:8080",
+            120,
+            1000,
+            cases);
+
+    private static IReadOnlyDictionary<string, IReadOnlyList<string>> CompleteReference() =>
+        new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+        {
+            ["decision"] = ["report"],
+            ["missing-information"] = [],
+            ["severity"] = ["low"],
+        };
+
+    private static EvaluationPrediction CompletePrediction() =>
+        new(
+            1,
+            1,
+            [
+                new("decision", EvaluationDimensionStatuses.Valid, ["report"]),
+                new("missing-information", EvaluationDimensionStatuses.Valid, []),
+                new("severity", EvaluationDimensionStatuses.Valid, ["low"]),
             ]);
 
     private static EvaluationOutcomeResolution Resolution(string outcomeMode) =>
@@ -488,6 +642,56 @@ public sealed class EvaluationExperimentManifestTests
         }
 
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class SingleProjectionReader(EvaluationPrediction prediction) :
+        IEvaluationProjectionReader
+    {
+        public Task<EvaluationPrediction?> ReadAsync(
+            string organizationId,
+            Guid threadId,
+            Guid directiveId,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<EvaluationPrediction?>(prediction);
+
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+    }
+
+    private sealed class CurrentManifestFixture : IDisposable
+    {
+        private readonly string _directory;
+
+        private CurrentManifestFixture(
+            string directory,
+            EvaluationExperimentManifest manifest)
+        {
+            _directory = directory;
+            Manifest = manifest;
+        }
+
+        public EvaluationExperimentManifest Manifest { get; }
+
+        public static CurrentManifestFixture Create()
+        {
+            var directory = Path.Combine(
+                RepositoryRoot,
+                "artifacts",
+                "evaluation-tests",
+                Guid.NewGuid().ToString("N"));
+            var path = Path.Combine(directory, "experiment.v1.json");
+            CurrentExperimentManifest.Write(ManifestPath, path, RepositoryRoot);
+            return new CurrentManifestFixture(
+                directory,
+                EvaluationExperimentManifest.Load(path));
+        }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(_directory))
+            {
+                Directory.Delete(_directory, recursive: true);
+            }
+        }
     }
 
     private static string ManifestPath => Path.Combine(

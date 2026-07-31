@@ -69,6 +69,13 @@ public sealed class EvaluationRunner
                 EffectiveConfigurationValidation =
                     EvaluationExperimentValidator.Validate(results, experiment),
             };
+            dataset = dataset with
+            {
+                RunAnalysis = EvaluationRunAnalyzer.Analyze(
+                    corpus,
+                    dataset,
+                    experiment),
+            };
         }
 
         if (options.Plan is null || options.Partition is null)

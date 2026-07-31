@@ -111,6 +111,68 @@ public sealed class AiGatewayIntegrationTests
         Assert.Empty(missingKey.ToConfiguration());
     }
 
+    [Theory]
+    [InlineData(AiGatewayErrorCode.ConfigurationInvalid, null, "configuration-invalid")]
+    [InlineData(AiGatewayErrorCode.ProviderUnavailable, null, "provider-unavailable")]
+    [InlineData(AiGatewayErrorCode.ProviderRejected, 400, "provider-rejected")]
+    public void Real_smoke_gate_fails_closed_with_sanitized_diagnostics(
+        AiGatewayErrorCode errorCode,
+        int? providerStatusCode,
+        string wireCode)
+    {
+        var settings = new OptionalRealSmokeSettings(
+            "local-secret",
+            "local-model",
+            Endpoint: null);
+        var response = AiGatewayResponse.Failed(new AiGatewayError(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            errorCode,
+            "secret=local-secret; prompt=private; output=private; reasoning=private",
+            isRetryable: false,
+            new AiProviderMetadata("openai", "local-model"),
+            providerStatusCode is { } statusCode
+                ? new AiGatewayFailureDiagnostics(providerStatusCode: statusCode)
+                : null));
+
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+            () => RequireSuccessfulRealProviderCall(response, settings));
+
+        var expected = providerStatusCode is { } expectedStatusCode
+            ? $"code={wireCode}; status={expectedStatusCode}; provider=openai; model=local-model"
+            : $"code={wireCode}; provider=openai; model=local-model";
+        Assert.Equal(expected, exception.Message);
+    }
+
+    [Fact]
+    public void Real_verifier_smoke_gate_does_not_expose_invalid_provider_output()
+    {
+        var settings = new OptionalRealSmokeSettings(
+            "local-secret",
+            "local-model",
+            Endpoint: null);
+        var response = AiGatewayResponse.Succeeded(
+            Organization,
+            Position,
+            Thread,
+            Message,
+            "secret=local-secret; prompt=private; output=private; reasoning=private",
+            AiFinishReason.Stop,
+            provider: new AiProviderMetadata("openai", "local-model"));
+
+        var exception = Assert.Throws<Xunit.Sdk.XunitException>(
+            () => RequireClassifiedVerifierResult(
+                OutcomeVerifierResult.Unavailable(),
+                response,
+                settings));
+
+        Assert.Equal(
+            "code=invalid-provider-response; provider=openai; model=local-model",
+            exception.Message);
+    }
+
     [Fact]
     public async Task Optional_real_provider_smoke_test_runs_only_with_local_secret_and_model()
     {
@@ -128,21 +190,7 @@ public sealed class AiGatewayIntegrationTests
             provider: new AiProviderMetadata("openai", settings.ModelId!),
             timeout: TimeSpan.FromSeconds(30)));
 
-        Assert.True(response.IsSuccess || response.IsFailure);
-        if (response.IsSuccess)
-        {
-            Assert.NotNull(response.Provider);
-            Assert.Equal("openai", response.Provider.ProviderId);
-            Assert.Equal(settings.ModelId, response.Provider.ModelId);
-            Assert.DoesNotContain(settings.ApiKey!, response.Text ?? string.Empty);
-            return;
-        }
-
-        var error = Assert.IsType<AiGatewayError>(response.Error);
-        Assert.NotNull(error.Provider);
-        Assert.Equal("openai", error.Provider.ProviderId);
-        Assert.Equal(settings.ModelId, error.Provider.ModelId);
-        Assert.DoesNotContain(settings.ApiKey!, error.Message);
+        RequireSuccessfulRealProviderCall(response, settings);
     }
 
     [Fact]
@@ -162,20 +210,7 @@ public sealed class AiGatewayIntegrationTests
         var result = await verifier.VerifyAsync(OutcomeVerifierRequest());
 
         var gatewayResponse = Assert.IsType<AiGatewayResponse>(gateway.Response);
-        var parserDiagnostics = gatewayResponse.Text is null
-            ? "text-unavailable"
-            : string.Join(
-                ",",
-                OutcomeVerifierParser.Parse(gatewayResponse.Text).Errors.Select(
-                    error => $"{error.Code}:{error.Path}"));
-        var responseShape = gatewayResponse.Text is null
-            ? "text-unavailable"
-            : TopLevelPropertyNames(gatewayResponse.Text);
-        Assert.True(
-            result.Status == OutcomeVerifierResultStatus.Classified,
-            $"Verifier status={result.Status}; gatewaySuccess={gatewayResponse.IsSuccess}; " +
-            $"finishReason={gatewayResponse.FinishReason}; parser={parserDiagnostics}; " +
-            $"shape={responseShape}.");
+        RequireClassifiedVerifierResult(result, gatewayResponse, settings);
         Assert.Equal(OutcomeVerifierClassification.ReportDone, result.Classification);
     }
 
@@ -267,22 +302,70 @@ public sealed class AiGatewayIntegrationTests
                     "report.body",
                     "The reproducible non-blocking defect was assessed and should be reported.")]));
 
-    private static string TopLevelPropertyNames(string output)
+    private static void RequireClassifiedVerifierResult(
+        OutcomeVerifierResult result,
+        AiGatewayResponse response,
+        OptionalRealSmokeSettings settings)
     {
-        try
+        RequireSuccessfulRealProviderCall(response, settings);
+        if (result.Status != OutcomeVerifierResultStatus.Classified)
         {
-            using var document = System.Text.Json.JsonDocument.Parse(output);
-            return document.RootElement.ValueKind == System.Text.Json.JsonValueKind.Object
-                ? string.Join(
-                    ",",
-                    document.RootElement.EnumerateObject().Select(property => property.Name))
-                : document.RootElement.ValueKind.ToString();
-        }
-        catch (System.Text.Json.JsonException)
-        {
-            return "invalid-json";
+            throw Failure(
+                AiGatewayErrorCode.InvalidProviderResponse,
+                providerStatusCode: null,
+                response.Provider,
+                settings);
         }
     }
+
+    private static void RequireSuccessfulRealProviderCall(
+        AiGatewayResponse response,
+        OptionalRealSmokeSettings settings)
+    {
+        if (response.IsFailure)
+        {
+            var error = response.Error!;
+            throw Failure(
+                error.Code,
+                error.Diagnostics?.ProviderStatusCode,
+                error.Provider,
+                settings);
+        }
+
+        var provider = response.Provider;
+        if (provider is null ||
+            !string.Equals(provider.ProviderId, "openai", StringComparison.Ordinal) ||
+            !string.Equals(provider.ModelId, settings.ModelId, StringComparison.Ordinal) ||
+            ContainsCredential(response.Text, settings.ApiKey))
+        {
+            throw Failure(
+                AiGatewayErrorCode.InvalidProviderResponse,
+                providerStatusCode: null,
+                provider,
+                settings);
+        }
+    }
+
+    private static Xunit.Sdk.XunitException Failure(
+        AiGatewayErrorCode code,
+        int? providerStatusCode,
+        AiProviderMetadata? provider,
+        OptionalRealSmokeSettings settings)
+    {
+        var wireCode = AiGatewayErrorCodeContract.ToWireValue(code);
+        var providerId = provider?.ProviderId ?? "openai";
+        var modelId = provider?.ModelId ?? settings.ModelId ?? "unconfigured";
+        var diagnostic = providerStatusCode is >= 100 and <= 599
+            ? $"code={wireCode}; status={providerStatusCode}; " +
+              $"provider={providerId}; model={modelId}"
+            : $"code={wireCode}; provider={providerId}; model={modelId}";
+        return new Xunit.Sdk.XunitException(diagnostic);
+    }
+
+    private static bool ContainsCredential(string? text, string? credential) =>
+        !string.IsNullOrEmpty(text) &&
+        !string.IsNullOrEmpty(credential) &&
+        text.Contains(credential, StringComparison.Ordinal);
 
     private sealed class CapturingResponseGateway(IAiGateway inner) : IAiGateway
     {

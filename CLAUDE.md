@@ -17,6 +17,7 @@
 Cada tipo de informacao tem um dono unico; nao dupliques o mesmo conteudo em mais do que um sitio.
 
 - Decisoes de arquitetura e contratos duradouros (seams, protocolos, contratos de configuracao, ADRs, roadmap, fases, user stories) vao para `docs/bible.html`, a fonte de verdade.
+- Bugs confirmados sao registados exclusivamente em `docs/bible.html#bug-registry`, com id imutavel e estado apenas `None` ou `Completed`.
 - Referencia operacional, ou seja, como configurar e operar (modelo de configuracao, seccoes de `appsettings`, variaveis de ambiente, connection strings, logging) vai para `docs/configuration.md`.
 - O `README.md` e a entrada curta de navegacao e estado (atual, experimental e planeado); mantem-no conciso e aponta para os donos canonicos sem duplicar contratos ou runbooks.
 - Narrativa do "o que mudou nesta tarefa" (detalhe passo-a-passo da implementacao de cada US/tarefa) vai para a mensagem de commit, nao para documentacao.

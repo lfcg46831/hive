@@ -85,7 +85,7 @@
 <body>
 <h1>HIVE — Organização Híbrida de Agentes AI e Pessoas sobre Actor Model</h1>
 
-<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 2.55 (rascunho evolutivo) <strong>Data:</strong> 2026-07-30 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
+<p><strong>Documento Bíblia da Solução</strong> <strong>Versão:</strong> 2.58 (rascunho evolutivo) <strong>Data:</strong> 2026-07-31 <strong>Estado:</strong> Em elaboração incremental <strong>Nota:</strong> HIVE é o nome de código técnico estável para repositório, solution e namespaces; a marca comercial final pode mudar sem renomear o código.</p>
 
 <hr>
 
@@ -352,6 +352,9 @@
 <tr><td>2.53</td><td>2026-07-30</td><td>Correção preparatória <code>US-F0-17-T01a=1</code> após o bloqueio local: o único warning da build vem de uma asserção de teste que chama <code>HashCodeMessageExtractor.ShardId(object)</code>, obsoleto desde Akka.NET 1.5.15. A tarefa migra apenas essa asserção para <code>ShardId(string, object?)</code>, usando o mesmo id canónico e o envelope apenas como <code>messageHint</code>; não altera hashing, número de shards, routing, runtime, dependências ou configuração. A correção exige build limpa com zero warnings e a suite de <code>PositionMessageExtractorTests</code> verde. Como modifica <code>tests/</code>, o commit anteriormente revisto permanece bloqueado e <code>T01</code> tem de ser repetida sobre um novo commit; não autoriza <code>T02</code>, provider, corpus, calibração, freeze ou holdout. Total <code>US-F0-17</code> 8→9 e Total F0 943→944.</td></tr>
 <tr><td>2.54</td><td>2026-07-30</td><td>Conclusão de <code>US-F0-17-T01a</code>: a asserção de equivalência de shard usa agora <code>ShardId(string, object?)</code> com o id canónico inalterado e o envelope como <code>messageHint</code>. A build integral após <code>dotnet clean</code> passou com zero warnings e zero erros, e <code>PositionMessageExtractorTests</code> passou <code>12/12</code>. Não houve alteração de runtime, hashing, número de shards, routing, dependências ou configuração. O relatório de <code>T01</code> sobre <code>eee0b21</code> permanece historicamente <code>blocked</code>; a qualificação só pode mudar de estado depois de a correção integrar um novo commit revisto e <code>T01</code> ser repetida.</td></tr>
 <tr><td>2.55</td><td>2026-07-30</td><td>Repetição concluída de <code>US-F0-17-T01</code> sobre o commit revisto <code>ada96f8</code>: a build limpa passou com zero warnings e zero erros, a suite default passou <code>2069/2069</code>, os gates focados de boundaries e characterization passaram <code>15/15</code> e <code>12/12</code>, o manifesto preparado conservou hashes e configuração efetiva, e o Compose genérico validou sem criar containers de aplicação ou avaliação. O relatório canónico em <code>evidence/preflight/us-f0-17-local-qualification.v1.md</code> termina em <code>ready-for-real-smoke</code>. Este estado permite apenas pedir autorização separada para <code>T02</code>; não executa nem autoriza provider, corpus, calibração, freeze ou holdout.</td></tr>
+<tr><td>2.56</td><td>2026-07-31</td><td>Conclusão de <code>US-F0-17-T02</code>, autorizada separadamente e registada em <code>evidence/preflight/us-f0-17-real-smoke.v1.md</code>: com credencial apenas em variável efémera e o provider/modelo fixos <code>openai</code>/<code>gpt-5-mini-2025-08-07</code>, o processo do smoke geral passou <code>1/1</code>, mas o teste aceita tanto sucesso como falha do provider e não demonstrou acesso real; não houve chamada visível nos logs do projeto OpenAI. O smoke do verifier semântico falhou <code>0/1</code> com diagnóstico minimizado <code>Unavailable</code>, sem texto de resposta. Como a execução ocorreu num ambiente com rede restrita e o código sanitiza falhas de transporte sem conservar o código no output do teste, a causa exata não pode ser recuperada desta execução. As variáveis foram removidas no fim e não houve host, runner, corpus, run id, scoring ou reporting. O verdict é <code>blocked</code>, sem retry; não autoriza calibração, freeze, holdout nem reabre F1a.</td></tr>
+<tr><td>2.57</td><td>2026-07-31</td><td>Criação do registo canónico de bugs em §16: cada defeito confirmado recebe um id imutável <code>BUG-NNN</code>, critérios de conclusão, estimativa e apenas um dos estados fechados <code>None</code> ou <code>Completed</code>. <code>AGENTS.md</code> e <code>CLAUDE.md</code> apontam para este único owner sem duplicar o backlog. O falso positivo e diagnóstico insuficiente dos smokes reais de <code>US-F0-17-T02</code> fica registado como <code>BUG-001</code>, estado <code>None</code>, estimativa <code>3</code>.</td></tr>
+<tr><td>2.58</td><td>2026-07-31</td><td>Conclusão de <code>BUG-001</code> e repetição autorizada dos smokes reais: o gate geral exige agora sucesso efetivo, provider/modelo coincidentes e ausência da credencial no texto, enquanto ambos os gates falham com diagnóstico limitado a código HIVE, status HTTP validado quando exista, provider e modelo. A build integral passou com zero warnings/erros, <code>AiGatewayIntegrationTests</code> passou <code>9/9</code> e, num ambiente com rede habilitada, os smokes geral e do verifier <code>Report.Done</code> passaram <code>1/1</code> cada com <code>openai</code>/<code>gpt-5-mini-2025-08-07</code>; as variáveis efémeras foram removidas. <code>BUG-001</code> passa a <code>Completed</code>. Como a correção altera <code>tests/</code> depois do commit qualificado por <code>T01</code>, o preflight global continua <code>blocked</code> até nova qualificação local sobre um commit que contenha a correção; não se executa nem autoriza calibração, freeze ou holdout.</td></tr>
 </tbody>
 </table>
 
@@ -4470,13 +4473,35 @@ public interface IPositionConfigurationProvider
 <li>Revisitar se: as três calibrações de <code>T17f</code> falharem recall/qualidade, a taxa de <code>Undetermined</code> tornar o custo inviável, ou metadados estruturados de entrada permitirem eliminar o verifier em classes relevantes.</li>
 </ul>
 
+<h2 id="bug-registry">16. Registo de Bugs</h2>
+
+<p>Esta secção é o owner canónico e exclusivo dos bugs confirmados do projeto. Cada bug é registado exatamente uma vez, com id imutável no formato <code>BUG-NNN</code>, resumo, âmbito e critérios de conclusão, estimativa e evidência relevante. Os registos não são removidos nem renumerados.</p>
+
+<p><strong>Estados permitidos:</strong> <code>None</code> significa que o defeito continua por corrigir ou por validar integralmente; <code>Completed</code> só pode ser atribuído depois de todos os critérios de conclusão passarem e de a evidência ou commit de fecho ficar referenciado. Não existem estados intermédios nem outros valores.</p>
+
+<table>
+<thead>
+<tr><th>ID</th><th>Estado</th><th>Resumo</th><th>Âmbito e critérios de conclusão</th><th>Estimativa</th><th>Evidência</th></tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BUG-001</code></td>
+<td><code>Completed</code></td>
+<td>Os smokes reais podem ocultar falhas do provider e produzir um falso positivo.</td>
+<td>O teste geral aceita tanto sucesso como falha do gateway, enquanto o teste do verifier reduz falhas não-timeout a <code>Unavailable</code> sem expor o código/status sanitizado; assim, uma execução sem acesso comprovado ao provider pode apresentar o processo do primeiro teste como verde. Conclui quando: (1) qualquer resposta falhada faz o smoke geral falhar; (2) ambos os smokes incluem no diagnóstico apenas código HIVE, status HTTP validado quando exista e provider/modelo, nunca credencial, prompt, output ou reasoning; (3) testes determinísticos provam que falhas de configuração, transporte e provider não passam silenciosamente e que configuração opt-in incompleta continua inerte; e (4) build sem warnings e testes focados ficam verdes. Uma nova chamada real continua a exigir autorização separada e ambiente com rede habilitada.</td>
+<td>3</td>
+<td><code>evidence/preflight/us-f0-17-real-smoke.v1.md</code><br><code>tests/Hive.Tests/AiGatewayIntegrationTests.cs</code></td>
+</tr>
+</tbody>
+</table>
+
 <script>
 (function () {
   function isDocumentHeading(node) {
     return node &&
       node.nodeType === Node.ELEMENT_NODE &&
       node.tagName === 'H2' &&
-      /^([1-9]|1[0-5])\.\s/.test(node.textContent);
+      /^([1-9]|1[0-6])\.\s/.test(node.textContent);
   }
 
   function isScript(node) {

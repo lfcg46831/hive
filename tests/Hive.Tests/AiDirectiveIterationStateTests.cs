@@ -206,16 +206,35 @@ public sealed class AiDirectiveIterationStateTests
     }
 
     [Fact]
-    public void Evaluate_allows_new_inference_when_limits_and_budget_allow_it()
+    public void Evaluate_allows_bounded_output_correction_when_limits_and_budget_allow_it()
     {
         var state = AiDirectiveIterationState.Start(Context(maxIterations: 3), At);
+        var errors = new[]
+        {
+            new AiDirectiveDecisionParseError(
+                "invalid-vocabulary",
+                "outcome_proposal.proposal.evidence_references.item.source"),
+        };
 
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            errors);
 
         Assert.True(decision.CanContinue);
         var continuation = Assert.Single(decision.Continuations);
-        Assert.Equal(AiDirectiveIterationContinuationKind.Inference, continuation.Kind);
+        Assert.Equal(
+            AiDirectiveIterationContinuationKind.OutcomeProposalCorrection,
+            continuation.Kind);
         Assert.Null(continuation.ToolCall);
+        Assert.Equal(errors, continuation.CorrectionErrors);
+    }
+
+    [Fact]
+    public void Outcome_proposal_correction_requires_a_structured_context_delta()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            AiDirectiveIterationContinuation.OutcomeProposalCorrection([]));
     }
 
     [Fact]

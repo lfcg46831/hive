@@ -34,8 +34,7 @@ internal sealed record AiDirectiveOutcomeResolutionResult
         OutcomeProposal? proposal,
         OutcomeResolution? resolution,
         OutcomeResolutionMode mode,
-        IEnumerable<OutcomeResolutionDiagnostic>? diagnostics = null,
-        bool shouldContinue = false)
+        IEnumerable<OutcomeResolutionDiagnostic>? diagnostics = null)
     {
         ResultMessage = resultMessage;
         ActionGateResult = actionGateResult;
@@ -44,14 +43,6 @@ internal sealed record AiDirectiveOutcomeResolutionResult
         Resolution = resolution;
         Mode = mode;
         Diagnostics = diagnostics?.Distinct().Order().ToImmutableArray() ?? [];
-        ShouldContinue = shouldContinue;
-
-        if (shouldContinue && resultMessage is not null)
-        {
-            throw new ArgumentException(
-                "A ContinueWork outcome cannot carry an organization message.",
-                nameof(resultMessage));
-        }
     }
 
     public AiDirectiveResultMessage? ResultMessage { get; }
@@ -67,8 +58,6 @@ internal sealed record AiDirectiveOutcomeResolutionResult
     public OutcomeResolutionMode Mode { get; }
 
     public ImmutableArray<OutcomeResolutionDiagnostic> Diagnostics { get; }
-
-    public bool ShouldContinue { get; }
 
     public bool WasEvaluated => Proposal is not null && Resolution is not null;
 }
@@ -411,19 +400,6 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                 diagnostics);
         }
 
-        if (resolution.Outcome == OutcomeKind.ContinueWork)
-        {
-            return new AiDirectiveOutcomeResolutionResult(
-                resultMessage: null,
-                actionGateResult: null,
-                routingGateResult: null,
-                proposal,
-                resolution,
-                _mode,
-                diagnostics,
-                shouldContinue: true);
-        }
-
         if (resolution.Outcome == OutcomeKind.ApprovalRequired &&
             proposedActionGate?.Outcome == AiAgentActionGateOutcome.RetainedForHumanApproval)
         {
@@ -638,12 +614,9 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
             actionGateState,
             approvalPending: false,
             routingState,
-            autonomousActionAvailable:
-                (proposal.ProposedIntent is
-                    OutcomeProposedIntent.ContinueWork or
-                    OutcomeProposedIntent.ReportProgress) &&
-                actionGateState == OutcomeActionGateState.Authorized &&
-                routingState is OutcomeRoutingState.Available or OutcomeRoutingState.NotRequired,
+            // This seam has no concrete runtime operation or bounded context delta to execute.
+            // A model proposal and message gates therefore cannot manufacture autonomous work.
+            autonomousActionAvailable: false,
             delegationRequired:
                 proposal.ProposedIntent == OutcomeProposedIntent.Directive &&
                 proposedMessage.Message is Directive,

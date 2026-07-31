@@ -6,7 +6,7 @@ namespace Hive.Actors.Positions;
 
 internal enum AiDirectiveIterationExecutionKind
 {
-    Inference = 1,
+    OutcomeProposalCorrection = 1,
     ConnectorTool = 2,
 }
 
@@ -163,14 +163,14 @@ internal sealed record AiDirectiveIterationExecutionResult
 
     public bool IsFailure => !IsSuccess;
 
-    public static AiDirectiveIterationExecutionResult InferenceSucceeded(
+    public static AiDirectiveIterationExecutionResult OutcomeProposalCorrectionSucceeded(
         AiAgentGatewayInvocationResult result)
     {
         ArgumentNullException.ThrowIfNull(result);
 
         return new AiDirectiveIterationExecutionResult(
             result.CorrelationId,
-            AiDirectiveIterationExecutionKind.Inference,
+            AiDirectiveIterationExecutionKind.OutcomeProposalCorrection,
             result,
             toolResult: null,
             failure: null);
@@ -281,23 +281,6 @@ internal sealed class AiDirectiveIterationExecutor
             state,
             decision,
             hasAvailableBudget,
-            inferenceRequest: null,
-            cancellationToken);
-
-    public ValueTask<AiDirectiveIterationExecutionResult>
-        ExecuteOutcomeProposalCorrectionAsync(
-            AiDirectiveExecutionContext context,
-            AiDirectiveIterationState state,
-            AiDirectiveIterationDecision decision,
-            bool hasAvailableBudget,
-            IEnumerable<AiDirectiveDecisionParseError> parseErrors,
-            CancellationToken cancellationToken = default) =>
-        ExecuteCoreAsync(
-            context,
-            state,
-            decision,
-            hasAvailableBudget,
-            AiDirectivePrompt.CreateOutcomeProposalCorrectionRequest(context, parseErrors),
             cancellationToken);
 
     private async ValueTask<AiDirectiveIterationExecutionResult> ExecuteCoreAsync(
@@ -305,7 +288,6 @@ internal sealed class AiDirectiveIterationExecutor
         AiDirectiveIterationState state,
         AiDirectiveIterationDecision decision,
         bool hasAvailableBudget,
-        AiGatewayRequest? inferenceRequest,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(context);
@@ -348,11 +330,11 @@ internal sealed class AiDirectiveIterationExecutor
         var continuation = decision.Continuations[0];
         return continuation.Kind switch
         {
-            AiDirectiveIterationContinuationKind.Inference =>
-                await ExecuteInferenceAsync(
+            AiDirectiveIterationContinuationKind.OutcomeProposalCorrection =>
+                await ExecuteOutcomeProposalCorrectionAsync(
                     context,
                     state,
-                    inferenceRequest,
+                    continuation,
                     cancellationToken).ConfigureAwait(false),
             AiDirectiveIterationContinuationKind.ConnectorTool =>
                 await ExecuteConnectorToolAsync(
@@ -367,15 +349,18 @@ internal sealed class AiDirectiveIterationExecutor
         };
     }
 
-    private async ValueTask<AiDirectiveIterationExecutionResult> ExecuteInferenceAsync(
+    private async ValueTask<AiDirectiveIterationExecutionResult>
+        ExecuteOutcomeProposalCorrectionAsync(
         AiDirectiveExecutionContext context,
         AiDirectiveIterationState state,
-        AiGatewayRequest? inferenceRequest,
+        AiDirectiveIterationContinuation continuation,
         CancellationToken cancellationToken)
     {
         try
         {
-            var request = inferenceRequest ?? AiDirectivePrompt.CreateInitialRequest(context);
+            var request = AiDirectivePrompt.CreateOutcomeProposalCorrectionRequest(
+                context,
+                continuation.CorrectionErrors);
             if (!TryGetEffectiveTimeout(
                     request.Timeout,
                     context.Directive.Deadline,
@@ -396,7 +381,8 @@ internal sealed class AiDirectiveIterationExecutor
                 .InvokeAsync(invocation, cancellationToken)
                 .ConfigureAwait(false);
 
-            return AiDirectiveIterationExecutionResult.InferenceSucceeded(result);
+            return AiDirectiveIterationExecutionResult
+                .OutcomeProposalCorrectionSucceeded(result);
         }
         catch (OperationCanceledException)
         {
@@ -406,8 +392,8 @@ internal sealed class AiDirectiveIterationExecutor
         {
             return Failed(
                 state.CorrelationId,
-                "inference-execution-failed",
-                "AI directive iteration inference failed before returning a structured response.");
+                "outcome-proposal-correction-failed",
+                "AI directive outcome proposal correction failed before returning a structured response.");
         }
     }
 

@@ -245,7 +245,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     }
 
     [Fact]
-    public async Task Enforcement_continues_unfinished_authorized_work_without_a_message()
+    public async Task Enforcement_does_not_derive_autonomous_work_from_progress_proposal()
     {
         var audit = new RecordingJourneyAuditLog();
         var verifier = new StaticVerifier(OutcomeVerifierResult.Unavailable());
@@ -254,11 +254,11 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
 
         var result = await ResolveAsync(integrator, input);
 
-        Assert.True(result.ShouldContinue);
-        Assert.Null(result.ResultMessage);
-        Assert.Equal(OutcomeKind.ContinueWork, result.Resolution!.Outcome);
-        Assert.Equal(0, verifier.CallCount);
-        Assert.Equal("ContinueWork", Assert.Single(audit.Records).Payload["resolvedOutcome"]);
+        Assert.IsType<Escalation>(result.ResultMessage!.Message);
+        Assert.Equal(OutcomeKind.Escalation, result.Resolution!.Outcome);
+        Assert.Contains(OutcomeResolutionReason.VerifierUnavailable, result.Resolution.Reasons);
+        Assert.Equal(1, verifier.CallCount);
+        Assert.Equal("Escalation", Assert.Single(audit.Records).Payload["resolvedOutcome"]);
     }
 
     [Fact]
@@ -560,7 +560,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     [Trait(
         DirectiveExecutionCharacterization.ResponsibilityTrait,
         DirectiveExecutionCharacterization.Outcomes)]
-    public async Task Ai_agent_continue_work_runs_the_next_inference_before_emitting_a_message()
+    public async Task Ai_agent_progress_proposal_without_operation_does_not_repeat_inference()
     {
         var request = Request();
         var audit = new RecordingJourneyAuditLog();
@@ -593,23 +593,19 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 new GetAiDirectiveIterationAuditSnapshot(request.CorrelationId),
                 TimeSpan.FromSeconds(10));
 
-            Assert.Equal(2, invoker.CallCount);
+            Assert.Equal(1, invoker.CallCount);
             Assert.True(message.Found);
             Assert.IsType<Escalation>(message.Result!.Message);
             Assert.True(iterationAudit.Found);
-            Assert.Equal([1, 1, 2], iterationAudit.Snapshot!.Entries.Select(entry =>
-                entry.Iteration));
-            Assert.Equal(
-                ["continue", "inference-succeeded", "completed"],
-                iterationAudit.Snapshot.Entries.Select(entry => entry.Code));
+            var iterationEntry = Assert.Single(iterationAudit.Snapshot!.Entries);
+            Assert.Equal(1, iterationEntry.Iteration);
+            Assert.Equal("completed", iterationEntry.Code);
             var outcomeRecords = audit.Records
                 .Where(record => record.Stage == JourneyAuditStage.OutcomeResolved)
                 .ToArray();
-            Assert.Equal(2, outcomeRecords.Length);
-            Assert.Equal(["1", "2"], outcomeRecords.Select(record =>
-                record.Payload["iteration"]));
-            Assert.Equal("ContinueWork", outcomeRecords[0].Payload["resolvedOutcome"]);
-            Assert.Equal("Escalation", outcomeRecords[1].Payload["resolvedOutcome"]);
+            var outcomeRecord = Assert.Single(outcomeRecords);
+            Assert.Equal("1", outcomeRecord.Payload["iteration"]);
+            Assert.Equal("Escalation", outcomeRecord.Payload["resolvedOutcome"]);
             Assert.DoesNotContain(
                 audit.Records,
                 record => record.Stage == JourneyAuditStage.ResultMessageCreated &&
@@ -672,7 +668,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             Assert.True(auditSnapshot.Found);
             Assert.Equal(ReportKind.Done, Assert.IsType<Report>(message.Result!.Message).Kind);
             Assert.Equal(
-                ["continue", "inference-succeeded", "completed"],
+                ["continue", "outcome-proposal-correction-succeeded", "completed"],
                 iterationAudit.Snapshot!.Entries.Select(entry => entry.Code));
 
             var initial = invoker.Requests[0];

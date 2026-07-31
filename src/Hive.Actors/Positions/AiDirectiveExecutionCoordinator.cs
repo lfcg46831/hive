@@ -270,74 +270,6 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                             _clock());
                     }
 
-                    if (outcomeResolution.ShouldContinue)
-                    {
-                        var continuationObservedAt = _clock();
-                        var continuationDecision = iterationState.EvaluateInference(
-                            continuationObservedAt,
-                            hasAvailableBudget);
-                        iterationAudit = iterationAudit.RecordDecision(
-                            iterationState,
-                            continuationDecision,
-                            continuationObservedAt);
-                        if (continuationDecision.ShouldStop)
-                        {
-                            var stoppedContinuation = responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.Failed,
-                                reason: continuationDecision.StopReason!.AuditReason);
-                            return CreateTrace(
-                                request,
-                                budget,
-                                context,
-                                stoppedContinuation,
-                                prompt,
-                                result,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit,
-                                positionEffects: null,
-                                actionGateResult: null,
-                                outcomeResolution);
-                        }
-
-                        ConsumeContinuation(ref budget, continuationDecision, continuationObservedAt);
-                        var continuationResult = await continuationExecutor.ExecuteAsync(
-                            context,
-                            iterationState,
-                            continuationDecision,
-                            hasAvailableBudget,
-                            cancellationToken).ConfigureAwait(false);
-                        iterationAudit = iterationAudit.RecordExecution(
-                            iterationState,
-                            continuationResult,
-                            _clock());
-                        if (continuationResult.IsFailure)
-                        {
-                            var failedContinuation = responseInterpreted.AdvanceTo(
-                                AiDirectiveProcessingStatus.Failed,
-                                reason: continuationResult.Failure!.AuditReason);
-                            return CreateTrace(
-                                request,
-                                budget,
-                                context,
-                                failedContinuation,
-                                prompt,
-                                result,
-                                interpretation,
-                                resultMessage: null,
-                                iterationAudit,
-                                positionEffects: null,
-                                actionGateResult: null,
-                                outcomeResolution);
-                        }
-
-                        iterationState = iterationState.Advance(
-                            continuationDecision,
-                            continuationObservedAt);
-                        result = continuationResult.InferenceResult!;
-                        continue;
-                    }
-
                     var iterationAuditSnapshot = RecordInitialIterationAudit(
                         iterationState,
                         iterationAudit,
@@ -451,9 +383,10 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     {
                         outcomeProposalCorrectionAttempted = true;
                         var correctionObservedAt = _clock();
-                        var correctionDecision = iterationState.EvaluateInference(
+                        var correctionDecision = iterationState.EvaluateOutcomeProposalCorrection(
                             correctionObservedAt,
-                            hasAvailableBudget);
+                            hasAvailableBudget,
+                            interpretation.Failure!.ParseErrors);
                         iterationAudit = iterationAudit.RecordDecision(
                             iterationState,
                             correctionDecision,
@@ -464,14 +397,12 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                                 ref budget,
                                 correctionDecision,
                                 correctionObservedAt);
-                            var correctionResult = await continuationExecutor
-                                .ExecuteOutcomeProposalCorrectionAsync(
-                                    context,
-                                    iterationState,
-                                    correctionDecision,
-                                    hasAvailableBudget,
-                                    interpretation.Failure!.ParseErrors,
-                                    cancellationToken)
+                            var correctionResult = await continuationExecutor.ExecuteAsync(
+                                context,
+                                iterationState,
+                                correctionDecision,
+                                hasAvailableBudget,
+                                cancellationToken)
                                 .ConfigureAwait(false);
                             iterationAudit = iterationAudit.RecordExecution(
                                 iterationState,
@@ -805,7 +736,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
     {
         var operation = decision.Continuations.Single().Kind switch
         {
-            AiDirectiveIterationContinuationKind.Inference =>
+            AiDirectiveIterationContinuationKind.OutcomeProposalCorrection =>
                 ExecutionBudgetOperation.ContinuationInference,
             AiDirectiveIterationContinuationKind.ConnectorTool =>
                 ExecutionBudgetOperation.ConnectorTool,

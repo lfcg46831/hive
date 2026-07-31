@@ -18,13 +18,22 @@ public sealed class AiDirectiveIterationExecutorTests
         ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000001020"));
     private static readonly MessageId Message =
         MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001020"));
+    private static readonly AiDirectiveDecisionParseError[] CorrectionErrors =
+    [
+        new(
+            "invalid-vocabulary",
+            "outcome_proposal.proposal.evidence_references.item.source"),
+    ];
 
     [Fact]
-    public async Task ExecuteAsync_invokes_gateway_for_authorized_inference_and_propagates_cancellation()
+    public async Task ExecuteAsync_invokes_gateway_for_bounded_correction_and_propagates_cancellation()
     {
         var context = Context(maxIterations: 3);
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var response = Response("Still working.", AiFinishReason.Stop);
         var invoker = new RecordingInvoker(response);
         var toolExecutor = new RecordingToolExecutor();
@@ -43,7 +52,9 @@ public sealed class AiDirectiveIterationExecutorTests
             cancellation.Token);
 
         Assert.True(result.IsSuccess);
-        Assert.Equal(AiDirectiveIterationExecutionKind.Inference, result.Kind);
+        Assert.Equal(
+            AiDirectiveIterationExecutionKind.OutcomeProposalCorrection,
+            result.Kind);
         Assert.Same(response, result.InferenceResult!.Response);
         Assert.Null(result.ToolResult);
         Assert.Null(result.Failure);
@@ -63,7 +74,10 @@ public sealed class AiDirectiveIterationExecutorTests
     {
         var context = Context(maxIterations: 3, configureTimeout: false);
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
         var executor = new AiDirectiveIterationExecutor(
             invoker,
@@ -90,7 +104,10 @@ public sealed class AiDirectiveIterationExecutorTests
             deadline: At.AddSeconds(7),
             timeout: TimeSpan.FromSeconds(15));
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
         var executor = new AiDirectiveIterationExecutor(
             invoker,
@@ -116,7 +133,10 @@ public sealed class AiDirectiveIterationExecutorTests
             deadline: At.AddSeconds(15),
             timeout: TimeSpan.FromSeconds(15));
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(Response("Still working.", AiFinishReason.Stop));
         var executor = new AiDirectiveIterationExecutor(
             invoker,
@@ -137,14 +157,17 @@ public sealed class AiDirectiveIterationExecutorTests
     [Theory]
     [InlineData(15)]
     [InlineData(16)]
-    public async Task ExecuteAsync_rejects_inference_when_iteration_deadline_is_not_positive(
+    public async Task ExecuteAsync_rejects_correction_when_iteration_deadline_is_not_positive(
         int elapsedSeconds)
     {
         var context = Context(
             maxIterations: 3,
             timeout: TimeSpan.FromSeconds(15));
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
         var executor = new AiDirectiveIterationExecutor(
             invoker,
@@ -170,7 +193,7 @@ public sealed class AiDirectiveIterationExecutorTests
     [Trait(
         DirectiveExecutionCharacterization.ResponsibilityTrait,
         DirectiveExecutionCharacterization.Iterations)]
-    public async Task ExecuteAsync_reduces_timeout_across_multiple_inference_continuations()
+    public async Task ExecuteAsync_reduces_timeout_across_bounded_corrections()
     {
         var context = Context(
             maxIterations: 4,
@@ -184,9 +207,10 @@ public sealed class AiDirectiveIterationExecutorTests
             AllowingAiAgentActionGate.Instance,
             () => now);
 
-        var firstDecision = state.EvaluateInference(
+        var firstDecision = state.EvaluateOutcomeProposalCorrection(
             At.AddSeconds(1),
-            hasAvailableBudget: true);
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var firstResult = await executor.ExecuteAsync(
             context,
             state,
@@ -196,9 +220,10 @@ public sealed class AiDirectiveIterationExecutorTests
 
         state = state.Advance(firstDecision, now);
         now = At.AddSeconds(6);
-        var secondDecision = state.EvaluateInference(
+        var secondDecision = state.EvaluateOutcomeProposalCorrection(
             At.AddSeconds(5),
-            hasAvailableBudget: true);
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var secondResult = await executor.ExecuteAsync(
             context,
             state,
@@ -233,7 +258,10 @@ public sealed class AiDirectiveIterationExecutorTests
         foreach (var elapsed in new[] { 2, 17, 32 })
         {
             now = At.AddSeconds(elapsed);
-            var decision = state.EvaluateInference(now.AddSeconds(-1), hasAvailableBudget: true);
+            var decision = state.EvaluateOutcomeProposalCorrection(
+                now.AddSeconds(-1),
+                hasAvailableBudget: true,
+                CorrectionErrors);
             var result = await executor.ExecuteAsync(
                 context,
                 state,
@@ -258,9 +286,10 @@ public sealed class AiDirectiveIterationExecutorTests
             timeout: TimeSpan.FromSeconds(15),
             requiresStructuredOutcomeProposal: true);
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(
+        var decision = state.EvaluateOutcomeProposalCorrection(
             At.AddSeconds(1),
-            hasAvailableBudget: true);
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(
             Response("Corrected response.", AiFinishReason.Stop));
         var executor = new AiDirectiveIterationExecutor(
@@ -269,16 +298,12 @@ public sealed class AiDirectiveIterationExecutorTests
             AllowingAiAgentActionGate.Instance,
             () => At.AddSeconds(12));
 
-        var result = await executor.ExecuteOutcomeProposalCorrectionAsync(
+        var result = await executor.ExecuteAsync(
             context,
             state,
             decision,
             hasAvailableBudget: true,
-            [
-                new AiDirectiveDecisionParseError(
-                    "invalid-vocabulary",
-                    "outcome_proposal.proposal.evidence_references.item.source"),
-            ]);
+            cancellationToken: default);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, invoker.CallCount);
@@ -294,7 +319,10 @@ public sealed class AiDirectiveIterationExecutorTests
     {
         var context = Context(maxIterations: 3);
         var state = AiDirectiveIterationState.Start(context, At);
-        var decision = state.EvaluateInference(At.AddSeconds(1), hasAvailableBudget: true);
+        var decision = state.EvaluateOutcomeProposalCorrection(
+            At.AddSeconds(1),
+            hasAvailableBudget: true,
+            CorrectionErrors);
         var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
         var toolExecutor = new RecordingToolExecutor();
         var executor = new AiDirectiveIterationExecutor(invoker, toolExecutor);
@@ -461,7 +489,7 @@ public sealed class AiDirectiveIterationExecutorTests
         var state = AiDirectiveIterationState.Start(context, At);
         var decision = AiDirectiveIterationDecision.Continue(
             [
-                AiDirectiveIterationContinuation.Inference(),
+                AiDirectiveIterationContinuation.OutcomeProposalCorrection(CorrectionErrors),
                 AiDirectiveIterationContinuation.ConnectorTool(new AiToolCall("call-1", "files")),
             ]);
         var invoker = new RecordingInvoker(Response("Should not run.", AiFinishReason.Stop));
@@ -487,7 +515,7 @@ public sealed class AiDirectiveIterationExecutorTests
         TimeSpan? timeout = null,
         TimeSpan? executionTimeout = null,
         bool configureTimeout = true,
-        bool requiresStructuredOutcomeProposal = false)
+        bool requiresStructuredOutcomeProposal = true)
     {
         var entity = PositionEntityId.From(Organization, Position);
         var directive = new OrgDirective(

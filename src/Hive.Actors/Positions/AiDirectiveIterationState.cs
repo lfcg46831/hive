@@ -6,7 +6,7 @@ namespace Hive.Actors.Positions;
 
 internal enum AiDirectiveIterationContinuationKind
 {
-    Inference = 1,
+    OutcomeProposalCorrection = 1,
     ConnectorTool = 2,
 }
 
@@ -52,7 +52,8 @@ internal sealed record AiDirectiveIterationContinuation
     private AiDirectiveIterationContinuation(
         AiDirectiveIterationContinuationKind kind,
         AiToolCall? toolCall,
-        ActingUnderDeclaration actingUnder)
+        ActingUnderDeclaration actingUnder,
+        ImmutableArray<AiDirectiveDecisionParseError> correctionErrors)
     {
         if (!Enum.IsDefined(kind))
         {
@@ -64,16 +65,51 @@ internal sealed record AiDirectiveIterationContinuation
             throw new ArgumentNullException(nameof(toolCall));
         }
 
-        if (kind == AiDirectiveIterationContinuationKind.Inference && toolCall is not null)
+        if (kind == AiDirectiveIterationContinuationKind.OutcomeProposalCorrection &&
+            toolCall is not null)
         {
             throw new ArgumentException(
-                "Inference continuation cannot carry a connector tool call.",
+                "Outcome proposal correction cannot carry a connector tool call.",
                 nameof(toolCall));
+        }
+
+        if (correctionErrors.IsDefault)
+        {
+            throw new ArgumentException(
+                "Outcome proposal correction errors cannot be default.",
+                nameof(correctionErrors));
+        }
+
+        if (kind == AiDirectiveIterationContinuationKind.OutcomeProposalCorrection &&
+            correctionErrors.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Outcome proposal correction requires at least one structured parse error.",
+                nameof(correctionErrors));
+        }
+
+        if (kind == AiDirectiveIterationContinuationKind.ConnectorTool &&
+            !correctionErrors.IsEmpty)
+        {
+            throw new ArgumentException(
+                "Connector tool continuation cannot carry outcome proposal correction errors.",
+                nameof(correctionErrors));
+        }
+
+        foreach (var error in correctionErrors)
+        {
+            if (error is null)
+            {
+                throw new ArgumentException(
+                    "Outcome proposal correction errors cannot contain null entries.",
+                    nameof(correctionErrors));
+            }
         }
 
         Kind = kind;
         ToolCall = toolCall;
         ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
+        CorrectionErrors = correctionErrors;
     }
 
     public AiDirectiveIterationContinuationKind Kind { get; }
@@ -82,11 +118,19 @@ internal sealed record AiDirectiveIterationContinuation
 
     public ActingUnderDeclaration ActingUnder { get; }
 
-    public static AiDirectiveIterationContinuation Inference() =>
-        new(
-            AiDirectiveIterationContinuationKind.Inference,
+    public ImmutableArray<AiDirectiveDecisionParseError> CorrectionErrors { get; }
+
+    public static AiDirectiveIterationContinuation OutcomeProposalCorrection(
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors)
+    {
+        ArgumentNullException.ThrowIfNull(parseErrors);
+
+        return new(
+            AiDirectiveIterationContinuationKind.OutcomeProposalCorrection,
             toolCall: null,
-            ActingUnderDeclaration.Missing());
+            ActingUnderDeclaration.Missing(),
+            parseErrors.ToImmutableArray());
+    }
 
     public static AiDirectiveIterationContinuation ConnectorTool(
         AiToolCall toolCall,
@@ -97,7 +141,8 @@ internal sealed record AiDirectiveIterationContinuation
         return new AiDirectiveIterationContinuation(
             AiDirectiveIterationContinuationKind.ConnectorTool,
             toolCall,
-            actingUnder ?? ActingUnderDeclaration.Missing());
+            actingUnder ?? ActingUnderDeclaration.Missing(),
+            ImmutableArray<AiDirectiveDecisionParseError>.Empty);
     }
 }
 
@@ -308,11 +353,12 @@ internal sealed record AiDirectiveIterationState
             hasAvailableBudget);
     }
 
-    public AiDirectiveIterationDecision EvaluateInference(
+    public AiDirectiveIterationDecision EvaluateOutcomeProposalCorrection(
         DateTimeOffset observedAt,
-        bool hasAvailableBudget) =>
+        bool hasAvailableBudget,
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors) =>
         EvaluateContinuations(
-            [AiDirectiveIterationContinuation.Inference()],
+            [AiDirectiveIterationContinuation.OutcomeProposalCorrection(parseErrors)],
             observedAt,
             hasAvailableBudget);
 
@@ -394,7 +440,8 @@ internal sealed record AiDirectiveIterationState
         var seenConnectorTools = new HashSet<string>(StringComparer.Ordinal);
         foreach (var continuation in continuations)
         {
-            if (continuation.Kind == AiDirectiveIterationContinuationKind.Inference)
+            if (continuation.Kind ==
+                AiDirectiveIterationContinuationKind.OutcomeProposalCorrection)
             {
                 continue;
             }

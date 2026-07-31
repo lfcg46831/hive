@@ -260,7 +260,8 @@ internal sealed record AiDirectiveIterationAuditTrail
     private static string SuccessCode(AiDirectiveIterationExecutionKind? kind) =>
         kind switch
         {
-            AiDirectiveIterationExecutionKind.Inference => "inference-succeeded",
+            AiDirectiveIterationExecutionKind.OutcomeProposalCorrection =>
+                "outcome-proposal-correction-succeeded",
             AiDirectiveIterationExecutionKind.ConnectorTool => "connector-tool-succeeded",
             _ => "iteration-execution-succeeded",
         };
@@ -268,8 +269,8 @@ internal sealed record AiDirectiveIterationAuditTrail
     private static string SuccessAuditReason(AiDirectiveIterationExecutionKind? kind) =>
         kind switch
         {
-            AiDirectiveIterationExecutionKind.Inference =>
-                "AI directive iteration inference completed successfully.",
+            AiDirectiveIterationExecutionKind.OutcomeProposalCorrection =>
+                "AI directive outcome proposal correction completed successfully.",
             AiDirectiveIterationExecutionKind.ConnectorTool =>
                 "AI directive iteration connector tool completed successfully.",
             _ => "AI directive iteration execution completed successfully.",

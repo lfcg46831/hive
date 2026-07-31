@@ -92,17 +92,17 @@
     {
       "role": "directive-execution-coordinator",
       "path": "src/Hive.Actors/Positions/AiDirectiveExecutionCoordinator.cs",
-      "sha256": "76316a3bec4f3c322c1b5d31af7a8452fa31b7ab1fff91f63cacba13e8aa1276"
+      "sha256": "49c5c02ad8fb938377d5c55cb97993128efbd3d6a03e878f12d0153d66ea4a8f"
     },
     {
       "role": "directive-iteration-state",
       "path": "src/Hive.Actors/Positions/AiDirectiveIterationState.cs",
-      "sha256": "db0c3f52adfbcd3d439f54600737335f867237ea05b52e677b1fb2401bc8be91"
+      "sha256": "7652d6127b22409c2f4ccab85554820c3280d0a394d0d1ececd14e9bb9a02b2b"
     },
     {
       "role": "directive-iteration-executor",
       "path": "src/Hive.Actors/Positions/AiDirectiveIterationExecutor.cs",
-      "sha256": "c2112f629bbd999780c7ae8cfa75ea074313d991fce71f15440e8ebe56d59d3c"
+      "sha256": "4ed8343193485d1cd3c030442d3dc68daf4266a9b6ae992de322bb31d8471da1"
     },
     {
       "role": "directive-outcome-resolution",

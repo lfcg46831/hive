@@ -126,9 +126,11 @@ public sealed class PositionProtocolSerializerBindingTests
             var system = host.Services.GetRequiredService<ActorSystem>();
             var serializer = Assert.IsAssignableFrom<SerializerWithStringManifest>(
                 system.Serialization.FindSerializerForType(typeof(PositionSnapshot)));
-            var node = JsonNode.Parse(serializer.ToBinary(new PositionSnapshot(At)))!.AsObject();
+            var node = JsonNode.Parse(serializer.ToBinary(SampleSnapshot()))!.AsObject();
             node.Remove("RetainedActions");
             node.Remove("ShortMemoryContextScopes");
+            node.Remove("MaterializedHistory");
+            node["OpenTasks"]![0]!.AsObject().Remove("LatestProgress");
 
             var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
                 System.Text.Encoding.UTF8.GetBytes(node.ToJsonString()),
@@ -136,6 +138,9 @@ public sealed class PositionProtocolSerializerBindingTests
 
             Assert.Empty(restored.RetainedActions);
             Assert.Empty(restored.ShortMemoryContextScopes);
+            Assert.Empty(restored.MaterializedHistory);
+            Assert.NotEmpty(restored.RecentHistory);
+            Assert.Null(Assert.Single(restored.OpenTasks).LatestProgress);
         }
         finally
         {
@@ -238,14 +243,23 @@ public sealed class PositionProtocolSerializerBindingTests
     {
         var retained = SampleRetainedAction();
         var authorized = retained.Authorize(SampleAuthorizationGrant(retained), At.AddMinutes(1));
+        var message = SampleMessage();
         return new PositionSnapshot(
             At,
             OccupantId.From("agent-7"),
             OccupantType.AiAgent,
-            new[] { SampleMessage() },
+            new[] { message },
             new[]
             {
-                new PersistedTask(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()),
+                new PersistedTask(
+                    TaskId(),
+                    ThreadId(),
+                    "triage incoming bug",
+                    Priority.High,
+                    At,
+                    At.AddHours(2),
+                    MessageId(),
+                    "reproduced locally"),
             },
             new Dictionary<string, string> { ["current-thread"] = "customer-impact" },
             new[] { MessageId() },
@@ -255,7 +269,8 @@ public sealed class PositionProtocolSerializerBindingTests
             new Dictionary<string, ShortMemoryContextScope>
             {
                 ["current-thread"] = ShortMemoryContextScope.ForThread(ThreadId()),
-            });
+            },
+            new[] { message });
     }
 
     private static PersistedRetainedAction SampleRetainedAction() =>

@@ -386,7 +386,9 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         var correctionDecision = iterationState.EvaluateOutcomeProposalCorrection(
                             correctionObservedAt,
                             hasAvailableBudget,
-                            interpretation.Failure!.ParseErrors);
+                            interpretation.Failure!.ParseErrors,
+                            interpretation.Failure.AcceptedDecision,
+                            interpretation.Failure.AcceptedProposal);
                         iterationAudit = iterationAudit.RecordDecision(
                             iterationState,
                             correctionDecision,

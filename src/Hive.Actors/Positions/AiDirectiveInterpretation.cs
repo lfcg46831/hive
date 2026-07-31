@@ -19,13 +19,17 @@ internal sealed record AiDirectiveInterpretationFailure
         string auditReason,
         bool isRetryable,
         IEnumerable<AiDirectiveDecisionParseError>? parseErrors = null,
-        AiGatewayError? gatewayError = null)
+        AiGatewayError? gatewayError = null,
+        AiDirectiveDecision? acceptedDecision = null,
+        OutcomeProposal? acceptedProposal = null)
     {
         Code = AiAgentGatewayText.Require(code, nameof(code));
         AuditReason = AiAgentGatewayText.Require(auditReason, nameof(auditReason));
         IsRetryable = isRetryable;
         ParseErrors = SnapshotParseErrors(parseErrors);
         GatewayError = gatewayError;
+        AcceptedDecision = acceptedDecision;
+        AcceptedProposal = acceptedProposal;
     }
 
     public string Code { get; }
@@ -37,6 +41,10 @@ internal sealed record AiDirectiveInterpretationFailure
     public ImmutableArray<AiDirectiveDecisionParseError> ParseErrors { get; }
 
     public AiGatewayError? GatewayError { get; }
+
+    public AiDirectiveDecision? AcceptedDecision { get; }
+
+    public OutcomeProposal? AcceptedProposal { get; }
 
     private static ImmutableArray<AiDirectiveDecisionParseError> SnapshotParseErrors(
         IEnumerable<AiDirectiveDecisionParseError>? parseErrors)
@@ -167,10 +175,9 @@ internal static class AiDirectiveDecisionInterpreter
                 parseResult.Proposal);
         }
 
-        var parseErrors = parseResult.Errors.Cast<AiDirectiveDecisionParseError>().ToArray();
         return AiDirectiveInterpretationResult.EscalationRequired(
             invocation.CorrelationId,
-            InvalidOutputFailure(parseErrors));
+            InvalidOutputFailure(parseResult));
     }
 
     private static AiDirectiveInterpretationFailure GatewayFailure(AiGatewayError? error)
@@ -192,8 +199,9 @@ internal static class AiDirectiveDecisionInterpreter
     }
 
     private static AiDirectiveInterpretationFailure InvalidOutputFailure(
-        IReadOnlyCollection<AiDirectiveDecisionParseError> parseErrors)
+        AiDirectiveDecisionParseResult parseResult)
     {
+        var parseErrors = parseResult.Errors;
         var details = string.Join(
             ", ",
             parseErrors.Select(error => $"{error.Path}:{error.Code}"));
@@ -202,7 +210,9 @@ internal static class AiDirectiveDecisionInterpreter
             "ai-output-invalid",
             $"ai-output-invalid: AI directive output failed strict interpretation ({details}).",
             isRetryable: false,
-            parseErrors);
+            parseErrors,
+            acceptedDecision: parseResult.AcceptedDecision,
+            acceptedProposal: parseResult.AcceptedProposal);
     }
 }
 

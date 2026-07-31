@@ -26,6 +26,7 @@ public sealed class PositionActorRecoveryTests
         var persistenceId = PositionActor.PersistenceIdFor(entity.Value);
         var snapshot = SampleSnapshot();
         Assert.Equal(new[] { snapshot.Inbox[0].Id }, snapshot.RecentHistory);
+        Assert.Equal(snapshot.Inbox, snapshot.MaterializedHistory);
         var replayed = new ShortMemoryUpdated("after-snapshot", "replayed", At.AddMinutes(1));
         var system = ActorSystem.Create(
             $"position-recovery-{Guid.NewGuid():N}",
@@ -70,6 +71,7 @@ public sealed class PositionActorRecoveryTests
 
             Assert.Equal(new[] { snapshot.Inbox[0].Id }, recovered.Inbox.Select(message => message.Id));
             Assert.Equal(new[] { snapshot.Inbox[0].Id }, recovered.RecentHistory);
+            Assert.Equal(snapshot.MaterializedHistory, recovered.MaterializedHistory);
             Assert.Equal(snapshot.OpenTasks[0].TaskId, Assert.Single(recovered.OpenTasks).Key);
             Assert.Equal("snapshot-context", recovered.ShortMemory["current-thread"]);
             Assert.Equal("replayed", recovered.ShortMemory["after-snapshot"]);
@@ -167,6 +169,7 @@ public sealed class PositionActorRecoveryTests
             var completed = await WaitForStateAsync(actor, state => state.Inbox.IsEmpty);
 
             Assert.Equal(new[] { snapshot.Inbox[0].Id }, completed.RecentHistory);
+            Assert.Equal(snapshot.MaterializedHistory, completed.MaterializedHistory);
             Assert.Contains(snapshot.ProcessedMessages[0], completed.ProcessedMessages);
             Assert.Equal("replayed", completed.ShortMemory["after-snapshot"]);
 
@@ -181,6 +184,7 @@ public sealed class PositionActorRecoveryTests
 
             Assert.Empty(afterRestart.Inbox);
             Assert.Equal(new[] { snapshot.Inbox[0].Id }, afterRestart.RecentHistory);
+            Assert.Equal(snapshot.MaterializedHistory, afterRestart.MaterializedHistory);
             Assert.Contains(snapshot.ProcessedMessages[0], afterRestart.ProcessedMessages);
         }
         finally
@@ -210,7 +214,8 @@ public sealed class PositionActorRecoveryTests
             },
             shortMemory: new Dictionary<string, string> { ["current-thread"] = "snapshot-context" },
             recentHistory: new[] { message.Id },
-            processedMessages: new[] { message.Id });
+            processedMessages: new[] { message.Id },
+            materializedHistory: new[] { message });
     }
 
     private static Memo SampleMessage(MessageId id) =>

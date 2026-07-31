@@ -37,7 +37,9 @@ internal static class AiDirectivePrompt
 
     public static AiGatewayRequest CreateOutcomeProposalCorrectionRequest(
         AiDirectiveExecutionContext context,
-        IEnumerable<AiDirectiveDecisionParseError> parseErrors)
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors,
+        AiDirectiveDecision? acceptedDecision = null,
+        OutcomeProposal? acceptedProposal = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(parseErrors);
@@ -53,7 +55,9 @@ internal static class AiDirectivePrompt
             AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context);
         var correction = AiDirectiveOutcomeProposalCorrection.CreateBoundedInstruction(
             evidenceContext,
-            parseErrors);
+            parseErrors,
+            acceptedDecision,
+            acceptedProposal);
         var metadata = new Dictionary<string, string>(
             initial.Metadata,
             StringComparer.Ordinal)
@@ -198,7 +202,7 @@ internal static class AiDirectivePrompt
         AppendTools(builder, context);
         AppendShortMemory(builder, selectedContext.ShortMemory);
         AppendOpenTasks(builder, selectedContext.OpenTasks);
-        AppendRecentHistory(builder, selectedContext.RecentHistory);
+        AppendRecentHistory(builder, selectedContext.MaterializedHistory);
         AppendRelation(builder, context);
         AppendLimits(builder, context);
 
@@ -311,7 +315,7 @@ internal static class AiDirectivePrompt
 
     private static void AppendRecentHistory(
         StringBuilder builder,
-        IReadOnlyList<MessageId> recentHistory)
+        IReadOnlyList<OrgMessage> recentHistory)
     {
         if (recentHistory.Count == 0)
         {
@@ -323,7 +327,9 @@ internal static class AiDirectivePrompt
         builder.AppendLine("RecentHistory:");
         foreach (var message in recentHistory)
         {
-            AppendCanonicalContextLine(builder, AiDirectiveContextLines.RecentHistory(message));
+            AppendCanonicalContextLine(
+                builder,
+                AiDirectiveContextLines.MaterializedMessage(message));
         }
 
         builder.AppendLine();

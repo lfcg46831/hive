@@ -33,7 +33,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.ProcessedMessages,
             dto.LastConfigurationStamp,
             dto.RetainedActions,
-            dto.ShortMemoryContextScopes);
+            dto.ShortMemoryContextScopes,
+            dto.MaterializedHistory);
     }
 
     public override void Write(
@@ -65,6 +66,9 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
                     pair => pair.Key,
                     pair => pair.Value,
                     StringComparer.Ordinal),
+            MaterializedHistory = value.MaterializedHistory.IsEmpty
+                ? null
+                : value.MaterializedHistory.ToList(),
         };
 
         JsonSerializer.Serialize(writer, dto, options);
@@ -95,5 +99,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public Dictionary<string, ShortMemoryContextScope>? ShortMemoryContextScopes { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<OrgMessage>? MaterializedHistory { get; set; }
     }
 }

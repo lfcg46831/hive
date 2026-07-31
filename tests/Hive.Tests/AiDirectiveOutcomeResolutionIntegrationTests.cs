@@ -689,6 +689,19 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 "outcome_proposal.proposal.evidence_references.item.source:invalid-vocabulary",
                 correction.Content,
                 StringComparison.Ordinal);
+            Assert.Contains(
+                "AcceptedResult: {\"intent\":\"Report\",\"kind\":\"Done\",\"body\":\"Complete.\"}",
+                correction.Content,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "PreviousResolution: <not-run>",
+                correction.Content,
+                StringComparison.Ordinal);
+            var correctionProjection = correction.Content[
+                (initial.Content.Length + Environment.NewLine.Length * 2)..];
+            Assert.True(
+                System.Text.Encoding.UTF8.GetByteCount(correctionProjection) <=
+                AiDirectiveOutcomeProposalCorrection.MaximumProjectionUtf8Bytes);
             Assert.Contains("\"directive.context\"", correction.Content, StringComparison.Ordinal);
             Assert.Contains("\"directive.objective\"", correction.Content, StringComparison.Ordinal);
             Assert.DoesNotContain("runtime.fabricated", correction.Content, StringComparison.Ordinal);

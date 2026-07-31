@@ -250,12 +250,16 @@ internal sealed record AiDirectivePersistedContext
         IEnumerable<PersistedTask>? openTasks = null,
         IReadOnlyDictionary<string, string>? shortMemory = null,
         IEnumerable<MessageId>? recentHistory = null,
-        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null)
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
+        IEnumerable<OrgMessage>? materializedHistory = null)
     {
         LastConfigurationStamp = lastConfigurationStamp;
         OpenTasks = ToValidatedArray(openTasks, nameof(openTasks));
         ShortMemory = ToValidatedMemory(shortMemory, nameof(shortMemory));
         RecentHistory = ToValidatedArray(recentHistory, nameof(recentHistory));
+        MaterializedHistory = ToValidatedArray(
+            materializedHistory,
+            nameof(materializedHistory));
         ShortMemoryContextScopes = ToValidatedMemoryScopes(
             shortMemoryContextScopes,
             ShortMemory,
@@ -270,6 +274,8 @@ internal sealed record AiDirectivePersistedContext
 
     public ImmutableArray<MessageId> RecentHistory { get; }
 
+    public ImmutableArray<OrgMessage> MaterializedHistory { get; }
+
     public ImmutableDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
 
     public static AiDirectivePersistedContext From(PositionState state)
@@ -281,7 +287,8 @@ internal sealed record AiDirectivePersistedContext
             state.OpenTasks.Values.OrderBy(task => task.TaskId.Value),
             state.ShortMemory,
             state.RecentHistory,
-            state.ShortMemoryContextScopes);
+            state.ShortMemoryContextScopes,
+            state.MaterializedHistory);
     }
 
     private static ImmutableArray<T> ToValidatedArray<T>(

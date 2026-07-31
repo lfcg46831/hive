@@ -17,6 +17,7 @@ public sealed record PositionState
         ImmutableDictionary<string, string> shortMemory,
         ImmutableDictionary<string, ShortMemoryContextScope> shortMemoryContextScopes,
         ImmutableArray<MessageId> recentHistory,
+        ImmutableArray<OrgMessage> materializedHistory,
         ImmutableHashSet<MessageId> processedMessages,
         OccupantId? occupant,
         OccupantType? occupantType,
@@ -28,6 +29,7 @@ public sealed record PositionState
         ShortMemory = shortMemory;
         ShortMemoryContextScopes = shortMemoryContextScopes;
         RecentHistory = recentHistory;
+        MaterializedHistory = materializedHistory;
         ProcessedMessages = processedMessages;
         Occupant = occupant;
         OccupantType = occupantType;
@@ -42,6 +44,7 @@ public sealed record PositionState
         ImmutableDictionary.Create<string, string>(StringComparer.Ordinal),
         ImmutableDictionary.Create<string, ShortMemoryContextScope>(StringComparer.Ordinal),
         ImmutableArray<MessageId>.Empty,
+        ImmutableArray<OrgMessage>.Empty,
         ImmutableHashSet<MessageId>.Empty,
         occupant: null,
         occupantType: null,
@@ -62,6 +65,9 @@ public sealed record PositionState
 
     /// <summary>The recently dispatched message ids, in replay order.</summary>
     public ImmutableArray<MessageId> RecentHistory { get; }
+
+    /// <summary>The recently dispatched messages retained for correlated prompt context.</summary>
+    public ImmutableArray<OrgMessage> MaterializedHistory { get; }
 
     /// <summary>The message ids already accepted by the position.</summary>
     public ImmutableHashSet<MessageId> ProcessedMessages { get; }
@@ -89,6 +95,7 @@ public sealed record PositionState
             snapshot.ShortMemory,
             snapshot.ShortMemoryContextScopes,
             snapshot.RecentHistory,
+            snapshot.MaterializedHistory,
             snapshot.ProcessedMessages.ToImmutableHashSet(),
             snapshot.Occupant,
             snapshot.OccupantType,
@@ -108,7 +115,8 @@ public sealed record PositionState
         ProcessedMessages.OrderBy(message => message.Value),
         LastConfigurationStamp,
         RetainedActions.Values.OrderBy(action => action.Id.Value),
-        ShortMemoryContextScopes);
+        ShortMemoryContextScopes,
+        MaterializedHistory);
 
     /// <summary>Evaluates whether the recovered state is currently safe to passivate.</summary>
     public PositionPassivationDecision EvaluatePassivation(PositionRuntimeConfiguration configuration)
@@ -177,6 +185,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages.Add(@event.Message.Id),
         Occupant,
         OccupantType,
@@ -198,6 +207,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,
@@ -218,7 +228,8 @@ public sealed record PositionState
             @event.Priority ?? existing.Priority,
             existing.OpenedAt,
             @event.Deadline ?? existing.Deadline,
-            existing.CausedBy);
+            existing.CausedBy,
+            @event.Note);
 
         return new PositionState(
             Inbox,
@@ -226,6 +237,7 @@ public sealed record PositionState
             ShortMemory,
             ShortMemoryContextScopes,
             RecentHistory,
+            MaterializedHistory,
             ProcessedMessages,
             Occupant,
             OccupantType,
@@ -239,6 +251,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,
@@ -255,6 +268,7 @@ public sealed record PositionState
             ? ShortMemoryContextScopes.Remove(@event.Key)
             : ShortMemoryContextScopes.SetItem(@event.Key, @event.ContextScope),
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,
@@ -267,25 +281,36 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         @event.Occupant,
         @event.Type,
         LastConfigurationStamp,
         RetainedActions);
 
-    private PositionState Apply(MessageDispatched @event) => new(
-        Inbox,
-        OpenTasks,
-        ShortMemory,
-        ShortMemoryContextScopes,
-        RecentHistory.Contains(@event.Message)
-            ? RecentHistory
-            : RecentHistory.Add(@event.Message),
-        ProcessedMessages,
-        Occupant,
-        OccupantType,
-        LastConfigurationStamp,
-        RetainedActions);
+    private PositionState Apply(MessageDispatched @event)
+    {
+        var message = Inbox.FirstOrDefault(candidate => candidate.Id == @event.Message);
+        var materializedHistory = message is null ||
+            MaterializedHistory.Any(candidate => candidate.Id == message.Id)
+                ? MaterializedHistory
+                : MaterializedHistory.Add(message);
+
+        return new PositionState(
+            Inbox,
+            OpenTasks,
+            ShortMemory,
+            ShortMemoryContextScopes,
+            RecentHistory.Contains(@event.Message)
+                ? RecentHistory
+                : RecentHistory.Add(@event.Message),
+            materializedHistory,
+            ProcessedMessages,
+            Occupant,
+            OccupantType,
+            LastConfigurationStamp,
+            RetainedActions);
+    }
 
     private PositionState Apply(MessageProcessingCompleted @event) => new(
         Inbox.RemoveAll(message => message.Id == @event.Message),
@@ -293,6 +318,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,
@@ -305,6 +331,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,
@@ -328,6 +355,7 @@ public sealed record PositionState
             ShortMemory,
             ShortMemoryContextScopes,
             RecentHistory,
+            MaterializedHistory,
             ProcessedMessages,
             Occupant,
             OccupantType,
@@ -419,6 +447,7 @@ public sealed record PositionState
         ShortMemory,
         ShortMemoryContextScopes,
         RecentHistory,
+        MaterializedHistory,
         ProcessedMessages,
         Occupant,
         OccupantType,

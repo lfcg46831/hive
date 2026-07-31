@@ -360,7 +360,9 @@ internal sealed class AiDirectiveIterationExecutor
         {
             var request = AiDirectivePrompt.CreateOutcomeProposalCorrectionRequest(
                 context,
-                continuation.CorrectionErrors);
+                continuation.CorrectionErrors,
+                continuation.AcceptedDecision,
+                continuation.AcceptedProposal);
             if (!TryGetEffectiveTimeout(
                     request.Timeout,
                     context.Directive.Deadline,

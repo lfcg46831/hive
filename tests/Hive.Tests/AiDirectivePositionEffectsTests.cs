@@ -50,7 +50,12 @@ public sealed class AiDirectivePositionEffectsTests
         var memory = Assert.IsType<UpdateShortMemory>(effects.Commands[0]);
         Assert.Equal($"directive:{IncomingDirective.Value:N}:result", memory.Key);
         Assert.Equal("Report Done: Bug triage is complete.", memory.Value);
-        Assert.Equal(ShortMemoryContextScope.ForThread(Thread), memory.ContextScope);
+        Assert.Equal(
+            ShortMemoryContextScope.ForDirective(
+                Thread,
+                IncomingDirective,
+                taskId: taskId),
+            memory.ContextScope);
         var complete = Assert.IsType<CompleteTask>(effects.Commands[1]);
         Assert.Equal(taskId, complete.TaskId);
         Assert.Equal("Bug triage is complete.", complete.Summary);
@@ -86,6 +91,12 @@ public sealed class AiDirectivePositionEffectsTests
         Assert.Equal(
             "Report Progress: Waiting for production log correlation.",
             memory.Value);
+        Assert.Equal(
+            ShortMemoryContextScope.ForDirective(
+                Thread,
+                IncomingDirective,
+                taskId: taskId),
+            memory.ContextScope);
         var update = Assert.IsType<UpdateTask>(effects.Commands[1]);
         Assert.Equal(taskId, update.TaskId);
         Assert.Equal("Waiting for production log correlation.", update.Note);
@@ -117,7 +128,12 @@ public sealed class AiDirectivePositionEffectsTests
         Assert.Equal(
             "Delegated directive to engineer: Investigate checkout callback failures.",
             memory.Value);
-        Assert.Equal(ShortMemoryContextScope.ForThread(Thread), memory.ContextScope);
+        Assert.Equal(
+            ShortMemoryContextScope.ForDirective(
+                Thread,
+                IncomingDirective,
+                taskId: generatedTaskId),
+            memory.ContextScope);
         var openTask = Assert.IsType<OpenTask>(effects.Commands[1]);
         Assert.Equal(generatedTaskId, openTask.TaskId);
         Assert.Equal(Thread, openTask.Thread);

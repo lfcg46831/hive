@@ -42,6 +42,7 @@ public sealed class PositionSnapshotTests
         Assert.Empty(snapshot.ShortMemory);
         Assert.Empty(snapshot.ShortMemoryContextScopes);
         Assert.Empty(snapshot.RecentHistory);
+        Assert.Empty(snapshot.MaterializedHistory);
         Assert.Empty(snapshot.ProcessedMessages);
         Assert.Null(snapshot.LastConfigurationStamp);
     }
@@ -53,7 +54,7 @@ public sealed class PositionSnapshotTests
         var inbox = new[] { SampleMessage() };
         var tasks = new[] { SampleTask() };
         var memory = new Dictionary<string, string> { ["thread"] = "context", ["scratch"] = string.Empty };
-        var history = new[] { MessageId.New() };
+        var history = new[] { inbox[0].Id };
         var processed = new[] { MessageId.New(), MessageId.New() };
         var stamp = new PositionConfigurationStamp(9, "sha256:v9");
         var memoryScopes = new Dictionary<string, ShortMemoryContextScope>
@@ -71,7 +72,8 @@ public sealed class PositionSnapshotTests
             history,
             processed,
             stamp,
-            shortMemoryContextScopes: memoryScopes);
+            shortMemoryContextScopes: memoryScopes,
+            materializedHistory: inbox);
 
         Assert.Equal(occupant, snapshot.Occupant);
         Assert.Equal(OccupantType.AiAgent, snapshot.OccupantType);
@@ -81,6 +83,7 @@ public sealed class PositionSnapshotTests
         Assert.Equal(string.Empty, snapshot.ShortMemory["scratch"]);
         Assert.Equal(memoryScopes["thread"], snapshot.ShortMemoryContextScopes["thread"]);
         Assert.Single(snapshot.RecentHistory);
+        Assert.Equal(inbox, snapshot.MaterializedHistory);
         Assert.Equal(2, snapshot.ProcessedMessages.Length);
         Assert.Equal(stamp, snapshot.LastConfigurationStamp);
     }
@@ -139,18 +142,33 @@ public sealed class PositionSnapshotTests
     }
 
     [Fact]
+    public void Snapshot_rejects_materialized_message_without_recent_history_identity()
+    {
+        Assert.Throws<ArgumentException>(() => new PositionSnapshot(
+            At,
+            materializedHistory: [SampleMessage()]));
+    }
+
+    [Fact]
     public void Short_memory_context_scope_enforces_its_closed_shapes()
     {
         var thread = ThreadId.New();
         var task = PositionTaskId.New();
+        var directive = DirectiveId.New();
 
         Assert.Equal(ShortMemoryContextScope.ThreadKind, ShortMemoryContextScope.ForThread(thread).Kind);
         Assert.Equal(ShortMemoryContextScope.TaskKind, ShortMemoryContextScope.ForTask(thread, task).Kind);
+        Assert.Equal(
+            ShortMemoryContextScope.DirectiveKind,
+            ShortMemoryContextScope.ForDirective(thread, directive, taskId: task).Kind);
         Assert.Equal(ShortMemoryContextScope.PositionFactKind, ShortMemoryContextScope.ForPositionFact().Kind);
         Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope(
             ShortMemoryContextScope.ThreadKind));
         Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope(
             ShortMemoryContextScope.TaskKind,
+            thread));
+        Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope(
+            ShortMemoryContextScope.DirectiveKind,
             thread));
         Assert.Throws<ArgumentException>(() => new ShortMemoryContextScope("unknown"));
     }
@@ -163,7 +181,15 @@ public sealed class PositionSnapshotTests
         var causedBy = MessageId.New();
         var deadline = At.AddHours(3);
 
-        var task = new PersistedTask(taskId, thread, "triage bug", Priority.Critical, At, deadline, causedBy);
+        var task = new PersistedTask(
+            taskId,
+            thread,
+            "triage bug",
+            Priority.Critical,
+            At,
+            deadline,
+            causedBy,
+            "reproduced on staging");
 
         Assert.Equal(taskId, task.TaskId);
         Assert.Equal(thread, task.Thread);
@@ -172,6 +198,7 @@ public sealed class PositionSnapshotTests
         Assert.Equal(At, task.OpenedAt);
         Assert.Equal(deadline, task.Deadline);
         Assert.Equal(causedBy, task.CausedBy);
+        Assert.Equal("reproduced on staging", task.LatestProgress);
     }
 
     [Fact]

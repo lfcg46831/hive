@@ -130,10 +130,14 @@ internal sealed record AiDirectiveDecisionParseResult
     private AiDirectiveDecisionParseResult(
         AiDirectiveDecision? decision,
         OutcomeProposal? proposal,
+        AiDirectiveDecision? acceptedDecision,
+        OutcomeProposal? acceptedProposal,
         ImmutableArray<AiDirectiveDecisionParseError> errors)
     {
         Decision = decision;
         Proposal = proposal;
+        AcceptedDecision = acceptedDecision ?? decision;
+        AcceptedProposal = acceptedProposal ?? proposal;
         Errors = errors;
     }
 
@@ -144,6 +148,10 @@ internal sealed record AiDirectiveDecisionParseResult
     public AiDirectiveDecision? Decision { get; }
 
     public OutcomeProposal? Proposal { get; }
+
+    public AiDirectiveDecision? AcceptedDecision { get; }
+
+    public OutcomeProposal? AcceptedProposal { get; }
 
     public IReadOnlyList<AiDirectiveDecisionParseError> Errors { get; }
 
@@ -156,11 +164,15 @@ internal sealed record AiDirectiveDecisionParseResult
         return new AiDirectiveDecisionParseResult(
             decision,
             proposal,
+            decision,
+            proposal,
             ImmutableArray<AiDirectiveDecisionParseError>.Empty);
     }
 
     public static AiDirectiveDecisionParseResult Failure(
-        IEnumerable<AiDirectiveDecisionParseError> errors)
+        IEnumerable<AiDirectiveDecisionParseError> errors,
+        AiDirectiveDecision? acceptedDecision = null,
+        OutcomeProposal? acceptedProposal = null)
     {
         ArgumentNullException.ThrowIfNull(errors);
 
@@ -188,6 +200,8 @@ internal sealed record AiDirectiveDecisionParseResult
         return new AiDirectiveDecisionParseResult(
             decision: null,
             proposal: null,
+            acceptedDecision,
+            acceptedProposal,
             errors: ordered);
     }
 }
@@ -348,7 +362,10 @@ internal static class AiDirectiveDecisionParser
 
         return errors.Count == 0 && decision is not null
             ? AiDirectiveDecisionParseResult.Success(decision, proposal)
-            : AiDirectiveDecisionParseResult.Failure(errors);
+            : AiDirectiveDecisionParseResult.Failure(
+                errors,
+                decision,
+                proposal);
     }
 
     private static string[] AllowedTopLevelFields(

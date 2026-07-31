@@ -1,5 +1,6 @@
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using System.Text.Json.Serialization;
 
 namespace Hive.Domain.Positions;
 
@@ -20,7 +21,8 @@ public sealed record PersistedTask
         Priority priority,
         DateTimeOffset openedAt,
         DateTimeOffset? deadline = null,
-        MessageId? causedBy = null)
+        MessageId? causedBy = null,
+        string? latestProgress = null)
     {
         ArgumentNullException.ThrowIfNull(taskId);
         ArgumentNullException.ThrowIfNull(thread);
@@ -32,6 +34,9 @@ public sealed record PersistedTask
         OpenedAt = openedAt;
         Deadline = deadline;
         CausedBy = causedBy;
+        LatestProgress = latestProgress is null
+            ? null
+            : CommandText.RequireContent(latestProgress, nameof(latestProgress));
     }
 
     /// <summary>The identity of the open task.</summary>
@@ -54,4 +59,8 @@ public sealed record PersistedTask
 
     /// <summary>The inbound message that triggered the task, when there is one.</summary>
     public MessageId? CausedBy { get; }
+
+    /// <summary>The latest durable progress note recorded for the open task.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? LatestProgress { get; }
 }

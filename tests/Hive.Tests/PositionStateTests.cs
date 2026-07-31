@@ -22,6 +22,7 @@ public sealed class PositionStateTests
         Assert.Empty(state.ShortMemory);
         Assert.Empty(state.ShortMemoryContextScopes);
         Assert.Empty(state.RecentHistory);
+        Assert.Empty(state.MaterializedHistory);
         Assert.Empty(state.ProcessedMessages);
         Assert.Null(state.Occupant);
         Assert.Null(state.OccupantType);
@@ -55,6 +56,7 @@ public sealed class PositionStateTests
         Assert.Empty(state.Inbox);
         Assert.Contains(message.Id, state.ProcessedMessages);
         Assert.Equal(new[] { message.Id }, state.RecentHistory);
+        Assert.Equal(new[] { message }, state.MaterializedHistory);
         Assert.Equal("customer is blocked", state.ShortMemory["thread"]);
         Assert.Equal(occupant, state.Occupant);
         Assert.Equal(OccupantType.AiAgent, state.OccupantType);
@@ -67,6 +69,7 @@ public sealed class PositionStateTests
         Assert.Equal(Priority.Critical, task.Priority);
         Assert.Equal(revisedDeadline, task.Deadline);
         Assert.Equal(message.Id, task.CausedBy);
+        Assert.Equal("investigating", task.LatestProgress);
     }
 
     [Fact]
@@ -93,6 +96,7 @@ public sealed class PositionStateTests
 
         Assert.Equal(new[] { message }, dispatched.Inbox);
         Assert.Equal(new[] { message.Id }, dispatched.RecentHistory);
+        Assert.Equal(new[] { message }, dispatched.MaterializedHistory);
         Assert.Contains(message.Id, dispatched.ProcessedMessages);
 
         var completed = dispatched.Apply(new MessageProcessingCompleted(
@@ -104,7 +108,16 @@ public sealed class PositionStateTests
 
         Assert.Empty(completed.Inbox);
         Assert.Equal(new[] { message.Id }, completed.RecentHistory);
+        Assert.Equal(new[] { message }, completed.MaterializedHistory);
         Assert.Contains(message.Id, completed.ProcessedMessages);
+
+        var idempotent = completed.Apply(new MessageDispatched(
+            message.Id,
+            message.Thread,
+            occupant,
+            OccupantType.AiAgent,
+            At.AddMinutes(3)));
+        Assert.Single(idempotent.MaterializedHistory);
     }
 
     [Fact]
@@ -149,7 +162,7 @@ public sealed class PositionStateTests
         var message = SampleMessage();
         var task = new PersistedTask(PositionTaskId.New(), message.Thread, "triage", Priority.High, At, causedBy: message.Id);
         var occupant = OccupantId.From("alice");
-        var history = new[] { MessageId.New() };
+        var history = new[] { message.Id };
         var processed = new[] { message.Id };
         var stamp = new PositionConfigurationStamp(3, "sha256:v3");
         var memoryScope = ShortMemoryContextScope.ForThread(message.Thread);
@@ -166,7 +179,8 @@ public sealed class PositionStateTests
             shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
             {
                 ["thread"] = memoryScope,
-            });
+            },
+            materializedHistory: new[] { message });
 
         var state = PositionState.Restore(snapshot);
         var exported = state.ToSnapshot(At.AddMinutes(10));
@@ -179,6 +193,7 @@ public sealed class PositionStateTests
         Assert.Equal("context", exported.ShortMemory["thread"]);
         Assert.Equal(memoryScope, exported.ShortMemoryContextScopes["thread"]);
         Assert.Equal(history, exported.RecentHistory);
+        Assert.Equal(new[] { message }, exported.MaterializedHistory);
         Assert.Equal(processed, exported.ProcessedMessages);
         Assert.Equal(stamp, exported.LastConfigurationStamp);
     }

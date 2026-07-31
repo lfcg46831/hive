@@ -24,6 +24,7 @@ internal sealed record AiDirectiveExecutionContext
         ImmutableArray<AiDirectiveShortMemoryEntry> shortMemory,
         ImmutableArray<PersistedTask> openTasks,
         ImmutableArray<MessageId> recentHistory,
+        ImmutableArray<OrgMessage> materializedHistory,
         AiProviderMetadata? provider,
         AiModelParameters modelParameters,
         AiProcessingMode? processingMode,
@@ -47,6 +48,9 @@ internal sealed record AiDirectiveExecutionContext
         ShortMemory = RequireItems(shortMemory, nameof(shortMemory));
         OpenTasks = RequireItems(openTasks, nameof(openTasks));
         RecentHistory = RequireItems(recentHistory, nameof(recentHistory));
+        MaterializedHistory = RequireItems(
+            materializedHistory,
+            nameof(materializedHistory));
         Provider = provider;
         ModelParameters = modelParameters ?? throw new ArgumentNullException(nameof(modelParameters));
         ProcessingMode = processingMode;
@@ -82,6 +86,8 @@ internal sealed record AiDirectiveExecutionContext
     public ImmutableArray<PersistedTask> OpenTasks { get; }
 
     public ImmutableArray<MessageId> RecentHistory { get; }
+
+    public ImmutableArray<OrgMessage> MaterializedHistory { get; }
 
     public AiProviderMetadata? Provider { get; }
 
@@ -129,6 +135,7 @@ internal sealed record AiDirectiveExecutionContext
                 .OrderBy(task => task.TaskId.Value)
                 .ToImmutableArray(),
             request.PersistedContext.RecentHistory,
+            request.PersistedContext.MaterializedHistory,
             request.RuntimeContext.OccupantConfiguration.AiGateway?.Primary,
             request.RuntimeContext.OccupantConfiguration.AiGateway?.Parameters
                 ?? AiModelParameters.Default,

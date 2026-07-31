@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
 using Hive.Domain.Governance;
+using Hive.Domain.Outcomes;
 
 namespace Hive.Actors.Positions;
 
@@ -53,7 +54,9 @@ internal sealed record AiDirectiveIterationContinuation
         AiDirectiveIterationContinuationKind kind,
         AiToolCall? toolCall,
         ActingUnderDeclaration actingUnder,
-        ImmutableArray<AiDirectiveDecisionParseError> correctionErrors)
+        ImmutableArray<AiDirectiveDecisionParseError> correctionErrors,
+        AiDirectiveDecision? acceptedDecision,
+        OutcomeProposal? acceptedProposal)
     {
         if (!Enum.IsDefined(kind))
         {
@@ -110,6 +113,8 @@ internal sealed record AiDirectiveIterationContinuation
         ToolCall = toolCall;
         ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
         CorrectionErrors = correctionErrors;
+        AcceptedDecision = acceptedDecision;
+        AcceptedProposal = acceptedProposal;
     }
 
     public AiDirectiveIterationContinuationKind Kind { get; }
@@ -120,8 +125,14 @@ internal sealed record AiDirectiveIterationContinuation
 
     public ImmutableArray<AiDirectiveDecisionParseError> CorrectionErrors { get; }
 
+    public AiDirectiveDecision? AcceptedDecision { get; }
+
+    public OutcomeProposal? AcceptedProposal { get; }
+
     public static AiDirectiveIterationContinuation OutcomeProposalCorrection(
-        IEnumerable<AiDirectiveDecisionParseError> parseErrors)
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors,
+        AiDirectiveDecision? acceptedDecision = null,
+        OutcomeProposal? acceptedProposal = null)
     {
         ArgumentNullException.ThrowIfNull(parseErrors);
 
@@ -129,7 +140,9 @@ internal sealed record AiDirectiveIterationContinuation
             AiDirectiveIterationContinuationKind.OutcomeProposalCorrection,
             toolCall: null,
             ActingUnderDeclaration.Missing(),
-            parseErrors.ToImmutableArray());
+            parseErrors.ToImmutableArray(),
+            acceptedDecision,
+            acceptedProposal);
     }
 
     public static AiDirectiveIterationContinuation ConnectorTool(
@@ -142,7 +155,9 @@ internal sealed record AiDirectiveIterationContinuation
             AiDirectiveIterationContinuationKind.ConnectorTool,
             toolCall,
             actingUnder ?? ActingUnderDeclaration.Missing(),
-            ImmutableArray<AiDirectiveDecisionParseError>.Empty);
+            ImmutableArray<AiDirectiveDecisionParseError>.Empty,
+            acceptedDecision: null,
+            acceptedProposal: null);
     }
 }
 
@@ -356,9 +371,14 @@ internal sealed record AiDirectiveIterationState
     public AiDirectiveIterationDecision EvaluateOutcomeProposalCorrection(
         DateTimeOffset observedAt,
         bool hasAvailableBudget,
-        IEnumerable<AiDirectiveDecisionParseError> parseErrors) =>
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors,
+        AiDirectiveDecision? acceptedDecision = null,
+        OutcomeProposal? acceptedProposal = null) =>
         EvaluateContinuations(
-            [AiDirectiveIterationContinuation.OutcomeProposalCorrection(parseErrors)],
+            [AiDirectiveIterationContinuation.OutcomeProposalCorrection(
+                parseErrors,
+                acceptedDecision,
+                acceptedProposal)],
             observedAt,
             hasAvailableBudget);
 

@@ -115,12 +115,13 @@ internal static class AiDirectivePositionEffectFactory
         Report report)
     {
         var commands = ImmutableArray.CreateBuilder<PositionCommand>();
+        var task = FindTaskCausedByDirective(context);
         commands.Add(new UpdateShortMemory(
             ResultMemoryKey(context),
             $"Report {ReportKindText(report.Kind)}: {report.Body}",
-            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
+            ResultMemoryScope(context, task?.TaskId)));
 
-        if (FindTaskCausedByDirective(context) is { } task)
+        if (task is not null)
         {
             commands.Add(report.Kind == ReportKind.Done
                 ? new CompleteTask(task.TaskId, report.Body)
@@ -136,12 +137,13 @@ internal static class AiDirectivePositionEffectFactory
     {
         var commands = ImmutableArray.CreateBuilder<PositionCommand>();
         var note = $"Escalation: {escalation.Issue}. {escalation.Context}";
+        var task = FindTaskCausedByDirective(context);
         commands.Add(new UpdateShortMemory(
             ResultMemoryKey(context),
             note,
-            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
+            ResultMemoryScope(context, task?.TaskId)));
 
-        if (FindTaskCausedByDirective(context) is { } task)
+        if (task is not null)
         {
             commands.Add(new UpdateTask(task.TaskId, note, Priority.Critical));
         }
@@ -156,12 +158,13 @@ internal static class AiDirectivePositionEffectFactory
     {
         var commands = ImmutableArray.CreateBuilder<PositionCommand>();
         var target = TargetText(directive.To);
+        var taskId = newTaskId();
         commands.Add(new UpdateShortMemory(
             ResultMemoryKey(context),
             $"Delegated directive to {target}: {directive.Objective}",
-            ShortMemoryContextScope.ForThread(context.Directive.ThreadId)));
+            ResultMemoryScope(context, taskId)));
         commands.Add(new OpenTask(
-            newTaskId(),
+            taskId,
             context.Directive.ThreadId,
             $"Follow delegated directive to {target}",
             context.Directive.Priority,
@@ -183,6 +186,15 @@ internal static class AiDirectivePositionEffectFactory
 
     private static string ResultMemoryKey(AiDirectiveExecutionContext context) =>
         $"directive:{context.Directive.DirectiveId.Value:N}:result";
+
+    private static ShortMemoryContextScope ResultMemoryScope(
+        AiDirectiveExecutionContext context,
+        PositionTaskId? taskId) =>
+        ShortMemoryContextScope.ForDirective(
+            context.Directive.ThreadId,
+            context.Directive.DirectiveId,
+            context.Directive.ParentDirectiveId,
+            taskId);
 
     private static string ReportKindText(ReportKind kind) =>
         ReportKindContract.RequireDefined(kind, nameof(kind)) switch

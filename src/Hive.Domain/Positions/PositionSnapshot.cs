@@ -36,7 +36,8 @@ public sealed record PositionSnapshot
         IEnumerable<MessageId>? processedMessages = null,
         PositionConfigurationStamp? lastConfigurationStamp = null,
         IEnumerable<PersistedRetainedAction>? retainedActions = null,
-        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null)
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
+        IEnumerable<OrgMessage>? materializedHistory = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -64,6 +65,23 @@ public sealed record PositionSnapshot
             ShortMemory,
             nameof(shortMemoryContextScopes));
         RecentHistory = ToValidatedArray(recentHistory, nameof(recentHistory));
+        MaterializedHistory = ToValidatedArray(
+            materializedHistory,
+            nameof(materializedHistory));
+        if (MaterializedHistory.Select(message => message.Id).Distinct().Count() !=
+            MaterializedHistory.Length)
+        {
+            throw new ArgumentException(
+                "Materialized history message ids must be unique.",
+                nameof(materializedHistory));
+        }
+
+        if (MaterializedHistory.Any(message => !RecentHistory.Contains(message.Id)))
+        {
+            throw new ArgumentException(
+                "Materialized history messages must also exist in recent history.",
+                nameof(materializedHistory));
+        }
         ProcessedMessages = ToValidatedArray(processedMessages, nameof(processedMessages));
         LastConfigurationStamp = lastConfigurationStamp;
         RetainedActions = ToValidatedArray(retainedActions, nameof(retainedActions));
@@ -102,6 +120,9 @@ public sealed record PositionSnapshot
 
     /// <summary>The recently handled message ids kept as history.</summary>
     public ImmutableArray<MessageId> RecentHistory { get; }
+
+    /// <summary>The materialized messages available for correlated short-term context.</summary>
+    public ImmutableArray<OrgMessage> MaterializedHistory { get; }
 
     /// <summary>The ids of messages already processed, used for idempotent acceptance.</summary>
     public ImmutableArray<MessageId> ProcessedMessages { get; }

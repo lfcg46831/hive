@@ -430,6 +430,195 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
+    public void Context_selector_applies_utf8_budget_to_materialized_lineage_without_truncation()
+    {
+        OrgDirective? expected = null;
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            stateFactory: (current, occupant, stamp) =>
+            {
+                var grandparentId = DirectiveId.From(
+                    Guid.Parse("cccccccc-0000-0000-0000-000000000098"));
+                var grandparent = new OrgDirective(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000098")),
+                    current.OrganizationId,
+                    current.From,
+                    current.To,
+                    current.Thread,
+                    Priority.Normal,
+                    1,
+                    At.AddMinutes(-2),
+                    null,
+                    grandparentId,
+                    null,
+                    "Oversized ancestor",
+                    new string('é', 128));
+                expected = new OrgDirective(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000099")),
+                    current.OrganizationId,
+                    current.From,
+                    current.To,
+                    current.Thread,
+                    Priority.Normal,
+                    1,
+                    At.AddMinutes(-1),
+                    null,
+                    current.ParentDirectiveId!,
+                    grandparentId,
+                    "Small parent",
+                    "ok");
+                var history = new OrgMessage[] { grandparent, expected };
+                return PositionState.Restore(new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    recentHistory: history.Select(message => message.Id),
+                    lastConfigurationStamp: stamp,
+                    materializedHistory: history));
+            });
+        var context = AiDirectiveExecutionContext.From(processingRequest);
+        var budget = AiDirectiveContextLines.Utf8Cost(
+            AiDirectiveContextLines.MaterializedMessage(expected!));
+
+        var selected = AiDirectiveContextSelector.Select(context, budget);
+
+        Assert.Equal(new[] { expected }, selected.MaterializedHistory);
+        Assert.Equal(budget, selected.UsedUtf8Bytes);
+    }
+
+    [Fact]
+    public void CreateInitialRequest_projects_only_correlated_materialized_history_and_task_progress()
+    {
+        var parentDirectiveId = DirectiveId.From(
+            Guid.Parse("cccccccc-0000-0000-0000-000000000099"));
+        var siblingDirectiveId = DirectiveId.From(
+            Guid.Parse("cccccccc-0000-0000-0000-000000000098"));
+        var taskId = PositionTaskId.From(
+            Guid.Parse("00000000-0000-0000-0000-000000000040"));
+        var processingRequest = Request(
+            includeOptionalContext: true,
+            stateFactory: (current, occupant, stamp) =>
+            {
+                var parent = new OrgDirective(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000099")),
+                    current.OrganizationId,
+                    current.From,
+                    current.To,
+                    current.Thread,
+                    Priority.High,
+                    schemaVersion: 1,
+                    sentAt: At.AddMinutes(-3),
+                    deadline: null,
+                    parentDirectiveId,
+                    parentDirectiveId: null,
+                    objective: "Inspect the original checkout incident.",
+                    context: "Original grounded evidence: café checkout failed.");
+                var sibling = new OrgDirective(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000098")),
+                    current.OrganizationId,
+                    current.From,
+                    current.To,
+                    current.Thread,
+                    Priority.Normal,
+                    schemaVersion: 1,
+                    sentAt: At.AddMinutes(-2),
+                    deadline: null,
+                    siblingDirectiveId,
+                    parentDirectiveId: null,
+                    objective: "Unrelated sibling objective must not leak.",
+                    context: "Sibling-only secret context.");
+                var report = new Report(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000097")),
+                    current.OrganizationId,
+                    current.To,
+                    current.From,
+                    current.Thread,
+                    Priority.Normal,
+                    schemaVersion: 1,
+                    sentAt: At.AddMinutes(-1),
+                    deadline: null,
+                    parentDirectiveId,
+                    ReportKind.Progress,
+                    "Materialized progress from the parent lineage.");
+                var foreign = new OrgDirective(
+                    MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000000096")),
+                    current.OrganizationId,
+                    current.From,
+                    current.To,
+                    ThreadId.From(Guid.Parse("bbbbbbbb-0000-0000-0000-000000000096")),
+                    Priority.Normal,
+                    schemaVersion: 1,
+                    sentAt: At.AddMinutes(-4),
+                    deadline: null,
+                    DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000000096")),
+                    parentDirectiveId: null,
+                    objective: "Foreign thread objective must not leak.",
+                    context: "Foreign thread secret context.");
+                var history = new OrgMessage[] { foreign, parent, sibling, report };
+
+                return PositionState.Restore(new PositionSnapshot(
+                    At,
+                    occupant,
+                    OccupantType.AiAgent,
+                    openTasks:
+                    [
+                        new PersistedTask(
+                            taskId,
+                            current.Thread,
+                            "Continue the checkout investigation",
+                            Priority.High,
+                            At.AddMinutes(-3),
+                            causedBy: parent.Id,
+                            latestProgress: "Reproduced with multibyte payload: ação."),
+                    ],
+                    shortMemory: new Dictionary<string, string>
+                    {
+                        ["parent-result"] = "Accepted bounded parent result.",
+                        ["sibling-result"] = "Sibling result must not leak.",
+                        ["raw-provider-output"] = "Provider reasoning must not leak.",
+                    },
+                    recentHistory: history.Select(message => message.Id),
+                    lastConfigurationStamp: stamp,
+                    shortMemoryContextScopes: new Dictionary<string, ShortMemoryContextScope>
+                    {
+                        ["parent-result"] = ShortMemoryContextScope.ForDirective(
+                            current.Thread,
+                            parentDirectiveId,
+                            taskId: taskId),
+                        ["sibling-result"] = ShortMemoryContextScope.ForDirective(
+                            current.Thread,
+                            siblingDirectiveId),
+                    },
+                    materializedHistory: history));
+            });
+
+        var context = AiDirectiveExecutionContext.From(processingRequest);
+        var first = AiDirectivePrompt.CreateInitialRequest(context);
+        var second = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Equal(first.Content, second.Content);
+        Assert.Contains("Original grounded evidence: café checkout failed.", first.Content, StringComparison.Ordinal);
+        Assert.Contains("Materialized progress from the parent lineage.", first.Content, StringComparison.Ordinal);
+        Assert.Contains("Reproduced with multibyte payload: ação.", first.Content, StringComparison.Ordinal);
+        Assert.Contains("Accepted bounded parent result.", first.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sibling-only secret context.", first.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Sibling result must not leak.", first.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Foreign thread secret context.", first.Content, StringComparison.Ordinal);
+        Assert.DoesNotContain("Provider reasoning must not leak.", first.Content, StringComparison.Ordinal);
+
+        var selected = AiDirectiveContextSelector.Select(context);
+        Assert.True(selected.UsedUtf8Bytes <= selected.BudgetUtf8Bytes);
+        Assert.Equal(
+            selected.UsedUtf8Bytes,
+            selected.OpenTasks.Sum(task => AiDirectiveContextLines.Utf8Cost(
+                AiDirectiveContextLines.Task(task))) +
+            selected.ShortMemory.Sum(entry => AiDirectiveContextLines.Utf8Cost(
+                AiDirectiveContextLines.ShortMemory(entry))) +
+            selected.MaterializedHistory.Sum(message => AiDirectiveContextLines.Utf8Cost(
+                AiDirectiveContextLines.MaterializedMessage(message))));
+    }
+
+    [Fact]
     public void CreateInitialRequest_canonicalizes_and_isolates_acting_under_vocabularies()
     {
         var first = AiDirectivePrompt.CreateInitialRequest(

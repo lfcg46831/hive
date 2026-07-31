@@ -2,8 +2,7 @@
 
 Date: 2026-07-31<br>
 Scope: `US-F0-17-T02`<br>
-Qualified code commit: `ada96f8efa355e50dd75cbdd95b4785c56c58fb6`<br>
-Execution base commit: `2fa8bb524243ea5021299be2046d90c42f55f77d`<br>
+Integrated code commit: `ba634f7037c2f9fe767175452bcddacf4d4246dc`<br>
 Corrective test source SHA-256:
 `47bb992d5359d380a87d989e7a038e05d3cd68c428949ea5fef840936b87db21`
 
@@ -22,12 +21,10 @@ Corrective test source SHA-256:
 - No evaluation host, runner, corpus case, run id, scoring, reporting,
   calibration, freeze, holdout, or container was started.
 
-The initial execution base differed from the qualified code commit only in
-documentation and evidence. The corrective rerun additionally used the
-uncommitted `BUG-001` change in
-`tests/Hive.Tests/AiGatewayIntegrationTests.cs`; consequently, its successful
-real-smoke result is not yet on the same committed functional identity as the
-local qualification.
+The initial attempt preceded `BUG-001`. The corrective rerun used the exact
+functional source later integrated in commit `ba634f7`; the recorded test
+source hash matches that commit. T01 was subsequently repeated and passed on
+the same integrated commit.
 
 ## Reproducibility identity
 
@@ -109,10 +106,7 @@ try {
 
 T02 corrective real-smoke result: `passed`
 
-Overall US-F0-17 preflight state: `blocked`
-
-`BUG-001` is completed and both real smokes passed. Because the corrected test
-source changes the functional identity after the recorded local qualification,
-`US-F0-17-T01` must be repeated on a new commit containing the fix before
-`US-F0-17-T03` can aggregate a same-identity decision. This result does not
-authorize corpus execution, calibration, freeze, holdout, or reopening F1a.
+`BUG-001` is completed, both real smokes passed, and the corrected test source
+is now covered by the successful local qualification on `ba634f7`. This result
+is an input to the separate T03 decision; by itself it does not authorize
+corpus execution, calibration, freeze, holdout, or reopening F1a.

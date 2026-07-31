@@ -1,9 +1,9 @@
 # US-F0-17 post-F0.8 local qualification v1
 
-Date: 2026-07-30  
-Scope: `US-F0-17-T01`  
-Reviewed commit: `ada96f8efa355e50dd75cbdd95b4785c56c58fb6`<br>
-Reviewed tree: `5323586bf2e191dd1854acd82c88443bdb2264e1`
+Date: 2026-07-31<br>
+Scope: `US-F0-17-T01`<br>
+Reviewed commit: `ba634f7037c2f9fe767175452bcddacf4d4246dc`<br>
+Reviewed tree: `1e80f53b8acac8ac6c231fc77eb91e499b674ef8`
 
 ## Isolation
 
@@ -34,7 +34,7 @@ no credential-like key.
 
 | Gate | Result |
 | --- | --- |
-| Complete solution suite on the reviewed commit | PASS — 2069/2069 |
+| Complete solution suite on the reviewed commit | PASS — 2073/2073 |
 | Solution build (`dotnet build Hive.sln --no-restore -v minimal`) | PASS — 0 warnings, 0 errors |
 | Architecture/boundary guards | PASS — 15/15 |
 | Directive execution characterization | PASS — 12/12 |
@@ -51,6 +51,8 @@ no credential-like key.
 dotnet clean Hive.sln -v minimal
 dotnet build Hive.sln --no-restore -v minimal
 dotnet test Hive.sln --no-build --no-restore -v minimal
+dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-build --no-restore -v minimal `
+  --logger "trx;LogFileName=Hive.Tests.trx" --blame-hang-timeout 5m
 dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-build --no-restore -v minimal `
   --filter "FullyQualifiedName~ApplicationBoundaryTests|FullyQualifiedName~AuditExportContractTests"
 dotnet test tests/Hive.Tests/Hive.Tests.csproj --no-build --no-restore -v minimal `
@@ -72,8 +74,10 @@ try {
 
 ## Qualification diagnostics
 
-- With Docker Desktop available, the complete suite produced a terminal green
-  result: `Hive.Tests` passed 1991/1991, Evaluation Tooling passed 74/74, and
+- The sandboxed solution run could not access Docker and was excluded from the
+  verdict. With Docker Desktop available, the complete project set produced
+  terminal green results: `Hive.Tests` passed 1995/1995, Evaluation Tooling
+  passed 74/74, and
   DemoClient passed 4/4.
 - The suite created only its local PostgreSQL Testcontainers. A post-run
   `docker ps` returned no running containers, so no Testcontainer, application,

@@ -195,13 +195,12 @@ public sealed class EvaluationArtifactPublicationTests
     }
 
     [Fact]
-    public void Tracked_index_starts_as_a_valid_empty_v1_contract()
+    public void Tracked_index_is_a_valid_v1_contract()
     {
         var index = EvaluationArtifactIndex.Load(RepositoryRoot);
 
         Assert.Equal(EvaluationArtifactIndex.ContractName, index.Name);
         Assert.Equal(EvaluationArtifactIndex.CurrentVersion, index.Version);
-        Assert.Empty(index.Artifacts);
     }
 
     private sealed class ArtifactPublicationFixture : IDisposable

@@ -248,7 +248,7 @@ The command posts the canonical root `Directive` for the ACME bug-triage example
 
 #### Evaluation Lab (experimental)
 
-The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference manifest is prepared only, the latest candidate remains rejected for freeze, and historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes it.
+The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference manifest was used by the completed, separately authorized `US-F0-18-T01` calibration; its three `post-f0-8-calibration-001`/`002`/`003` ids are burned and the candidate is rejected for a freeze request. Historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes a distinct experiment.
 
 ##### Post-F0.8 local qualification
 
@@ -293,7 +293,7 @@ An enabled profile activates only the bounded `hive.directive-audit-export` v1 a
 
 The override must be present when the `api` container is created; adding it only to a later tooling command does not change an existing container. If the audit/export endpoint remains non-terminal or unavailable, recreate the API with the evaluation Compose file set above and wait for the health check before retrying.
 
-For every new experiment, use a versioned `hive.evaluation-experiment` v1 manifest and the single generic `docker-compose.experiment.yml` adapter. Do not add another Compose override for a model, timeout, prompt, or outcome-policy variation. The tracked reference manifest is prepared but not authorized for a corpus run:
+For every new experiment, use a versioned `hive.evaluation-experiment` v1 manifest and the single generic `docker-compose.experiment.yml` adapter. Do not add another Compose override for a model, timeout, prompt, or outcome-policy variation. The tracked reference manifest remains reproducible, but its one authorization was consumed by `US-F0-18-T01`; the following preparation command does not authorize another corpus run:
 
 ```powershell
 $manifest='config/experiments/bug-triage-lab-v1/experiment.v1.json'
@@ -315,7 +315,7 @@ The existing v1 plan is a historical freeze and still names the former demo-clie
 dotnet run --project src/Hive.Evaluation.Tooling -- evaluate --run-id <new-authorized-run-id> --base-url http://localhost:8080 --manifest $manifest
 ```
 
-The tooling submits cases sequentially through the generic directive API and writes temporary outputs under `artifacts/evaluation/` (for example, `artifacts/evaluation/<run-id>.json`). The complete `artifacts/` tree is ignored and remains disposable. Manifest-driven datasets repeat the manifest version/id/SHA-256 and effective-configuration SHA-256. Their `effective_configuration_validation` is `validated` only when observed directive inference uses the declared provider, model, output mode, output ceiling and initial provider timeout, continuation timeouts never expand, outcome resolutions use the declared mode, and any observed verifier timeout does not exceed its declared ceiling. Drift is emitted as closed failure codes and the command exits unsuccessfully. This validates observable runtime values; it does not turn the prepared reference manifest into authorization for calibration or holdout.
+The tooling submits cases sequentially through the generic directive API and writes temporary outputs under `artifacts/evaluation/` (for example, `artifacts/evaluation/<run-id>.json`). The complete `artifacts/` tree is ignored and remains disposable. Manifest-driven datasets repeat the manifest version/id/SHA-256 and effective-configuration SHA-256. Their `effective_configuration_validation` is `validated` only when observed directive inference uses the declared provider, model, output mode, output ceiling and initial provider timeout, continuation timeouts never expand, outcome resolutions use the declared mode, and any observed verifier timeout does not exceed its declared ceiling. Drift is emitted as closed failure codes and the command exits unsuccessfully. This validates observable runtime values; it does not authorize another calibration or any holdout.
 
 The datasets already under `evidence/evaluation/` belong to historical plans and remain unchanged. For a new manifest-driven experiment, keep the raw dataset under ignored `artifacts/`, commit only its reviewed summary report under `evidence/evaluation/<experiment-id>/`, and publish the exact raw bytes to protected storage outside the repository:
 

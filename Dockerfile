@@ -28,7 +28,9 @@ WORKDIR /src
 # Copy only the solution and project manifests first so that the NuGet restore
 # layer is cached and reused while application source code changes.
 COPY Hive.sln ./
+COPY src/Hive.Contracts/Hive.Contracts.csproj src/Hive.Contracts/
 COPY src/Hive.Domain/Hive.Domain.csproj src/Hive.Domain/
+COPY src/Hive.Application/Hive.Application.csproj src/Hive.Application/
 COPY src/Hive.Actors/Hive.Actors.csproj src/Hive.Actors/
 COPY src/Hive.Infrastructure/Hive.Infrastructure.csproj src/Hive.Infrastructure/
 COPY src/Hive.Api/Hive.Api.csproj src/Hive.Api/

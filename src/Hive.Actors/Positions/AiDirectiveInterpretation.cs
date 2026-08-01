@@ -167,7 +167,8 @@ internal static class AiDirectiveDecisionInterpreter
             invocation.Response.Text,
             canDecide,
             requireOutcomeProposal,
-            outcomeProposalEvidenceContext);
+            outcomeProposalEvidenceContext,
+            allowProgressReports);
         if (parseResult.IsSuccess)
         {
             if (!allowProgressReports &&

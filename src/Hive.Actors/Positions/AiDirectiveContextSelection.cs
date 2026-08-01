@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -17,7 +18,8 @@ internal sealed record AiDirectiveSelectedContext
         ImmutableArray<MessageId> recentHistory,
         ImmutableArray<OrgMessage> materializedHistory,
         int budgetUtf8Bytes,
-        int usedUtf8Bytes)
+        int usedUtf8Bytes,
+        DirectiveCheckpointContextProjection? checkpoint = null)
     {
         if (shortMemory.IsDefault || openTasks.IsDefault || recentHistory.IsDefault ||
             materializedHistory.IsDefault)
@@ -41,6 +43,7 @@ internal sealed record AiDirectiveSelectedContext
         MaterializedHistory = materializedHistory;
         BudgetUtf8Bytes = budgetUtf8Bytes;
         UsedUtf8Bytes = usedUtf8Bytes;
+        Checkpoint = checkpoint;
     }
 
     public ImmutableArray<AiDirectiveShortMemoryEntry> ShortMemory { get; }
@@ -54,6 +57,8 @@ internal sealed record AiDirectiveSelectedContext
     public int BudgetUtf8Bytes { get; }
 
     public int UsedUtf8Bytes { get; }
+
+    public DirectiveCheckpointContextProjection? Checkpoint { get; }
 }
 
 internal static class AiDirectiveContextSelector
@@ -78,6 +83,15 @@ internal static class AiDirectiveContextSelector
         var selectedMemory = ImmutableArray.CreateBuilder<AiDirectiveShortMemoryEntry>();
         var selectedHistory = ImmutableArray.CreateBuilder<MessageId>();
         var selectedMessages = ImmutableArray.CreateBuilder<OrgMessage>();
+        DirectiveCheckpointContextProjection? checkpoint = null;
+
+        if (context.ResumeCheckpoint is { } resume &&
+            DirectiveCheckpointContextProjector.TryProject(resume, out var projection) &&
+            projection!.Utf8Bytes <= remaining)
+        {
+            checkpoint = projection;
+            remaining -= projection.Utf8Bytes;
+        }
 
         var relatedTasks = context.OpenTasks
             .Where(task => task.Thread == context.Directive.ThreadId)
@@ -177,7 +191,8 @@ internal static class AiDirectiveContextSelector
             selectedHistory.ToImmutable(),
             selectedMessages.ToImmutable(),
             budgetUtf8Bytes,
-            budgetUtf8Bytes - remaining);
+            budgetUtf8Bytes - remaining,
+            checkpoint);
     }
 
     private static HashSet<DirectiveId> BuildDirectiveLineage(

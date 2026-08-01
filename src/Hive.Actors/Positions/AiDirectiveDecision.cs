@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -87,6 +88,7 @@ internal static class AiDirectiveDecisionSchema
     public const string ReportPayloadProperty = "report";
     public const string ReportKindField = "kind";
     public const string ReportBodyField = "body";
+    public const string CheckpointPayloadField = "checkpoint";
     public const string EscalationPayloadProperty = "escalation";
     public const string EscalationIssueField = "issue";
     public const string EscalationContextField = "context";
@@ -244,15 +246,94 @@ internal static class AiDirectiveDecisionSchema
               "additionalProperties": false
             }
             """);
+        var root = JsonNode.Parse(document.RootElement.GetRawText())!.AsObject();
+        var report = root["properties"]![DecisionProperty]!["anyOf"]![0]!["properties"]!
+            [ReportPayloadProperty]!;
         if (allowProgressReports)
         {
-            return document.RootElement.Clone();
+            report["properties"]![CheckpointPayloadField] = JsonNode.Parse(
+                $$"""
+                {
+                  "type": "object",
+                  "properties": {
+                    "contract_version": { "type": "integer", "const": 1 },
+                    "plan": {
+                      "type": "object",
+                      "properties": {
+                        "contract_version": { "type": "integer", "const": 1 },
+                        "subtasks": {
+                          "type": "array",
+                          "minItems": 1,
+                          "maxItems": {{DirectiveCheckpointContractLimits.MaximumSubtasks}},
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "sequence": { "type": "integer", "minimum": 1, "maximum": {{DirectiveCheckpointContractLimits.MaximumSubtasks}} },
+                              "local_id": { "type": "string", "minLength": 1, "maxLength": {{DirectiveCheckpointContractLimits.MaximumLocalIdCharacters}} },
+                              "objective": { "type": "string", "minLength": 1 },
+                              "completion_criteria": {
+                                "type": "array",
+                                "minItems": 1,
+                                "maxItems": {{DirectiveCheckpointContractLimits.MaximumCompletionCriteriaPerSubtask}},
+                                "items": { "type": "string", "minLength": 1 }
+                              },
+                              "estimated_duration_ms": { "type": "integer", "minimum": 1, "maximum": 604800000 }
+                            },
+                            "required": ["sequence", "local_id", "objective", "completion_criteria", "estimated_duration_ms"],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": ["contract_version", "subtasks"],
+                      "additionalProperties": false
+                    },
+                    "completed_subtasks": {
+                      "type": "array",
+                      "minItems": 1,
+                      "maxItems": {{DirectiveCheckpointContractLimits.MaximumCompletedSubtasks}},
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "local_id": { "type": "string", "minLength": 1, "maxLength": {{DirectiveCheckpointContractLimits.MaximumLocalIdCharacters}} },
+                          "evidence_references": {
+                            "type": "array",
+                            "minItems": 1,
+                            "maxItems": {{DirectiveCheckpointContractLimits.MaximumEvidenceReferencesPerCompletion}},
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "source": { "type": "string", "enum": ["RuntimeFact", "DirectiveInput", "CompletionCriterion", "ToolResult", "PersistedState"] },
+                                "reference": { "type": "string", "minLength": 1 }
+                              },
+                              "required": ["source", "reference"],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": ["local_id", "evidence_references"],
+                        "additionalProperties": false
+                      }
+                    },
+                    "blockers": {
+                      "type": "array",
+                      "maxItems": {{DirectiveCheckpointContractLimits.MaximumBlockers}},
+                      "items": {
+                        "type": "string",
+                        "enum": ["MissingInput", "HumanApproval", "SuperiorDecision", "AuthorityBoundary", "ExternalDependency", "Budget", "Deadline", "IterationLimit", "RetryLimit", "ToolFailure", "Routing"]
+                      }
+                    },
+                    "next_subtask_id": { "type": "string", "minLength": 1, "maxLength": {{DirectiveCheckpointContractLimits.MaximumLocalIdCharacters}} }
+                  },
+                  "required": ["contract_version", "plan", "completed_subtasks", "blockers", "next_subtask_id"],
+                  "additionalProperties": false
+                }
+                """);
+        }
+        else
+        {
+            report["properties"]![ReportKindField]!["enum"] = new JsonArray("Done");
         }
 
-        var root = JsonNode.Parse(document.RootElement.GetRawText())!.AsObject();
-        root["properties"]![DecisionProperty]!["anyOf"]![0]!["properties"]!
-            [ReportPayloadProperty]!["properties"]![ReportKindField]!["enum"] =
-            new JsonArray("Done");
         return JsonSerializer.SerializeToElement(root);
     }
 }
@@ -277,16 +358,27 @@ internal sealed record AiDirectiveReportDecision : AiDirectiveDecision
     public AiDirectiveReportDecision(
         ReportKind kind,
         string body,
-        ActingUnderDeclaration? actingUnder = null)
+        ActingUnderDeclaration? actingUnder = null,
+        AiDirectiveCheckpointProposal? checkpoint = null)
         : base(AiDirectiveDecisionIntent.Report, actingUnder)
     {
         Kind = ReportKindContract.RequireDefined(kind, nameof(kind));
         Body = AiAgentGatewayText.Require(body, nameof(body));
+        if (kind == ReportKind.Done && checkpoint is not null)
+        {
+            throw new ArgumentException(
+                "A completed report cannot carry a continuation checkpoint.",
+                nameof(checkpoint));
+        }
+
+        Checkpoint = checkpoint;
     }
 
     public ReportKind Kind { get; }
 
     public string Body { get; }
+
+    public AiDirectiveCheckpointProposal? Checkpoint { get; }
 }
 
 internal sealed record AiDirectiveEscalationDecision : AiDirectiveDecision

@@ -92,22 +92,22 @@
     {
       "role": "directive-execution-coordinator",
       "path": "src/Hive.Actors/Positions/AiDirectiveExecutionCoordinator.cs",
-      "sha256": "2bc159e9377d588dd6a99e528d8b4e13a851a20988d44690a20abd7576cdbffb"
+      "sha256": "d72648fd5acdade5de50211fb2f5c5080f47c72f92db3cce6da8b976eaff70ce"
     },
     {
       "role": "directive-iteration-state",
       "path": "src/Hive.Actors/Positions/AiDirectiveIterationState.cs",
-      "sha256": "7652d6127b22409c2f4ccab85554820c3280d0a394d0d1ececd14e9bb9a02b2b"
+      "sha256": "d06a6d514248f2a33fd4bff208ba9c663a698322bef3f17bf273d75184434264"
     },
     {
       "role": "directive-iteration-executor",
       "path": "src/Hive.Actors/Positions/AiDirectiveIterationExecutor.cs",
-      "sha256": "4ed8343193485d1cd3c030442d3dc68daf4266a9b6ae992de322bb31d8471da1"
+      "sha256": "7739c525525aadeed09c178eb45a693cd468e9fc7c7467824fec7f5ddae2f5a5"
     },
     {
       "role": "directive-outcome-resolution",
       "path": "src/Hive.Actors/Positions/AiDirectiveOutcomeResolution.cs",
-      "sha256": "d417bf4cd31e430a34a8c582d19d3a934eb4e9f79bbc986185c9e3ad40fdccbc"
+      "sha256": "1e9b6bc9b2dd2f50fbfb61bfde116a28114224d366b2494ec5f65d4952f1e2d1"
     },
     {
       "role": "outcome-verifier",

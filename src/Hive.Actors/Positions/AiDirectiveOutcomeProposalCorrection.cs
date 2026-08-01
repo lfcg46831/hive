@@ -91,12 +91,7 @@ internal static class AiDirectiveOutcomeProposalCorrection
     private static string AcceptedResult(AiDirectiveDecision? decision) =>
         decision switch
         {
-            AiDirectiveReportDecision report => JsonSerializer.Serialize(new
-            {
-                intent = "Report",
-                kind = ReportKindContract.RequireDefined(report.Kind, nameof(report.Kind)).ToString(),
-                body = report.Body,
-            }),
+            AiDirectiveReportDecision report => AcceptedReport(report),
             AiDirectiveEscalationDecision escalation => JsonSerializer.Serialize(new
             {
                 intent = "Escalation",
@@ -114,6 +109,55 @@ internal static class AiDirectiveOutcomeProposalCorrection
             null => "<none>",
             _ => throw new InvalidOperationException("Unknown accepted directive result."),
         };
+
+    private static string AcceptedReport(AiDirectiveReportDecision report)
+    {
+        var kind = ReportKindContract.RequireDefined(report.Kind, nameof(report.Kind)).ToString();
+        if (report.Checkpoint is null)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                intent = "Report",
+                kind,
+                body = report.Body,
+            });
+        }
+
+        var checkpoint = report.Checkpoint;
+        return JsonSerializer.Serialize(new
+        {
+            intent = "Report",
+            kind,
+            body = report.Body,
+            checkpoint = new
+            {
+                contract_version = checkpoint.ContractVersion,
+                plan = new
+                {
+                    contract_version = checkpoint.Plan.ContractVersion,
+                    subtasks = checkpoint.Plan.Subtasks.Select(subtask => new
+                    {
+                        sequence = subtask.Sequence,
+                        local_id = subtask.LocalId,
+                        objective = subtask.Objective,
+                        completion_criteria = subtask.CompletionCriteria,
+                        estimated_duration_ms = (long)subtask.EstimatedDuration.TotalMilliseconds,
+                    }),
+                },
+                completed_subtasks = checkpoint.CompletedSubtasks.Select(completed => new
+                {
+                    local_id = completed.LocalId,
+                    evidence_references = completed.EvidenceReferences.Select(reference => new
+                    {
+                        source = OutcomeEvidenceSourceContract.ToWireValue(reference.Source),
+                        reference = reference.Reference,
+                    }),
+                }),
+                blockers = checkpoint.Blockers.Select(OutcomeBlockerContract.ToWireValue),
+                next_subtask_id = checkpoint.NextSubtaskId,
+            },
+        });
+    }
 
     private static string AcceptedProposal(OutcomeProposal? proposal) =>
         proposal is null

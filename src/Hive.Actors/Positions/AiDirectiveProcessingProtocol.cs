@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -251,7 +252,8 @@ internal sealed record AiDirectivePersistedContext
         IReadOnlyDictionary<string, string>? shortMemory = null,
         IEnumerable<MessageId>? recentHistory = null,
         IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
-        IEnumerable<OrgMessage>? materializedHistory = null)
+        IEnumerable<OrgMessage>? materializedHistory = null,
+        IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null)
     {
         LastConfigurationStamp = lastConfigurationStamp;
         OpenTasks = ToValidatedArray(openTasks, nameof(openTasks));
@@ -264,6 +266,9 @@ internal sealed record AiDirectivePersistedContext
             shortMemoryContextScopes,
             ShortMemory,
             nameof(shortMemoryContextScopes));
+        DirectiveCheckpoints = ToValidatedArray(
+            directiveCheckpoints,
+            nameof(directiveCheckpoints));
     }
 
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
@@ -278,6 +283,8 @@ internal sealed record AiDirectivePersistedContext
 
     public ImmutableDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
 
+    public ImmutableArray<DirectiveCheckpoint> DirectiveCheckpoints { get; }
+
     public static AiDirectivePersistedContext From(PositionState state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -288,7 +295,9 @@ internal sealed record AiDirectivePersistedContext
             state.ShortMemory,
             state.RecentHistory,
             state.ShortMemoryContextScopes,
-            state.MaterializedHistory);
+            state.MaterializedHistory,
+            state.DirectiveCheckpoints.Values.OrderBy(checkpoint =>
+                checkpoint.Correlation.DirectiveId.Value));
     }
 
     private static ImmutableArray<T> ToValidatedArray<T>(

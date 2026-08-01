@@ -36,6 +36,45 @@ internal static class AiDirectivePrompt
             outputConstraint: OutputConstraint(context));
     }
 
+    public static AiGatewayRequest CreateCheckpointContinuationRequest(
+        AiDirectiveExecutionContext context,
+        DirectiveCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(context);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        if (!context.ExecutionPolicy.AllowsProgressReports)
+        {
+            throw new ArgumentException(
+                "A checkpoint continuation requires effective checkpointable mode.",
+                nameof(context));
+        }
+
+        var initial = CreateInitialRequest(context with { ResumeCheckpoint = checkpoint });
+        var metadata = new Dictionary<string, string>(initial.Metadata, StringComparer.Ordinal)
+        {
+            ["hive.operation"] = "directive-checkpoint-continuation",
+            ["hive.checkpoint-revision"] = checkpoint.Revision.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["hive.checkpoint-next-subtask"] = checkpoint.NextSubtaskId!,
+        };
+        return new AiGatewayRequest(
+            initial.OrganizationId,
+            initial.PositionId,
+            initial.ThreadId,
+            initial.MessageId,
+            initial.Content,
+            initial.SystemInstruction,
+            initial.ContextMessages,
+            initial.Tools,
+            initial.ModelParameters,
+            metadata,
+            initial.Provider,
+            initial.ProcessingMode,
+            initial.Timeout,
+            initial.Policy,
+            initial.OutputConstraint);
+    }
+
     public static AiGatewayRequest CreateOutcomeProposalCorrectionRequest(
         AiDirectiveExecutionContext context,
         IEnumerable<AiDirectiveDecisionParseError> parseErrors,
@@ -135,7 +174,10 @@ internal static class AiDirectivePrompt
             lines.AddRange(
             [
                 "The effective directive execution mode is checkpointable.",
-                "Report.Progress is available only after grounded work has been checkpointed; it terminates this activation and does not schedule another call.",
+                $"Every Report.Progress decision must include {AiDirectiveDecisionSchema.DecisionProperty}.{AiDirectiveDecisionSchema.ReportPayloadProperty}.{AiDirectiveDecisionSchema.CheckpointPayloadField} with checkpoint contract v1, a bounded immutable plan, grounded completed subtasks, blockers, and one concrete next_subtask_id.",
+                "Checkpoint correlation and revision are runtime-owned and must not be supplied.",
+                "Use OutcomeProposal ContinueWork only while another listed subtask can be executed inside this activation. The runtime may continue only with the validated canonical checkpoint as a bounded context delta.",
+                "Report.Progress is available only after grounded work has been checkpointed; it terminates this activation and does not schedule another call, retry, or timer.",
                 $"Total execution budget: {Duration(executionPolicy.TotalExecutionBudget)}.",
                 $"Execution time actually remaining: {Duration(executionPolicy.RemainingExecutionTime)}.",
                 $"Checkpoint lead time: {Duration(executionPolicy.CheckpointLeadTime)}.",
@@ -227,6 +269,7 @@ internal static class AiDirectivePrompt
         AppendDirective(builder, context);
         AppendAuthority(builder, context);
         AppendTools(builder, context);
+        AppendCheckpoint(builder, selectedContext.Checkpoint);
         AppendShortMemory(builder, selectedContext.ShortMemory);
         AppendOpenTasks(builder, selectedContext.OpenTasks);
         AppendRecentHistory(builder, selectedContext.MaterializedHistory);
@@ -319,6 +362,22 @@ internal static class AiDirectivePrompt
             AppendCanonicalContextLine(builder, AiDirectiveContextLines.ShortMemory(entry));
         }
 
+        builder.AppendLine();
+    }
+
+    private static void AppendCheckpoint(
+        StringBuilder builder,
+        DirectiveCheckpointContextProjection? checkpoint)
+    {
+        if (checkpoint is null)
+        {
+            builder.AppendLine("ResumeCheckpoint: <none>");
+            builder.AppendLine();
+            return;
+        }
+
+        builder.AppendLine("ResumeCheckpoint:");
+        builder.Append(checkpoint.Content).Append('\n');
         builder.AppendLine();
     }
 

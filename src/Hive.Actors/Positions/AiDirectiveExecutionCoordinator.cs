@@ -4,6 +4,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Directives;
 using Hive.Domain.Outcomes;
+using Hive.Domain.Positions;
 
 namespace Hive.Actors.Positions;
 
@@ -249,6 +250,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
                     : null;
             var outcomeProposalCorrectionAttempted = false;
+            DirectiveCheckpoint? workingCheckpoint = null;
 
             while (true)
             {
@@ -262,6 +264,106 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
 
                 if (interpretation.IsDecision)
                 {
+                    var effectiveProposal = interpretation.Proposal;
+                    DirectiveCheckpoint? verifiedCheckpoint = null;
+                    if (interpretation.Decision is AiDirectiveReportDecision
+                        {
+                            Kind: Hive.Domain.Messaging.ReportKind.Progress,
+                        } progressDecision)
+                    {
+                        var materialization = AiDirectiveCheckpointRuntime.Materialize(
+                            context,
+                            progressDecision,
+                            effectiveProposal,
+                            workingCheckpoint);
+                        if (!materialization.IsValid)
+                        {
+                            verifiedCheckpoint = null;
+                        }
+                        else
+                        {
+                            verifiedCheckpoint = materialization.Checkpoint!;
+                            var checkpointObservedAt = _clock();
+                            if (AiDirectiveCheckpointRuntime.ShouldContinue(
+                                context,
+                                budget,
+                                checkpointObservedAt,
+                                effectiveProposal))
+                            {
+                                var checkpointContinuation =
+                                    iterationState.EvaluateCheckpointContinuation(
+                                        verifiedCheckpoint,
+                                        checkpointObservedAt,
+                                        hasAvailableBudget);
+                                iterationAudit = iterationAudit.RecordDecision(
+                                    iterationState,
+                                    checkpointContinuation,
+                                    checkpointObservedAt);
+                                if (checkpointContinuation.CanContinue)
+                                {
+                                    ConsumeContinuation(
+                                        ref budget,
+                                        checkpointContinuation,
+                                        checkpointObservedAt);
+                                    context = RefreshRemainingExecutionPolicy(
+                                        request,
+                                        context,
+                                        budget,
+                                        checkpointObservedAt) with
+                                    {
+                                        ResumeCheckpoint = verifiedCheckpoint,
+                                    };
+                                    var continuationResult = await continuationExecutor.ExecuteAsync(
+                                        context,
+                                        iterationState,
+                                        checkpointContinuation,
+                                        hasAvailableBudget,
+                                        cancellationToken).ConfigureAwait(false);
+                                    iterationAudit = iterationAudit.RecordExecution(
+                                        iterationState,
+                                        continuationResult,
+                                        _clock());
+                                    if (continuationResult.IsFailure)
+                                    {
+                                        var failedContinuation = gatewayRequested.AdvanceTo(
+                                            AiDirectiveProcessingStatus.Failed,
+                                            reason: continuationResult.Failure!.AuditReason);
+                                        return CreateTrace(
+                                            request,
+                                            budget,
+                                            context,
+                                            failedContinuation,
+                                            prompt,
+                                            result,
+                                            interpretation,
+                                            resultMessage: null,
+                                            iterationAudit);
+                                    }
+
+                                    iterationState = iterationState.Advance(
+                                        checkpointContinuation,
+                                        checkpointObservedAt);
+                                    workingCheckpoint = verifiedCheckpoint;
+                                    result = continuationResult.InferenceResult!;
+                                    continue;
+                                }
+
+                            }
+
+                            effectiveProposal = AsProgressProposal(
+                                effectiveProposal,
+                                verifiedCheckpoint);
+                            context = RefreshRemainingExecutionPolicy(
+                                request,
+                                context,
+                                budget,
+                                _clock()) with
+                            {
+                                ResumeCheckpoint = verifiedCheckpoint,
+                            };
+                        }
+                    }
+
                     var responseInterpreted = gatewayRequested.AdvanceTo(
                         AiDirectiveProcessingStatus.ResponseInterpreted,
                         reason: "AI gateway response interpreted");
@@ -272,13 +374,14 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         context,
                         iterationState,
                         interpretation.Decision!,
-                        interpretation.Proposal,
+                        effectiveProposal,
                         resultMessage,
                         result.Response,
                         hasAvailableBudget,
                         _actionGate,
                         _resultMessageGate,
-                        cancellationToken).ConfigureAwait(false);
+                        cancellationToken,
+                        verifiedCheckpoint).ConfigureAwait(false);
 
                     if (outcomeResolution.Resolution?.VerifierInvoked == true)
                     {
@@ -295,6 +398,18 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         hasAvailableBudget,
                         _clock());
                     resultMessage = outcomeResolution.ResultMessage ?? resultMessage;
+                    if (resultMessage.Message is Hive.Domain.Messaging.Report
+                        {
+                            Kind: Hive.Domain.Messaging.ReportKind.Progress,
+                        } && verifiedCheckpoint is null)
+                    {
+                        resultMessage = AiDirectiveResultMessage.Rejected(
+                            request.CorrelationId,
+                            new AiDirectiveResultMessageFailure(
+                                AiDirectiveCheckpointRuntime.InvalidCode,
+                                "A progress report cannot be materialized without a valid grounded checkpoint."),
+                            resultMessage.ActingUnder);
+                    }
                     AiAgentActionGateResult? actionGateResult =
                         outcomeResolution.ActionGateResult;
                     if (resultMessage.IsSuccess)
@@ -352,7 +467,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         context,
                         resultMessage,
                         actionGateResult,
-                        positionEffects);
+                        positionEffects,
+                        verifiedCheckpoint);
 
                     return CreateTrace(
                         request,
@@ -572,8 +688,18 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         AiDirectiveExecutionContext context,
         AiDirectiveResultMessage resultMessage,
         AiAgentActionGateResult? actionGateResult,
-        AiDirectivePositionEffects positionEffects)
+        AiDirectivePositionEffects positionEffects,
+        DirectiveCheckpoint? verifiedCheckpoint)
     {
+        if (resultMessage.Message is Hive.Domain.Messaging.Report
+            {
+                Kind: Hive.Domain.Messaging.ReportKind.Progress,
+            } && verifiedCheckpoint is not null)
+        {
+            yield return new DirectivePositionCommandEffect(
+                new PersistDirectiveCheckpoint(verifiedCheckpoint));
+        }
+
         if (resultMessage.IsSuccess)
         {
             yield return new DirectiveAuditExportResultEffect(
@@ -760,10 +886,59 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 ExecutionBudgetOperation.ContinuationInference,
             AiDirectiveIterationContinuationKind.ConnectorTool =>
                 ExecutionBudgetOperation.ConnectorTool,
+            AiDirectiveIterationContinuationKind.Checkpoint =>
+                ExecutionBudgetOperation.ContinuationInference,
             _ => throw new InvalidOperationException(
                 "Unknown directive continuation kind."),
         };
         ConsumeIfAvailable(ref budget, operation, observedAt);
+    }
+
+    private static AiDirectiveExecutionContext RefreshRemainingExecutionPolicy(
+        AiDirectiveProcessingRequest request,
+        AiDirectiveExecutionContext context,
+        ExecutionBudget budget,
+        DateTimeOffset observedAt)
+    {
+        var remaining = budget.RemainingTime(observedAt);
+        if (!context.ExecutionPolicy.AllowsProgressReports || remaining is not { } value ||
+            value <= TimeSpan.Zero)
+        {
+            return context;
+        }
+
+        return context with
+        {
+            ExecutionPolicy = DirectiveExecutionPolicyComposer.ComposeV1(
+                context.Directive.ExecutionPolicy,
+                request.RuntimeContext.OccupantConfiguration.AiGateway
+                    ?.DirectiveExecutionPolicy,
+                context.ExecutionPolicy.TotalExecutionBudget,
+                value),
+        };
+    }
+
+    private static OutcomeProposal? AsProgressProposal(
+        OutcomeProposal? proposal,
+        DirectiveCheckpoint checkpoint)
+    {
+        if (proposal is null ||
+            proposal.ProposedIntent == OutcomeProposedIntent.ReportProgress)
+        {
+            return proposal;
+        }
+
+        var evidence = proposal.EvidenceReferences
+            .Concat(checkpoint.CompletedSubtasks.SelectMany(completed =>
+                completed.EvidenceReferences))
+            .Distinct();
+        return new OutcomeProposal(
+            OutcomeProposedIntent.ReportProgress,
+            OutcomeWorkState.InProgress,
+            OutcomeRequiredIntervention.None,
+            blockers: [],
+            proposal.NextAction ?? checkpoint.NextSubtaskId,
+            evidence);
     }
 
     private static void ConsumeIfAvailable(

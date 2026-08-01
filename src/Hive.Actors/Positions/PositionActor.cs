@@ -416,15 +416,29 @@ internal sealed class PositionActor :
 
     private void PersistCheckpoint(PersistDirectiveCheckpoint command)
     {
+        var replyTo = Sender;
         var decision = _state.EvaluateDirectiveCheckpointPersistence(
             EntityId,
             command.Checkpoint);
         if (decision != DirectiveCheckpointPersistenceDecision.Persist)
         {
+            replyTo.Tell(new DirectiveCheckpointPersistenceResult(
+                command.Checkpoint.Correlation.DirectiveId,
+                command.Checkpoint.Revision,
+                decision));
             return;
         }
 
-        PersistAndApply(new DirectiveCheckpointPersisted(command.Checkpoint, _clock()));
+        Persist(
+            new DirectiveCheckpointPersisted(command.Checkpoint, _clock()),
+            persisted =>
+            {
+                ApplyPersisted(persisted);
+                replyTo.Tell(new DirectiveCheckpointPersistenceResult(
+                    command.Checkpoint.Correlation.DirectiveId,
+                    command.Checkpoint.Revision,
+                    DirectiveCheckpointPersistenceDecision.Persist));
+            });
     }
 
     private void HandleRetainedActionResumeCompleted(RetainedActionResumeCompleted completed)

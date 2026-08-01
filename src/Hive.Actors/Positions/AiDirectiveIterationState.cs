@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Ai;
+using Hive.Domain.Directives;
 using Hive.Domain.Governance;
 using Hive.Domain.Outcomes;
 
@@ -9,6 +10,7 @@ internal enum AiDirectiveIterationContinuationKind
 {
     OutcomeProposalCorrection = 1,
     ConnectorTool = 2,
+    Checkpoint = 3,
 }
 
 internal enum AiDirectiveIterationStopKind
@@ -53,6 +55,7 @@ internal sealed record AiDirectiveIterationContinuation
     private AiDirectiveIterationContinuation(
         AiDirectiveIterationContinuationKind kind,
         AiToolCall? toolCall,
+        DirectiveCheckpoint? checkpoint,
         ActingUnderDeclaration actingUnder,
         ImmutableArray<AiDirectiveDecisionParseError> correctionErrors,
         AiDirectiveDecision? acceptedDecision,
@@ -66,6 +69,18 @@ internal sealed record AiDirectiveIterationContinuation
         if (kind == AiDirectiveIterationContinuationKind.ConnectorTool && toolCall is null)
         {
             throw new ArgumentNullException(nameof(toolCall));
+        }
+
+        if (kind == AiDirectiveIterationContinuationKind.Checkpoint && checkpoint is null)
+        {
+            throw new ArgumentNullException(nameof(checkpoint));
+        }
+
+        if (kind != AiDirectiveIterationContinuationKind.Checkpoint && checkpoint is not null)
+        {
+            throw new ArgumentException(
+                "Only a checkpoint continuation can carry a checkpoint delta.",
+                nameof(checkpoint));
         }
 
         if (kind == AiDirectiveIterationContinuationKind.OutcomeProposalCorrection &&
@@ -111,6 +126,7 @@ internal sealed record AiDirectiveIterationContinuation
 
         Kind = kind;
         ToolCall = toolCall;
+        Checkpoint = checkpoint;
         ActingUnder = actingUnder ?? throw new ArgumentNullException(nameof(actingUnder));
         CorrectionErrors = correctionErrors;
         AcceptedDecision = acceptedDecision;
@@ -120,6 +136,8 @@ internal sealed record AiDirectiveIterationContinuation
     public AiDirectiveIterationContinuationKind Kind { get; }
 
     public AiToolCall? ToolCall { get; }
+
+    public DirectiveCheckpoint? Checkpoint { get; }
 
     public ActingUnderDeclaration ActingUnder { get; }
 
@@ -139,6 +157,7 @@ internal sealed record AiDirectiveIterationContinuation
         return new(
             AiDirectiveIterationContinuationKind.OutcomeProposalCorrection,
             toolCall: null,
+            checkpoint: null,
             ActingUnderDeclaration.Missing(),
             parseErrors.ToImmutableArray(),
             acceptedDecision,
@@ -154,7 +173,22 @@ internal sealed record AiDirectiveIterationContinuation
         return new AiDirectiveIterationContinuation(
             AiDirectiveIterationContinuationKind.ConnectorTool,
             toolCall,
+            checkpoint: null,
             actingUnder ?? ActingUnderDeclaration.Missing(),
+            ImmutableArray<AiDirectiveDecisionParseError>.Empty,
+            acceptedDecision: null,
+            acceptedProposal: null);
+    }
+
+    public static AiDirectiveIterationContinuation FromCheckpoint(
+        DirectiveCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        return new AiDirectiveIterationContinuation(
+            AiDirectiveIterationContinuationKind.Checkpoint,
+            toolCall: null,
+            checkpoint,
+            ActingUnderDeclaration.Missing(),
             ImmutableArray<AiDirectiveDecisionParseError>.Empty,
             acceptedDecision: null,
             acceptedProposal: null);
@@ -382,6 +416,18 @@ internal sealed record AiDirectiveIterationState
             observedAt,
             hasAvailableBudget);
 
+    public AiDirectiveIterationDecision EvaluateCheckpointContinuation(
+        DirectiveCheckpoint checkpoint,
+        DateTimeOffset observedAt,
+        bool hasAvailableBudget)
+    {
+        ArgumentNullException.ThrowIfNull(checkpoint);
+        return EvaluateContinuations(
+            [AiDirectiveIterationContinuation.FromCheckpoint(checkpoint)],
+            observedAt,
+            hasAvailableBudget);
+    }
+
     public AiDirectiveIterationState Advance(
         AiDirectiveIterationDecision decision,
         DateTimeOffset startedAt)
@@ -461,7 +507,8 @@ internal sealed record AiDirectiveIterationState
         foreach (var continuation in continuations)
         {
             if (continuation.Kind ==
-                AiDirectiveIterationContinuationKind.OutcomeProposalCorrection)
+                AiDirectiveIterationContinuationKind.OutcomeProposalCorrection ||
+                continuation.Kind == AiDirectiveIterationContinuationKind.Checkpoint)
             {
                 continue;
             }

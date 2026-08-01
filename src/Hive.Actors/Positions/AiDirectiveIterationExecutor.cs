@@ -8,6 +8,7 @@ internal enum AiDirectiveIterationExecutionKind
 {
     OutcomeProposalCorrection = 1,
     ConnectorTool = 2,
+    Checkpoint = 3,
 }
 
 internal sealed record AiDirectiveIterationExecutionFailure
@@ -171,6 +172,18 @@ internal sealed record AiDirectiveIterationExecutionResult
         return new AiDirectiveIterationExecutionResult(
             result.CorrelationId,
             AiDirectiveIterationExecutionKind.OutcomeProposalCorrection,
+            result,
+            toolResult: null,
+            failure: null);
+    }
+
+    public static AiDirectiveIterationExecutionResult CheckpointContinuationSucceeded(
+        AiAgentGatewayInvocationResult result)
+    {
+        ArgumentNullException.ThrowIfNull(result);
+        return new AiDirectiveIterationExecutionResult(
+            result.CorrelationId,
+            AiDirectiveIterationExecutionKind.Checkpoint,
             result,
             toolResult: null,
             failure: null);
@@ -342,11 +355,65 @@ internal sealed class AiDirectiveIterationExecutor
                     state,
                     continuation,
                     cancellationToken).ConfigureAwait(false),
+            AiDirectiveIterationContinuationKind.Checkpoint =>
+                await ExecuteCheckpointContinuationAsync(
+                    context,
+                    state,
+                    continuation,
+                    cancellationToken).ConfigureAwait(false),
             _ => Failed(
                 state.CorrelationId,
                 "continuation-kind-unknown",
                 "AI directive iteration execution received an unknown continuation kind."),
         };
+    }
+
+    private async ValueTask<AiDirectiveIterationExecutionResult>
+        ExecuteCheckpointContinuationAsync(
+        AiDirectiveExecutionContext context,
+        AiDirectiveIterationState state,
+        AiDirectiveIterationContinuation continuation,
+        CancellationToken cancellationToken)
+    {
+        var checkpoint = continuation.Checkpoint
+            ?? throw new InvalidOperationException(
+                "Checkpoint continuation did not carry a checkpoint delta.");
+        try
+        {
+            var request = AiDirectivePrompt.CreateCheckpointContinuationRequest(
+                context,
+                checkpoint);
+            if (!TryGetEffectiveTimeout(
+                    request.Timeout,
+                    context.Directive.Deadline,
+                    state.Deadline,
+                    _clock(),
+                    out var effectiveTimeout))
+            {
+                return Failed(
+                    state.CorrelationId,
+                    "timeout",
+                    "AI directive checkpoint continuation cannot start because its deadline has been reached.");
+            }
+
+            var result = await _gatewayInvoker.InvokeAsync(
+                new AiAgentGatewayInvocation(
+                    state.CorrelationId,
+                    CreateInferenceRequest(request, state, effectiveTimeout)),
+                cancellationToken).ConfigureAwait(false);
+            return AiDirectiveIterationExecutionResult.CheckpointContinuationSucceeded(result);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return Failed(
+                state.CorrelationId,
+                "checkpoint-continuation-failed",
+                "AI directive checkpoint continuation failed before returning a structured response.");
+        }
     }
 
     private async ValueTask<AiDirectiveIterationExecutionResult>

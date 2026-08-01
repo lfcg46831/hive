@@ -107,6 +107,12 @@ internal sealed record AiDirectiveExecutionContext
 
     public bool RequiresStructuredOutcomeProposal { get; }
 
+    /// <summary>
+    /// Latest checkpoint selected by exact thread plus directive/task lineage for this activation.
+    /// It is context only and never causes an automatic activation.
+    /// </summary>
+    public DirectiveCheckpoint? ResumeCheckpoint { get; init; }
+
     public static AiDirectiveExecutionContext From(
         AiDirectiveProcessingRequest request,
         bool requiresStructuredOutcomeProposal = false)
@@ -122,7 +128,7 @@ internal sealed record AiDirectiveExecutionContext
                 ? limits.ExecutionTimeout
                 : null);
 
-        return new AiDirectiveExecutionContext(
+        var context = new AiDirectiveExecutionContext(
             request.CorrelationId,
             request.OrganizationId,
             request.PositionId,
@@ -159,6 +165,12 @@ internal sealed record AiDirectiveExecutionContext
             executionPolicy,
             request.PersistedContext.LastConfigurationStamp,
             requiresStructuredOutcomeProposal);
+        return context with
+        {
+            ResumeCheckpoint = AiDirectiveCheckpointResumeSelector.Select(
+                context,
+                request.PersistedContext.DirectiveCheckpoints),
+        };
     }
 
     private static ImmutableArray<T> RequireItems<T>(

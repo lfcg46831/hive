@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Diagnostics;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
@@ -22,7 +23,8 @@ internal interface IAiDirectiveOutcomeResolutionIntegrator
         bool hasAvailableBudget,
         IAiAgentActionGate actionGate,
         IAiDirectiveResultMessageGate routingGate,
-        CancellationToken cancellationToken = default);
+        CancellationToken cancellationToken = default,
+        DirectiveCheckpoint? verifiedCheckpoint = null);
 }
 
 internal sealed record AiDirectiveOutcomeResolutionResult
@@ -83,7 +85,8 @@ internal sealed class PassthroughAiDirectiveOutcomeResolutionIntegrator
         bool hasAvailableBudget,
         IAiAgentActionGate actionGate,
         IAiDirectiveResultMessageGate routingGate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DirectiveCheckpoint? verifiedCheckpoint = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.FromResult(new AiDirectiveOutcomeResolutionResult(
@@ -155,7 +158,8 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
         bool hasAvailableBudget,
         IAiAgentActionGate actionGate,
         IAiDirectiveResultMessageGate routingGate,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        DirectiveCheckpoint? verifiedCheckpoint = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(iteration);
@@ -208,7 +212,8 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                     hasAvailableBudget,
                     proposedMessage,
                     proposedActionGate,
-                    proposedRoutingGate),
+                    proposedRoutingGate,
+                    verifiedCheckpoint),
                 directive);
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
@@ -582,7 +587,8 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
         bool hasAvailableBudget,
         AiDirectiveResultMessage proposedMessage,
         AiAgentActionGateResult? actionGate,
-        AiDirectiveResultMessageGateResult? routingGate)
+        AiDirectiveResultMessageGateResult? routingGate,
+        DirectiveCheckpoint? verifiedCheckpoint)
     {
         var actionGateState = actionGate?.Outcome switch
         {
@@ -625,8 +631,10 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                 proposal.RequiredIntervention is not OutcomeRequiredIntervention.None ||
                 actionGateState is OutcomeActionGateState.HumanApprovalRequired or
                     OutcomeActionGateState.Denied,
-            verifiableProgress: false,
-            responsibilityRetained: proposal.ProposedIntent != OutcomeProposedIntent.Directive);
+            verifiableProgress: verifiedCheckpoint is not null,
+            responsibilityRetained:
+                verifiedCheckpoint is not null ||
+                proposal.ProposedIntent != OutcomeProposedIntent.Directive);
     }
 
     private OutcomeVerificationContext CreateVerificationContext(

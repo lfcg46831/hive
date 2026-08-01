@@ -1,4 +1,5 @@
 using Hive.Domain.Directives;
+using Hive.Domain.Identity;
 
 namespace Hive.Domain.Positions;
 
@@ -21,6 +22,39 @@ public sealed record PersistDirectiveCheckpoint : PositionCommand
     }
 
     public DirectiveCheckpoint Checkpoint { get; }
+}
+
+/// <summary>
+/// Acknowledges the durable checkpoint decision to the actor adapter. Persist is reported only
+/// from the journal callback, so subsequent effects cannot overtake the accepted event.
+/// </summary>
+public sealed record DirectiveCheckpointPersistenceResult
+{
+    public DirectiveCheckpointPersistenceResult(
+        DirectiveId directiveId,
+        int revision,
+        DirectiveCheckpointPersistenceDecision decision)
+    {
+        DirectiveId = directiveId ?? throw new ArgumentNullException(nameof(directiveId));
+        if (revision <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(revision));
+        }
+
+        if (!Enum.IsDefined(decision))
+        {
+            throw new ArgumentOutOfRangeException(nameof(decision));
+        }
+
+        Revision = revision;
+        Decision = decision;
+    }
+
+    public DirectiveId DirectiveId { get; }
+
+    public int Revision { get; }
+
+    public DirectiveCheckpointPersistenceDecision Decision { get; }
 }
 
 /// <summary>

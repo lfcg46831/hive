@@ -1,4 +1,5 @@
 using Akka.Actor;
+using Akka.Pattern;
 using System.Text;
 using Hive.Actors.Serialization;
 using Hive.Application.Directives;
@@ -461,7 +462,10 @@ internal sealed class AiAgentActor : ReceiveActor
         foreach (var effect in execution.Result.Effects
             .Where(effect => effect is not DirectiveJourneyAuditEffect))
         {
-            await DispatchEffectAsync(parent, effect).ConfigureAwait(false);
+            if (!await DispatchEffectAsync(parent, effect).ConfigureAwait(false))
+            {
+                break;
+            }
         }
 
         ReturnCompletion(parent, execution.Result);
@@ -523,7 +527,7 @@ internal sealed class AiAgentActor : ReceiveActor
         }
     }
 
-    private async ValueTask DispatchEffectAsync(
+    private async ValueTask<bool> DispatchEffectAsync(
         IActorRef parent,
         DirectiveExecutionEffect effect)
     {
@@ -547,13 +551,29 @@ internal sealed class AiAgentActor : ReceiveActor
                         Encoding.UTF8.GetString(
                             OrgMessageJsonFormat.Serialize(export.ResultMessage))),
                     CancellationToken.None).ConfigureAwait(false);
-                break;
+                return true;
             case DirectivePositionCommandEffect position:
+                if (position.Command is PersistDirectiveCheckpoint checkpoint)
+                {
+                    var persisted = await parent
+                        .Ask<DirectiveCheckpointPersistenceResult>(
+                            checkpoint,
+                            TimeSpan.FromSeconds(30))
+                        .ConfigureAwait(false);
+                    return persisted.Decision switch
+                    {
+                        DirectiveCheckpointPersistenceDecision.Persist => true,
+                        DirectiveCheckpointPersistenceDecision.AlreadyPersisted => false,
+                        _ => throw new InvalidOperationException(
+                            $"Directive checkpoint '{persisted.DirectiveId}' revision '{persisted.Revision}' was rejected before progress materialization."),
+                    };
+                }
+
                 parent.Tell(position.Command);
-                break;
+                return true;
             case DirectiveMessageEffect message:
                 parent.Tell(message.Message);
-                break;
+                return true;
             default:
                 throw new InvalidOperationException(
                     $"Unsupported directive execution effect '{effect.GetType().Name}'.");

@@ -248,7 +248,7 @@ The command posts the canonical root `Directive` for the ACME bug-triage example
 
 #### Evaluation Lab (experimental)
 
-The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference manifest was used by the completed, separately authorized `US-F0-18-T01` calibration; its three `post-f0-8-calibration-001`/`002`/`003` ids are burned and the candidate is rejected for a freeze request. Historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes a distinct experiment.
+The Evaluation Lab is disabled by default and runs as separate tooling against the bounded audit/export API. The commands below are operational reference for isolated experiments and historical evidence; their presence is not authorization to start a calibration, freeze, or holdout. The reference v1 manifest was used by the completed, separately authorized `US-F0-18-T01` calibration; its three `post-f0-8-calibration-001`/`002`/`003` ids are burned. The v2 manifest was used by the completed, separately authorized `US-F0-21-T01` calibration; its three `post-f0-10-calibration-001`/`002`/`003` ids are also burned. Both candidates are rejected for a freeze request. Historical profiles, run ids, and evidence must not be rewritten or rerun unless a new task explicitly authorizes a distinct experiment.
 
 ##### Post-F0.8 local qualification
 
@@ -293,7 +293,7 @@ An enabled profile activates only the bounded `hive.directive-audit-export` v1 a
 
 The override must be present when the `api` container is created; adding it only to a later tooling command does not change an existing container. If the audit/export endpoint remains non-terminal or unavailable, recreate the API with the evaluation Compose file set above and wait for the health check before retrying.
 
-For every new experiment, use a versioned `hive.evaluation-experiment` v1 manifest and the single generic `docker-compose.experiment.yml` adapter. Do not add another Compose override for a model, timeout, prompt, or outcome-policy variation. The historical `bug-triage-lab-v1` manifest and organization remain byte-identical because their one authorization was consumed by `US-F0-18-T01`. BUG-005 introduces the separate `bug-triage-lab-v2` prepared profile; it does not authorize another corpus run, so the following preparation command is local-only:
+For every new experiment, use a versioned `hive.evaluation-experiment` v1 manifest and the single generic `docker-compose.experiment.yml` adapter. Do not add another Compose override for a model, timeout, prompt, or outcome-policy variation. The historical `bug-triage-lab-v1` manifest and organization remain byte-identical because their one authorization was consumed by `US-F0-18-T01`. BUG-005 introduced the separate `bug-triage-lab-v2` profile, whose one authorization was consumed by `US-F0-21-T01`; its completed decision is `rejected-for-freeze-request` in `evidence/evaluation/bug-triage-lab-v2/post-f0-10-calibration-report.v1.md`. The following commands remain useful for offline preparation and host reproduction, but do not authorize another corpus run:
 
 ```powershell
 $manifest='config/experiments/bug-triage-lab-v2/experiment.v1.json'

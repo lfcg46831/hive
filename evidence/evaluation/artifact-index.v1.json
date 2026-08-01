@@ -61,6 +61,66 @@
         "path": "evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md",
         "sha256": "2aa2cfc32333e73c1a95b635cc44b02b4752cfd6c194eca5cb7109a0223f30dd"
       }
+    },
+    {
+      "experiment_id": "bug-triage-lab-v2",
+      "run_id": "post-f0-10-calibration-001",
+      "media_type": "application/json",
+      "location": "file:///C:/Users/luis_/Documents/hive-evaluation-artifacts/sha256/ac/ac5e4c511b23da9d3c3ec7a62b3c582806322c6cbf83e3932d35e52d92a46700.json",
+      "sha256": "ac5e4c511b23da9d3c3ec7a62b3c582806322c6cbf83e3932d35e52d92a46700",
+      "size_bytes": 215792,
+      "case_count": 30,
+      "configuration_status": "validated",
+      "published_at": "2026-08-01T09:03:07+00:00",
+      "retain_until": "2027-08-01T09:03:07+00:00",
+      "manifest": {
+        "path": "config/experiments/bug-triage-lab-v2/experiment.v1.json",
+        "sha256": "a51e80a8492cfa27413c9d6ee5d334f88c695aace7dbe45c1864b2f4a90c19f0"
+      },
+      "summary_report": {
+        "path": "evidence/evaluation/bug-triage-lab-v2/post-f0-10-calibration-report.v1.md",
+        "sha256": "a169e7b6d649f032a94da78759e80062053601b1f1245378b1e96029ae5e92a0"
+      }
+    },
+    {
+      "experiment_id": "bug-triage-lab-v2",
+      "run_id": "post-f0-10-calibration-002",
+      "media_type": "application/json",
+      "location": "file:///C:/Users/luis_/Documents/hive-evaluation-artifacts/sha256/ff/fff5178929011c405c3f9fb2d7cb3b7a865a759414ec59d9895acfcbfb44a08f.json",
+      "sha256": "fff5178929011c405c3f9fb2d7cb3b7a865a759414ec59d9895acfcbfb44a08f",
+      "size_bytes": 220399,
+      "case_count": 30,
+      "configuration_status": "validated",
+      "published_at": "2026-08-01T09:03:07+00:00",
+      "retain_until": "2027-08-01T09:03:07+00:00",
+      "manifest": {
+        "path": "config/experiments/bug-triage-lab-v2/experiment.v1.json",
+        "sha256": "a51e80a8492cfa27413c9d6ee5d334f88c695aace7dbe45c1864b2f4a90c19f0"
+      },
+      "summary_report": {
+        "path": "evidence/evaluation/bug-triage-lab-v2/post-f0-10-calibration-report.v1.md",
+        "sha256": "a169e7b6d649f032a94da78759e80062053601b1f1245378b1e96029ae5e92a0"
+      }
+    },
+    {
+      "experiment_id": "bug-triage-lab-v2",
+      "run_id": "post-f0-10-calibration-003",
+      "media_type": "application/json",
+      "location": "file:///C:/Users/luis_/Documents/hive-evaluation-artifacts/sha256/03/034bb23bad4db402ae0a49f518ec66c927769822178aea0ae3effae633b6bceb.json",
+      "sha256": "034bb23bad4db402ae0a49f518ec66c927769822178aea0ae3effae633b6bceb",
+      "size_bytes": 221788,
+      "case_count": 30,
+      "configuration_status": "validated",
+      "published_at": "2026-08-01T09:03:07+00:00",
+      "retain_until": "2027-08-01T09:03:07+00:00",
+      "manifest": {
+        "path": "config/experiments/bug-triage-lab-v2/experiment.v1.json",
+        "sha256": "a51e80a8492cfa27413c9d6ee5d334f88c695aace7dbe45c1864b2f4a90c19f0"
+      },
+      "summary_report": {
+        "path": "evidence/evaluation/bug-triage-lab-v2/post-f0-10-calibration-report.v1.md",
+        "sha256": "a169e7b6d649f032a94da78759e80062053601b1f1245378b1e96029ae5e92a0"
+      }
     }
   ]
 }

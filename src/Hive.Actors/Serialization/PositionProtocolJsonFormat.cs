@@ -37,7 +37,10 @@ internal static class PositionProtocolJsonFormat
         options.Converters.Add(new StructuralIdJsonConverter<ActionFingerprint>(ActionFingerprint.From, id => id.Value));
         options.Converters.Add(new OccupantTypeJsonConverter());
         options.Converters.Add(new MessageProcessingCompletionStatusJsonConverter());
+        options.Converters.Add(new OutcomeBlockerJsonConverter());
+        options.Converters.Add(new OutcomeEvidenceSourceJsonConverter());
         options.Converters.Add(new PersistedRetainedActionJsonConverter());
+        options.Converters.Add(new DirectiveCheckpointJsonConverter());
         options.Converters.Add(new ShortMemoryUpdatedJsonConverter());
         options.Converters.Add(new PositionSnapshotJsonConverter());
         options.Converters.Add(new ManifestedPayloadJsonConverter<OrgMessage>(

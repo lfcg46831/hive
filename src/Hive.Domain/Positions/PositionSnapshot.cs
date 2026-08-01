@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -11,7 +12,7 @@ namespace Hive.Domain.Positions;
 /// the pending <see cref="Inbox"/>, the <see cref="OpenTasks"/>, the <see cref="ShortMemory"/>, the
 /// <see cref="RecentHistory"/>, the current occupant (<see cref="Occupant"/>/<see cref="OccupantType"/>)
 /// the <see cref="ProcessedMessages"/> idempotency keys and the latest applied runtime
-/// configuration stamp.
+/// configuration stamp, plus the latest bounded directive checkpoints.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -37,7 +38,8 @@ public sealed record PositionSnapshot
         PositionConfigurationStamp? lastConfigurationStamp = null,
         IEnumerable<PersistedRetainedAction>? retainedActions = null,
         IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
-        IEnumerable<OrgMessage>? materializedHistory = null)
+        IEnumerable<OrgMessage>? materializedHistory = null,
+        IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -95,6 +97,19 @@ public sealed record PositionSnapshot
         {
             throw new ArgumentException("Retained action correlations must be unique.", nameof(retainedActions));
         }
+
+        DirectiveCheckpoints = ToValidatedArray(
+            directiveCheckpoints,
+            nameof(directiveCheckpoints));
+        if (DirectiveCheckpoints
+                .Select(checkpoint => checkpoint.Correlation.DirectiveId)
+                .Distinct()
+                .Count() != DirectiveCheckpoints.Length)
+        {
+            throw new ArgumentException(
+                "Directive checkpoint ids must be unique.",
+                nameof(directiveCheckpoints));
+        }
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -132,6 +147,9 @@ public sealed record PositionSnapshot
 
     /// <summary>Actions durably stopped by the authority gate.</summary>
     public ImmutableArray<PersistedRetainedAction> RetainedActions { get; }
+
+    /// <summary>The latest checkpoint revision retained for each directive.</summary>
+    public ImmutableArray<DirectiveCheckpoint> DirectiveCheckpoints { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

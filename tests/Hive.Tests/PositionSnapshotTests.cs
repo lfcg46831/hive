@@ -1,6 +1,8 @@
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Tests;
@@ -45,6 +47,7 @@ public sealed class PositionSnapshotTests
         Assert.Empty(snapshot.MaterializedHistory);
         Assert.Empty(snapshot.ProcessedMessages);
         Assert.Null(snapshot.LastConfigurationStamp);
+        Assert.Empty(snapshot.DirectiveCheckpoints);
     }
 
     [Fact]
@@ -61,6 +64,7 @@ public sealed class PositionSnapshotTests
         {
             ["thread"] = ShortMemoryContextScope.ForThread(tasks[0].Thread),
         };
+        var checkpoint = SampleCheckpoint();
 
         var snapshot = new PositionSnapshot(
             At,
@@ -73,7 +77,8 @@ public sealed class PositionSnapshotTests
             processed,
             stamp,
             shortMemoryContextScopes: memoryScopes,
-            materializedHistory: inbox);
+            materializedHistory: inbox,
+            directiveCheckpoints: [checkpoint]);
 
         Assert.Equal(occupant, snapshot.Occupant);
         Assert.Equal(OccupantType.AiAgent, snapshot.OccupantType);
@@ -86,6 +91,7 @@ public sealed class PositionSnapshotTests
         Assert.Equal(inbox, snapshot.MaterializedHistory);
         Assert.Equal(2, snapshot.ProcessedMessages.Length);
         Assert.Equal(stamp, snapshot.LastConfigurationStamp);
+        Assert.Equal(checkpoint, Assert.Single(snapshot.DirectiveCheckpoints));
     }
 
     [Fact]
@@ -150,6 +156,16 @@ public sealed class PositionSnapshotTests
     }
 
     [Fact]
+    public void Snapshot_rejects_duplicate_directive_checkpoint_identity()
+    {
+        var checkpoint = SampleCheckpoint();
+
+        Assert.Throws<ArgumentException>(() => new PositionSnapshot(
+            At,
+            directiveCheckpoints: [checkpoint, checkpoint]));
+    }
+
+    [Fact]
     public void Short_memory_context_scope_enforces_its_closed_shapes()
     {
         var thread = ThreadId.New();
@@ -209,4 +225,30 @@ public sealed class PositionSnapshotTests
         Assert.Throws<ArgumentOutOfRangeException>(
             () => new PersistedTask(PositionTaskId.New(), ThreadId.New(), "t", (Priority)0, At));
     }
+
+    private static DirectiveCheckpoint SampleCheckpoint() => new(
+        DirectiveCheckpointContractVersions.V1,
+        revision: 1,
+        new DirectiveCheckpointPlan(
+            DirectiveCheckpointContractVersions.V1,
+            [
+                new DirectiveCheckpointSubtask(
+                    1,
+                    "inspect",
+                    "Inspect the work",
+                    ["inspection recorded"],
+                    TimeSpan.FromMinutes(2)),
+            ]),
+        new DirectiveCheckpointCorrelation(
+            OrganizationId.From("acme"),
+            PositionId.From("bug-triage"),
+            ThreadId.New(),
+            DirectiveId.New()),
+        [
+            new CompletedDirectiveCheckpointSubtask(
+                "inspect",
+                [new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.PersistedState,
+                    "state.inspect")]),
+        ]);
 }

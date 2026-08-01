@@ -1,7 +1,9 @@
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Tests.Serialization;
@@ -33,6 +35,9 @@ internal static class CanonicalPositionProtocolFixtures
         ("retained-action-consumed", new RetainedActionConsumed(ActionId(), GrantMessageId(), OccurredAt.AddMinutes(42))),
         ("retained-action-expired", new RetainedActionExpired(ActionId(), GrantMessageId(), "authorization-expired", OccurredAt.AddMinutes(42))),
         ("retained-action-returned", new RetainedActionReturned(ActionId(), GrantMessageId(), "policy-tightened", OccurredAt.AddMinutes(42))),
+        ("directive-checkpoint-persisted", new DirectiveCheckpointPersisted(
+            Checkpoint(),
+            OccurredAt.AddMinutes(43))),
         ("position-snapshot", Snapshot()),
     ];
 
@@ -55,6 +60,41 @@ internal static class CanonicalPositionProtocolFixtures
             new[] { MessageId() },
             new[] { MessageId() },
             lastConfigurationStamp: null);
+
+    private static DirectiveCheckpoint Checkpoint() => new(
+        DirectiveCheckpointContractVersions.V1,
+        revision: 1,
+        new DirectiveCheckpointPlan(
+            DirectiveCheckpointContractVersions.V1,
+            [
+                new DirectiveCheckpointSubtask(
+                    1,
+                    "inspect",
+                    "Inspect the work",
+                    ["inspection recorded"],
+                    TimeSpan.FromMinutes(1)),
+                new DirectiveCheckpointSubtask(
+                    2,
+                    "verify",
+                    "Verify the work",
+                    ["verification recorded"],
+                    TimeSpan.FromMinutes(2)),
+            ]),
+        new DirectiveCheckpointCorrelation(
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            ThreadId(),
+            DirectiveId.From(new Guid("d3000000-0000-0000-0000-0000000000d1")),
+            DirectiveId.From(new Guid("d3000000-0000-0000-0000-0000000000d0")),
+            TaskId()),
+        [
+            new CompletedDirectiveCheckpointSubtask(
+                "inspect",
+                [new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.PersistedState,
+                    "state.inspect")]),
+        ],
+        nextSubtaskId: "verify");
 
     private static OrgMessage Message() =>
         CanonicalMessageFixtures.All.Single(entry => entry.Manifest == "memo").Message;

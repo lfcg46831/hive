@@ -1,0 +1,51 @@
+{
+  "Checkpoint": {
+    "ContractVersion": 1,
+    "Revision": 1,
+    "Plan": {
+      "ContractVersion": 1,
+      "Subtasks": [
+        {
+          "Sequence": 1,
+          "LocalId": "inspect",
+          "Objective": "Inspect the work",
+          "CompletionCriteria": [
+            "inspection recorded"
+          ],
+          "EstimatedDuration": "00:01:00"
+        },
+        {
+          "Sequence": 2,
+          "LocalId": "verify",
+          "Objective": "Verify the work",
+          "CompletionCriteria": [
+            "verification recorded"
+          ],
+          "EstimatedDuration": "00:02:00"
+        }
+      ]
+    },
+    "Correlation": {
+      "OrganizationId": "acme",
+      "PositionId": "delivery-lead",
+      "ThreadId": "d3000000-0000-0000-0000-0000000000a1",
+      "DirectiveId": "d3000000-0000-0000-0000-0000000000d1",
+      "ParentDirectiveId": "d3000000-0000-0000-0000-0000000000d0",
+      "PositionTaskId": "c6000000-0000-0000-0000-000000000001"
+    },
+    "CompletedSubtasks": [
+      {
+        "LocalId": "inspect",
+        "EvidenceReferences": [
+          {
+            "Source": "PersistedState",
+            "Reference": "state.inspect"
+          }
+        ]
+      }
+    ],
+    "Blockers": [],
+    "NextSubtaskId": "verify"
+  },
+  "OccurredAt": "2026-06-26T10:43:00\u002B00:00"
+}

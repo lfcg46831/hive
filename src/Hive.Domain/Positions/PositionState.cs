@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -7,7 +8,8 @@ namespace Hive.Domain.Positions;
 
 /// <summary>
 /// The recoverable live state of a <c>PositionActor</c> (US-F0-06-T06a), reconstructed from
-/// persisted events and snapshots before the entity accepts new commands.
+/// persisted events and snapshots before the entity accepts new commands. Directive checkpoint
+/// revisions extend that state additively for US-F0-19-T03.
 /// </summary>
 public sealed record PositionState
 {
@@ -22,7 +24,8 @@ public sealed record PositionState
         OccupantId? occupant,
         OccupantType? occupantType,
         PositionConfigurationStamp? lastConfigurationStamp,
-        ImmutableDictionary<RetainedActionId, PersistedRetainedAction> retainedActions)
+        ImmutableDictionary<RetainedActionId, PersistedRetainedAction> retainedActions,
+        ImmutableDictionary<DirectiveId, DirectiveCheckpoint> directiveCheckpoints)
     {
         Inbox = inbox;
         OpenTasks = openTasks;
@@ -35,6 +38,7 @@ public sealed record PositionState
         OccupantType = occupantType;
         LastConfigurationStamp = lastConfigurationStamp;
         RetainedActions = retainedActions;
+        DirectiveCheckpoints = directiveCheckpoints;
     }
 
     /// <summary>The initial state before any snapshot or event has been replayed.</summary>
@@ -49,7 +53,8 @@ public sealed record PositionState
         occupant: null,
         occupantType: null,
         lastConfigurationStamp: null,
-        ImmutableDictionary<RetainedActionId, PersistedRetainedAction>.Empty);
+        ImmutableDictionary<RetainedActionId, PersistedRetainedAction>.Empty,
+        ImmutableDictionary<DirectiveId, DirectiveCheckpoint>.Empty);
 
     /// <summary>The messages admitted but not yet dispatched.</summary>
     public ImmutableArray<OrgMessage> Inbox { get; }
@@ -84,6 +89,9 @@ public sealed record PositionState
     /// <summary>Actions retained by the authority gate, keyed by durable identity.</summary>
     public ImmutableDictionary<RetainedActionId, PersistedRetainedAction> RetainedActions { get; }
 
+    /// <summary>The latest durable checkpoint revision for each directive handled here.</summary>
+    public ImmutableDictionary<DirectiveId, DirectiveCheckpoint> DirectiveCheckpoints { get; }
+
     /// <summary>Rebuilds live state from a persisted point-in-time snapshot.</summary>
     public static PositionState Restore(PositionSnapshot snapshot)
     {
@@ -100,7 +108,9 @@ public sealed record PositionState
             snapshot.Occupant,
             snapshot.OccupantType,
             snapshot.LastConfigurationStamp,
-            snapshot.RetainedActions.ToImmutableDictionary(action => action.Id));
+            snapshot.RetainedActions.ToImmutableDictionary(action => action.Id),
+            snapshot.DirectiveCheckpoints.ToImmutableDictionary(
+                checkpoint => checkpoint.Correlation.DirectiveId));
     }
 
     /// <summary>Exports the live state into the persisted snapshot shape.</summary>
@@ -116,7 +126,66 @@ public sealed record PositionState
         LastConfigurationStamp,
         RetainedActions.Values.OrderBy(action => action.Id.Value),
         ShortMemoryContextScopes,
-        MaterializedHistory);
+        MaterializedHistory,
+        DirectiveCheckpoints.Values.OrderBy(
+            checkpoint => checkpoint.Correlation.DirectiveId.Value));
+
+    /// <summary>
+    /// Evaluates an attempted checkpoint revision without mutating state. Re-delivered or stale
+    /// revisions are idempotent no-ops; new revisions must be contiguous, monotonic and retain the
+    /// original plan, correlation and completed-subtask evidence.
+    /// </summary>
+    public DirectiveCheckpointPersistenceDecision EvaluateDirectiveCheckpointPersistence(
+        PositionEntityId entityId,
+        DirectiveCheckpoint checkpoint)
+    {
+        ArgumentNullException.ThrowIfNull(entityId);
+        ArgumentNullException.ThrowIfNull(checkpoint);
+
+        if (!IsStructurallyPersistable(entityId, checkpoint))
+        {
+            return DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        if (!DirectiveCheckpoints.TryGetValue(
+                checkpoint.Correlation.DirectiveId,
+                out var existing))
+        {
+            return checkpoint.Revision == 1
+                ? DirectiveCheckpointPersistenceDecision.Persist
+                : DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        if (checkpoint.ContractVersion != existing.ContractVersion ||
+            checkpoint.Correlation != existing.Correlation ||
+            !PlansEqual(checkpoint.Plan, existing.Plan))
+        {
+            return DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        if (checkpoint.Revision < existing.Revision)
+        {
+            return RetainsCompletedSubtasks(checkpoint, existing)
+                ? DirectiveCheckpointPersistenceDecision.AlreadyPersisted
+                : DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        if (checkpoint.Revision == existing.Revision)
+        {
+            return CheckpointRevisionEqual(checkpoint, existing)
+                ? DirectiveCheckpointPersistenceDecision.AlreadyPersisted
+                : DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        if (checkpoint.Revision != existing.Revision + 1 ||
+            !RetainsCompletedSubtasks(existing, checkpoint) ||
+            !ContainsCheckpointTransition(existing, checkpoint))
+        {
+            return DirectiveCheckpointPersistenceDecision.Rejected;
+        }
+
+        return DirectiveCheckpointPersistenceDecision.Persist;
+    }
 
     /// <summary>Evaluates whether the recovered state is currently safe to passivate.</summary>
     public PositionPassivationDecision EvaluatePassivation(PositionRuntimeConfiguration configuration)
@@ -175,6 +244,7 @@ public sealed record PositionState
             RetainedActionConsumed consumed => Apply(consumed),
             RetainedActionExpired expired => Apply(expired),
             RetainedActionReturned returned => Apply(returned),
+            DirectiveCheckpointPersisted persisted => Apply(persisted),
             _ => this,
         };
     }
@@ -190,7 +260,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(TaskCreated @event) => new(
         Inbox,
@@ -212,7 +283,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(TaskUpdated @event)
     {
@@ -242,7 +314,8 @@ public sealed record PositionState
             Occupant,
             OccupantType,
             LastConfigurationStamp,
-            RetainedActions);
+            RetainedActions,
+            DirectiveCheckpoints);
     }
 
     private PositionState Apply(TaskCompleted @event) => new(
@@ -256,7 +329,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(ShortMemoryUpdated @event) => new(
         Inbox,
@@ -273,7 +347,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(OccupantChanged @event) => new(
         Inbox,
@@ -286,7 +361,8 @@ public sealed record PositionState
         @event.Occupant,
         @event.Type,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(MessageDispatched @event)
     {
@@ -309,7 +385,8 @@ public sealed record PositionState
             Occupant,
             OccupantType,
             LastConfigurationStamp,
-            RetainedActions);
+            RetainedActions,
+            DirectiveCheckpoints);
     }
 
     private PositionState Apply(MessageProcessingCompleted @event) => new(
@@ -323,7 +400,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(PositionConfigurationApplied @event) => new(
         Inbox,
@@ -336,7 +414,8 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         @event.Stamp,
-        RetainedActions);
+        RetainedActions,
+        DirectiveCheckpoints);
 
     private PositionState Apply(ActionRetained @event)
     {
@@ -360,7 +439,8 @@ public sealed record PositionState
             Occupant,
             OccupantType,
             LastConfigurationStamp,
-            RetainedActions.Add(@event.Action.Id, @event.Action));
+            RetainedActions.Add(@event.Action.Id, @event.Action),
+            DirectiveCheckpoints);
     }
 
     private PositionState Apply(RetainedActionAuthorized @event)
@@ -452,5 +532,106 @@ public sealed record PositionState
         Occupant,
         OccupantType,
         LastConfigurationStamp,
-        RetainedActions.SetItem(action.Id, action));
+        RetainedActions.SetItem(action.Id, action),
+        DirectiveCheckpoints);
+
+    private PositionState Apply(DirectiveCheckpointPersisted @event)
+    {
+        var checkpoint = @event.Checkpoint;
+        if (DirectiveCheckpoints.TryGetValue(
+                checkpoint.Correlation.DirectiveId,
+                out var existing) &&
+            existing.Revision >= checkpoint.Revision)
+        {
+            return this;
+        }
+
+        return new PositionState(
+            Inbox,
+            OpenTasks,
+            ShortMemory,
+            ShortMemoryContextScopes,
+            RecentHistory,
+            MaterializedHistory,
+            ProcessedMessages,
+            Occupant,
+            OccupantType,
+            LastConfigurationStamp,
+            RetainedActions,
+            DirectiveCheckpoints.SetItem(
+                checkpoint.Correlation.DirectiveId,
+                checkpoint));
+    }
+
+    private static bool IsStructurallyPersistable(
+        PositionEntityId entityId,
+        DirectiveCheckpoint checkpoint)
+    {
+        if (checkpoint.ContractVersion != DirectiveCheckpointContractVersions.V1 ||
+            checkpoint.Plan.ContractVersion != DirectiveCheckpointContractVersions.V1 ||
+            checkpoint.Correlation.OrganizationId != entityId.Organization ||
+            checkpoint.Correlation.PositionId != entityId.Position ||
+            !DirectiveCheckpointContextProjector.TryProject(checkpoint, out _))
+        {
+            return false;
+        }
+
+        var planIds = checkpoint.Plan.Subtasks
+            .Select(subtask => subtask.LocalId)
+            .ToHashSet(StringComparer.Ordinal);
+        if (checkpoint.CompletedSubtasks.Any(completed => !planIds.Contains(completed.LocalId)) ||
+            checkpoint.NextSubtaskId is { } next &&
+            (!planIds.Contains(next) || checkpoint.CompletedSubtasks.Any(completed =>
+                string.Equals(completed.LocalId, next, StringComparison.Ordinal))))
+        {
+            return false;
+        }
+
+        return true;
+    }
+
+    private static bool PlansEqual(
+        DirectiveCheckpointPlan left,
+        DirectiveCheckpointPlan right) =>
+        left.ContractVersion == right.ContractVersion &&
+        left.Subtasks.Length == right.Subtasks.Length &&
+        left.Subtasks.Zip(right.Subtasks).All(pair =>
+            pair.First.Sequence == pair.Second.Sequence &&
+            string.Equals(pair.First.LocalId, pair.Second.LocalId, StringComparison.Ordinal) &&
+            string.Equals(pair.First.Objective, pair.Second.Objective, StringComparison.Ordinal) &&
+            pair.First.EstimatedDuration == pair.Second.EstimatedDuration &&
+            pair.First.CompletionCriteria.SequenceEqual(
+                pair.Second.CompletionCriteria,
+                StringComparer.Ordinal));
+
+    private static bool RetainsCompletedSubtasks(
+        DirectiveCheckpoint existing,
+        DirectiveCheckpoint candidate)
+    {
+        var candidateById = candidate.CompletedSubtasks.ToDictionary(
+            completed => completed.LocalId,
+            StringComparer.Ordinal);
+        return existing.CompletedSubtasks.All(completed =>
+            candidateById.TryGetValue(completed.LocalId, out var retained) &&
+            completed.EvidenceReferences.SequenceEqual(retained.EvidenceReferences));
+    }
+
+    private static bool ContainsCheckpointTransition(
+        DirectiveCheckpoint existing,
+        DirectiveCheckpoint candidate) =>
+        candidate.CompletedSubtasks.Length != existing.CompletedSubtasks.Length ||
+        !candidate.Blockers.SequenceEqual(existing.Blockers) ||
+        !string.Equals(
+            candidate.NextSubtaskId,
+            existing.NextSubtaskId,
+            StringComparison.Ordinal);
+
+    private static bool CheckpointRevisionEqual(
+        DirectiveCheckpoint left,
+        DirectiveCheckpoint right) =>
+        left.CompletedSubtasks.Length == right.CompletedSubtasks.Length &&
+        RetainsCompletedSubtasks(left, right) &&
+        RetainsCompletedSubtasks(right, left) &&
+        left.Blockers.SequenceEqual(right.Blockers) &&
+        string.Equals(left.NextSubtaskId, right.NextSubtaskId, StringComparison.Ordinal);
 }

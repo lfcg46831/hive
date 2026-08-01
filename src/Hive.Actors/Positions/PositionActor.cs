@@ -221,6 +221,8 @@ internal sealed class PositionActor :
                         _clock()))));
         Command<ResumeRetainedAction>(command =>
             WhenReady(() => BeginRetainedActionResume(command)));
+        Command<PersistDirectiveCheckpoint>(command =>
+            WhenReady(() => PersistCheckpoint(command)));
         Command<RetainedActionResumeCompleted>(HandleRetainedActionResumeCompleted);
         Command<RetainedActionResumeFailed>(failed =>
             _resumingActions.Remove(failed.ActionId));
@@ -410,6 +412,19 @@ internal sealed class PositionActor :
                     command.ActionId,
                     command.AttemptId,
                     exception));
+    }
+
+    private void PersistCheckpoint(PersistDirectiveCheckpoint command)
+    {
+        var decision = _state.EvaluateDirectiveCheckpointPersistence(
+            EntityId,
+            command.Checkpoint);
+        if (decision != DirectiveCheckpointPersistenceDecision.Persist)
+        {
+            return;
+        }
+
+        PersistAndApply(new DirectiveCheckpointPersisted(command.Checkpoint, _clock()));
     }
 
     private void HandleRetainedActionResumeCompleted(RetainedActionResumeCompleted completed)

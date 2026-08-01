@@ -3,9 +3,11 @@ using Akka.Actor;
 using Akka.Serialization;
 using Hive.Actors;
 using Hive.Actors.Sharding;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
@@ -130,6 +132,7 @@ public sealed class PositionProtocolSerializerBindingTests
             node.Remove("RetainedActions");
             node.Remove("ShortMemoryContextScopes");
             node.Remove("MaterializedHistory");
+            node.Remove("DirectiveCheckpoints");
             node["OpenTasks"]![0]!.AsObject().Remove("LatestProgress");
 
             var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
@@ -139,6 +142,7 @@ public sealed class PositionProtocolSerializerBindingTests
             Assert.Empty(restored.RetainedActions);
             Assert.Empty(restored.ShortMemoryContextScopes);
             Assert.Empty(restored.MaterializedHistory);
+            Assert.Empty(restored.DirectiveCheckpoints);
             Assert.NotEmpty(restored.RecentHistory);
             Assert.Null(Assert.Single(restored.OpenTasks).LatestProgress);
         }
@@ -166,6 +170,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(ExpireRetainedAction);
         yield return typeof(ReturnRetainedAction);
         yield return typeof(ResumeRetainedAction);
+        yield return typeof(PersistDirectiveCheckpoint);
         yield return typeof(PositionEvent);
         yield return typeof(MessageReceived);
         yield return typeof(TaskCreated);
@@ -183,6 +188,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(RetainedActionConsumed);
         yield return typeof(RetainedActionExpired);
         yield return typeof(RetainedActionReturned);
+        yield return typeof(DirectiveCheckpointPersisted);
         yield return typeof(PositionSnapshot);
     }
 
@@ -211,6 +217,8 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("resume-retained-action", new ResumeRetainedAction(
             retained.Id,
             new Guid("fc000000-0000-0000-0000-000000000001")));
+        yield return ("persist-directive-checkpoint", new PersistDirectiveCheckpoint(
+            SampleCheckpoint()));
         yield return ("message-received", new MessageReceived(SampleMessage(), At));
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));
@@ -231,6 +239,9 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("retained-action-consumed", new RetainedActionConsumed(retained.Id, grant.Id, At.AddMinutes(2)));
         yield return ("retained-action-expired", new RetainedActionExpired(retained.Id, grant.Id, "authorization-expired", At.AddMinutes(2)));
         yield return ("retained-action-returned", new RetainedActionReturned(retained.Id, grant.Id, "policy-tightened", At.AddMinutes(2)));
+        yield return ("directive-checkpoint-persisted", new DirectiveCheckpointPersisted(
+            SampleCheckpoint(),
+            At.AddMinutes(3)));
         yield return ("position-snapshot", SampleSnapshot());
     }
 
@@ -270,8 +281,45 @@ public sealed class PositionProtocolSerializerBindingTests
             {
                 ["current-thread"] = ShortMemoryContextScope.ForThread(ThreadId()),
             },
-            new[] { message });
+            new[] { message },
+            new[] { SampleCheckpoint() });
     }
+
+    private static DirectiveCheckpoint SampleCheckpoint() => new(
+        DirectiveCheckpointContractVersions.V1,
+        revision: 1,
+        new DirectiveCheckpointPlan(
+            DirectiveCheckpointContractVersions.V1,
+            [
+                new DirectiveCheckpointSubtask(
+                    1,
+                    "inspect",
+                    "Inspect the work",
+                    ["inspection recorded"],
+                    TimeSpan.FromMinutes(1)),
+                new DirectiveCheckpointSubtask(
+                    2,
+                    "verify",
+                    "Verify the work",
+                    ["verification recorded"],
+                    TimeSpan.FromMinutes(2)),
+            ]),
+        new DirectiveCheckpointCorrelation(
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            ThreadId(),
+            DirectiveId.From(new Guid("eeeeeeee-0000-0000-0000-000000000101")),
+            DirectiveId.From(new Guid("eeeeeeee-0000-0000-0000-000000000102")),
+            TaskId()),
+        [
+            new CompletedDirectiveCheckpointSubtask(
+                "inspect",
+                [new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.ToolResult,
+                    "tool.call-1")]),
+        ],
+        blockers: [OutcomeBlocker.Budget],
+        nextSubtaskId: "verify");
 
     private static PersistedRetainedAction SampleRetainedAction() =>
         new(

@@ -2,9 +2,11 @@ using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence;
 using Hive.Actors.Positions;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Tests;
@@ -85,6 +87,95 @@ public sealed class PositionActorIdempotencyTests
         }
     }
 
+    [Fact]
+    public async Task Checkpoint_revisions_are_idempotent_and_replay_after_restart()
+    {
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From("checkpoint-idempotency"));
+        var persistenceId = PositionActor.PersistenceIdFor(entity.Value);
+        var system = ActorSystem.Create(
+            $"position-checkpoint-idempotency-{Guid.NewGuid():N}",
+            ConfigurationFactory.ParseString("""
+                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                akka.actor {
+                  serializers {
+                    hive-position-protocol = "Hive.Actors.Serialization.PositionProtocolJsonSerializer, Hive.Actors"
+                  }
+                  serialization-bindings {
+                    "Hive.Domain.Positions.PositionEvent, Hive.Domain" = hive-position-protocol
+                    "Hive.Domain.Positions.PositionSnapshot, Hive.Domain" = hive-position-protocol
+                  }
+                }
+                """));
+
+        try
+        {
+            var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    () => At.AddMinutes(1))),
+                "position-checkpoint-idempotency-actor");
+            await WaitForReadyAsync(actor);
+
+            var first = Checkpoint(entity, revision: 1, completed: ["inspect"], next: "verify");
+            var second = Checkpoint(
+                entity,
+                revision: 2,
+                completed: ["inspect", "verify"],
+                next: null);
+            actor.Tell(new PersistDirectiveCheckpoint(first));
+            actor.Tell(new PersistDirectiveCheckpoint(first));
+            actor.Tell(new PersistDirectiveCheckpoint(second));
+            actor.Tell(new PersistDirectiveCheckpoint(first));
+            actor.Tell(new PersistDirectiveCheckpoint(Checkpoint(
+                entity,
+                revision: 4,
+                completed: ["inspect", "verify"],
+                next: null)));
+
+            var state = await WaitForCheckpointAsync(actor, revision: 2);
+            Assert.Equal(second, Assert.Single(state.DirectiveCheckpoints).Value);
+
+            await actor.GracefulStop(Timeout());
+
+            var probe = system.ActorOf(
+                Props.Create(() => new PositionActorPersistenceProbe(persistenceId)),
+                "position-checkpoint-idempotency-probe");
+            var persistedEvents = await probe.Ask<IReadOnlyList<PositionEvent>>(
+                ReadEvents.Instance,
+                Timeout());
+
+            Assert.Equal(
+                [1, 2],
+                persistedEvents
+                    .OfType<DirectiveCheckpointPersisted>()
+                    .Select(@event => @event.Checkpoint.Revision));
+            await probe.GracefulStop(Timeout());
+
+            var restarted = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    provider,
+                    () => At.AddMinutes(2))),
+                "position-checkpoint-idempotency-restarted");
+            await WaitForReadyAsync(restarted);
+
+            var recovered = await restarted.Ask<PositionState>(
+                GetPositionState.Instance,
+                Timeout());
+
+            Assert.Equal(second, Assert.Single(recovered.DirectiveCheckpoints).Value);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static Memo SampleMessage(MessageId id, ThreadId thread) =>
         new(
             id,
@@ -103,6 +194,47 @@ public sealed class PositionActorIdempotencyTests
 
     private static ThreadId ThreadId(string value) =>
         Hive.Domain.Identity.ThreadId.From(new Guid(value));
+
+    private static DirectiveCheckpoint Checkpoint(
+        PositionEntityId entity,
+        int revision,
+        IEnumerable<string> completed,
+        string? next)
+    {
+        var plan = new DirectiveCheckpointPlan(
+            DirectiveCheckpointContractVersions.V1,
+            [
+                new DirectiveCheckpointSubtask(
+                    1,
+                    "inspect",
+                    "Inspect the work",
+                    ["inspection recorded"],
+                    TimeSpan.FromMinutes(1)),
+                new DirectiveCheckpointSubtask(
+                    2,
+                    "verify",
+                    "Verify the work",
+                    ["verification recorded"],
+                    TimeSpan.FromMinutes(2)),
+            ]);
+        var correlation = new DirectiveCheckpointCorrelation(
+            entity.Organization,
+            entity.Position,
+            ThreadId("bbbbbbbb-0000-0000-0000-000000000301"),
+            DirectiveId.From(new Guid("dddddddd-0000-0000-0000-000000000301")));
+
+        return new DirectiveCheckpoint(
+            DirectiveCheckpointContractVersions.V1,
+            revision,
+            plan,
+            correlation,
+            completed.Select(id => new CompletedDirectiveCheckpointSubtask(
+                id,
+                [new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.PersistedState,
+                    $"state.{id}")])),
+            nextSubtaskId: next);
+    }
 
     private static async Task WaitForReadyAsync(IActorRef actor)
     {
@@ -129,6 +261,30 @@ public sealed class PositionActorIdempotencyTests
         }
 
         throw new TimeoutException("PositionActor did not reach Ready.");
+    }
+
+    private static async Task<PositionState> WaitForCheckpointAsync(
+        IActorRef actor,
+        int revision)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        PositionState? latest = null;
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            latest = await actor.Ask<PositionState>(
+                GetPositionState.Instance,
+                TimeSpan.FromSeconds(1));
+            if (latest.DirectiveCheckpoints.Values.Any(checkpoint =>
+                    checkpoint.Revision == revision))
+            {
+                return latest;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException(
+            $"PositionActor did not persist checkpoint revision {revision}. Latest state: {latest}.");
     }
 
     private static IPositionConfigurationProvider LoadedProvider(

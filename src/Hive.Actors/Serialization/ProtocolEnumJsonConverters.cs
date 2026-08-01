@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Actors.Serialization;
@@ -92,6 +93,27 @@ internal sealed class DirectiveExecutionModeJsonConverter :
         string? value,
         out DirectiveExecutionMode result) =>
         DirectiveExecutionModeContract.TryParseWireValue(value, out result);
+}
+
+internal sealed class OutcomeBlockerJsonConverter : WireEnumJsonConverter<OutcomeBlocker>
+{
+    protected override string ToWire(OutcomeBlocker value) =>
+        OutcomeBlockerContract.ToWireValue(value);
+
+    protected override bool TryParseWire(string? value, out OutcomeBlocker result) =>
+        OutcomeBlockerContract.TryParseWireValue(value, out result);
+}
+
+internal sealed class OutcomeEvidenceSourceJsonConverter :
+    WireEnumJsonConverter<OutcomeEvidenceSource>
+{
+    protected override string ToWire(OutcomeEvidenceSource value) =>
+        OutcomeEvidenceSourceContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out OutcomeEvidenceSource result) =>
+        OutcomeEvidenceSourceContract.TryParseWireValue(value, out result);
 }
 
 internal sealed class OccupantTypeJsonConverter : WireEnumJsonConverter<OccupantType>

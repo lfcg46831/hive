@@ -27,6 +27,7 @@ public sealed class PositionStateTests
         Assert.Null(state.Occupant);
         Assert.Null(state.OccupantType);
         Assert.Null(state.LastConfigurationStamp);
+        Assert.Empty(state.DirectiveCheckpoints);
     }
 
     [Fact]

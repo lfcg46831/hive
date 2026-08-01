@@ -27,6 +27,7 @@ internal static class PositionProtocolManifests
         ("expire-retained-action", typeof(ExpireRetainedAction)),
         ("return-retained-action", typeof(ReturnRetainedAction)),
         ("resume-retained-action", typeof(ResumeRetainedAction)),
+        ("persist-directive-checkpoint", typeof(PersistDirectiveCheckpoint)),
         ("message-received", typeof(MessageReceived)),
         ("task-created", typeof(TaskCreated)),
         ("task-updated", typeof(TaskUpdated)),
@@ -43,6 +44,7 @@ internal static class PositionProtocolManifests
         ("retained-action-consumed", typeof(RetainedActionConsumed)),
         ("retained-action-expired", typeof(RetainedActionExpired)),
         ("retained-action-returned", typeof(RetainedActionReturned)),
+        ("directive-checkpoint-persisted", typeof(DirectiveCheckpointPersisted)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

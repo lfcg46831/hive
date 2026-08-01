@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -34,7 +35,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.LastConfigurationStamp,
             dto.RetainedActions,
             dto.ShortMemoryContextScopes,
-            dto.MaterializedHistory);
+            dto.MaterializedHistory,
+            dto.DirectiveCheckpoints);
     }
 
     public override void Write(
@@ -69,6 +71,9 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             MaterializedHistory = value.MaterializedHistory.IsEmpty
                 ? null
                 : value.MaterializedHistory.ToList(),
+            DirectiveCheckpoints = value.DirectiveCheckpoints.IsEmpty
+                ? null
+                : value.DirectiveCheckpoints.ToList(),
         };
 
         JsonSerializer.Serialize(writer, dto, options);
@@ -102,5 +107,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<OrgMessage>? MaterializedHistory { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<DirectiveCheckpoint>? DirectiveCheckpoints { get; set; }
     }
 }

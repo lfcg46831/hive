@@ -2,12 +2,14 @@ using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence;
 using Hive.Actors.Positions;
+using Hive.Domain.Auditing;
 using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Auditing;
 
 namespace Hive.Tests;
 
@@ -113,10 +115,13 @@ public sealed class PositionActorIdempotencyTests
         try
         {
             var provider = LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1"));
+            var audit = new RecordingJourneyAuditLog();
+            var projections = new JourneyAuditPositionProjectionPublisher(audit);
             var actor = system.ActorOf(
                 Props.Create(() => new PositionActor(
                     entity.Value,
                     provider,
+                    projections,
                     () => At.AddMinutes(1))),
                 "position-checkpoint-idempotency-actor");
             await WaitForReadyAsync(actor);
@@ -154,12 +159,19 @@ public sealed class PositionActorIdempotencyTests
                 persistedEvents
                     .OfType<DirectiveCheckpointPersisted>()
                     .Select(@event => @event.Checkpoint.Revision));
+            Assert.Equal(
+                ["1", "2"],
+                audit.Records
+                    .Where(record =>
+                        record.Stage == JourneyAuditStage.DirectiveCheckpointTransition)
+                    .Select(record => record.Payload["revision"]));
             await probe.GracefulStop(Timeout());
 
             var restarted = system.ActorOf(
                 Props.Create(() => new PositionActor(
                     entity.Value,
                     provider,
+                    projections,
                     () => At.AddMinutes(2))),
                 "position-checkpoint-idempotency-restarted");
             await WaitForReadyAsync(restarted);
@@ -169,6 +181,10 @@ public sealed class PositionActorIdempotencyTests
                 Timeout());
 
             Assert.Equal(second, Assert.Single(recovered.DirectiveCheckpoints).Value);
+            Assert.Equal(
+                2,
+                audit.Records.Count(record =>
+                    record.Stage == JourneyAuditStage.DirectiveCheckpointTransition));
         }
         finally
         {
@@ -324,6 +340,24 @@ public sealed class PositionActorIdempotencyTests
             PositionEntityId entityId,
             CancellationToken cancellationToken) =>
             Task.FromResult(result);
+    }
+
+    private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
+    {
+        private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records => _records;
+
+        public void Append(JourneyAuditRecord record) => _records.Add(record);
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null) =>
+            _records
+                .Where(record =>
+                    record.ThreadId == threadId &&
+                    (directiveId is null || record.DirectiveId == directiveId))
+                .ToArray();
     }
 
     private sealed class PositionActorPersistenceProbe : ReceivePersistentActor

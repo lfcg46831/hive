@@ -685,6 +685,36 @@ HIVE__AIGATEWAY__REAL__PRICING__MODELS__0__CURRENCY=USD
 
 When a position's runtime configuration specifies provider/model, parameters, timeout, or max iterations, those values override these defaults; absent position values fall back to the defaults above without inventing new values. For new configurations, `occupant.ai.limits_version: 1` requires both a positive `timeout` (maximum duration of each provider, connector-tool or verifier call) and a positive `execution_timeout` (immutable end-to-end budget for the directive). The effective deadline is the earlier of `execution_timeout` and the directive deadline, and every subordinate operation uses the minimum of its per-call ceiling and the positive time remaining. For compatibility, an omitted `limits_version` retains the legacy version 0 contract in which `timeout` supplies both values; use this only for unchanged historical configuration, not new experiments. `OutputCapabilities` must describe the effective provider/model served by the adapter, including any model selected by position configuration. For a constrained request, HIVE prefers `json-schema`; it uses `json-object` or `text` only when the request explicitly allows that fallback, and rejects the request before network access when no acceptable mode remains. Local HIVE contract validation still runs for every negotiated mode.
 
+### Checkpointable directive execution
+
+Directive execution is `single-shot` unless both the directive and its destination position opt in to the version 1 checkpointable contract. The position capability is owned by the reviewed organization YAML under `positions[].occupant.ai`; it has no environment-variable override:
+
+```yaml
+occupant:
+  type: ai-agent
+  ai:
+    limits_version: 1
+    timeout: PT60S
+    execution_timeout: PT90S
+    directive_execution_policy:
+      contract_version: 1
+      maximum_mode: checkpointable
+      checkpoint_lead_time: PT5S
+```
+
+`checkpoint_lead_time` is required and positive when `maximum_mode` is `checkpointable`, and must be less than the effective end-to-end execution budget. Use `maximum_mode: single-shot` without a lead time to prohibit progress checkpoints explicitly. An absent policy also remains single-shot.
+
+The caller opts in per directive through the existing submission payload:
+
+```jsonc
+"executionPolicy": {
+  "contractVersion": 1,
+  "mode": "checkpointable"
+}
+```
+
+Both sides must use contract version 1 and the directive cannot exceed the position capability. Missing or incompatible values fail closed to effective `single-shot`; only an effective checkpointable execution exposes `Report.Progress` to the model. A progress report persists one grounded checkpoint before external effects and does not schedule a retry, timer, or provider call. Later work resumes only when a separately submitted directive has the exact thread and directive/task lineage required by the checkpoint contract.
+
 `Pricing` is optional, but a configured catalog is validated as a complete unit when the real provider starts. Partial entries, non-positive units, negative rates, invalid currencies, and duplicate canonical/alias keys fail with `configuration-invalid`. Provider-declared cost takes precedence. Otherwise HIVE estimates cost only when both input and output usage exist and the effective response provider/model has an exact canonical or alias match. Missing usage or price is emitted as `cost-unavailable`; HIVE never substitutes zero. The audit cost event and evaluation dataset retain the cost status, catalog version, token unit, input/output rates, currency, and estimation flag.
 
 The demo catalog version `openai-2026-07-13` records the standard GPT-5 mini text-token rates observed on 2026-07-13: USD 0.25 input and USD 2.00 output per one million tokens, including the published `gpt-5-mini-2025-08-07` snapshot alias. Verify the [official GPT-5 mini model pricing](https://developers.openai.com/api/docs/models/gpt-5-mini) and update the catalog version and rates before relying on it after a provider pricing change. If `OPENAI_MODEL_ID` selects another model, add a matching price entry or expect `cost-unavailable`.

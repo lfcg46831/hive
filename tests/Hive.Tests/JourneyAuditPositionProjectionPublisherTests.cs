@@ -1,7 +1,9 @@
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Auditing;
 
@@ -134,6 +136,94 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
         Assert.Contains(inner.Events, @event => @event is PositionMessageDuplicateRejected);
     }
 
+    [Fact]
+    public void Publish_projects_checkpoint_transitions_as_idempotent_minimized_timeline_entries()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new MessageReceived(DirectiveMessage(), At)));
+        var first = Checkpoint(
+            revision: 1,
+            completedIds: ["inspect"],
+            blockers: [],
+            nextSubtaskId: "verify");
+        var second = Checkpoint(
+            revision: 2,
+            completedIds: ["inspect", "verify"],
+            blockers: [OutcomeBlocker.ToolFailure],
+            nextSubtaskId: null);
+
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new DirectiveCheckpointPersisted(first, At.AddMinutes(1))));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new DirectiveCheckpointPersisted(second, At.AddMinutes(2))));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new DirectiveCheckpointPersisted(second, At.AddMinutes(3))));
+
+        var records = audit.Records
+            .Where(record =>
+                record.Stage == JourneyAuditStage.DirectiveCheckpointTransition)
+            .ToArray();
+        Assert.Equal(3, records.Length);
+        Assert.Equal(records[1].AuditEventId, records[2].AuditEventId);
+        Assert.NotEqual(records[0].AuditEventId, records[1].AuditEventId);
+        Assert.Equal(["checkpoint-created", "checkpoint-advanced", "checkpoint-advanced"],
+            records.Select(record => record.ReasonCode));
+
+        var advanced = records[1];
+        Assert.Equal(Message, advanced.MessageId);
+        Assert.Equal(Directive, advanced.DirectiveId);
+        Assert.Equal(Thread, advanced.ThreadId);
+        Assert.Equal(Position, advanced.PositionId);
+        Assert.Equal(nameof(DirectiveCheckpointPersisted), advanced.MessageType);
+        Assert.Equal(
+            new[]
+            {
+                "blockerCodes",
+                "blockerCount",
+                "completedSubtaskCount",
+                "completedSubtaskIds",
+                "contractVersion",
+                "nextSubtaskId",
+                "parentDirectiveId",
+                "planContractVersion",
+                "plannedSubtaskCount",
+                "positionTaskId",
+                "redactions",
+                "revision",
+                "transition",
+            },
+            advanced.Payload.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("advanced", advanced.Payload["transition"]);
+        Assert.Equal("1", advanced.Payload["contractVersion"]);
+        Assert.Equal("1", advanced.Payload["planContractVersion"]);
+        Assert.Equal("2", advanced.Payload["revision"]);
+        Assert.Equal("2", advanced.Payload["plannedSubtaskCount"]);
+        Assert.Equal("2", advanced.Payload["completedSubtaskCount"]);
+        Assert.Equal("inspect,verify", advanced.Payload["completedSubtaskIds"]);
+        Assert.Equal("1", advanced.Payload["blockerCount"]);
+        Assert.Equal("ToolFailure", advanced.Payload["blockerCodes"]);
+        Assert.Equal("none", advanced.Payload["nextSubtaskId"]);
+
+        var timeline = new JourneyAuditReadModel(audit).ReadTimeline(
+            Organization,
+            Thread,
+            Directive);
+        Assert.Equal(
+            3,
+            timeline.Entries.Count(entry =>
+                entry.Stage == JourneyAuditStage.DirectiveCheckpointTransition));
+        var serializedTimeline = System.Text.Json.JsonSerializer.Serialize(timeline);
+        Assert.DoesNotContain("Private inspection objective", serializedTimeline, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret criterion", serializedTimeline, StringComparison.Ordinal);
+        Assert.DoesNotContain("secret.evidence", serializedTimeline, StringComparison.Ordinal);
+    }
+
     private static Directive DirectiveMessage() =>
         new(
             Message,
@@ -149,6 +239,52 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
             parentDirectiveId: null,
             objective: "Triage checkout regression",
             context: "Customer reports checkout failures.");
+
+    private static DirectiveCheckpoint Checkpoint(
+        int revision,
+        IEnumerable<string> completedIds,
+        IEnumerable<OutcomeBlocker> blockers,
+        string? nextSubtaskId)
+    {
+        var parentDirectiveId = DirectiveId.From(
+            Guid.Parse("cccccccc-0000-0000-0000-000000001900"));
+        var taskId = PositionTaskId.From(
+            Guid.Parse("dddddddd-0000-0000-0000-000000001911"));
+        var plan = new DirectiveCheckpointPlan(
+            DirectiveCheckpointContractVersions.V1,
+            [
+                new DirectiveCheckpointSubtask(
+                    1,
+                    "inspect",
+                    "Private inspection objective",
+                    ["secret criterion"],
+                    TimeSpan.FromMinutes(1)),
+                new DirectiveCheckpointSubtask(
+                    2,
+                    "verify",
+                    "Private verification objective",
+                    ["another secret criterion"],
+                    TimeSpan.FromMinutes(2)),
+            ]);
+        return new DirectiveCheckpoint(
+            DirectiveCheckpointContractVersions.V1,
+            revision,
+            plan,
+            new DirectiveCheckpointCorrelation(
+                Organization,
+                Position,
+                Thread,
+                Directive,
+                parentDirectiveId,
+                taskId),
+            completedIds.Select(id => new CompletedDirectiveCheckpointSubtask(
+                id,
+                [new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.PersistedState,
+                    "secret.evidence")])),
+            blockers,
+            nextSubtaskId);
+    }
 
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
     {

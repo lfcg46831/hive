@@ -1,6 +1,8 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
+using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -120,6 +122,76 @@ public sealed class AiDirectiveIntegrationFixtureTests
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.report.body");
+    }
+
+    [Fact]
+    [Trait(
+        DirectiveExecutionCharacterization.CategoryTrait,
+        DirectiveExecutionCharacterization.Category)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Audit)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.Projections)]
+    [Trait(
+        DirectiveExecutionCharacterization.ResponsibilityTrait,
+        DirectiveExecutionCharacterization.PositionEffects)]
+    public async Task Checkpointable_progress_persists_before_result_and_projects_minimized_audit()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var scenario = AiDirectiveIntegrationScenario.Create(
+            configureStub: options =>
+            {
+                options.ModelId = "f0-19-t05-progress";
+                options.Text = CheckpointProgressOutput();
+            },
+            directiveExecutionPolicyRequest: new DirectiveExecutionPolicyRequest(
+                DirectiveExecutionPolicyContractVersions.V1,
+                DirectiveExecutionMode.Checkpointable),
+            directiveExecutionPolicyCapability: new DirectiveExecutionPolicyCapability(
+                DirectiveExecutionPolicyContractVersions.V1,
+                DirectiveExecutionMode.Checkpointable,
+                TimeSpan.FromSeconds(5)));
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(
+            scenario,
+            audit);
+
+        var result = await fixture.ProcessDirectiveAsync();
+        var events = await WaitForPersistedEventsAsync(
+            fixture,
+            persisted => persisted.OfType<DirectiveCheckpointPersisted>().Any());
+        var checkpoint = Assert.Single(events.OfType<DirectiveCheckpointPersisted>()).Checkpoint;
+        var auditRecord = await WaitForCheckpointAuditAsync(audit);
+        var resultMessage = await result.Agent.Ask<AiDirectiveResultMessageQueryResult>(
+            new GetAiDirectiveResultMessage(fixture.CorrelationId),
+            Timeout());
+        var auditRecords = audit.Records.ToArray();
+        var checkpointAuditIndex = Array.FindIndex(
+            auditRecords,
+            record => record.Stage == JourneyAuditStage.DirectiveCheckpointTransition);
+        var resultAuditIndex = Array.FindIndex(
+            auditRecords,
+            record => record.Stage == JourneyAuditStage.ResultMessageCreated);
+
+        Assert.Equal(1, checkpoint.Revision);
+        Assert.Equal(["inspect"], checkpoint.CompletedSubtasks.Select(item => item.LocalId));
+        Assert.Equal("verify", checkpoint.NextSubtaskId);
+        Assert.Equal(
+            ReportKind.Progress,
+            Assert.IsType<Report>(resultMessage.Result!.Message).Kind);
+        Assert.InRange(checkpointAuditIndex, 0, resultAuditIndex - 1);
+        Assert.Equal("checkpoint-created", auditRecord.ReasonCode);
+        Assert.Equal("inspect", auditRecord.Payload["completedSubtaskIds"]);
+        Assert.Equal("verify", auditRecord.Payload["nextSubtaskId"]);
+        Assert.DoesNotContain(
+            "Inspect private customer evidence",
+            string.Join("|", auditRecord.Payload.Values),
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "directive.context",
+            string.Join("|", auditRecord.Payload.Values),
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -327,6 +399,53 @@ public sealed class AiDirectiveIntegrationFixtureTests
         }
         """;
 
+    private static string CheckpointProgressOutput() =>
+        """
+        {
+          "schema_version": 1,
+          "intent": "Report",
+          "report": {
+            "kind": "Progress",
+            "body": "Grounded progress is checkpointed.",
+            "checkpoint": {
+              "contract_version": 1,
+              "plan": {
+                "contract_version": 1,
+                "subtasks": [
+                  {
+                    "sequence": 1,
+                    "local_id": "inspect",
+                    "objective": "Inspect private customer evidence",
+                    "completion_criteria": ["Failure context is identified"],
+                    "estimated_duration_ms": 20000
+                  },
+                  {
+                    "sequence": 2,
+                    "local_id": "verify",
+                    "objective": "Verify the grounded finding",
+                    "completion_criteria": ["Finding references directive input"],
+                    "estimated_duration_ms": 20000
+                  }
+                ]
+              },
+              "completed_subtasks": [
+                {
+                  "local_id": "inspect",
+                  "evidence_references": [
+                    {
+                      "source": "DirectiveInput",
+                      "reference": "directive.context"
+                    }
+                  ]
+                }
+              ],
+              "blockers": [],
+              "next_subtask_id": "verify"
+            }
+          }
+        }
+        """;
+
     private static string ValidEscalationOutput() =>
         """
         {
@@ -357,4 +476,64 @@ public sealed class AiDirectiveIntegrationFixtureTests
         """;
 
     private static TimeSpan Timeout() => TimeSpan.FromSeconds(10);
+
+    private static async Task<JourneyAuditRecord> WaitForCheckpointAuditAsync(
+        RecordingJourneyAuditLog audit)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var records = audit.Records;
+            var record = records.LastOrDefault(candidate =>
+                candidate.Stage == JourneyAuditStage.DirectiveCheckpointTransition);
+            if (record is not null && records.Any(candidate =>
+                    candidate.Stage == JourneyAuditStage.ResultMessageCreated))
+            {
+                return record;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException("Checkpoint audit transition was not recorded.");
+    }
+
+    private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
+    {
+        private readonly object _sync = new();
+        private readonly List<JourneyAuditRecord> _records = [];
+
+        public IReadOnlyList<JourneyAuditRecord> Records
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _records.ToArray();
+                }
+            }
+        }
+
+        public void Append(JourneyAuditRecord record)
+        {
+            lock (_sync)
+            {
+                _records.Add(record);
+            }
+        }
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null)
+        {
+            lock (_sync)
+            {
+                return _records
+                    .Where(record =>
+                        record.ThreadId == threadId &&
+                        (directiveId is null || record.DirectiveId == directiveId))
+                    .ToArray();
+            }
+        }
+    }
 }

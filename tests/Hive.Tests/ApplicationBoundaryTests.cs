@@ -4,6 +4,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Application.Directives;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 
@@ -326,6 +327,37 @@ public sealed class ApplicationBoundaryTests
         Assert.True(
             violations.Length == 0,
             "Hive.Application types added to persisted or wire protocols:\n" +
+            string.Join("\n", violations));
+    }
+
+    [Fact]
+    public void Checkpoint_plan_contracts_remain_position_local_data_not_messages_or_commands()
+    {
+        var checkpointContractTypes = new[]
+        {
+            typeof(DirectiveCheckpoint),
+            typeof(DirectiveCheckpointPlan),
+            typeof(DirectiveCheckpointSubtask),
+            typeof(CompletedDirectiveCheckpointSubtask),
+            typeof(DirectiveCheckpointCorrelation),
+        };
+        var protocolRoots = new[]
+        {
+            typeof(OrgMessage),
+            typeof(PositionCommand),
+            typeof(PositionEvent),
+        };
+
+        var violations = checkpointContractTypes
+            .Where(type => protocolRoots.Any(root => root.IsAssignableFrom(type)))
+            .Select(type => type.FullName)
+            .OfType<string>()
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
+        Assert.True(
+            violations.Length == 0,
+            "Checkpoint plan contracts leaked into organizational or actor protocols:\n" +
             string.Join("\n", violations));
     }
 

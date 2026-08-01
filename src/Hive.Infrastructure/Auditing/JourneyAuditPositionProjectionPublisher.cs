@@ -1,6 +1,8 @@
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
 namespace Hive.Infrastructure.Auditing;
@@ -13,6 +15,7 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
     private readonly IJourneyAuditLog _auditLog;
     private readonly IPositionProjectionPublisher? _inner;
     private readonly Dictionary<MessageId, DirectiveId> _directiveByMessage = new();
+    private readonly Dictionary<DirectiveId, MessageId> _messageByDirective = new();
     private readonly Dictionary<MessageId, string> _messageTypeByMessage = new();
 
     public JourneyAuditPositionProjectionPublisher(
@@ -78,8 +81,67 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                     },
                     occurredAtUtc: committed.OccurredAt));
                 break;
+
+            case DirectiveCheckpointPersisted checkpoint:
+                PublishDirectiveCheckpointTransition(committed, checkpoint.Checkpoint);
+                break;
         }
     }
+
+    private void PublishDirectiveCheckpointTransition(
+        PositionEventCommitted committed,
+        DirectiveCheckpoint checkpoint)
+    {
+        var transition = checkpoint.Revision == 1 ? "created" : "advanced";
+        var reasonCode = $"checkpoint-{transition}";
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.DirectiveCheckpointTransition,
+            JourneyAuditOutcome.Succeeded,
+            checkpoint.Correlation.OrganizationId,
+            checkpoint.Correlation.ThreadId,
+            MessageFor(
+                checkpoint.Correlation.ThreadId,
+                checkpoint.Correlation.DirectiveId),
+            checkpoint.Correlation.DirectiveId,
+            committed.EntityId.Position,
+            reasonCode,
+            nameof(DirectiveCheckpointPersisted),
+            payload: CheckpointPayload(checkpoint, transition),
+            occurredAtUtc: committed.OccurredAt,
+            idempotencyDiscriminator:
+                $"{checkpoint.Correlation.DirectiveId}:{checkpoint.Revision}:{transition}"));
+    }
+
+    private static IReadOnlyDictionary<string, string> CheckpointPayload(
+        DirectiveCheckpoint checkpoint,
+        string transition) =>
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["transition"] = transition,
+            ["contractVersion"] = checkpoint.ContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["planContractVersion"] = checkpoint.Plan.ContractVersion.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["revision"] = checkpoint.Revision.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["plannedSubtaskCount"] = checkpoint.Plan.Subtasks.Length.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["completedSubtaskCount"] = checkpoint.CompletedSubtasks.Length.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["completedSubtaskIds"] = string.Join(
+                ",",
+                checkpoint.CompletedSubtasks.Select(completed => completed.LocalId)),
+            ["blockerCount"] = checkpoint.Blockers.Length.ToString(
+                System.Globalization.CultureInfo.InvariantCulture),
+            ["blockerCodes"] = string.Join(
+                ",",
+                checkpoint.Blockers.Select(OutcomeBlockerContract.ToWireValue)),
+            ["nextSubtaskId"] = checkpoint.NextSubtaskId ?? "none",
+            ["parentDirectiveId"] = checkpoint.Correlation.ParentDirectiveId?.ToString() ?? "none",
+            ["positionTaskId"] = checkpoint.Correlation.PositionTaskId?.ToString() ?? "none",
+            ["redactions"] =
+                "plan.objectives,plan.completionCriteria,plan.estimates,evidence.references,report.body,prompt,provider.output,reasoning",
+        };
 
     private void PublishDuplicateSuppression(PositionMessageDuplicateRejected duplicate)
     {
@@ -211,6 +273,7 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         if (message is Directive directive)
         {
             _directiveByMessage[message.Id] = directive.DirectiveId;
+            _messageByDirective[directive.DirectiveId] = message.Id;
         }
         else if (message is Report report)
         {
@@ -245,6 +308,19 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         _directiveByMessage.TryGetValue(message, out var directiveId)
             ? directiveId
             : null;
+
+    private MessageId MessageFor(ThreadId threadId, DirectiveId directiveId)
+    {
+        if (_messageByDirective.TryGetValue(directiveId, out var messageId))
+        {
+            return messageId;
+        }
+
+        var accepted = _auditLog
+            .ReadByThread(threadId, directiveId)
+            .LastOrDefault(record => record.Stage == JourneyAuditStage.PositionAccepted);
+        return accepted?.MessageId ?? MessageId.From(directiveId.Value);
+    }
 
     private string? MessageTypeFor(MessageId message) =>
         _messageTypeByMessage.TryGetValue(message, out var messageType)

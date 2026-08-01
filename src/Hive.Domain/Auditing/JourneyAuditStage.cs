@@ -17,4 +17,5 @@ public enum JourneyAuditStage
     RetainedActionLifecycle = 13,
     RetainedActionReEscalation = 14,
     OutcomeResolved = 15,
+    DirectiveCheckpointTransition = 16,
 }

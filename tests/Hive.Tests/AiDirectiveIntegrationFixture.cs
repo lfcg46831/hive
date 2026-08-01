@@ -7,6 +7,7 @@ using Hive.Actors.Sharding;
 using Hive.Actors.Positions;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
@@ -134,7 +135,8 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             Timeout()).ConfigureAwait(false);
         if (!prompt.Found)
         {
-            throw new TimeoutException("AI directive initial prompt was not recorded.");
+            throw new TimeoutException(
+                $"AI directive initial prompt was not recorded; status={audit.Status}, terminal={audit.TerminalCode}, reason={audit.TerminalReason ?? "none"}.");
         }
 
         var gateway = await agent.Ask<AiDirectiveGatewayInvocationQueryResult>(
@@ -516,7 +518,9 @@ internal sealed class AiDirectiveIntegrationScenario
         IEnumerable<PersistedTask> openTasks,
         IReadOnlyDictionary<string, string> shortMemory,
         IEnumerable<MessageId> recentHistory,
-        IReadOnlyDictionary<string, ShortMemoryContextScope> shortMemoryContextScopes)
+        IReadOnlyDictionary<string, ShortMemoryContextScope> shortMemoryContextScopes,
+        DirectiveExecutionPolicyRequest? directiveExecutionPolicyRequest,
+        DirectiveExecutionPolicyCapability? directiveExecutionPolicyCapability)
     {
         ConfigureStub = configureStub;
         Entity = entity;
@@ -530,11 +534,14 @@ internal sealed class AiDirectiveIntegrationScenario
             Priority.High,
             schemaVersion: 1,
             sentAt: DefaultNow,
-            deadline: DefaultNow.AddHours(2),
+            deadline: directiveExecutionPolicyRequest is null
+                ? DefaultNow.AddHours(2)
+                : null,
             DirectiveId.From(Guid.Parse("cccccccc-0000-0000-0000-000000001401")),
             parentDirectiveId: null,
             objective: "Triage checkout regression",
-            context: "Customer reports checkout failures.");
+            context: "Customer reports checkout failures.",
+            executionPolicy: directiveExecutionPolicyRequest);
         Tools = tools.ToArray();
         DirectSubordinates = directSubordinates.ToArray();
         OpenTasks = openTasks.ToArray();
@@ -543,6 +550,7 @@ internal sealed class AiDirectiveIntegrationScenario
         ShortMemoryContextScopes = new Dictionary<string, ShortMemoryContextScope>(
             shortMemoryContextScopes,
             StringComparer.Ordinal);
+        DirectiveExecutionPolicyCapability = directiveExecutionPolicyCapability;
     }
 
     public PositionEntityId Entity { get; }
@@ -565,6 +573,8 @@ internal sealed class AiDirectiveIntegrationScenario
 
     public IReadOnlyDictionary<string, ShortMemoryContextScope> ShortMemoryContextScopes { get; }
 
+    public DirectiveExecutionPolicyCapability? DirectiveExecutionPolicyCapability { get; }
+
     public string CorrelationId =>
         CorrelationIdFor(Directive);
 
@@ -582,7 +592,9 @@ internal sealed class AiDirectiveIntegrationScenario
         IEnumerable<PersistedTask>? openTasks = null,
         IReadOnlyDictionary<string, string>? shortMemory = null,
         IEnumerable<MessageId>? recentHistory = null,
-        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null)
+        IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
+        DirectiveExecutionPolicyRequest? directiveExecutionPolicyRequest = null,
+        DirectiveExecutionPolicyCapability? directiveExecutionPolicyCapability = null)
     {
         var directiveMessage = MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001401"));
 
@@ -611,7 +623,9 @@ internal sealed class AiDirectiveIntegrationScenario
                 MessageId.From(Guid.Parse("eeeeeeee-0000-0000-0000-000000001401")),
             ],
             shortMemoryContextScopes
-                ?? new Dictionary<string, ShortMemoryContextScope>(StringComparer.Ordinal));
+                ?? new Dictionary<string, ShortMemoryContextScope>(StringComparer.Ordinal),
+            directiveExecutionPolicyRequest,
+            directiveExecutionPolicyCapability);
     }
 
     public static string CorrelationIdFor(OrgDirective directive)
@@ -683,7 +697,14 @@ internal sealed class AiDirectiveIntegrationScenario
                     new AiModelParameters(maxOutputTokens: 256),
                     timeout: TimeSpan.FromSeconds(15),
                     processingMode: AiProcessingMode.Batch,
-                    maxIterations: 2),
+                    maxIterations: 2,
+                    limitsVersion: DirectiveExecutionPolicyCapability is null
+                        ? AiPositionRuntimeConfiguration.LegacyLimitsVersion
+                        : AiPositionRuntimeConfiguration.CurrentLimitsVersion,
+                    executionTimeout: DirectiveExecutionPolicyCapability is null
+                        ? null
+                        : TimeSpan.FromSeconds(90),
+                    directiveExecutionPolicy: DirectiveExecutionPolicyCapability),
                 identityPrompt: new IdentityPromptRuntimeConfiguration(
                     "triage-v1",
                     "prompts/triage-v1.md",

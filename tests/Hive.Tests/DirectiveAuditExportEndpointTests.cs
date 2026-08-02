@@ -75,8 +75,12 @@ public sealed class DirectiveAuditExportEndpointTests
         Assert.DoesNotContain("raw_output", exportedEvent.Attributes.Keys);
         Assert.DoesNotContain("reasoning_trace", exportedEvent.Attributes.Keys);
         Assert.DoesNotContain("short_memory", exportedEvent.Attributes.Keys);
+        Assert.DoesNotContain("inputPricePerTokenUnit", exportedEvent.Attributes.Keys);
+        Assert.Equal("0.20", exportedEvent.Attributes["outputPricePerTokenUnit"]);
         Assert.Equal("pricing-v1", exportedEvent.Cost!.PricingVersion);
         Assert.Equal(1_000, exportedEvent.Cost.PricingTokenUnit);
+        Assert.Equal(0.10m, exportedEvent.Cost.InputPricePerTokenUnit);
+        Assert.Equal(0.20m, exportedEvent.Cost.OutputPricePerTokenUnit);
 
         Assert.NotNull(page.Result);
         Assert.Equal("Report", page.Result.MessageType);

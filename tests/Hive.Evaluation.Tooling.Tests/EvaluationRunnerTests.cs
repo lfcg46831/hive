@@ -243,15 +243,43 @@ public sealed class EvaluationRunnerTests
                         1d),
                 ],
                 1d),
+            GatewayCalls =
+            [
+                GatewayCall(1, withPricing: true),
+                GatewayCall(2, withPricing: true),
+            ],
         };
-        var dataset = new EvaluationDataset(1, 1, "run-safe", "http://localhost:8080", 120, 1000, [result]);
+        var withoutPricing = result with
+        {
+            CaseId = "triage-002",
+            PricingVersion = null,
+            PricingTokenUnit = null,
+            InputPricePerTokenUnit = null,
+            OutputPricePerTokenUnit = null,
+            GatewayCalls =
+            [
+                GatewayCall(1, withPricing: false),
+                GatewayCall(2, withPricing: false),
+            ],
+        };
+        var dataset = new EvaluationDataset(
+            1,
+            1,
+            "run-safe",
+            "http://localhost:8080",
+            120,
+            1000,
+            [result, withoutPricing]);
 
         var json = JsonSerializer.Serialize(dataset);
+        var roundTripped = JsonSerializer.Deserialize<EvaluationDataset>(json);
 
         Assert.Contains("\"run_id\":\"run-safe\"", json);
         Assert.Contains("\"output_constraint_mode\":\"json-schema\"", json);
         Assert.Contains("\"cost_status\":\"estimated\"", json);
         Assert.Contains("\"pricing_version\":\"pricing-v1\"", json);
+        Assert.Contains("\"input_price_per_token_unit\":0.25", json);
+        Assert.Contains("\"output_price_per_token_unit\":2", json);
         Assert.Contains("\"dimension_id\":\"opaque-dimension\"", json);
         Assert.Contains("\"status\":\"valid\"", json);
         Assert.Contains("\"labels\":[\"admitted-label\"]", json);
@@ -260,6 +288,32 @@ public sealed class EvaluationRunnerTests
         Assert.DoesNotContain("human_reference", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("connection", json, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("response", json, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(roundTripped);
+        Assert.Equal(0.25m, roundTripped.Cases[0].InputPricePerTokenUnit);
+        Assert.Equal(2m, roundTripped.Cases[0].OutputPricePerTokenUnit);
+        var completeCalls = Assert.IsAssignableFrom<IReadOnlyList<EvaluationGatewayCall>>(
+            roundTripped.Cases[0].GatewayCalls);
+        Assert.Equal(2, completeCalls.Count);
+        Assert.All(completeCalls, call =>
+        {
+            Assert.Equal("pricing-v1", call.PricingVersion);
+            Assert.Equal(0.25m, call.InputPricePerTokenUnit);
+            Assert.Equal(2m, call.OutputPricePerTokenUnit);
+        });
+        Assert.Null(roundTripped.Cases[1].PricingVersion);
+        Assert.Null(roundTripped.Cases[1].PricingTokenUnit);
+        Assert.Null(roundTripped.Cases[1].InputPricePerTokenUnit);
+        Assert.Null(roundTripped.Cases[1].OutputPricePerTokenUnit);
+        var absentCalls = Assert.IsAssignableFrom<IReadOnlyList<EvaluationGatewayCall>>(
+            roundTripped.Cases[1].GatewayCalls);
+        Assert.Equal(2, absentCalls.Count);
+        Assert.All(absentCalls, call =>
+        {
+            Assert.Null(call.PricingVersion);
+            Assert.Null(call.PricingTokenUnit);
+            Assert.Null(call.InputPricePerTokenUnit);
+            Assert.Null(call.OutputPricePerTokenUnit);
+        });
     }
 
     [Fact]
@@ -443,6 +497,30 @@ public sealed class EvaluationRunnerTests
         "succeeded", "completed", decision, provider, model, "json-schema",
         10, 4, 14, false, 0.01m, "USD", true, 50, 75,
         "estimated", "pricing-v1", 1_000_000, 0.25m, 2m);
+
+    private static EvaluationGatewayCall GatewayCall(int callIndex, bool withPricing) =>
+        new(
+            callIndex,
+            "directive-inference",
+            callIndex,
+            "succeeded",
+            ReasonCode: null,
+            ProviderId: "openai",
+            ModelId: "gpt-test",
+            OutputConstraintMode: "json-schema",
+            InputTokens: 10,
+            OutputTokens: 4,
+            TotalTokens: 14,
+            TokensEstimated: false,
+            CostAmount: 0.01m,
+            CostCurrency: "USD",
+            CostEstimated: true,
+            LatencyMilliseconds: 50,
+            CostStatus: "estimated",
+            PricingVersion: withPricing ? "pricing-v1" : null,
+            PricingTokenUnit: withPricing ? 1_000_000 : null,
+            InputPricePerTokenUnit: withPricing ? 0.25m : null,
+            OutputPricePerTokenUnit: withPricing ? 2m : null);
 
     private sealed class RecordingHandler(params HttpStatusCode[] statuses) : HttpMessageHandler
     {

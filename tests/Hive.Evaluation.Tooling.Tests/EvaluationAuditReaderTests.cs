@@ -270,6 +270,55 @@ public sealed class EvaluationAuditReaderTests
     }
 
     [Fact]
+    public void Keeps_divergent_structured_multi_call_pricing_unknown_without_losing_amount()
+    {
+        var journey = EvaluationJourneyProjector.TryProject(
+        [
+            Row(0, "SubmissionReceived", "Accepted"),
+            Row(
+                1,
+                "GatewayCostRecorded",
+                "Succeeded",
+                providerId: "openai",
+                modelId: "gpt-test",
+                costAmount: 0.002m,
+                costCurrency: "USD",
+                costEstimated: false,
+                pricingVersion: "pricing-v1",
+                pricingTokenUnit: 1_000_000,
+                inputPricePerTokenUnit: 0.25m,
+                outputPricePerTokenUnit: 2m,
+                payload: "{\"operation\":\"directive-inference\"}"),
+            Row(
+                2,
+                "GatewayCostRecorded",
+                "Succeeded",
+                providerId: "openai",
+                modelId: "gpt-test",
+                costAmount: 0.001m,
+                costCurrency: "USD",
+                costEstimated: false,
+                pricingVersion: "pricing-v2",
+                pricingTokenUnit: 1_000_000,
+                inputPricePerTokenUnit: 0.30m,
+                outputPricePerTokenUnit: 2m,
+                payload: "{\"operation\":\"outcome-verification\"}"),
+            Row(3, "AgentDecided", "Succeeded", payload: "{\"terminalCode\":\"result-emitted\"}"),
+            Row(4, "ResultMessageCreated", "Succeeded", messageType: "Report"),
+        ]);
+
+        Assert.NotNull(journey);
+        Assert.Equal(0.003m, journey.CostAmount);
+        Assert.Equal("USD", journey.CostCurrency);
+        Assert.Null(journey.PricingVersion);
+        Assert.Null(journey.PricingTokenUnit);
+        Assert.Null(journey.InputPricePerTokenUnit);
+        Assert.Null(journey.OutputPricePerTokenUnit);
+        Assert.Equal("pricing-v1", journey.GatewayCalls![0].PricingVersion);
+        Assert.Equal("pricing-v2", journey.GatewayCalls[1].PricingVersion);
+    }
+
+    [Fact]
     public void Projects_only_closed_versioned_invalid_output_diagnostics()
     {
         var journey = EvaluationJourneyProjector.TryProject(
@@ -630,6 +679,10 @@ public sealed class EvaluationAuditReaderTests
         decimal? costAmount = null,
         string? costCurrency = null,
         bool? costEstimated = null,
+        string? pricingVersion = null,
+        int? pricingTokenUnit = null,
+        decimal? inputPricePerTokenUnit = null,
+        decimal? outputPricePerTokenUnit = null,
         string payload = "{}") =>
         new(
             StartedAt.AddSeconds(seconds),
@@ -647,5 +700,9 @@ public sealed class EvaluationAuditReaderTests
             costAmount,
             costCurrency,
             costEstimated,
+            pricingVersion,
+            pricingTokenUnit,
+            inputPricePerTokenUnit,
+            outputPricePerTokenUnit,
             payload);
 }

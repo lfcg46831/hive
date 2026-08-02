@@ -57,6 +57,10 @@ internal sealed record EvaluationAuditRow(
     decimal? CostAmount,
     string? CostCurrency,
     bool? CostEstimated,
+    string? PricingVersion,
+    int? PricingTokenUnit,
+    decimal? InputPricePerTokenUnit,
+    decimal? OutputPricePerTokenUnit,
     string Payload);
 
 internal static class EvaluationJourneyProjector
@@ -158,8 +162,10 @@ internal static class EvaluationJourneyProjector
 
     private static EvaluationGatewayCall ProjectGatewayCall(
         EvaluationAuditRow row,
-        int callIndex) =>
-        new(
+        int callIndex)
+    {
+        var pricing = ProjectPricing(row);
+        return new(
             callIndex,
             PayloadValue(row.Payload, "operation") ?? "unspecified",
             PayloadInt(row.Payload, "iteration") ?? callIndex,
@@ -177,10 +183,10 @@ internal static class EvaluationJourneyProjector
             row.CostEstimated,
             row.LatencyMilliseconds,
             PayloadValue(row.Payload, "costStatus") ?? CostStatusFrom(row),
-            PayloadValue(row.Payload, "pricingVersion"),
-            PayloadInt(row.Payload, "pricingTokenUnit"),
-            PayloadDecimal(row.Payload, "inputPricePerTokenUnit"),
-            PayloadDecimal(row.Payload, "outputPricePerTokenUnit"),
+            pricing?.Version,
+            pricing?.TokenUnit,
+            pricing?.InputPricePerTokenUnit,
+            pricing?.OutputPricePerTokenUnit,
             PayloadValue(row.Payload, "finishReason"),
             PayloadInt(row.Payload, "providerStatusCode"),
             PayloadDouble(row.Payload, "requestTimeoutMilliseconds"),
@@ -188,6 +194,7 @@ internal static class EvaluationJourneyProjector
             PayloadInt(row.Payload, "executionLimitsVersion"),
             PayloadDouble(row.Payload, "executionBudgetMilliseconds"),
             PayloadDouble(row.Payload, "perCallTimeoutMilliseconds"));
+    }
 
     private static EvaluationGatewayAggregate AggregateGatewayCalls(
         IReadOnlyList<EvaluationGatewayCall> calls)
@@ -203,6 +210,7 @@ internal static class EvaluationJourneyProjector
             call.CostEstimated.HasValue) &&
             CommonValue(calls.Select(call => call.CostCurrency)) is not null;
         var latencyComplete = calls.All(call => call.LatencyMilliseconds.HasValue);
+        var pricing = costComplete ? CommonPricing(calls) : null;
 
         return new EvaluationGatewayAggregate(
             CommonValue(calls.Select(call => call.ProviderId)),
@@ -221,14 +229,90 @@ internal static class EvaluationJourneyProjector
                     ? "estimated"
                     : "provider-reported"
                 : "cost-unavailable",
-            costComplete ? CommonValue(calls.Select(call => call.PricingVersion)) : null,
-            costComplete ? CommonValue(calls.Select(call => call.PricingTokenUnit)) : null,
-            costComplete
-                ? CommonValue(calls.Select(call => call.InputPricePerTokenUnit))
-                : null,
-            costComplete
-                ? CommonValue(calls.Select(call => call.OutputPricePerTokenUnit))
-                : null);
+            pricing?.Version,
+            pricing?.TokenUnit,
+            pricing?.InputPricePerTokenUnit,
+            pricing?.OutputPricePerTokenUnit);
+    }
+
+    private static EvaluationPricing? ProjectPricing(EvaluationAuditRow row)
+    {
+        var structuredFields = new object?[]
+        {
+            row.PricingVersion,
+            row.PricingTokenUnit,
+            row.InputPricePerTokenUnit,
+            row.OutputPricePerTokenUnit,
+        };
+        if (structuredFields.Any(field => field is not null))
+        {
+            return CreatePricing(
+                row.PricingVersion,
+                row.PricingTokenUnit,
+                row.InputPricePerTokenUnit,
+                row.OutputPricePerTokenUnit);
+        }
+
+        return CreatePricing(
+            PayloadValue(row.Payload, "pricingVersion"),
+            TryPayloadInt(row.Payload, "pricingTokenUnit"),
+            TryPayloadDecimal(row.Payload, "inputPricePerTokenUnit"),
+            TryPayloadDecimal(row.Payload, "outputPricePerTokenUnit"));
+    }
+
+    private static EvaluationPricing? CommonPricing(
+        IReadOnlyList<EvaluationGatewayCall> calls)
+    {
+        var pricing = calls
+            .Select(call => CreatePricing(
+                call.PricingVersion,
+                call.PricingTokenUnit,
+                call.InputPricePerTokenUnit,
+                call.OutputPricePerTokenUnit))
+            .ToArray();
+        return pricing.All(item => item is not null)
+            ? CommonValue(pricing)
+            : null;
+    }
+
+    private static EvaluationPricing? CreatePricing(
+        string? version,
+        int? tokenUnit,
+        decimal? inputPricePerTokenUnit,
+        decimal? outputPricePerTokenUnit) =>
+        !string.IsNullOrWhiteSpace(version) &&
+        tokenUnit > 0 &&
+        inputPricePerTokenUnit >= 0 &&
+        outputPricePerTokenUnit >= 0
+            ? new EvaluationPricing(
+                version,
+                tokenUnit.Value,
+                inputPricePerTokenUnit.Value,
+                outputPricePerTokenUnit.Value)
+            : null;
+
+    private static int? TryPayloadInt(string? payload, string property)
+    {
+        var value = PayloadValue(payload, property);
+        return int.TryParse(
+            value,
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var result)
+                ? result
+                : null;
+    }
+
+    private static decimal? TryPayloadDecimal(string? payload, string property)
+    {
+        var value = PayloadValue(payload, property);
+        return decimal.TryParse(
+            value,
+            NumberStyles.Number,
+            CultureInfo.InvariantCulture,
+            out var result)
+                ? result
+                : null;
     }
 
     private static T? CommonValue<T>(IEnumerable<T?> values)
@@ -258,6 +342,12 @@ internal static class EvaluationJourneyProjector
         int? PricingTokenUnit,
         decimal? InputPricePerTokenUnit,
         decimal? OutputPricePerTokenUnit);
+
+    private sealed record EvaluationPricing(
+        string Version,
+        int TokenUnit,
+        decimal InputPricePerTokenUnit,
+        decimal OutputPricePerTokenUnit);
 
     private static bool IsFailedOrRejected(string outcome) =>
         outcome is "Failed" or "Rejected";
@@ -296,24 +386,6 @@ internal static class EvaluationJourneyProjector
         return int.TryParse(
             value,
             NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out var result)
-            ? result
-            : throw new InvalidOperationException(
-                $"Evaluation audit payload '{property}' is invalid.");
-    }
-
-    private static decimal? PayloadDecimal(string? payload, string property)
-    {
-        var value = PayloadValue(payload, property);
-        if (value is null)
-        {
-            return null;
-        }
-
-        return decimal.TryParse(
-            value,
-            NumberStyles.Number,
             CultureInfo.InvariantCulture,
             out var result)
             ? result
@@ -947,6 +1019,10 @@ public sealed class HttpEvaluationAuditReader :
             item.Cost?.Amount,
             item.Cost?.Currency,
             item.Cost?.Estimated,
+            item.Cost?.PricingVersion,
+            item.Cost?.PricingTokenUnit,
+            item.Cost?.InputPricePerTokenUnit,
+            item.Cost?.OutputPricePerTokenUnit,
             JsonSerializer.Serialize(item.Attributes, JsonOptions));
 
     private sealed record EvaluationAuditExportSnapshot(

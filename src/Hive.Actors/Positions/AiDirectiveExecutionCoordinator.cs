@@ -3,6 +3,7 @@ using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Directives;
+using Hive.Domain.Messaging;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
 
@@ -367,7 +368,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     var responseInterpreted = gatewayRequested.AdvanceTo(
                         AiDirectiveProcessingStatus.ResponseInterpreted,
                         reason: "AI gateway response interpreted");
-                    var resultMessage = AiDirectiveResultMessageFactory.Create(
+                    var proposedResultMessage = AiDirectiveResultMessageFactory.Create(
                         context,
                         interpretation.Decision!);
                     var outcomeResolution = await _outcomeResolutionIntegrator.ResolveAsync(
@@ -375,7 +376,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         iterationState,
                         interpretation.Decision!,
                         effectiveProposal,
-                        resultMessage,
+                        proposedResultMessage,
                         result.Response,
                         hasAvailableBudget,
                         _actionGate,
@@ -397,7 +398,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         result,
                         hasAvailableBudget,
                         _clock());
-                    resultMessage = outcomeResolution.ResultMessage ?? resultMessage;
+                    var resultMessage = outcomeResolution.ResultMessage ?? proposedResultMessage;
                     if (resultMessage.Message is Hive.Domain.Messaging.Report
                         {
                             Kind: Hive.Domain.Messaging.ReportKind.Progress,
@@ -466,6 +467,10 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     var effects = ComposeDispatchEffects(
                         context,
                         resultMessage,
+                        SupersededResultMessage(
+                            outcomeResolution,
+                            proposedResultMessage,
+                            resultMessage),
                         actionGateResult,
                         positionEffects,
                         verifiedCheckpoint);
@@ -687,6 +692,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
     private IEnumerable<DirectiveExecutionEffect> ComposeDispatchEffects(
         AiDirectiveExecutionContext context,
         AiDirectiveResultMessage resultMessage,
+        OrgMessage? supersededResultMessage,
         AiAgentActionGateResult? actionGateResult,
         AiDirectivePositionEffects positionEffects,
         DirectiveCheckpoint? verifiedCheckpoint)
@@ -704,7 +710,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         {
             yield return new DirectiveAuditExportResultEffect(
                 context.Directive.DirectiveId,
-                resultMessage.Message!);
+                resultMessage.Message!,
+                supersededResultMessage);
         }
 
         if (actionGateResult?.IsRetained == true)
@@ -721,6 +728,17 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
             }
         }
     }
+
+    private static OrgMessage? SupersededResultMessage(
+        AiDirectiveOutcomeResolutionResult outcomeResolution,
+        AiDirectiveResultMessage proposedResultMessage,
+        AiDirectiveResultMessage finalResultMessage) =>
+        outcomeResolution.Mode == OutcomeResolutionMode.Enforcement &&
+        proposedResultMessage.IsSuccess &&
+        finalResultMessage.IsSuccess &&
+        !ReferenceEquals(proposedResultMessage.Message, finalResultMessage.Message)
+            ? proposedResultMessage.Message
+            : null;
 
     private static IEnumerable<JourneyAuditRecord> CreateJourneyAuditRecords(
         AiDirectiveAuditSnapshot snapshot)

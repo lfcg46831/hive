@@ -206,16 +206,24 @@ public sealed record DirectiveAuditExportResultEffect : DirectiveExecutionEffect
 {
     public DirectiveAuditExportResultEffect(
         DirectiveId directiveId,
-        OrgMessage resultMessage)
+        OrgMessage resultMessage,
+        OrgMessage? supersededResultMessage = null)
     {
         DirectiveId = directiveId ?? throw new ArgumentNullException(nameof(directiveId));
         ResultMessage = resultMessage
             ?? throw new ArgumentNullException(nameof(resultMessage));
+        SupersededResultMessage = supersededResultMessage;
     }
 
     public DirectiveId DirectiveId { get; }
 
     public OrgMessage ResultMessage { get; }
+
+    /// <summary>
+    /// Accepted organizational result replaced before emission. It crosses only the transient
+    /// audit/export seam so an explicitly enabled adapter can retain a bounded observation.
+    /// </summary>
+    public OrgMessage? SupersededResultMessage { get; }
 }
 
 public enum DirectiveExecutionStatus

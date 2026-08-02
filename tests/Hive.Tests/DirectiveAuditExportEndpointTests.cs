@@ -45,7 +45,10 @@ public sealed class DirectiveAuditExportEndpointTests
                     PositionId.From("bug-triage"),
                     "Report",
                     1,
-                    """{"schema_version":1,"type":"Report"}""")));
+                    """{"schema_version":1,"type":"Report"}""",
+                    new DirectiveAuditExportObservationData(
+                        1,
+                        """{"dimensions":{"severity":["medium"]}}"""))));
         await using var app = BuildApp(reader);
         await app.StartAsync();
 
@@ -79,6 +82,13 @@ public sealed class DirectiveAuditExportEndpointTests
         Assert.Equal("Report", page.Result.MessageType);
         Assert.Equal(AuditExportContract.ResultMediaType, page.Result.MediaType);
         Assert.Equal("""{"schema_version":1,"type":"Report"}""", page.Result.Content);
+        Assert.NotNull(page.Result.AcceptedObservation);
+        Assert.Equal(
+            AuditExportContract.AcceptedObservationMediaType,
+            page.Result.AcceptedObservation.MediaType);
+        Assert.Equal(
+            """{"dimensions":{"severity":["medium"]}}""",
+            page.Result.AcceptedObservation.Content);
     }
 
     [Fact]

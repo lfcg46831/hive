@@ -541,15 +541,21 @@ internal sealed class AiAgentActor : ReceiveActor
                 }
 
                 await _auditExportResultSink.StoreAsync(
-                    new DirectiveAuditExportResultData(
-                        export.ResultMessage.OrganizationId,
-                        export.ResultMessage.Thread,
-                        export.DirectiveId,
-                        source.PositionId,
-                        export.ResultMessage.GetType().Name,
-                        export.ResultMessage.SchemaVersion,
-                        Encoding.UTF8.GetString(
-                            OrgMessageJsonFormat.Serialize(export.ResultMessage))),
+                    new DirectiveAuditExportResultCaptureData(
+                        new DirectiveAuditExportResultData(
+                            export.ResultMessage.OrganizationId,
+                            export.ResultMessage.Thread,
+                            export.DirectiveId,
+                            source.PositionId,
+                            export.ResultMessage.GetType().Name,
+                            export.ResultMessage.SchemaVersion,
+                            SerializeExportMessage(export.ResultMessage)),
+                        export.SupersededResultMessage is { } superseded
+                            ? new DirectiveAuditExportMessageData(
+                                superseded.GetType().Name,
+                                superseded.SchemaVersion,
+                                SerializeExportMessage(superseded))
+                            : null),
                     CancellationToken.None).ConfigureAwait(false);
                 return true;
             case DirectivePositionCommandEffect position:
@@ -579,6 +585,9 @@ internal sealed class AiAgentActor : ReceiveActor
                     $"Unsupported directive execution effect '{effect.GetType().Name}'.");
         }
     }
+
+    private static string SerializeExportMessage(OrgMessage message) =>
+        Encoding.UTF8.GetString(OrgMessageJsonFormat.Serialize(message));
 
 
     private AiDirectiveRecoveryDecision? TryRecoverJourney(

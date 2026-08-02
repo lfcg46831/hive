@@ -92,10 +92,14 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
     }
 
     public async ValueTask StoreAsync(
-        DirectiveAuditExportResultData result,
+        DirectiveAuditExportResultCaptureData capture,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(capture);
+        var result = capture.Result;
+        var acceptedObservation =
+            DirectiveAuditExportAcceptedObservationProjector.TryProject(
+                capture.SupersededResult);
 
         await using var command = _dataSource.CreateCommand(
             $"""
@@ -106,7 +110,9 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
                 source_position_id,
                 message_type,
                 schema_version,
-                content)
+                content,
+                accepted_observation_version,
+                accepted_observation_content)
             VALUES (
                 @organization_id,
                 @thread_id,
@@ -114,7 +120,9 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
                 @source_position_id,
                 @message_type,
                 @schema_version,
-                @content)
+                @content,
+                @accepted_observation_version,
+                @accepted_observation_content)
             ON CONFLICT (organization_id, thread_id, directive_id) DO NOTHING;
             """);
         AddScopeParameters(
@@ -129,6 +137,16 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
         command.Parameters.Add("schema_version", NpgsqlDbType.Integer).Value =
             result.SchemaVersion;
         command.Parameters.Add("content", NpgsqlDbType.Jsonb).Value = result.Content;
+        command.Parameters.Add(
+            "accepted_observation_version",
+            NpgsqlDbType.Integer).Value = acceptedObservation is { } observation
+                ? observation.ContractVersion
+                : DBNull.Value;
+        command.Parameters.Add(
+            "accepted_observation_content",
+            NpgsqlDbType.Jsonb).Value = acceptedObservation is { } projected
+                ? projected.Content
+                : DBNull.Value;
         await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
@@ -214,7 +232,9 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
                 source_position_id,
                 message_type,
                 schema_version,
-                content::text
+                content::text,
+                accepted_observation_version,
+                accepted_observation_content::text
             FROM {JourneyAuditSchema.SchemaName}.directive_export_results
             WHERE organization_id = @organization_id
               AND thread_id = @thread_id
@@ -230,6 +250,11 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
             return null;
         }
 
+        var acceptedObservation = reader.IsDBNull(4)
+            ? null
+            : new DirectiveAuditExportObservationData(
+                reader.GetInt32(4),
+                reader.GetString(5));
         return new DirectiveAuditExportResultData(
             organizationId,
             threadId,
@@ -237,7 +262,8 @@ public sealed class PostgreSqlDirectiveAuditExportStore :
             PositionId.From(reader.GetString(0)),
             reader.GetString(1),
             reader.GetInt32(2),
-            reader.GetString(3));
+            reader.GetString(3),
+            acceptedObservation);
     }
 
     private static void AddScopeParameters(

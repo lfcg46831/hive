@@ -12,7 +12,8 @@ public sealed record AuditExportResult
         string mediaType,
         int contentLengthBytes,
         string sha256,
-        string content)
+        string content,
+        AuditExportAcceptedObservation? acceptedObservation = null)
     {
         if (schemaVersion <= 0)
         {
@@ -53,6 +54,8 @@ public sealed record AuditExportResult
                 "Result SHA-256 does not match its content.",
                 nameof(sha256));
         }
+
+        AcceptedObservation = acceptedObservation;
     }
 
     [JsonPropertyName("message_type")]
@@ -73,10 +76,15 @@ public sealed record AuditExportResult
     [JsonPropertyName("content")]
     public string Content { get; }
 
+    [JsonPropertyName("accepted_observation")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AuditExportAcceptedObservation? AcceptedObservation { get; }
+
     public static AuditExportResult Create(
         string messageType,
         int schemaVersion,
-        string content)
+        string content,
+        AuditExportAcceptedObservation? acceptedObservation = null)
     {
         ArgumentNullException.ThrowIfNull(content);
         var bytes = Encoding.UTF8.GetBytes(content);
@@ -86,6 +94,7 @@ public sealed record AuditExportResult
             AuditExportContract.ResultMediaType,
             bytes.Length,
             Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(),
-            content);
+            content,
+            acceptedObservation);
     }
 }

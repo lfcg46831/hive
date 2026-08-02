@@ -61,6 +61,18 @@ internal sealed record EvaluationAuditRow(
 
 internal static class EvaluationJourneyProjector
 {
+    public static bool HasTerminalProposalOverride(IEnumerable<EvaluationAuditRow> rows)
+    {
+        ArgumentNullException.ThrowIfNull(rows);
+        var terminalResolution = rows
+            .LastOrDefault(row => row.Stage == "OutcomeResolved");
+        return terminalResolution is not null &&
+            string.Equals(
+                PayloadValue(terminalResolution.Payload, "proposalOverridden"),
+                "true",
+                StringComparison.Ordinal);
+    }
+
     public static EvaluationJourney? TryProject(IEnumerable<EvaluationAuditRow> rows)
     {
         ArgumentNullException.ThrowIfNull(rows);
@@ -832,7 +844,12 @@ public sealed class HttpEvaluationAuditReader :
                 cancellationToken)
             .ConfigureAwait(false);
         return snapshot.Result is { } result
-            ? _rubric.ProjectResult(result.MessageType, result.Content)
+            ? _rubric.ProjectResult(
+                result.MessageType,
+                result.Content,
+                EvaluationJourneyProjector.HasTerminalProposalOverride(snapshot.Rows)
+                    ? result.AcceptedObservation?.Content
+                    : null)
             : null;
     }
 

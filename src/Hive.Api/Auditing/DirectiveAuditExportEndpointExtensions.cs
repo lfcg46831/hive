@@ -155,7 +155,23 @@ public static class DirectiveAuditExportEndpointExtensions
         return AuditExportResult.Create(
             result.MessageType,
             result.SchemaVersion,
-            result.Content);
+            result.Content,
+            MapAcceptedObservation(result.AcceptedObservation));
+    }
+
+    private static AuditExportAcceptedObservation? MapAcceptedObservation(
+        DirectiveAuditExportObservationData? observation)
+    {
+        if (observation is null ||
+            Encoding.UTF8.GetByteCount(observation.Content) >
+            AuditExportContractLimits.MaxAcceptedObservationContentBytes)
+        {
+            return null;
+        }
+
+        return AuditExportAcceptedObservation.Create(
+            observation.ContractVersion,
+            observation.Content);
     }
 
     private static IReadOnlyDictionary<string, string> BoundAttributes(

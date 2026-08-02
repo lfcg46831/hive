@@ -68,6 +68,80 @@ public sealed class HttpEvaluationAuditReaderTests
             handler.LastRequestUri!.PathAndQuery);
     }
 
+    [Fact]
+    public async Task Reader_scores_authoritative_decision_with_valid_accepted_observation_after_override()
+    {
+        var handler = new ContractHandler(OverridePage(proposalOverridden: true));
+        using var client = new HttpClient(handler);
+        var rubric = LoadRubric();
+        await using var reader = new HttpEvaluationAuditReader(
+            client,
+            new Uri("http://runtime.local"),
+            rubric);
+
+        var prediction = await ((IEvaluationProjectionReader)reader).ReadAsync(
+            "acme-delivery",
+            Thread,
+            Directive,
+            CancellationToken.None);
+        var scoring = rubric.Score(
+            new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal)
+            {
+                ["severity"] = ["medium"],
+                ["missing-information"] = ["environment"],
+                ["decision"] = ["escalation"],
+            },
+            prediction);
+
+        Assert.NotNull(prediction);
+        Assert.Equal(
+            ["medium"],
+            Assert.Single(
+                prediction.Dimensions,
+                item => item.DimensionId == "severity").Labels);
+        Assert.Equal(
+            ["environment"],
+            Assert.Single(
+                prediction.Dimensions,
+                item => item.DimensionId == "missing-information").Labels);
+        Assert.Equal(
+            ["escalation"],
+            Assert.Single(
+                prediction.Dimensions,
+                item => item.DimensionId == "decision").Labels);
+        Assert.Equal("scored", scoring.Status);
+        Assert.Equal(1d, scoring.CaseScore);
+    }
+
+    [Fact]
+    public async Task Reader_ignores_accepted_observation_without_an_authoritative_override()
+    {
+        var handler = new ContractHandler(OverridePage(proposalOverridden: false));
+        using var client = new HttpClient(handler);
+        await using var reader = new HttpEvaluationAuditReader(
+            client,
+            new Uri("http://runtime.local"),
+            LoadRubric());
+
+        var prediction = await ((IEvaluationProjectionReader)reader).ReadAsync(
+            "acme-delivery",
+            Thread,
+            Directive,
+            CancellationToken.None);
+
+        Assert.NotNull(prediction);
+        Assert.Equal(
+            EvaluationDimensionStatuses.Missing,
+            Assert.Single(
+                prediction.Dimensions,
+                item => item.DimensionId == "severity").Status);
+        Assert.Equal(
+            ["escalation"],
+            Assert.Single(
+                prediction.Dimensions,
+                item => item.DimensionId == "decision").Labels);
+    }
+
     private static DirectiveAuditExportPage Page()
     {
         var resultContent =
@@ -112,6 +186,60 @@ public sealed class HttpEvaluationAuditReaderTests
             ],
             AuditExportResult.Create("Report", 1, resultContent));
     }
+
+    private static DirectiveAuditExportPage OverridePage(bool proposalOverridden)
+    {
+        const string finalContent =
+            "{\"Context\":\"The authoritative resolver requires escalation.\"}";
+        const string observationContent =
+            "{\"dimensions\":{\"missing-information\":[\"environment\"],\"severity\":[\"medium\"]}}";
+        return new DirectiveAuditExportPage(
+            AuditExportContract.Name,
+            AuditExportContract.Version,
+            "acme-delivery",
+            Thread,
+            Directive,
+            0,
+            2,
+            isTerminal: true,
+            [
+                new AuditExportEvent(
+                    1,
+                    Guid.Parse("11111111-0000-0000-0000-000000000116"),
+                    At.AddMilliseconds(200),
+                    At.AddMilliseconds(201),
+                    "OutcomeResolved",
+                    "Succeeded",
+                    Message,
+                    attributes: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["proposalOverridden"] = proposalOverridden ? "true" : "false",
+                    }),
+                new AuditExportEvent(
+                    2,
+                    Guid.Parse("22222222-0000-0000-0000-000000000116"),
+                    At.AddMilliseconds(250),
+                    At.AddMilliseconds(251),
+                    "ResultMessageCreated",
+                    "Succeeded",
+                    Message,
+                    messageType: "Escalation"),
+            ],
+            AuditExportResult.Create(
+                "Escalation",
+                1,
+                finalContent,
+                AuditExportAcceptedObservation.Create(1, observationContent)));
+    }
+
+    private static EvaluationRubric LoadRubric() => EvaluationRubric.Load(Path.Combine(
+        RepositoryRoot,
+        "config",
+        "organizations",
+        "acme-delivery",
+        "examples",
+        "evaluation",
+        "bug-triage-rubric.v1.json"));
 
     private static AuditExportEvent Event(
         long sequence,

@@ -111,6 +111,39 @@ public sealed class AuditExportContractTests
     }
 
     [Fact]
+    public void Accepted_observation_is_optional_hash_verified_and_independently_bounded()
+    {
+        const string content =
+            "{\"dimensions\":{\"missing-information\":[\"environment\"],\"severity\":[\"medium\"]}}";
+        var observation = AuditExportAcceptedObservation.Create(1, content);
+        var result = AuditExportResult.Create(
+            "Escalation",
+            1,
+            "{\"Context\":\"Authoritative fail-safe.\"}",
+            observation);
+
+        Assert.Equal(
+            AuditExportContract.AcceptedObservationMediaType,
+            result.AcceptedObservation!.MediaType);
+        Assert.Equal(content, result.AcceptedObservation.Content);
+        Assert.Equal(
+            System.Text.Encoding.UTF8.GetByteCount(content),
+            result.AcceptedObservation.ContentLengthBytes);
+        Assert.Throws<ArgumentException>(() => new AuditExportAcceptedObservation(
+            1,
+            AuditExportContract.AcceptedObservationMediaType,
+            observation.ContentLengthBytes,
+            new string('0', 64),
+            content));
+
+        var oversized = "{\"dimensions\":{\"x\":[\"" +
+            new string('x', AuditExportContractLimits.MaxAcceptedObservationContentBytes) +
+            "\"]}}";
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            AuditExportAcceptedObservation.Create(1, oversized));
+    }
+
+    [Fact]
     public void Contracts_project_is_dependency_free_and_surface_is_evaluation_neutral()
     {
         var project = XDocument.Load(Path.Combine(

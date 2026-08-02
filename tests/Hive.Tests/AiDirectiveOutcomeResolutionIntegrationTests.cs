@@ -510,17 +510,20 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             audit,
             new StaticVerifier(OutcomeVerifierResult.Unavailable()),
             clockAt: DateTimeOffset.UtcNow);
+        var export = new RecordingAuditExportResultSink();
         var system = ActorSystem.Create($"outcome-enforcement-{Guid.NewGuid():N}");
         try
         {
             var actor = system.ActorOf(
                 Props.Create(() => new AiAgentActor(
                     request.Occupant,
-                    new StaticResponseInvoker(),
+                    new StaticResponseInvoker(
+                        "Private triage assessment.\n" +
+                        "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"medium\"],\"missing-information\":[\"environment\"]}}"),
                     AiDirectiveResultMessageEmissionGate.Instance,
                     AllowingAiAgentActionGate.Instance,
                     audit,
-                    NoopDirectiveAuditExportStore.Instance,
+                    export,
                     integrator)),
                 "agent");
 
@@ -537,6 +540,25 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
             Assert.IsType<Escalation>(message.Result!.Message);
             Assert.True(resolution.Found);
             Assert.Equal(OutcomeKind.Escalation, resolution.Result!.Resolution!.Outcome);
+            var capture = Assert.Single(export.Captures);
+            Assert.Equal("Escalation", capture.Result.MessageType);
+            Assert.DoesNotContain(
+                "Private triage assessment",
+                capture.Result.Content,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "hive-evaluation-v1",
+                capture.Result.Content,
+                StringComparison.Ordinal);
+            Assert.Equal("Report", capture.SupersededResult!.MessageType);
+            Assert.Contains(
+                "Private triage assessment",
+                capture.SupersededResult.Content,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "hive-evaluation-v1",
+                capture.SupersededResult.Content,
+                StringComparison.Ordinal);
             Assert.Contains(
                 audit.Records,
                 record => record.Stage == JourneyAuditStage.OutcomeResolved);
@@ -1140,7 +1162,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 new InvalidOperationException("dynamic resolution failure"));
     }
 
-    private sealed class StaticResponseInvoker : IAiAgentGatewayInvoker
+    private sealed class StaticResponseInvoker(string body = "Complete.")
+        : IAiAgentGatewayInvoker
     {
         public Task<AiAgentGatewayInvocationResult> InvokeAsync(
             AiAgentGatewayInvocation invocation,
@@ -1152,9 +1175,26 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                         invocation.Request.PositionId,
                         invocation.Request.ThreadId,
                         invocation.Request.MessageId,
-                        "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}",
+                        $"{{\"schema_version\":1,\"intent\":\"Report\",\"report\":{{\"kind\":\"Done\",\"body\":{System.Text.Json.JsonSerializer.Serialize(body)}}},\"outcome_proposal\":{{\"schema_version\":3,\"proposal\":{{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}}],\"information_gaps\":[],\"authority_request\":null}}}}}}",
                         AiFinishReason.Stop,
                         new AiProviderMetadata("stub", "model-v1"))));
+    }
+
+    private sealed class RecordingAuditExportResultSink : IDirectiveAuditExportResultSink
+    {
+        private readonly System.Collections.Concurrent.ConcurrentQueue<
+            DirectiveAuditExportResultCaptureData> _captures = new();
+
+        public IReadOnlyList<DirectiveAuditExportResultCaptureData> Captures =>
+            _captures.ToArray();
+
+        public ValueTask StoreAsync(
+            DirectiveAuditExportResultCaptureData capture,
+            CancellationToken cancellationToken = default)
+        {
+            _captures.Enqueue(capture);
+            return ValueTask.CompletedTask;
+        }
     }
 
     private sealed class SequencedResponseInvoker : IAiAgentGatewayInvoker

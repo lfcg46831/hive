@@ -71,8 +71,10 @@ public sealed class DirectiveAuditExportProfileTests
         var reader = new ScopedDirectiveAuditExportReader(catalog, storage);
         var sink = new ScopedDirectiveAuditExportResultSink(catalog, storage);
 
-        await sink.StoreAsync(Result(AllowedPosition));
-        await sink.StoreAsync(Result(OtherPosition));
+        await sink.StoreAsync(new DirectiveAuditExportResultCaptureData(
+            Result(AllowedPosition)));
+        await sink.StoreAsync(new DirectiveAuditExportResultCaptureData(
+            Result(OtherPosition)));
         var page = await reader.ReadAsync(
             Organization,
             Thread,
@@ -134,10 +136,10 @@ public sealed class DirectiveAuditExportProfileTests
                 Result(AllowedPosition)));
 
         public ValueTask StoreAsync(
-            DirectiveAuditExportResultData result,
+            DirectiveAuditExportResultCaptureData capture,
             CancellationToken cancellationToken = default)
         {
-            StoredResults.Add(result);
+            StoredResults.Add(capture.Result);
             return ValueTask.CompletedTask;
         }
 

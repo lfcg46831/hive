@@ -27,14 +27,15 @@ public sealed class PostgreSqlDirectiveAuditExportStoreTests(PostgreSqlFixture f
         await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
         var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
         var store = new PostgreSqlDirectiveAuditExportStore(dataSource);
-        await store.StoreAsync(new DirectiveAuditExportResultData(
-            Organization,
-            Thread,
-            Directive,
-            Position,
-            "Report",
-            1,
-            """{"schema_version":1,"type":"Report"}"""));
+        await store.StoreAsync(new DirectiveAuditExportResultCaptureData(
+            new DirectiveAuditExportResultData(
+                Organization,
+                Thread,
+                Directive,
+                Position,
+                "Report",
+                1,
+                """{"schema_version":1,"type":"Report"}""")));
         auditLog.Append(Record(
             1,
             JourneyAuditStage.SubmissionReceived,
@@ -84,6 +85,59 @@ public sealed class PostgreSqlDirectiveAuditExportStoreTests(PostgreSqlFixture f
         using var content = JsonDocument.Parse(firstPage.Result.Content);
         Assert.Equal("Report", content.RootElement.GetProperty("type").GetString());
         Assert.Equal(1, content.RootElement.GetProperty("schema_version").GetInt32());
+    }
+
+    [Fact]
+    public async Task Store_persists_only_the_observation_from_a_superseded_accepted_result()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await ResetAuditAsync(dataSource);
+        await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+        var auditLog = new PostgreSqlJourneyAuditLog(dataSource);
+        var store = new PostgreSqlDirectiveAuditExportStore(dataSource);
+        const string privateContent = "Private triage assessment.";
+        var acceptedReport = JsonSerializer.Serialize(new
+        {
+            Body = privateContent + "\n" +
+                "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"medium\"],\"missing-information\":[\"environment\"]}}",
+        });
+        await store.StoreAsync(new DirectiveAuditExportResultCaptureData(
+            new DirectiveAuditExportResultData(
+                Organization,
+                Thread,
+                Directive,
+                Position,
+                "Escalation",
+                1,
+                """{"Context":"Authoritative fail-safe."}"""),
+            new DirectiveAuditExportMessageData("Report", 1, acceptedReport)));
+        auditLog.Append(Record(
+            1,
+            JourneyAuditStage.ResultMessageCreated,
+            JourneyAuditOutcome.Succeeded));
+
+        var page = await store.ReadAsync(
+            Organization,
+            Thread,
+            Directive,
+            0,
+            100);
+
+        Assert.NotNull(page.Result);
+        Assert.Equal("Escalation", page.Result.MessageType);
+        Assert.DoesNotContain(privateContent, page.Result.Content, StringComparison.Ordinal);
+        Assert.NotNull(page.Result.AcceptedObservation);
+        Assert.Equal(
+            "{\"dimensions\":{\"missing-information\":[\"environment\"],\"severity\":[\"medium\"]}}",
+            page.Result.AcceptedObservation.Content);
+        Assert.DoesNotContain(
+            privateContent,
+            page.Result.AcceptedObservation.Content,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "hive-evaluation-v1",
+            page.Result.AcceptedObservation.Content,
+            StringComparison.Ordinal);
     }
 
     private static JourneyAuditRecord Record(

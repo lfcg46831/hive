@@ -100,7 +100,8 @@ public sealed class EvaluationRubric
 
     public EvaluationPrediction? ProjectResult(
         string messageType,
-        string canonicalContent)
+        string canonicalContent,
+        string? acceptedObservationContent = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(messageType);
         ArgumentException.ThrowIfNullOrWhiteSpace(canonicalContent);
@@ -123,7 +124,9 @@ public sealed class EvaluationRubric
             return null;
         }
 
-        var envelope = ProjectEnvelope(payload);
+        var envelope = acceptedObservationContent is null
+            ? ProjectEnvelope(payload)
+            : ProjectEnvelope(EnvelopeMarker + acceptedObservationContent);
         var resultKind = messageType.ToLowerInvariant();
         var dimensions = _dimensions
             .Select(item => item.Descriptor.Source switch

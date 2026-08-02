@@ -116,7 +116,8 @@ public sealed record DirectiveAuditExportResultData
         PositionId sourcePositionId,
         string messageType,
         int schemaVersion,
-        string content)
+        string content,
+        DirectiveAuditExportObservationData? acceptedObservation = null)
     {
         if (schemaVersion <= 0)
         {
@@ -132,6 +133,7 @@ public sealed record DirectiveAuditExportResultData
         MessageType = RequireText(messageType, nameof(messageType));
         SchemaVersion = schemaVersion;
         Content = RequireText(content, nameof(content));
+        AcceptedObservation = acceptedObservation;
     }
 
     public OrganizationId OrganizationId { get; }
@@ -141,6 +143,78 @@ public sealed record DirectiveAuditExportResultData
     public DirectiveId DirectiveId { get; }
 
     public PositionId SourcePositionId { get; }
+
+    public string MessageType { get; }
+
+    public int SchemaVersion { get; }
+
+    public string Content { get; }
+
+    /// <summary>
+    /// Optional bounded observation retained by the explicitly enabled audit/export adapter when
+    /// an accepted organizational result was superseded before emission. This contains only the
+    /// opaque observation envelope, never the superseded message itself.
+    /// </summary>
+    public DirectiveAuditExportObservationData? AcceptedObservation { get; }
+
+    private static string RequireText(string value, string parameterName)
+    {
+        ArgumentNullException.ThrowIfNull(value, parameterName);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new ArgumentException("Value cannot be empty or whitespace.", parameterName);
+        }
+
+        return value;
+    }
+}
+
+/// <summary>
+/// Transient capture handed to an explicitly enabled audit/export adapter. The superseded result
+/// is available only so that the adapter can retain its bounded observation; storage adapters must
+/// never persist the superseded organizational message itself.
+/// </summary>
+public sealed record DirectiveAuditExportResultCaptureData
+{
+    public DirectiveAuditExportResultCaptureData(
+        DirectiveAuditExportResultData result,
+        DirectiveAuditExportMessageData? supersededResult = null)
+    {
+        Result = result ?? throw new ArgumentNullException(nameof(result));
+        if (result.AcceptedObservation is not null)
+        {
+            throw new ArgumentException(
+                "A new audit/export capture cannot carry a precomputed accepted observation.",
+                nameof(result));
+        }
+
+        SupersededResult = supersededResult;
+    }
+
+    public DirectiveAuditExportResultData Result { get; }
+
+    public DirectiveAuditExportMessageData? SupersededResult { get; }
+}
+
+/// <summary>
+/// Canonical organizational message carried transiently across the audit/export adapter seam.
+/// </summary>
+public sealed record DirectiveAuditExportMessageData
+{
+    public DirectiveAuditExportMessageData(
+        string messageType,
+        int schemaVersion,
+        string content)
+    {
+        if (schemaVersion <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(schemaVersion));
+        }
+
+        MessageType = RequireText(messageType, nameof(messageType));
+        SchemaVersion = schemaVersion;
+        Content = RequireText(content, nameof(content));
+    }
 
     public string MessageType { get; }
 
@@ -160,6 +234,36 @@ public sealed record DirectiveAuditExportResultData
     }
 }
 
+/// <summary>
+/// Bounded, content-free observation projected from an accepted result that was superseded.
+/// </summary>
+public sealed record DirectiveAuditExportObservationData
+{
+    public const int CurrentContractVersion = 1;
+
+    public DirectiveAuditExportObservationData(int contractVersion, string content)
+    {
+        if (contractVersion != CurrentContractVersion)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(contractVersion),
+                contractVersion,
+                $"Only accepted-observation contract version {CurrentContractVersion} is supported.");
+        }
+
+        ContractVersion = contractVersion;
+        Content = string.IsNullOrWhiteSpace(content)
+            ? throw new ArgumentException(
+                "Accepted observation content cannot be empty or whitespace.",
+                nameof(content))
+            : content;
+    }
+
+    public int ContractVersion { get; }
+
+    public string Content { get; }
+}
+
 public interface IDirectiveAuditExportReader
 {
     ValueTask<DirectiveAuditExportPageData> ReadAsync(
@@ -174,7 +278,7 @@ public interface IDirectiveAuditExportReader
 public interface IDirectiveAuditExportResultSink
 {
     ValueTask StoreAsync(
-        DirectiveAuditExportResultData result,
+        DirectiveAuditExportResultCaptureData capture,
         CancellationToken cancellationToken = default);
 }
 
@@ -212,10 +316,10 @@ public sealed class NoopDirectiveAuditExportStore :
     }
 
     public ValueTask StoreAsync(
-        DirectiveAuditExportResultData result,
+        DirectiveAuditExportResultCaptureData capture,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(capture);
         cancellationToken.ThrowIfCancellationRequested();
         return ValueTask.CompletedTask;
     }

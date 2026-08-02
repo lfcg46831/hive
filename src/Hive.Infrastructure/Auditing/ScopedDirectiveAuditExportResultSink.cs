@@ -70,12 +70,14 @@ internal sealed class ScopedDirectiveAuditExportResultSink :
     }
 
     public ValueTask StoreAsync(
-        DirectiveAuditExportResultData result,
+        DirectiveAuditExportResultCaptureData capture,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(result);
-        return _catalog.Allows(result.OrganizationId, result.SourcePositionId)
-            ? _inner.StoreAsync(result, cancellationToken)
+        ArgumentNullException.ThrowIfNull(capture);
+        return _catalog.Allows(
+                capture.Result.OrganizationId,
+                capture.Result.SourcePositionId)
+            ? _inner.StoreAsync(capture, cancellationToken)
             : ValueTask.CompletedTask;
     }
 }

@@ -10,6 +10,9 @@ public static class AuditExportContract
     public const int Version = 1;
 
     public const string ResultMediaType = "application/vnd.hive.org-message+json";
+
+    public const string AcceptedObservationMediaType =
+        "application/vnd.hive.accepted-observation+json";
 }
 
 /// <summary>
@@ -28,4 +31,6 @@ public static class AuditExportContractLimits
     public const int MaxAttributePayloadBytes = 32 * 1_024;
 
     public const int MaxResultContentBytes = 64 * 1_024;
+
+    public const int MaxAcceptedObservationContentBytes = 4 * 1_024;
 }

@@ -444,7 +444,7 @@ public sealed class AiDirectiveRecoveryGuardTests
         public int StoreCount => Volatile.Read(ref _storeCount);
 
         public ValueTask StoreAsync(
-            DirectiveAuditExportResultData result,
+            DirectiveAuditExportResultCaptureData capture,
             CancellationToken cancellationToken = default)
         {
             Interlocked.Increment(ref _storeCount);

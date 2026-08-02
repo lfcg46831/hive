@@ -23,15 +23,50 @@ public static class OrganizationEndpointExtensions
     {
         ArgumentNullException.ThrowIfNull(endpoints);
 
-        var group = endpoints.MapGroup(BasePath);
+        var group = endpoints.MapGroup(BasePath)
+            .WithTags("Organization");
         group.MapGet(OrganogramRoute, ReadOrganogramAsync)
-            .WithName("GetOrganizationOrganogramV1");
+            .WithName("GetOrganizationOrganogramV1")
+            .WithSummary("Get the complete organization organogram")
+            .WithDescription(
+                "Returns the complete, deterministically ordered organogram snapshot. " +
+                "Pagination and query filtering do not apply to this snapshot resource.")
+            .Produces<OrganogramResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         group.MapGet(UnitOrganogramRoute, ReadUnitOrganogramAsync)
-            .WithName("GetOrganizationUnitOrganogramV1");
+            .WithName("GetOrganizationUnitOrganogramV1")
+            .WithSummary("Get an organogram subtree rooted at a unit")
+            .WithDescription(
+                "Returns the complete, deterministically ordered subtree for the requested unit. " +
+                "The unit route is the supported subtree filter; pagination and query filtering do not apply.")
+            .Produces<OrganogramResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         group.MapGet(PositionRoute, ReadPositionAsync)
-            .WithName("GetOrganizationPositionV1");
+            .WithName("GetOrganizationPositionV1")
+            .WithSummary("Get organization position details")
+            .WithDescription(
+                "Returns one position with its occupant, direct hierarchy and latest correlated operational event. " +
+                "Pagination and query filtering do not apply to this resource.")
+            .Produces<PositionDetailResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         group.MapGet(PositionStatesRoute, ReadPositionStatesAsync)
-            .WithName("GetOrganizationPositionStatesV1");
+            .WithName("GetOrganizationPositionStatesV1")
+            .WithSummary("Get the organization position-state snapshot")
+            .WithDescription(
+                "Returns the complete, deterministically ordered state snapshot used for controlled polling. " +
+                "Use If-None-Match with the response ETag to avoid transferring an unchanged snapshot. " +
+                "Pagination and query filtering do not apply.")
+            .Produces<PositionStatesResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         return endpoints;
     }
 

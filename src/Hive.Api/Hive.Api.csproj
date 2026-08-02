@@ -7,6 +7,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.7.3" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Hive.Actors\Hive.Actors.csproj" />
     <ProjectReference Include="..\Hive.Contracts\Hive.Contracts.csproj" />
     <ProjectReference Include="..\Hive.Infrastructure\Hive.Infrastructure.csproj" />

@@ -18,12 +18,14 @@ public static class Program
         builder.AddHiveActorSystem();
         builder.Services.AddHiveDirectiveAuditExportApi();
         builder.Services.AddHiveDirectiveSubmissionApi();
+        builder.Services.AddHiveOrganizationApi();
         builder.Services.AddHiveOrganizationRegistryApi();
 
         var app = builder.Build();
         app.MapHiveDiagnostics();
         app.MapHiveDirectiveAuditExportApi();
         app.MapHiveDirectiveSubmissionApi();
+        app.MapHiveOrganizationApi();
         app.MapHiveOrganizationRegistryApi();
         return app;
     }

@@ -700,7 +700,7 @@ internal static class EvaluationJourneyProjector
 
 internal static class EvaluationInvalidOutputDiagnosticContract
 {
-    public static IReadOnlySet<int> SupportedVersions { get; } = new HashSet<int> { 1, 2 };
+    public static IReadOnlySet<int> SupportedVersions { get; } = new HashSet<int> { 1, 2, 3 };
 
     public static IReadOnlySet<string> Codes { get; } = new HashSet<string>(StringComparer.Ordinal)
     {
@@ -761,8 +761,18 @@ internal static class EvaluationInvalidOutputDiagnosticContract
         "outcome_proposal.proposal.evidence_references.item",
         "outcome_proposal.proposal.evidence_references.item.reference",
         "outcome_proposal.proposal.evidence_references.item.source",
+        "outcome_proposal.proposal.information_gaps",
+        "outcome_proposal.proposal.information_gaps.item",
+        "outcome_proposal.proposal.information_gaps.item.materiality",
+        "outcome_proposal.proposal.information_gaps.item.materiality_reason",
+        "outcome_proposal.proposal.information_gaps.item.missing_evidence_reference",
         "outcome_proposal.proposal.next_action",
         "outcome_proposal.proposal.proposed_intent",
+        "outcome_proposal.proposal.authority_request",
+        "outcome_proposal.proposal.authority_request.authority_kind",
+        "outcome_proposal.proposal.authority_request.authority_reference",
+        "outcome_proposal.proposal.authority_request.decision",
+        "outcome_proposal.proposal.authority_request.position_limit_reason",
         "outcome_proposal.proposal.required_intervention",
         "outcome_proposal.proposal.work_state",
     };

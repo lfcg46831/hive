@@ -328,6 +328,36 @@ public sealed class EvaluationAuditReaderTests
     }
 
     [Fact]
+    public void Projects_v3_materiality_and_authority_parse_diagnostics()
+    {
+        var journey = EvaluationJourneyProjector.TryProject(
+        [
+            Row(0, "SubmissionReceived", "Accepted"),
+            Row(1, "GatewayCostRecorded", "Succeeded"),
+            Row(
+                2,
+                "AgentDecided",
+                "Failed",
+                reasonCode: "ai-output-invalid",
+                payload: "{\"parseErrorContractVersion\":\"3\",\"parseErrorCount\":\"2\",\"parseError.0.path\":\"outcome_proposal.proposal.authority_request.authority_reference\",\"parseError.0.code\":\"invalid-field\",\"parseError.1.path\":\"outcome_proposal.proposal.information_gaps.item.materiality\",\"parseError.1.code\":\"invalid-vocabulary\"}"),
+        ]);
+
+        var diagnostics = Assert.IsType<EvaluationInvalidOutputDiagnostics>(
+            journey!.InvalidOutputDiagnostics);
+        Assert.Equal(3, diagnostics.ContractVersion);
+        Assert.Equal(
+            [
+                new EvaluationInvalidOutputDiagnostic(
+                    "outcome_proposal.proposal.authority_request.authority_reference",
+                    "invalid-field"),
+                new EvaluationInvalidOutputDiagnostic(
+                    "outcome_proposal.proposal.information_gaps.item.materiality",
+                    "invalid-vocabulary"),
+            ],
+            diagnostics.Errors);
+    }
+
+    [Fact]
     public void Rejects_dynamic_or_unversioned_parse_diagnostics_from_the_read_model()
     {
         var rows = new[]

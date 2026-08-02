@@ -9,7 +9,8 @@ public sealed class EvaluationExperimentManifestTests
     [Fact]
     public void Bug005_manifest_resolves_versioned_execution_limits_and_configuration()
     {
-        var manifest = EvaluationExperimentManifest.Load(ManifestPath);
+        using var fixture = CurrentManifestFixture.Create();
+        var manifest = fixture.Manifest;
 
         Assert.Equal(EvaluationExperimentManifest.ContractName, manifest.Name);
         Assert.Equal(1, manifest.ManifestVersion);

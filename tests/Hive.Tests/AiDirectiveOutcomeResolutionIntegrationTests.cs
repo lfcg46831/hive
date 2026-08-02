@@ -1152,7 +1152,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                         invocation.Request.PositionId,
                         invocation.Request.ThreadId,
                         invocation.Request.MessageId,
-                        "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]}}}",
+                        "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}",
                         AiFinishReason.Stop,
                         new AiProviderMetadata("stub", "model-v1"))));
     }
@@ -1167,8 +1167,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         {
             CallCount++;
             var text = CallCount == 1
-                ? "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Partial.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Progress\",\"work_state\":\"InProgress\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":\"Continue triage.\",\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]}}}"
-                : "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]}}}";
+                ? "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Progress\",\"body\":\"Partial.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Progress\",\"work_state\":\"InProgress\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":\"Continue triage.\",\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}"
+                : "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}";
             return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
                 invocation.CorrelationId,
                 AiGatewayResponse.Succeeded(
@@ -1208,10 +1208,10 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         }
 
         private static string InvalidEvidenceResponse() =>
-            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"RuntimeFact\",\"reference\":\"runtime.fabricated\"}]}}}";
+            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"RuntimeFact\",\"reference\":\"runtime.fabricated\"}],\"information_gaps\":[],\"authority_request\":null}}}";
 
         private static string GroundedEvidenceResponse() =>
-            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]}}}";
+            "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}";
     }
 
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog

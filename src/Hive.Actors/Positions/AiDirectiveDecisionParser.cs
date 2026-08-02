@@ -23,7 +23,7 @@ internal sealed record AiDirectiveDecisionParseError
 
 internal static class AiDirectiveDecisionParseDiagnosticContract
 {
-    public const int Version = 2;
+    public const int Version = 3;
 
     public const string EmptyResponseCode = "empty-response";
     public const string InvalidJsonCode = "invalid-json";

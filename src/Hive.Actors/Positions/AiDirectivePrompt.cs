@@ -201,6 +201,10 @@ internal static class AiDirectivePrompt
                 $"Evidence may use only source \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\" and these exact bounded references: {EvidenceReferenceVocabulary(evidenceContext)}.");
             lines.Add(
                 "A Report.Done proposal requires at least one grounded allowed reference; never invent runtime, tool, completion-criterion, persisted-state, or other evidence.");
+            lines.Add(
+                $"Always include {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.InformationGapsProperty}; each item must identify one missing evidence reference and classify it as Material with exactly one closed materiality reason, or NonMaterial with a null reason. Do not infer materiality from prose outside these structured fields.");
+            lines.Add(
+                $"Set {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.AuthorityRequestProperty} to null for None or Delegation. HumanApproval, SuperiorDecision, and ExternalAction require a concrete decision, an applicable ActionDomain or ApprovalPolicy reference, and the reason this position cannot resolve it; never invent an authority reference.");
         }
 
         return string.Join(

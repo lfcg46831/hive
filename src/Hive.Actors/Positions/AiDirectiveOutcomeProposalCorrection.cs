@@ -176,5 +176,24 @@ internal static class AiDirectiveOutcomeProposalCorrection
                     source = OutcomeEvidenceSourceContract.ToWireValue(reference.Source),
                     reference = reference.Reference,
                 }),
+                information_gaps = proposal.InformationGaps.Select(gap => new
+                {
+                    missing_evidence_reference = gap.MissingEvidenceReference,
+                    materiality = OutcomeInformationGapMaterialityContract.ToWireValue(
+                        gap.Materiality),
+                    materiality_reason = gap.MaterialityReason is { } reason
+                        ? OutcomeInformationGapMaterialityReasonContract.ToWireValue(reason)
+                        : null,
+                }),
+                authority_request = proposal.AuthorityRequest is { } authorityRequest
+                    ? new
+                    {
+                        decision = authorityRequest.Decision,
+                        authority_kind = OutcomeAuthorityKindContract.ToWireValue(
+                            authorityRequest.AuthorityKind),
+                        authority_reference = authorityRequest.AuthorityReference,
+                        position_limit_reason = authorityRequest.PositionLimitReason,
+                    }
+                    : null,
             });
 }

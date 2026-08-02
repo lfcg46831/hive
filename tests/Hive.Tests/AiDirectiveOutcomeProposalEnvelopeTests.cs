@@ -14,7 +14,7 @@ public sealed class AiDirectiveOutcomeProposalEnvelopeTests
             "report": { "kind": "Done", "body": "Triage completed." }
           },
           "outcome_proposal": {
-            "schema_version": 2,
+            "schema_version": 3,
             "proposal": {
               "proposed_intent": "Report.Done",
               "work_state": "Completed",
@@ -23,14 +23,16 @@ public sealed class AiDirectiveOutcomeProposalEnvelopeTests
               "next_action": null,
               "evidence_references": [
                 { "source": "DirectiveInput", "reference": "directive.context" }
-              ]
+              ],
+              "information_gaps": [],
+              "authority_request": null
             }
           }
         }
         """;
 
     [Fact]
-    public void Compose_requires_the_complete_v2_proposal_without_mutating_the_base_schema()
+    public void Compose_requires_the_complete_v3_proposal_without_mutating_the_base_schema()
     {
         var composed = AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(
             AiDirectiveDecisionSchema.OutputConstraint);
@@ -54,7 +56,7 @@ public sealed class AiDirectiveOutcomeProposalEnvelopeTests
     }
 
     [Fact]
-    public void Parser_returns_the_validated_v2_proposal_with_the_functional_decision()
+    public void Parser_returns_the_validated_v3_proposal_with_the_functional_decision()
     {
         var result = AiDirectiveDecisionParser.Parse(
             DoneResponse,
@@ -64,6 +66,8 @@ public sealed class AiDirectiveOutcomeProposalEnvelopeTests
         Assert.Equal(OutcomeProposedIntent.ReportDone, result.Proposal!.ProposedIntent);
         Assert.Equal(OutcomeWorkState.Completed, result.Proposal.WorkState);
         Assert.Equal("directive.context", Assert.Single(result.Proposal.EvidenceReferences).Reference);
+        Assert.Empty(result.Proposal.InformationGaps);
+        Assert.Null(result.Proposal.AuthorityRequest);
     }
 
     [Fact]
@@ -106,7 +110,7 @@ public sealed class AiDirectiveOutcomeProposalEnvelopeTests
     public void Parser_rejects_duplicate_top_level_proposals()
     {
         var proposalJson = DoneResponse[DoneResponse.IndexOf(
-            "{\n    \"schema_version\": 2",
+            "{\n    \"schema_version\": 3",
             StringComparison.Ordinal)..^2];
         var output = DoneResponse.TrimEnd()[..^1] +
             ",\n  \"outcome_proposal\": " + proposalJson + "\n}";

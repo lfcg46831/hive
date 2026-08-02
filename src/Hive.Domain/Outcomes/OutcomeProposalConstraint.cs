@@ -7,8 +7,9 @@ namespace Hive.Domain.Outcomes;
 
 public static class OutcomeProposalConstraint
 {
+    public const int MaximumInformationGaps = 32;
     public const int SchemaVersion = OrganizationalOutcomeContractVersions.OutcomeProposal;
-    public const string SchemaName = "hive_outcome_proposal_v2";
+    public const string SchemaName = "hive_outcome_proposal_v3";
     public const string SchemaVersionProperty = "schema_version";
     public const string ProposalProperty = "proposal";
     public const string ProposedIntentProperty = "proposed_intent";
@@ -19,6 +20,15 @@ public static class OutcomeProposalConstraint
     public const string EvidenceReferencesProperty = "evidence_references";
     public const string EvidenceSourceProperty = "source";
     public const string EvidenceReferenceProperty = "reference";
+    public const string InformationGapsProperty = "information_gaps";
+    public const string MissingEvidenceReferenceProperty = "missing_evidence_reference";
+    public const string MaterialityProperty = "materiality";
+    public const string MaterialityReasonProperty = "materiality_reason";
+    public const string AuthorityRequestProperty = "authority_request";
+    public const string AuthorityDecisionProperty = "decision";
+    public const string AuthorityKindProperty = "authority_kind";
+    public const string AuthorityReferenceProperty = "authority_reference";
+    public const string PositionLimitReasonProperty = "position_limit_reason";
 
     public static ImmutableArray<string> ProposalRequiredFields { get; } =
     [
@@ -28,12 +38,29 @@ public static class OutcomeProposalConstraint
         BlockersProperty,
         NextActionProperty,
         EvidenceReferencesProperty,
+        InformationGapsProperty,
+        AuthorityRequestProperty,
     ];
 
     public static ImmutableArray<string> EvidenceRequiredFields { get; } =
     [
         EvidenceSourceProperty,
         EvidenceReferenceProperty,
+    ];
+
+    public static ImmutableArray<string> InformationGapRequiredFields { get; } =
+    [
+        MissingEvidenceReferenceProperty,
+        MaterialityProperty,
+        MaterialityReasonProperty,
+    ];
+
+    public static ImmutableArray<string> AuthorityRequestRequiredFields { get; } =
+    [
+        AuthorityDecisionProperty,
+        AuthorityKindProperty,
+        AuthorityReferenceProperty,
+        PositionLimitReasonProperty,
     ];
 
     private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema(
@@ -225,6 +252,9 @@ public static class OutcomeProposalConstraint
                 [EvidenceReferencesProperty] = CreateEvidenceReferencesSchema(
                     minimumEvidenceReferences,
                     evidenceContext),
+                [InformationGapsProperty] = CreateInformationGapsSchema(),
+                [AuthorityRequestProperty] = CreateAuthorityRequestSchema(
+                    interventions.Any(IsExternalIntervention)),
             },
             ["required"] = JsonArray(ProposalRequiredFields),
             ["additionalProperties"] = false,
@@ -296,6 +326,90 @@ public static class OutcomeProposalConstraint
 
         return schema;
     }
+
+    private static JsonObject CreateInformationGapsSchema() =>
+        new()
+        {
+            ["type"] = "array",
+            ["maxItems"] = MaximumInformationGaps,
+            ["items"] = new JsonObject
+            {
+                ["anyOf"] = new JsonArray
+                {
+                    CreateInformationGapBranch(
+                        OutcomeInformationGapMateriality.Material,
+                        new JsonObject
+                        {
+                            ["type"] = "string",
+                            ["enum"] = JsonArray(
+                                OutcomeInformationGapMaterialityReasonContract.WireValues),
+                        }),
+                    CreateInformationGapBranch(
+                        OutcomeInformationGapMateriality.NonMaterial,
+                        new JsonObject { ["type"] = "null" }),
+                },
+            },
+            ["uniqueItems"] = true,
+        };
+
+    private static JsonObject CreateInformationGapBranch(
+        OutcomeInformationGapMateriality materiality,
+        JsonNode materialityReasonSchema) =>
+        new()
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                [MissingEvidenceReferenceProperty] = CreateEvidenceReferenceSchema(
+                    evidenceContext: null),
+                [MaterialityProperty] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["const"] = OutcomeInformationGapMaterialityContract.ToWireValue(
+                        materiality),
+                },
+                [MaterialityReasonProperty] = materialityReasonSchema,
+            },
+            ["required"] = JsonArray(InformationGapRequiredFields),
+            ["additionalProperties"] = false,
+        };
+
+    private static JsonNode CreateAuthorityRequestSchema(bool required) =>
+        required
+            ? new JsonObject
+            {
+                ["anyOf"] = new JsonArray
+                {
+                    CreateAuthorityRequestBranch(OutcomeAuthorityKind.ActionDomain),
+                    CreateAuthorityRequestBranch(OutcomeAuthorityKind.ApprovalPolicy),
+                },
+            }
+            : new JsonObject { ["type"] = "null" };
+
+    private static JsonObject CreateAuthorityRequestBranch(OutcomeAuthorityKind authorityKind) =>
+        new()
+        {
+            ["type"] = "object",
+            ["properties"] = new JsonObject
+            {
+                [AuthorityDecisionProperty] = CreateNonBlankStringSchema(),
+                [AuthorityKindProperty] = new JsonObject
+                {
+                    ["type"] = "string",
+                    ["const"] = OutcomeAuthorityKindContract.ToWireValue(authorityKind),
+                },
+                [AuthorityReferenceProperty] = CreateEvidenceReferenceSchema(
+                    evidenceContext: null),
+                [PositionLimitReasonProperty] = CreateNonBlankStringSchema(),
+            },
+            ["required"] = JsonArray(AuthorityRequestRequiredFields),
+            ["additionalProperties"] = false,
+        };
+
+    private static bool IsExternalIntervention(OutcomeRequiredIntervention intervention) =>
+        intervention is OutcomeRequiredIntervention.HumanApproval or
+            OutcomeRequiredIntervention.SuperiorDecision or
+            OutcomeRequiredIntervention.ExternalAction;
 
     private static JsonObject CreateNonBlankStringSchema() =>
         new()

@@ -292,7 +292,7 @@ public sealed class AiDirectiveCheckpointCoordinatorTests
             },
             outcome_proposal = new
             {
-                schema_version = 2,
+                schema_version = 3,
                 proposal = new
                 {
                     proposed_intent = proposedIntent,
@@ -304,6 +304,8 @@ public sealed class AiDirectiveCheckpointCoordinatorTests
                     {
                         new { source = "DirectiveInput", reference = "directive.context" },
                     },
+                    information_gaps = Array.Empty<object>(),
+                    authority_request = (object?)null,
                 },
             },
         });

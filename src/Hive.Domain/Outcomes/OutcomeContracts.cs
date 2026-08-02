@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using Hive.Domain.Governance;
+using Hive.Domain.Identity;
 
 namespace Hive.Domain.Outcomes;
 
@@ -6,7 +8,7 @@ public static class OrganizationalOutcomeContractVersions
 {
     public const int ExecutionFacts = 2;
     public const int DirectiveExecution = 1;
-    public const int OutcomeProposal = 2;
+    public const int OutcomeProposal = 3;
     public const int PolicySnapshot = 1;
     public const int OutcomeResolution = 4;
     public const int OutcomeVerification = 2;
@@ -215,6 +217,85 @@ public static class OutcomeEvidenceSourceContract
         Contract.ToWireValue(value);
 
     public static bool TryParseWireValue(string? value, out OutcomeEvidenceSource result) =>
+        Contract.TryParseWireValue(value, out result);
+}
+
+public enum OutcomeInformationGapMateriality
+{
+    Material = 1,
+    NonMaterial = 2,
+}
+
+public static class OutcomeInformationGapMaterialityContract
+{
+    private static readonly OutcomeEnumWireContract<OutcomeInformationGapMateriality> Contract = new(
+        (OutcomeInformationGapMateriality.Material, "Material"),
+        (OutcomeInformationGapMateriality.NonMaterial, "NonMaterial"));
+
+    public static ImmutableArray<string> WireValues => Contract.WireValues;
+
+    public static OutcomeInformationGapMateriality RequireDefined(
+        OutcomeInformationGapMateriality value,
+        string parameterName) => Contract.RequireDefined(value, parameterName);
+
+    public static string ToWireValue(OutcomeInformationGapMateriality value) =>
+        Contract.ToWireValue(value);
+
+    public static bool TryParseWireValue(
+        string? value,
+        out OutcomeInformationGapMateriality result) => Contract.TryParseWireValue(value, out result);
+}
+
+public enum OutcomeInformationGapMaterialityReason
+{
+    ChangesSeverity = 1,
+    MakesNextActionUnsafe = 2,
+    PreventsConclusion = 3,
+}
+
+public static class OutcomeInformationGapMaterialityReasonContract
+{
+    private static readonly OutcomeEnumWireContract<OutcomeInformationGapMaterialityReason> Contract = new(
+        (OutcomeInformationGapMaterialityReason.ChangesSeverity, "ChangesSeverity"),
+        (OutcomeInformationGapMaterialityReason.MakesNextActionUnsafe, "MakesNextActionUnsafe"),
+        (OutcomeInformationGapMaterialityReason.PreventsConclusion, "PreventsConclusion"));
+
+    public static ImmutableArray<string> WireValues => Contract.WireValues;
+
+    public static OutcomeInformationGapMaterialityReason RequireDefined(
+        OutcomeInformationGapMaterialityReason value,
+        string parameterName) => Contract.RequireDefined(value, parameterName);
+
+    public static string ToWireValue(OutcomeInformationGapMaterialityReason value) =>
+        Contract.ToWireValue(value);
+
+    public static bool TryParseWireValue(
+        string? value,
+        out OutcomeInformationGapMaterialityReason result) =>
+        Contract.TryParseWireValue(value, out result);
+}
+
+public enum OutcomeAuthorityKind
+{
+    ActionDomain = 1,
+    ApprovalPolicy = 2,
+}
+
+public static class OutcomeAuthorityKindContract
+{
+    private static readonly OutcomeEnumWireContract<OutcomeAuthorityKind> Contract = new(
+        (OutcomeAuthorityKind.ActionDomain, "ActionDomain"),
+        (OutcomeAuthorityKind.ApprovalPolicy, "ApprovalPolicy"));
+
+    public static ImmutableArray<string> WireValues => Contract.WireValues;
+
+    public static OutcomeAuthorityKind RequireDefined(
+        OutcomeAuthorityKind value,
+        string parameterName) => Contract.RequireDefined(value, parameterName);
+
+    public static string ToWireValue(OutcomeAuthorityKind value) => Contract.ToWireValue(value);
+
+    public static bool TryParseWireValue(string? value, out OutcomeAuthorityKind result) =>
         Contract.TryParseWireValue(value, out result);
 }
 
@@ -520,6 +601,85 @@ public sealed record OutcomeEvidenceReference
     public string Reference { get; }
 }
 
+public sealed record OutcomeInformationGap
+{
+    public OutcomeInformationGap(
+        string missingEvidenceReference,
+        OutcomeInformationGapMateriality materiality,
+        OutcomeInformationGapMaterialityReason? materialityReason)
+    {
+        MissingEvidenceReference = OutcomeContractGuards.RequireReference(
+            missingEvidenceReference,
+            nameof(missingEvidenceReference));
+        Materiality = OutcomeInformationGapMaterialityContract.RequireDefined(
+            materiality,
+            nameof(materiality));
+        MaterialityReason = materialityReason is { } reason
+            ? OutcomeInformationGapMaterialityReasonContract.RequireDefined(
+                reason,
+                nameof(materialityReason))
+            : null;
+
+        if ((Materiality == OutcomeInformationGapMateriality.Material) !=
+            (MaterialityReason is not null))
+        {
+            throw new ArgumentException(
+                "Material information gaps require a closed reason and non-material gaps forbid one.",
+                nameof(materialityReason));
+        }
+    }
+
+    public string MissingEvidenceReference { get; }
+
+    public OutcomeInformationGapMateriality Materiality { get; }
+
+    public OutcomeInformationGapMaterialityReason? MaterialityReason { get; }
+}
+
+public sealed record OutcomeAuthorityRequest
+{
+    public OutcomeAuthorityRequest(
+        string decision,
+        OutcomeAuthorityKind authorityKind,
+        string authorityReference,
+        string positionLimitReason)
+    {
+        Decision = OutcomeContractGuards.RequireText(decision, nameof(decision));
+        AuthorityKind = OutcomeAuthorityKindContract.RequireDefined(
+            authorityKind,
+            nameof(authorityKind));
+        AuthorityReference = ValidateAuthorityReference(
+            AuthorityKind,
+            authorityReference);
+        PositionLimitReason = OutcomeContractGuards.RequireText(
+            positionLimitReason,
+            nameof(positionLimitReason));
+    }
+
+    public string Decision { get; }
+
+    public OutcomeAuthorityKind AuthorityKind { get; }
+
+    public string AuthorityReference { get; }
+
+    public string PositionLimitReason { get; }
+
+    private static string ValidateAuthorityReference(
+        OutcomeAuthorityKind kind,
+        string reference)
+    {
+        var boundedReference = OutcomeContractGuards.RequireReference(
+            reference,
+            nameof(reference));
+        return kind switch
+        {
+            OutcomeAuthorityKind.ActionDomain => AuthorityKey.From(boundedReference).Value,
+            OutcomeAuthorityKind.ApprovalPolicy => ApprovalPolicyRef.From(boundedReference).Value,
+            _ => throw new InvalidOperationException("Validated authority kind is not mapped."),
+        };
+    }
+}
+
 public sealed record OutcomeProposal
 {
     public OutcomeProposal(
@@ -528,7 +688,9 @@ public sealed record OutcomeProposal
         OutcomeRequiredIntervention requiredIntervention,
         IEnumerable<OutcomeBlocker>? blockers,
         string? nextAction,
-        IEnumerable<OutcomeEvidenceReference>? evidenceReferences)
+        IEnumerable<OutcomeEvidenceReference>? evidenceReferences,
+        IEnumerable<OutcomeInformationGap>? informationGaps = null,
+        OutcomeAuthorityRequest? authorityRequest = null)
     {
         ProposedIntent = OutcomeProposedIntentContract.RequireDefined(
             proposedIntent,
@@ -540,6 +702,8 @@ public sealed record OutcomeProposal
         Blockers = OutcomeContractGuards.SnapshotDefinedDistinct(blockers, nameof(blockers));
         NextAction = OutcomeContractGuards.OptionalText(nextAction, nameof(nextAction));
         EvidenceReferences = SnapshotEvidence(evidenceReferences);
+        InformationGaps = SnapshotInformationGaps(informationGaps);
+        AuthorityRequest = authorityRequest;
 
         OutcomeProposalRules.RequireValidCombination(
             ProposedIntent,
@@ -564,6 +728,10 @@ public sealed record OutcomeProposal
 
     public ImmutableArray<OutcomeEvidenceReference> EvidenceReferences { get; }
 
+    public ImmutableArray<OutcomeInformationGap> InformationGaps { get; }
+
+    public OutcomeAuthorityRequest? AuthorityRequest { get; }
+
     private static ImmutableArray<OutcomeEvidenceReference> SnapshotEvidence(
         IEnumerable<OutcomeEvidenceReference>? evidenceReferences)
     {
@@ -585,6 +753,34 @@ public sealed record OutcomeProposal
             throw new ArgumentException(
                 "Outcome evidence references must be unique.",
                 nameof(evidenceReferences));
+        }
+
+        return snapshot;
+    }
+
+    private static ImmutableArray<OutcomeInformationGap> SnapshotInformationGaps(
+        IEnumerable<OutcomeInformationGap>? informationGaps)
+    {
+        if (informationGaps is null)
+        {
+            return [];
+        }
+
+        var snapshot = informationGaps.ToImmutableArray();
+        if (snapshot.Any(gap => gap is null))
+        {
+            throw new ArgumentException(
+                "Outcome information gaps cannot contain null entries.",
+                nameof(informationGaps));
+        }
+
+        if (snapshot.Select(gap => gap.MissingEvidenceReference)
+            .Distinct(StringComparer.Ordinal)
+            .Count() != snapshot.Length)
+        {
+            throw new ArgumentException(
+                "Outcome information gaps must use unique missing evidence references.",
+                nameof(informationGaps));
         }
 
         return snapshot;

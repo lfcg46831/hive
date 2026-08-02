@@ -41,6 +41,10 @@ public sealed class AiDirectivePromptTests
                 .Select(item => item.GetString()));
         Assert.Contains("non-authoritative proposal", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("directive.context", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("information_gaps", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("authority_request", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("NonMaterial", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("ActionDomain", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Equal(
             OutcomeProposalConstraint.SchemaVersion,
             request.OutputConstraint.JsonSchema.GetProperty("properties")

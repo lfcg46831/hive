@@ -76,11 +76,11 @@ public sealed class OutcomeProposalParserTests
         { "{", "invalid-json", "$" },
         { "[]", "top-level-object-required", "$" },
         { "{\"proposal\":{}}", "required-field", "schema_version" },
-        { "{\"schema_version\":1,\"proposal\":{}}", "invalid-schema-version", "schema_version" },
-        { "{\"schema_version\":2}", "required-field", "proposal" },
-        { "{\"schema_version\":2,\"proposal\":null}", "invalid-field", "proposal" },
+        { "{\"schema_version\":2,\"proposal\":{}}", "invalid-schema-version", "schema_version" },
+        { "{\"schema_version\":3}", "required-field", "proposal" },
+        { "{\"schema_version\":3,\"proposal\":null}", "invalid-field", "proposal" },
         {
-            "{\"schema_version\":2,\"proposal\":{\"proposed_intent\":\"ContinueWork\",\"work_state\":\"InProgress\",\"required_intervention\":\"None\",\"blockers\":[],\"evidence_references\":[]}}",
+            "{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"ContinueWork\",\"work_state\":\"InProgress\",\"required_intervention\":\"None\",\"blockers\":[],\"evidence_references\":[],\"information_gaps\":[],\"authority_request\":null}}",
             "required-field",
             "proposal.next_action"
         },
@@ -139,14 +139,14 @@ public sealed class OutcomeProposalParserTests
         var constraint = OutcomeProposalConstraint.OutputConstraint;
         var root = constraint.JsonSchema;
 
-        Assert.Equal("hive_outcome_proposal_v2", constraint.SchemaName);
-        Assert.Equal(2, constraint.SchemaVersion);
+        Assert.Equal("hive_outcome_proposal_v3", constraint.SchemaName);
+        Assert.Equal(3, constraint.SchemaVersion);
         Assert.Equal(
             [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text],
             constraint.AllowedFallbackModes);
         Assert.False(root.GetProperty("additionalProperties").GetBoolean());
         Assert.Equal(
-            2,
+            3,
             root.GetProperty("properties")
                 .GetProperty("schema_version")
                 .GetProperty("const")
@@ -176,6 +176,22 @@ public sealed class OutcomeProposalParserTests
                     Strings(evidenceItem.GetProperty("properties")
                         .GetProperty("source")
                         .GetProperty("enum")));
+                var gapItems = branch.GetProperty("properties")
+                    .GetProperty("information_gaps")
+                    .GetProperty("items")
+                    .GetProperty("anyOf")
+                    .EnumerateArray()
+                    .ToArray();
+                Assert.Equal(2, gapItems.Length);
+                Assert.All(
+                    gapItems,
+                    item =>
+                    {
+                        Assert.False(item.GetProperty("additionalProperties").GetBoolean());
+                        Assert.Equal(
+                            OutcomeProposalConstraint.InformationGapRequiredFields,
+                            Strings(item.GetProperty("required")));
+                    });
             });
 
         var branchIntents = branches
@@ -351,6 +367,187 @@ public sealed class OutcomeProposalParserTests
         Assert.Equal("First line.\n  Second  line.", result.Proposal!.NextAction);
     }
 
+    [Fact]
+    public void Parser_materializes_material_and_non_material_information_gaps()
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "Report.Done",
+            "Completed",
+            "None",
+            "[]",
+            null,
+            "[{\"source\":\"CompletionCriterion\",\"reference\":\"criterion.done\"}]",
+            "[{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"Material\",\"materiality_reason\":\"ChangesSeverity\"},{\"missing_evidence_reference\":\"input.screenshot\",\"materiality\":\"NonMaterial\",\"materiality_reason\":null}]"));
+
+        AssertSuccess(result);
+        Assert.Collection(
+            result.Proposal!.InformationGaps,
+            material =>
+            {
+                Assert.Equal("input.environment", material.MissingEvidenceReference);
+                Assert.Equal(OutcomeInformationGapMateriality.Material, material.Materiality);
+                Assert.Equal(
+                    OutcomeInformationGapMaterialityReason.ChangesSeverity,
+                    material.MaterialityReason);
+            },
+            nonMaterial =>
+            {
+                Assert.Equal("input.screenshot", nonMaterial.MissingEvidenceReference);
+                Assert.Equal(
+                    OutcomeInformationGapMateriality.NonMaterial,
+                    nonMaterial.Materiality);
+                Assert.Null(nonMaterial.MaterialityReason);
+            });
+        Assert.Null(result.Proposal.AuthorityRequest);
+    }
+
+    [Fact]
+    public void Parser_materializes_a_fully_grounded_authority_request()
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "Escalation",
+            "Blocked",
+            "SuperiorDecision",
+            "[\"SuperiorDecision\"]",
+            null,
+            "[]",
+            authorityRequest: "{\"decision\":\"Choose the release disposition.\",\"authority_kind\":\"ActionDomain\",\"authority_reference\":\"delivery.release-prod\",\"position_limit_reason\":\"This position cannot authorize production release.\"}"));
+
+        AssertSuccess(result);
+        var authority = Assert.IsType<OutcomeAuthorityRequest>(result.Proposal!.AuthorityRequest);
+        Assert.Equal("Choose the release disposition.", authority.Decision);
+        Assert.Equal(OutcomeAuthorityKind.ActionDomain, authority.AuthorityKind);
+        Assert.Equal("delivery.release-prod", authority.AuthorityReference);
+        Assert.Equal(
+            "This position cannot authorize production release.",
+            authority.PositionLimitReason);
+    }
+
+    [Fact]
+    public void Parser_accepts_an_applicable_approval_policy_reference()
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "ApprovalRequired",
+            "Blocked",
+            "HumanApproval",
+            "[\"HumanApproval\"]",
+            null,
+            "[]",
+            authorityRequest: "{\"decision\":\"Approve the production release.\",\"authority_kind\":\"ApprovalPolicy\",\"authority_reference\":\"requires-human-approval\",\"position_limit_reason\":\"A human approver is required by policy.\"}"));
+
+        AssertSuccess(result);
+        var authority = Assert.IsType<OutcomeAuthorityRequest>(result.Proposal!.AuthorityRequest);
+        Assert.Equal(OutcomeAuthorityKind.ApprovalPolicy, authority.AuthorityKind);
+        Assert.Equal("requires-human-approval", authority.AuthorityReference);
+    }
+
+    [Theory]
+    [InlineData(
+        "[{\"missing_evidence_reference\":\"input.environment\",\"materiality_reason\":\"ChangesSeverity\"}]",
+        "required-field",
+        "proposal.information_gaps.item.materiality")]
+    [InlineData(
+        "[{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"Material\",\"materiality_reason\":null}]",
+        "invalid-field",
+        "proposal.information_gaps.item.materiality_reason")]
+    [InlineData(
+        "[{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"NonMaterial\",\"materiality_reason\":\"PreventsConclusion\"}]",
+        "contradictory-combination",
+        "proposal.information_gaps.item")]
+    [InlineData(
+        "[{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"Useful\",\"materiality_reason\":null}]",
+        "invalid-vocabulary",
+        "proposal.information_gaps.item.materiality")]
+    public void Parser_rejects_unclassified_or_open_information_gap_materiality(
+        string informationGaps,
+        string expectedCode,
+        string expectedPath)
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "Report.Done",
+            "Completed",
+            "None",
+            "[]",
+            null,
+            "[{\"source\":\"CompletionCriterion\",\"reference\":\"criterion.done\"}]",
+            informationGaps));
+
+        AssertFailure(result, expectedCode, expectedPath);
+    }
+
+    [Fact]
+    public void Parser_rejects_duplicate_missing_evidence_references()
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "Report.Done",
+            "Completed",
+            "None",
+            "[]",
+            null,
+            "[{\"source\":\"CompletionCriterion\",\"reference\":\"criterion.done\"}]",
+            "[{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"Material\",\"materiality_reason\":\"ChangesSeverity\"},{\"missing_evidence_reference\":\"input.environment\",\"materiality\":\"NonMaterial\",\"materiality_reason\":null}]"));
+
+        AssertFailure(result, "invalid-field", "proposal.information_gaps");
+    }
+
+    [Theory]
+    [InlineData("None", "{\"decision\":\"Choose.\",\"authority_kind\":\"ActionDomain\",\"authority_reference\":\"delivery.release\",\"position_limit_reason\":\"Outside authority.\"}")]
+    [InlineData("SuperiorDecision", "null")]
+    public void Parser_rejects_authority_requests_that_contradict_the_intervention(
+        string intervention,
+        string authorityRequest)
+    {
+        var intent = intervention == "None" ? "Report.Done" : "Escalation";
+        var workState = intervention == "None" ? "Completed" : "Blocked";
+        var blockers = intervention == "None" ? "[]" : "[\"SuperiorDecision\"]";
+        var evidence = intervention == "None"
+            ? "[{\"source\":\"CompletionCriterion\",\"reference\":\"criterion.done\"}]"
+            : "[]";
+        var result = OutcomeProposalParser.Parse(Envelope(
+            intent,
+            workState,
+            intervention,
+            blockers,
+            null,
+            evidence,
+            authorityRequest: authorityRequest));
+
+        AssertFailure(
+            result,
+            "contradictory-combination",
+            "proposal.authority_request");
+    }
+
+    [Theory]
+    [InlineData(
+        "{\"authority_kind\":\"ActionDomain\",\"authority_reference\":\"delivery.release\",\"position_limit_reason\":\"Outside authority.\"}",
+        "required-field",
+        "proposal.authority_request.decision")]
+    [InlineData(
+        "{\"decision\":\"Choose.\",\"authority_kind\":\"Team\",\"authority_reference\":\"delivery.release\",\"position_limit_reason\":\"Outside authority.\"}",
+        "invalid-vocabulary",
+        "proposal.authority_request.authority_kind")]
+    [InlineData(
+        "{\"decision\":\"Choose.\",\"authority_kind\":\"ActionDomain\",\"authority_reference\":\"release\",\"position_limit_reason\":\"Outside authority.\"}",
+        "invalid-field",
+        "proposal.authority_request.authority_reference")]
+    public void Parser_rejects_incomplete_or_open_authority_grounding(
+        string authorityRequest,
+        string expectedCode,
+        string expectedPath)
+    {
+        var result = OutcomeProposalParser.Parse(Envelope(
+            "Escalation",
+            "Blocked",
+            "SuperiorDecision",
+            "[\"SuperiorDecision\"]",
+            null,
+            "[]",
+            authorityRequest: authorityRequest));
+
+        AssertFailure(result, expectedCode, expectedPath);
+    }
+
     [Theory]
     [MemberData(nameof(InvalidOutputs))]
     public void Invalid_output_fails_with_minimized_closed_diagnostics(
@@ -368,7 +565,7 @@ public sealed class OutcomeProposalParserTests
     {
         const string output = """
             {
-              "schema_version": 2,
+              "schema_version": 3,
               "proposal": {
                 "proposed_intent": "ContinueWork",
                 "work_state": "InProgress",
@@ -376,6 +573,8 @@ public sealed class OutcomeProposalParserTests
                 "blockers": [],
                 "next_action": "Continue the authorized work.",
                 "evidence_references": [],
+                "information_gaps": [],
+                "authority_request": null,
                 "reasoning": "Hidden rationale",
                 "report_body": "This must not be materialized yet."
               }
@@ -420,15 +619,17 @@ public sealed class OutcomeProposalParserTests
         var duplicateField = OutcomeProposalParser.Parse(
             """
             {
-              "schema_version": 2,
-              "schema_version": 2,
+              "schema_version": 3,
+              "schema_version": 3,
               "proposal": {
                 "proposed_intent": "ContinueWork",
                 "work_state": "InProgress",
                 "required_intervention": "None",
                 "blockers": [],
                 "next_action": "Continue.",
-                "evidence_references": []
+                "evidence_references": [],
+                "information_gaps": [],
+                "authority_request": null
               }
             }
             """);
@@ -455,7 +656,7 @@ public sealed class OutcomeProposalParserTests
     [Fact]
     public void Diagnostic_contract_is_closed_versioned_and_deterministically_ordered()
     {
-        Assert.Equal(1, OutcomeProposalParseDiagnosticContract.Version);
+        Assert.Equal(2, OutcomeProposalParseDiagnosticContract.Version);
         Assert.Equal(
             OutcomeProposalParseDiagnosticContract.Codes.OrderBy(code => code, StringComparer.Ordinal),
             OutcomeProposalParseDiagnosticContract.Codes);
@@ -484,19 +685,26 @@ public sealed class OutcomeProposalParserTests
         string intervention,
         string blockers,
         string? nextAction,
-        string evidence)
+        string evidence,
+        string informationGaps = "[]",
+        string? authorityRequest = null)
     {
         var nextActionValue = nextAction ?? "null";
+        authorityRequest ??= intervention is "None" or "Delegation"
+            ? "null"
+            : "{\"decision\":\"Choose the required disposition.\",\"authority_kind\":\"ActionDomain\",\"authority_reference\":\"delivery.disposition\",\"position_limit_reason\":\"The current position cannot make this decision.\"}";
         return $$"""
             {
-              "schema_version": 2,
+              "schema_version": 3,
               "proposal": {
                 "proposed_intent": "{{intent}}",
                 "work_state": "{{workState}}",
                 "required_intervention": "{{intervention}}",
                 "blockers": {{blockers}},
                 "next_action": {{nextActionValue}},
-                "evidence_references": {{evidence}}
+                "evidence_references": {{evidence}},
+                "information_gaps": {{informationGaps}},
+                "authority_request": {{authorityRequest}}
               }
             }
             """;

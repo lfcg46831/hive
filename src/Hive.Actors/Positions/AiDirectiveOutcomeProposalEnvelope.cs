@@ -7,7 +7,7 @@ using Hive.Domain.Outcomes;
 namespace Hive.Actors.Positions;
 
 /// <summary>
-/// Composes the non-authoritative OutcomeProposal v2 contract into an AI directive response.
+/// Composes the non-authoritative OutcomeProposal v3 contract into an AI directive response.
 /// The organizational message remains the functional payload; the proposal is parsed and
 /// resolved independently before that message can be emitted.
 /// </summary>
@@ -34,7 +34,7 @@ internal static class AiDirectiveOutcomeProposalEnvelope
 
         using var document = JsonDocument.Parse(root.ToJsonString());
         return new AiOutputConstraint(
-            $"{baseConstraint.SchemaName}_outcome_proposal_v2",
+            $"{baseConstraint.SchemaName}_outcome_proposal_v3",
             baseConstraint.SchemaVersion,
             document.RootElement,
             baseConstraint.AllowedFallbackModes);

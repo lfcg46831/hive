@@ -21,7 +21,7 @@ public sealed class OrganizationalOutcomeContractTests
 
         Assert.Equal(2, facts.ContractVersion);
         Assert.Equal(1, directive.ContractVersion);
-        Assert.Equal(2, proposal.ContractVersion);
+        Assert.Equal(3, proposal.ContractVersion);
         Assert.Equal(1, policy.ContractVersion);
         Assert.Equal(4, resolution.ContractVersion);
 
@@ -198,6 +198,84 @@ public sealed class OrganizationalOutcomeContractTests
             [OutcomeBlocker.AuthorityBoundary],
             null,
             evidence));
+    }
+
+    [Fact]
+    public void Outcome_proposal_preserves_closed_materiality_and_authority_assertions()
+    {
+        var gaps = new List<OutcomeInformationGap>
+        {
+            new(
+                "input.environment",
+                OutcomeInformationGapMateriality.Material,
+                OutcomeInformationGapMaterialityReason.ChangesSeverity),
+            new(
+                "input.screenshot",
+                OutcomeInformationGapMateriality.NonMaterial,
+                materialityReason: null),
+        };
+        var authority = new OutcomeAuthorityRequest(
+            "Choose the release disposition.",
+            OutcomeAuthorityKind.ActionDomain,
+            "delivery.release-prod",
+            "This position cannot authorize production release.");
+        var proposal = new OutcomeProposal(
+            OutcomeProposedIntent.Escalation,
+            OutcomeWorkState.Blocked,
+            OutcomeRequiredIntervention.SuperiorDecision,
+            [OutcomeBlocker.SuperiorDecision],
+            nextAction: null,
+            evidenceReferences: [],
+            informationGaps: gaps,
+            authorityRequest: authority);
+
+        gaps.Clear();
+
+        Assert.Equal(3, proposal.ContractVersion);
+        Assert.Equal(2, proposal.InformationGaps.Length);
+        Assert.Same(authority, proposal.AuthorityRequest);
+        Assert.Equal(
+            ["Material", "NonMaterial"],
+            proposal.InformationGaps.Select(gap =>
+                OutcomeInformationGapMaterialityContract.ToWireValue(gap.Materiality)));
+        Assert.Equal(
+            ["ChangesSeverity", "MakesNextActionUnsafe", "PreventsConclusion"],
+            OutcomeInformationGapMaterialityReasonContract.WireValues);
+        Assert.Equal(
+            ["ActionDomain", "ApprovalPolicy"],
+            OutcomeAuthorityKindContract.WireValues);
+
+        Assert.Throws<ArgumentException>(() => new OutcomeInformationGap(
+            "input.environment",
+            OutcomeInformationGapMateriality.Material,
+            materialityReason: null));
+        Assert.Throws<ArgumentException>(() => new OutcomeInformationGap(
+            "input.environment",
+            OutcomeInformationGapMateriality.NonMaterial,
+            OutcomeInformationGapMaterialityReason.PreventsConclusion));
+        Assert.Throws<ArgumentException>(() => new OutcomeAuthorityRequest(
+            "Choose.",
+            OutcomeAuthorityKind.ActionDomain,
+            "unscoped",
+            "Outside authority."));
+        Assert.Throws<ArgumentException>(() => new OutcomeProposal(
+            OutcomeProposedIntent.ReportDone,
+            OutcomeWorkState.Completed,
+            OutcomeRequiredIntervention.None,
+            [],
+            nextAction: null,
+            evidenceReferences: Evidence(),
+            informationGaps:
+            [
+                new OutcomeInformationGap(
+                    "input.same",
+                    OutcomeInformationGapMateriality.Material,
+                    OutcomeInformationGapMaterialityReason.PreventsConclusion),
+                new OutcomeInformationGap(
+                    "input.same",
+                    OutcomeInformationGapMateriality.NonMaterial,
+                    materialityReason: null),
+            ]));
     }
 
     [Fact]

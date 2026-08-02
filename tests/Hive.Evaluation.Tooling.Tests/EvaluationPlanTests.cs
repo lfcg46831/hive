@@ -142,49 +142,56 @@ public sealed class EvaluationPlanTests
     [Fact]
     public void Analyzer_aggregates_envelope_diagnostics_per_case_and_execution()
     {
+        var diagnostics = new[]
+        {
+            (Code: "unknown-label", Status: EvaluationDimensionStatuses.Invalid),
+            (Code: "envelope-missing", Status: EvaluationDimensionStatuses.Missing),
+            (Code: "unexpected-shape", Status: EvaluationDimensionStatuses.Invalid),
+            (Code: "payload-not-json", Status: EvaluationDimensionStatuses.Invalid),
+            (Code: "envelope-duplicated", Status: EvaluationDimensionStatuses.Invalid),
+            (Code: "cardinality-violation", Status: EvaluationDimensionStatuses.Invalid),
+            (Code: "unknown-label", Status: EvaluationDimensionStatuses.Invalid),
+        };
         var corpus = new EvaluationCorpus(
             1,
             "evaluation-example",
-            [Case("case-001", "report"), Case("case-002", "report")]);
-        var cases = new[]
-        {
-            Result("case-001", "report", 100, 0.01m, 1d) with
+            diagnostics.Select((_, index) => Case($"case-{index + 1:000}", "report")).ToArray());
+        var cases = diagnostics.Select((diagnostic, index) =>
+            Result($"case-{index + 1:000}", "report", 100 + index, 0.01m, 1d) with
             {
                 Prediction = new EvaluationPrediction(
                     1,
                     1,
                     [
                         new("decision", EvaluationDimensionStatuses.Valid, ["report"]),
-                        new("missing-information", "invalid", [], "unknown-label"),
-                        new("severity", "missing", [], "envelope-missing"),
+                        new("missing-information", EvaluationDimensionStatuses.Valid, []),
+                        new("severity", diagnostic.Status, [], diagnostic.Code),
                     ]),
-            },
-            Result("case-002", "report", 200, 0.02m, 1d) with
-            {
-                Prediction = new EvaluationPrediction(
-                    1,
-                    1,
-                    [
-                        new("decision", EvaluationDimensionStatuses.Valid, ["report"]),
-                        new("missing-information", "invalid", [], "unknown-label"),
-                        new("severity", "valid", ["medium"]),
-                    ]),
-            },
-        };
+            }).ToArray();
         var dataset = new EvaluationDataset(
             1, 1, "calibration-envelope", "http://localhost:8080", 120, 1000, cases, 1, 1, 0.5);
+        var roundTrip = JsonSerializer.Deserialize<EvaluationDataset>(
+            JsonSerializer.Serialize(dataset))!;
 
         var analysis = EvaluationRunAnalyzer.Analyze(
             corpus,
-            dataset,
+            roundTrip,
             PlanForAnalysis(),
             EvaluationPlan.CalibrationPartition);
 
+        Assert.Equal(
+            diagnostics.Select(item => item.Code),
+            roundTrip.Cases.Select(item => item.Prediction!.Dimensions
+                .Single(dimension => dimension.DimensionId == "severity").DiagnosticCode));
         Assert.NotNull(analysis.EnvelopeDiagnostics);
         Assert.Equal(
             [
+                new EvaluationEnvelopeDiagnosticAggregate("cardinality-violation", "severity", 1, 1),
+                new EvaluationEnvelopeDiagnosticAggregate("envelope-duplicated", "severity", 1, 1),
                 new EvaluationEnvelopeDiagnosticAggregate("envelope-missing", "severity", 1, 1),
-                new EvaluationEnvelopeDiagnosticAggregate("unknown-label", "missing-information", 2, 2),
+                new EvaluationEnvelopeDiagnosticAggregate("payload-not-json", "severity", 1, 1),
+                new EvaluationEnvelopeDiagnosticAggregate("unexpected-shape", "severity", 1, 1),
+                new EvaluationEnvelopeDiagnosticAggregate("unknown-label", "severity", 2, 2),
             ],
             analysis.EnvelopeDiagnostics);
     }

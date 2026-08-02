@@ -14,6 +14,16 @@ public sealed class EvaluationRubric
             [new("set-f1", 1)] = SetF1Scorer.Create,
             [new("exact-match", 1)] = ExactMatchScorer.Create,
         };
+    private static readonly IReadOnlyDictionary<string, string> DiagnosticStatuses =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["envelope-missing"] = EvaluationDimensionStatuses.Missing,
+            ["envelope-duplicated"] = EvaluationDimensionStatuses.Invalid,
+            ["payload-not-json"] = EvaluationDimensionStatuses.Invalid,
+            ["unexpected-shape"] = EvaluationDimensionStatuses.Invalid,
+            ["unknown-label"] = EvaluationDimensionStatuses.Invalid,
+            ["cardinality-violation"] = EvaluationDimensionStatuses.Invalid,
+        };
 
     private readonly IReadOnlyList<DimensionRuntime> _dimensions;
     private readonly EvaluationAggregationDescriptor _aggregation;
@@ -617,14 +627,32 @@ public sealed class EvaluationRubric
         }
 
         var match = matches[0];
+        if (match.Labels is null
+            || !IsCompatibleDiagnostic(match.Status, match.DiagnosticCode))
+        {
+            return Invalid(dimension.Descriptor.Id);
+        }
+
         if (match.Status == EvaluationDimensionStatuses.Missing)
         {
             return match.Labels.Count == 0
-                ? Missing(dimension.Descriptor.Id)
+                ? match.DiagnosticCode is null
+                    ? Missing(dimension.Descriptor.Id)
+                    : Missing(dimension.Descriptor.Id, match.DiagnosticCode)
                 : Invalid(dimension.Descriptor.Id);
         }
 
-        if (match.Status != EvaluationDimensionStatuses.Valid)
+        if (match.Status == EvaluationDimensionStatuses.Invalid)
+        {
+            return match.Labels.Count == 0
+                ? match.DiagnosticCode is null
+                    ? Invalid(dimension.Descriptor.Id)
+                    : Invalid(dimension.Descriptor.Id, match.DiagnosticCode)
+                : Invalid(dimension.Descriptor.Id);
+        }
+
+        if (match.Status != EvaluationDimensionStatuses.Valid
+            || match.DiagnosticCode is not null)
         {
             return Invalid(dimension.Descriptor.Id);
         }
@@ -641,6 +669,11 @@ public sealed class EvaluationRubric
                 labels)
             : Invalid(dimension.Descriptor.Id);
     }
+
+    private static bool IsCompatibleDiagnostic(string status, string? diagnosticCode) =>
+        diagnosticCode is null
+        || (DiagnosticStatuses.TryGetValue(diagnosticCode, out var expectedStatus)
+            && string.Equals(status, expectedStatus, StringComparison.Ordinal));
 
     private static EvaluationDimensionPrediction Missing(string dimensionId) =>
         new(dimensionId, EvaluationDimensionStatuses.Missing, []);

@@ -153,6 +153,47 @@ public sealed class EvaluationReportTests
         Assert.Contains("unavailable", rendered, StringComparison.Ordinal);
     }
 
+    [Fact]
+    public void Builder_and_renderer_preserve_envelope_diagnostic_aggregates()
+    {
+        var dataset = LoadDataset();
+        var diagnostics = new EvaluationEnvelopeDiagnosticAggregate[]
+        {
+            new("cardinality-violation", "severity", 1, 1),
+            new("envelope-missing", "missing-information", 2, 2),
+            new("unknown-label", "severity", 3, 4),
+        };
+        var report = EvaluationReportBuilder.Build(
+            dataset with
+            {
+                RunAnalysis = dataset.RunAnalysis! with
+                {
+                    EnvelopeDiagnostics = diagnostics,
+                },
+            },
+            EvaluationReportProfile.Load(ProfilePath),
+            "synthetic-holdout.json",
+            new string('a', 64),
+            "profile.json",
+            new string('b', 64));
+
+        var rendered = EvaluationReportRenderer.Render(report);
+
+        Assert.Equal(diagnostics, report.EnvelopeDiagnostics);
+        Assert.Contains(
+            "| `cardinality-violation` | `severity` | 1 | 1 |",
+            rendered,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `envelope-missing` | `missing-information` | 2 | 2 |",
+            rendered,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `unknown-label` | `severity` | 3 | 4 |",
+            rendered,
+            StringComparison.Ordinal);
+    }
+
     private static EvaluationDataset LoadDataset()
     {
         using var stream = File.OpenRead(DatasetPath);

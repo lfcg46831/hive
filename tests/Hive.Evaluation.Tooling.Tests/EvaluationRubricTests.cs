@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Hive.Evaluation.Tooling.Evaluation;
 
@@ -64,6 +65,113 @@ public sealed class EvaluationRubricTests
             Assert.Empty(item.Labels);
             Assert.Equal(0d, item.Score);
         });
+    }
+
+    [Theory]
+    [MemberData(nameof(CanonicalDiagnosticCases))]
+    public void Canonical_diagnostics_survive_normalization_scoring_and_json_round_trip(
+        string body,
+        string expectedStatus,
+        string expectedCode)
+    {
+        var content = JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["Body"] = body,
+        });
+
+        var projected = Assert.IsType<EvaluationPrediction>(
+            _rubric.ProjectResult("Report", content));
+        var normalized = Assert.IsType<EvaluationPrediction>(
+            _rubric.NormalizePrediction(projected));
+        var scoring = _rubric.Score(
+            Reference("high", [], "report"),
+            normalized);
+        var roundTrip = JsonSerializer.Deserialize<EvaluationPrediction>(
+            JsonSerializer.Serialize(normalized));
+        var renormalized = Assert.IsType<EvaluationPrediction>(
+            _rubric.NormalizePrediction(roundTrip));
+
+        var dimension = renormalized.Dimensions.Single(item => item.DimensionId == "severity");
+        Assert.Equal(expectedStatus, dimension.Status);
+        Assert.Empty(dimension.Labels);
+        Assert.Equal(expectedCode, dimension.DiagnosticCode);
+        Assert.Equal(expectedStatus, Dimension(scoring, "severity").Status);
+        Assert.Equal(0d, Dimension(scoring, "severity").Score);
+    }
+
+    [Fact]
+    public void Unknown_incompatible_or_duplicate_diagnostics_fail_closed_without_values()
+    {
+        var malformed = new EvaluationDimensionPrediction[]
+        {
+            new("severity", EvaluationDimensionStatuses.Invalid, ["rejected"], "unknown-label"),
+            new("severity", EvaluationDimensionStatuses.Missing, [], "unknown-label"),
+            new("severity", EvaluationDimensionStatuses.Valid, ["high"], "unexpected-shape"),
+            new("severity", EvaluationDimensionStatuses.Invalid, [], "provider-secret"),
+        };
+
+        foreach (var item in malformed)
+        {
+            var prediction = Prediction("high", [], "report") with
+            {
+                Dimensions =
+                [
+                    .. Prediction("high", [], "report").Dimensions
+                        .Where(dimension => dimension.DimensionId != "severity"),
+                    item,
+                ],
+            };
+
+            var normalized = Assert.IsType<EvaluationPrediction>(
+                _rubric.NormalizePrediction(prediction));
+            var severity = normalized.Dimensions.Single(
+                dimension => dimension.DimensionId == "severity");
+
+            Assert.Equal(EvaluationDimensionStatuses.Invalid, severity.Status);
+            Assert.Empty(severity.Labels);
+            Assert.Null(severity.DiagnosticCode);
+        }
+
+        var duplicated = Prediction("high", [], "report") with
+        {
+            Dimensions =
+            [
+                .. Prediction("high", [], "report").Dimensions,
+                new("severity", EvaluationDimensionStatuses.Missing, [], "envelope-missing"),
+            ],
+        };
+        var normalizedDuplicate = Assert.IsType<EvaluationPrediction>(
+            _rubric.NormalizePrediction(duplicated));
+        var duplicatedSeverity = normalizedDuplicate.Dimensions.Single(
+            dimension => dimension.DimensionId == "severity");
+
+        Assert.Equal(EvaluationDimensionStatuses.Invalid, duplicatedSeverity.Status);
+        Assert.Empty(duplicatedSeverity.Labels);
+        Assert.Null(duplicatedSeverity.DiagnosticCode);
+    }
+
+    [Fact]
+    public void Historical_missing_and_invalid_dimensions_without_diagnostics_remain_compatible()
+    {
+        var historical = new EvaluationPrediction(
+            1,
+            1,
+            [
+                Valid("decision", "report"),
+                new("missing-information", EvaluationDimensionStatuses.Invalid, []),
+                Missing("severity"),
+            ]);
+
+        var normalized = Assert.IsType<EvaluationPrediction>(
+            _rubric.NormalizePrediction(historical));
+
+        Assert.Equal(
+            EvaluationDimensionStatuses.Invalid,
+            normalized.Dimensions.Single(item => item.DimensionId == "missing-information").Status);
+        Assert.Equal(
+            EvaluationDimensionStatuses.Missing,
+            normalized.Dimensions.Single(item => item.DimensionId == "severity").Status);
+        Assert.All(normalized.Dimensions, item => Assert.Null(item.DiagnosticCode));
     }
 
     [Theory]
@@ -234,6 +342,46 @@ public sealed class EvaluationRubricTests
 
     private static EvaluationDimensionPrediction Missing(string id) =>
         new(id, EvaluationDimensionStatuses.Missing, []);
+
+    public static IEnumerable<object[]> CanonicalDiagnosticCases()
+    {
+        yield return
+        [
+            "No evaluation envelope was emitted.",
+            EvaluationDimensionStatuses.Missing,
+            "envelope-missing",
+        ];
+        yield return
+        [
+            "hive-evaluation-v1:{} hive-evaluation-v1:{}",
+            EvaluationDimensionStatuses.Invalid,
+            "envelope-duplicated",
+        ];
+        yield return
+        [
+            "hive-evaluation-v1:not-json",
+            EvaluationDimensionStatuses.Invalid,
+            "payload-not-json",
+        ];
+        yield return
+        [
+            "hive-evaluation-v1:{\"dimensions\":[]}",
+            EvaluationDimensionStatuses.Invalid,
+            "unexpected-shape",
+        ];
+        yield return
+        [
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[\"rejected\"],\"missing-information\":[]}}",
+            EvaluationDimensionStatuses.Invalid,
+            "unknown-label",
+        ];
+        yield return
+        [
+            "hive-evaluation-v1:{\"dimensions\":{\"severity\":[],\"missing-information\":[]}}",
+            EvaluationDimensionStatuses.Invalid,
+            "cardinality-violation",
+        ];
+    }
 
     private sealed class TemporaryRubric : IDisposable
     {

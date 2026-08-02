@@ -19,7 +19,7 @@ public sealed class OrganizationalOutcomeContractTests
             proposalOverridden: false,
             verifierInvoked: false);
 
-        Assert.Equal(2, facts.ContractVersion);
+        Assert.Equal(3, facts.ContractVersion);
         Assert.Equal(1, directive.ContractVersion);
         Assert.Equal(3, proposal.ContractVersion);
         Assert.Equal(1, policy.ContractVersion);
@@ -89,6 +89,8 @@ public sealed class OrganizationalOutcomeContractTests
         Assert.Equal(OutcomeRoutingState.Available, facts.RoutingState);
         Assert.True(facts.AutonomousActionAvailable);
         Assert.Equal([OutcomePolicyTrigger.SecurityRisk], facts.ObservedPolicyTriggers);
+        Assert.False(facts.MaterialInformationGapPresent);
+        Assert.False(facts.GroundedAuthorityRequestPresent);
 
         Assert.Throws<ArgumentOutOfRangeException>(() => Facts(iterationCount: -1));
         Assert.Throws<ArgumentOutOfRangeException>(() => Facts(retryCount: -1));
@@ -96,6 +98,38 @@ public sealed class OrganizationalOutcomeContractTests
             dependencyState: (OutcomeDependencyState)0));
         Assert.Throws<ArgumentException>(() => Facts(
             [OutcomePolicyTrigger.SecurityRisk, OutcomePolicyTrigger.SecurityRisk]));
+    }
+
+    [Fact]
+    public void Completion_transition_preserves_derived_assertion_facts()
+    {
+        var facts = new ExecutionFacts(
+            iterationCount: 1,
+            retryCount: 0,
+            deadlineExceeded: false,
+            budgetExhausted: false,
+            humanApprovalRequired: false,
+            approvalPending: false,
+            OutcomeDependencyState.Available,
+            OutcomeAuthorityState.Authorized,
+            OutcomeRoutingState.Available,
+            autonomousActionAvailable: false,
+            delegationRequired: false,
+            pendingActions: false,
+            externalInterventionRequired: true,
+            verifiableProgress: false,
+            responsibilityRetained: true,
+            OutcomeCompletionState.NotDeclared,
+            observedPolicyTriggers: [],
+            materialInformationGapPresent: true,
+            groundedAuthorityRequestPresent: true);
+
+        var transitioned = facts.WithCompletionState(OutcomeCompletionState.SemanticallyVerified);
+
+        Assert.Equal(3, transitioned.ContractVersion);
+        Assert.True(transitioned.MaterialInformationGapPresent);
+        Assert.True(transitioned.GroundedAuthorityRequestPresent);
+        Assert.Equal(OutcomeCompletionState.SemanticallyVerified, transitioned.CompletionState);
     }
 
     [Fact]

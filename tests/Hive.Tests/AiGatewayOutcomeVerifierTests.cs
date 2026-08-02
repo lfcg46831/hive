@@ -60,6 +60,15 @@ public sealed class AiGatewayOutcomeVerifierTests
             "\"semantic_completion_candidate\":false",
             sent.Content,
             StringComparison.Ordinal);
+        Assert.Contains("\"contract_version\":3", sent.Content, StringComparison.Ordinal);
+        Assert.Contains(
+            "\"material_information_gap_present\":false",
+            sent.Content,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "\"grounded_authority_request_present\":false",
+            sent.Content,
+            StringComparison.Ordinal);
         Assert.Contains("\"proposed_artifact\":", sent.Content, StringComparison.Ordinal);
         Assert.Contains("\"kind\":\"Report.Progress\"", sent.Content, StringComparison.Ordinal);
         Assert.Contains("Bounded progress report.", sent.Content, StringComparison.Ordinal);

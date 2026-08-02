@@ -53,6 +53,100 @@ public sealed class OutcomeRuntimeCompositionTests
     }
 
     [Fact]
+    public void Validated_proposal_assertions_derive_only_the_two_closed_execution_facts()
+    {
+        var proposal = new OutcomeProposal(
+            OutcomeProposedIntent.Escalation,
+            OutcomeWorkState.Blocked,
+            OutcomeRequiredIntervention.SuperiorDecision,
+            [OutcomeBlocker.SuperiorDecision],
+            nextAction: null,
+            evidenceReferences: [],
+            informationGaps:
+            [
+                new OutcomeInformationGap(
+                    "input.screenshot",
+                    OutcomeInformationGapMateriality.NonMaterial,
+                    materialityReason: null),
+                new OutcomeInformationGap(
+                    "input.environment",
+                    OutcomeInformationGapMateriality.Material,
+                    OutcomeInformationGapMaterialityReason.ChangesSeverity),
+            ],
+            authorityRequest: new OutcomeAuthorityRequest(
+                "Choose the release disposition.",
+                OutcomeAuthorityKind.ActionDomain,
+                "delivery.release-prod",
+                "This position cannot authorize production release."));
+
+        var facts = _materializer.Materialize(
+            Runtime(),
+            new DirectiveExecutionContract(),
+            proposal);
+
+        Assert.Equal(3, facts.ContractVersion);
+        Assert.True(facts.MaterialInformationGapPresent);
+        Assert.True(facts.GroundedAuthorityRequestPresent);
+    }
+
+    [Fact]
+    public void Historical_projections_without_v3_assertions_remain_false_without_inference()
+    {
+        var historicalProposal = new OutcomeProposal(
+            OutcomeProposedIntent.Escalation,
+            OutcomeWorkState.Blocked,
+            OutcomeRequiredIntervention.SuperiorDecision,
+            blockers: [OutcomeBlocker.SuperiorDecision],
+            nextAction: null,
+            evidenceReferences: []);
+        var runtime = Runtime(externalInterventionRequired: true);
+
+        var historicalFacts = _materializer.Materialize(
+            runtime,
+            new DirectiveExecutionContract(),
+            historicalProposal);
+        var legacyProjection = _materializer.Materialize(
+            runtime,
+            new DirectiveExecutionContract());
+
+        Assert.False(historicalFacts.MaterialInformationGapPresent);
+        Assert.False(historicalFacts.GroundedAuthorityRequestPresent);
+        Assert.False(legacyProjection.MaterialInformationGapPresent);
+        Assert.False(legacyProjection.GroundedAuthorityRequestPresent);
+    }
+
+    [Fact]
+    public void Non_material_gap_presence_and_volume_never_create_the_material_gap_fact()
+    {
+        var proposal = new OutcomeProposal(
+            OutcomeProposedIntent.ContinueWork,
+            OutcomeWorkState.InProgress,
+            OutcomeRequiredIntervention.None,
+            blockers: [],
+            nextAction: "Continue the authorized work.",
+            evidenceReferences: [],
+            informationGaps:
+            [
+                new OutcomeInformationGap(
+                    "input.screenshot",
+                    OutcomeInformationGapMateriality.NonMaterial,
+                    materialityReason: null),
+                new OutcomeInformationGap(
+                    "input.telemetry",
+                    OutcomeInformationGapMateriality.NonMaterial,
+                    materialityReason: null),
+            ]);
+
+        var facts = _materializer.Materialize(
+            Runtime(),
+            new DirectiveExecutionContract(),
+            proposal);
+
+        Assert.False(facts.MaterialInformationGapPresent);
+        Assert.False(facts.GroundedAuthorityRequestPresent);
+    }
+
+    [Fact]
     public void Structured_requirements_fail_closed_without_model_defaults()
     {
         var directive = StructuredDirective();
@@ -304,6 +398,7 @@ public sealed class OutcomeRuntimeCompositionTests
         OutcomeActionGateState actionGateState = OutcomeActionGateState.Authorized,
         bool approvalPending = false,
         OutcomeRoutingState routingState = OutcomeRoutingState.Available,
+        bool externalInterventionRequired = false,
         IEnumerable<OutcomeDependencyResultFact>? dependencyResults = null,
         IEnumerable<OutcomeRequirementEvidence>? evidence = null,
         IEnumerable<OutcomePolicyTrigger>? triggers = null) =>
@@ -319,7 +414,7 @@ public sealed class OutcomeRuntimeCompositionTests
             autonomousActionAvailable: true,
             delegationRequired: false,
             pendingActions: true,
-            externalInterventionRequired: false,
+            externalInterventionRequired,
             verifiableProgress: true,
             responsibilityRetained: true,
             dependencyResults,

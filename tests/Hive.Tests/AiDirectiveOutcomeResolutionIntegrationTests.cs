@@ -1139,7 +1139,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     {
         public ExecutionFacts Materialize(
             OutcomeRuntimeSnapshot runtime,
-            DirectiveExecutionContract directive) =>
+            DirectiveExecutionContract directive,
+            OutcomeProposal? proposal = null) =>
             throw new InvalidOperationException("dynamic facts failure");
     }
 

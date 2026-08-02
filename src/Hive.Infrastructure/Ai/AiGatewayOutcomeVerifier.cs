@@ -212,6 +212,7 @@ public sealed class AiGatewayOutcomeVerifier : IOutcomeVerifier
         },
         facts = new
         {
+            contract_version = request.Facts.ContractVersion,
             request.Facts.IterationCount,
             request.Facts.RetryCount,
             request.Facts.DeadlineExceeded,
@@ -230,6 +231,8 @@ public sealed class AiGatewayOutcomeVerifier : IOutcomeVerifier
             completion_state = request.Facts.CompletionState.ToString(),
             observed_policy_triggers = request.Facts.ObservedPolicyTriggers
                 .Select(trigger => trigger.ToString()),
+            material_information_gap_present = request.Facts.MaterialInformationGapPresent,
+            grounded_authority_request_present = request.Facts.GroundedAuthorityRequestPresent,
         },
         directive = new
         {

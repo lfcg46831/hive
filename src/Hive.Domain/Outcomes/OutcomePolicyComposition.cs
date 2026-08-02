@@ -246,13 +246,46 @@ public sealed class OrganizationalOutcomeContextComposer
         OutcomeRuntimeSnapshot runtime,
         DirectiveExecutionContract directive,
         CancellationToken cancellationToken = default)
+        => await ComposeCoreAsync(
+            organizationId,
+            positionId,
+            runtime,
+            directive,
+            proposal: null,
+            cancellationToken).ConfigureAwait(false);
+
+    public async ValueTask<OrganizationalOutcomeContext> ComposeAsync(
+        OrganizationId organizationId,
+        PositionId positionId,
+        OutcomeRuntimeSnapshot runtime,
+        DirectiveExecutionContract directive,
+        OutcomeProposal proposal,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        return await ComposeCoreAsync(
+            organizationId,
+            positionId,
+            runtime,
+            directive,
+            proposal,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask<OrganizationalOutcomeContext> ComposeCoreAsync(
+        OrganizationId organizationId,
+        PositionId positionId,
+        OutcomeRuntimeSnapshot runtime,
+        DirectiveExecutionContract directive,
+        OutcomeProposal? proposal,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(organizationId);
         ArgumentNullException.ThrowIfNull(positionId);
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(directive);
 
-        var facts = _factsMaterializer.Materialize(runtime, directive);
+        var facts = _factsMaterializer.Materialize(runtime, directive, proposal);
         var policy = await _policyProvider
             .GetPolicyAsync(organizationId, positionId, cancellationToken)
             .ConfigureAwait(false);

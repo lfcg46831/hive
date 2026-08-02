@@ -215,7 +215,8 @@ public interface IExecutionFactsMaterializer
 {
     ExecutionFacts Materialize(
         OutcomeRuntimeSnapshot runtime,
-        DirectiveExecutionContract directive);
+        DirectiveExecutionContract directive,
+        OutcomeProposal? proposal = null);
 }
 
 /// <summary>Projects authoritative runtime state into the closed execution-facts contract.</summary>
@@ -223,7 +224,8 @@ public sealed class ExecutionFactsMaterializer : IExecutionFactsMaterializer
 {
     public ExecutionFacts Materialize(
         OutcomeRuntimeSnapshot runtime,
-        DirectiveExecutionContract directive)
+        DirectiveExecutionContract directive,
+        OutcomeProposal? proposal = null)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(directive);
@@ -248,8 +250,21 @@ public sealed class ExecutionFactsMaterializer : IExecutionFactsMaterializer
             verifiableProgress: runtime.VerifiableProgress,
             responsibilityRetained: runtime.ResponsibilityRetained,
             completionState: MaterializeCompletionState(directive, evidence),
-            runtime.ObservedPolicyTriggers);
+            runtime.ObservedPolicyTriggers,
+            materialInformationGapPresent: HasMaterialInformationGap(proposal),
+            groundedAuthorityRequestPresent: HasGroundedAuthorityRequest(proposal));
     }
+
+    private static bool HasMaterialInformationGap(OutcomeProposal? proposal) =>
+        proposal?.InformationGaps.Any(gap =>
+            gap.Materiality == OutcomeInformationGapMateriality.Material) == true;
+
+    private static bool HasGroundedAuthorityRequest(OutcomeProposal? proposal) =>
+        proposal?.AuthorityRequest is not null &&
+        proposal.RequiredIntervention is
+            OutcomeRequiredIntervention.HumanApproval or
+            OutcomeRequiredIntervention.SuperiorDecision or
+            OutcomeRequiredIntervention.ExternalAction;
 
     private static OutcomeDependencyState MaterializeDependencyState(
         IEnumerable<OutcomeDependencyResultFact> dependencyResults)

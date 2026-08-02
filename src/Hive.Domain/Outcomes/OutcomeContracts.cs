@@ -6,7 +6,7 @@ namespace Hive.Domain.Outcomes;
 
 public static class OrganizationalOutcomeContractVersions
 {
-    public const int ExecutionFacts = 2;
+    public const int ExecutionFacts = 3;
     public const int DirectiveExecution = 1;
     public const int OutcomeProposal = 3;
     public const int PolicySnapshot = 1;
@@ -431,7 +431,9 @@ public sealed record ExecutionFacts
         bool verifiableProgress,
         bool responsibilityRetained,
         OutcomeCompletionState completionState,
-        IEnumerable<OutcomePolicyTrigger>? observedPolicyTriggers = null)
+        IEnumerable<OutcomePolicyTrigger>? observedPolicyTriggers = null,
+        bool materialInformationGapPresent = false,
+        bool groundedAuthorityRequestPresent = false)
     {
         if (iterationCount < 0)
         {
@@ -468,6 +470,8 @@ public sealed record ExecutionFacts
         ObservedPolicyTriggers = OutcomeContractGuards.SnapshotDefinedDistinct(
             observedPolicyTriggers,
             nameof(observedPolicyTriggers));
+        MaterialInformationGapPresent = materialInformationGapPresent;
+        GroundedAuthorityRequestPresent = groundedAuthorityRequestPresent;
     }
 
     public int ContractVersion => OrganizationalOutcomeContractVersions.ExecutionFacts;
@@ -508,6 +512,17 @@ public sealed record ExecutionFacts
 
     public ImmutableArray<OutcomePolicyTrigger> ObservedPolicyTriggers { get; }
 
+    /// <summary>
+    /// True only when a validated proposal assertion identifies at least one material gap.
+    /// The number of gaps is deliberately not an execution fact.
+    /// </summary>
+    public bool MaterialInformationGapPresent { get; }
+
+    /// <summary>
+    /// True only when a validated proposal assertion grounds the requested external authority.
+    /// </summary>
+    public bool GroundedAuthorityRequestPresent { get; }
+
     public ExecutionFacts WithCompletionState(OutcomeCompletionState completionState) =>
         new(
             IterationCount,
@@ -526,7 +541,9 @@ public sealed record ExecutionFacts
             VerifiableProgress,
             ResponsibilityRetained,
             completionState,
-            ObservedPolicyTriggers);
+            ObservedPolicyTriggers,
+            MaterialInformationGapPresent,
+            GroundedAuthorityRequestPresent);
 }
 
 public sealed record DirectiveExecutionRequirement

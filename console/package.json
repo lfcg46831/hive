@@ -8,17 +8,26 @@
     "node": ">=20.11"
   },
   "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "verify:contracts": "vitest run --config vitest.contracts.config.ts",
-    "verify": "npm run typecheck && npm run test && npm run verify:contracts"
+    "verify": "npm run typecheck && npm run test && npm run build && npm run verify:contracts"
   },
   "dependencies": {
-    "@microsoft/signalr": "^8.0.7"
+    "@microsoft/signalr": "^8.0.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
+    "vite": "^5.4.11",
     "vitest": "^2.1.4"
   }
 }

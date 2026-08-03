@@ -998,6 +998,45 @@ document published by a deployed environment. The check compares the routes the 
 calls, the wire property names of every public schema and the enum values, so a backend
 contract change fails here instead of in the browser.
 
+## Console web application
+
+The console is a static React + TypeScript bundle built by Vite from the same `console/`
+workspace. It has no server of its own and no build-time secrets: the API origin, the
+organization and that organization's read-only bearer credential are read at startup from
+`window.__HIVE_CONSOLE_CONFIG__`, defined by a `config.js` served next to `index.html` and
+injected into the page by `vite.config.ts`. The same bundle therefore runs against any
+host, and rotating a credential is a file change rather than a rebuild.
+
+| Key | Required | Meaning |
+| --- | --- | --- |
+| `apiBaseUrl` | no | Origin of the API host. Empty or absent means the console's own origin, which is what the dev-server proxy and a co-hosted deployment use. A value containing `/internal` is rejected. |
+| `organizationId` | yes | Organization whose organogram is shown. |
+| `token` | yes | Read-only organization bearer credential (see [Public API organization authorization](#public-api-organization-authorization)). |
+| `pollIntervalMs` | no | Interval of the `/position-states` polling fallback. Defaults to `5000`, floored at `1000`. |
+
+Missing or malformed configuration fails loudly on screen instead of rendering an empty
+organogram, which would be indistinguishable from an organization with no units. The
+credential is visible to anyone who can load the page, so it must be a read-only token and
+`console/public/config.js` is git-ignored; `console/public/config.example.js` is the
+template to copy.
+
+```bash
+cp console/public/config.example.js console/public/config.js   # then edit it
+npm --prefix console run dev      # dev server, proxies /api/v1 to HIVE_CONSOLE_API_BASE_URL
+npm --prefix console run build    # static bundle in console/dist
+```
+
+`HIVE_CONSOLE_API_BASE_URL` (default `http://localhost:5080`) only configures the dev-server
+proxy for REST and the SignalR websocket, so local development uses the same relative
+`/api/v1` paths as a deployed bundle. When deploying, serve `console/dist` as static files
+and place the environment's `config.js` at its root; `config.example.js` is copied into the
+bundle as a template and is inert.
+
+The organogram view keeps itself current from the SignalR hub and falls back to controlled
+ETag polling of `/position-states` whenever the hub is not live. The REST snapshot is always
+the source of truth: any reconnection or structural change refetches `/organogram`, and the
+header states which channel is in use and when the view last agreed with the server.
+
 ## Message serialization
 
 The organizational message protocol is serialized with `System.Text.Json` (ADR-007, §9.9). `AddHiveActorSystem` binds the `OrgMessage` base type to a custom Akka serializer (US-F0-03-T08), so every canonical subtype is delivered as JSON over remoting/cluster instead of Akka's default serializer. There is nothing to configure per environment; the binding is code-defined and the format is the same one intended for persisted events and snapshots.

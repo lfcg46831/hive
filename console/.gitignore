@@ -3,5 +3,11 @@ dist/
 coverage/
 *.tsbuildinfo
 
+# Transient config bundles written by Vite/Vitest while loading their config.
+*.timestamp-*.mjs
+
 # Exported from the API host by the OpenAPI snapshot test; never hand-edited.
 openapi/v1.json
+
+# Runtime configuration carries the organization bearer credential.
+public/config.js

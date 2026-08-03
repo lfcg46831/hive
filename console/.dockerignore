@@ -1,0 +1,17 @@
+# Keep the build context small and reproducible: the bundle is produced inside
+# the build stage from sources and the lockfile, never copied from the host.
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+*.timestamp-*.mjs
+
+# Build artifact of the API host, not an input to the bundle.
+openapi/v1.json
+
+# Runtime configuration, including the organization credential. It is written at
+# container start from the environment and must never enter an image layer.
+public/config.js
+
+Dockerfile
+.dockerignore

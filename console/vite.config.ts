@@ -21,7 +21,7 @@ function runtimeConfigScript(): Plugin {
 // network and has no server of its own. `HIVE_CONSOLE_API_BASE_URL` only wires
 // the dev-server proxy, so local development uses the same relative `/api/v1`
 // paths as a deployed bundle.
-const devApiTarget = process.env['HIVE_CONSOLE_API_BASE_URL'] ?? 'http://localhost:5080';
+const devApiTarget = process.env['HIVE_CONSOLE_API_BASE_URL'] ?? 'http://localhost:53496';
 
 export default defineConfig({
   plugins: [react(), runtimeConfigScript()],

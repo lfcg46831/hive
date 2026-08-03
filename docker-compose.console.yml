@@ -1,0 +1,64 @@
+# Read-only console override (US-F1-01-T10).
+#
+# Layers on top of the base one-node stack (docker-compose.yml, US-F0-02-T03)
+# without editing it, in the same style as the cluster and roles overrides:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.console.yml up --build
+#
+# It adds the two things the base stack lacks for a browser to read an
+# organogram. First, the static bearer credential of the public API: the tracked
+# `Hive:PublicApi:Authorization:Credentials` array is empty by design, so
+# `/api/v1/**` answers 401 until an operator supplies one. Second, the console
+# itself, served by nginx from the same origin as the API it calls.
+#
+# Same-origin is a requirement, not a convenience. The API host declares no CORS
+# policy, so a console served from its own origin could not call it from a
+# browser at all; nginx proxies `/api/v1` — REST and the SignalR websocket
+# upgrade — so every request the browser makes is same-origin.
+#
+# The credential is shared on purpose: `HIVE_CONSOLE_TOKEN` is both the token the
+# API accepts and the token the console presents. It is served to the browser in
+# `config.js` and is therefore readable by anyone who can open the page, which is
+# acceptable only because the F1 public surface is read-only. Real identity
+# arrives with US-F1-09. Use a local development value here and never a token
+# that is worth anything.
+#
+# Values come from the untracked `.env` file; copy `.env.example` first.
+
+services:
+  api:
+    environment:
+      HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN: "${HIVE_CONSOLE_TOKEN:?Set HIVE_CONSOLE_TOKEN in .env}"
+      HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__ORGANIZATIONIDS__0: "${HIVE_CONSOLE_ORGANIZATION_ID:?Set HIVE_CONSOLE_ORGANIZATION_ID in .env}"
+
+  console:
+    build:
+      context: ./console
+      dockerfile: Dockerfile
+    environment:
+      # Empty API base url means "this console's own origin", which is what the
+      # nginx proxy below serves. Setting it would send the browser somewhere
+      # else and reintroduce the cross-origin problem.
+      HIVE_CONSOLE_API_BASE_URL: ""
+      HIVE_CONSOLE_ORGANIZATION_ID: "${HIVE_CONSOLE_ORGANIZATION_ID:?Set HIVE_CONSOLE_ORGANIZATION_ID in .env}"
+      HIVE_CONSOLE_TOKEN: "${HIVE_CONSOLE_TOKEN:?Set HIVE_CONSOLE_TOKEN in .env}"
+      HIVE_CONSOLE_POLL_INTERVAL_MS: "${HIVE_CONSOLE_POLL_INTERVAL_MS:-5000}"
+    # The console is the one service a developer opens in a browser; 8090 keeps
+    # it clear of the api host's published 8080.
+    ports:
+      - "8090:80"
+    networks:
+      hive-net:
+        aliases:
+          - console
+    # nginx reaches the API as `api:8080` over hive-net, so the console must not
+    # start before that node is ready to answer.
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1/config.js"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s

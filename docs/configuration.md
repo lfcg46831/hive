@@ -1026,7 +1026,8 @@ npm --prefix console run dev      # dev server, proxies /api/v1 to HIVE_CONSOLE_
 npm --prefix console run build    # static bundle in console/dist
 ```
 
-`HIVE_CONSOLE_API_BASE_URL` (default `http://localhost:5080`) only configures the dev-server
+`HIVE_CONSOLE_API_BASE_URL` (default `http://localhost:53496`, the `Hive.Api` development
+profile's HTTP endpoint) only configures the dev-server
 proxy for REST and the SignalR websocket, so local development uses the same relative
 `/api/v1` paths as a deployed bundle. When deploying, serve `console/dist` as static files
 and place the environment's `config.js` at its root; `config.example.js` is copied into the
@@ -1036,6 +1037,47 @@ The organogram view keeps itself current from the SignalR hub and falls back to 
 ETag polling of `/position-states` whenever the hub is not live. The REST snapshot is always
 the source of truth: any reconnection or structural change refetches `/organogram`, and the
 header states which channel is in use and when the view last agreed with the server.
+
+### Same-origin requirement
+
+The API host declares no CORS policy, so a browser cannot call it from a different origin.
+Every supported way of running the console therefore puts the two on one origin: the dev
+server proxies `/api/v1` (REST and the SignalR websocket upgrade) to
+`HIVE_CONSOLE_API_BASE_URL`, and the container image proxies the same prefix through nginx.
+Leave `apiBaseUrl` empty in both cases — pointing it at another host reintroduces the
+cross-origin request the proxy exists to avoid. Only `/api/v1` is proxied; `/internal`,
+`/health` and `/diagnostics` are not reachable through the console.
+
+### Run the console with Docker Compose
+
+`docker-compose.console.yml` layers on the base one-node stack and adds the two things it
+lacks for a browser to read an organogram: the static bearer credential of the public API,
+absent by design from the tracked configuration, and the console itself served by nginx on
+the same origin. Set `HIVE_CONSOLE_TOKEN` in `.env` first — Compose refuses to start while
+it is empty.
+
+```powershell
+Copy-Item .env.example .env      # then set HIVE_CONSOLE_TOKEN
+docker compose -f docker-compose.yml -f docker-compose.console.yml up --build
+```
+
+The console is published on `http://localhost:8090` and the API host stays on `8080`.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `HIVE_CONSOLE_ORGANIZATION_ID` | `acme-delivery` | Organization shown by the console and the single organization the credential is scoped to. |
+| `HIVE_CONSOLE_TOKEN` | none, required | Serves as both `HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN` on the API host and the token the console presents. |
+| `HIVE_CONSOLE_POLL_INTERVAL_MS` | `5000` | Interval of the polling fallback. |
+
+The image contains no configuration and no secret: `docker/40-hive-console-config.sh` runs
+before nginx and writes `config.js` from these variables, failing the container start on
+missing input rather than serving a console that only reports its own misconfiguration. The
+same image therefore runs against any host, and rotating the credential is a restart.
+
+The shared token is deliberate and is the reason this override is development-only: the
+console presents the credential from the browser, so it is readable by anyone who can open
+the page. That is tolerable only because the F1 public surface is read-only; real identity
+arrives with `US-F1-09`.
 
 ## Message serialization
 

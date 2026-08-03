@@ -5,8 +5,9 @@
 // API (US-F1-01-T07). It is visible to anyone who can load the console, so it
 // must never be a token with write scope and never be committed.
 window.__HIVE_CONSOLE_CONFIG__ = {
+  // Empty means "the console's own origin", which the dev-server proxy serves.
   apiBaseUrl: '',
-  organizationId: 'acme',
+  organizationId: 'acme-delivery',
   token: 'replace-me',
   pollIntervalMs: 5000,
 };

@@ -1,22 +1,21 @@
 using System.Reflection;
 using System.Text.RegularExpressions;
-using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Npgsql;
 
-namespace Hive.Infrastructure.Organization.Registry.PostgreSql;
+namespace Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 
-public sealed partial class PostgreSqlOrganizationRegistryMigrator
+public sealed partial class PostgreSqlOrganogramReadModelMigrator
 {
-    private const string ResourceMarker = ".Organization.Registry.PostgreSql.Migrations.";
+    private const string ResourceMarker = ".Organization.ReadModels.PostgreSql.Migrations.";
     private readonly NpgsqlDataSource _dataSource;
     private readonly Assembly _assembly;
 
-    public PostgreSqlOrganizationRegistryMigrator(NpgsqlDataSource dataSource)
-        : this(dataSource, typeof(PostgreSqlOrganizationRegistryMigrator).Assembly)
+    public PostgreSqlOrganogramReadModelMigrator(NpgsqlDataSource dataSource)
+        : this(dataSource, typeof(PostgreSqlOrganogramReadModelMigrator).Assembly)
     {
     }
 
-    internal PostgreSqlOrganizationRegistryMigrator(
+    internal PostgreSqlOrganogramReadModelMigrator(
         NpgsqlDataSource dataSource,
         Assembly assembly)
     {
@@ -35,9 +34,9 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
 
         await using (var bootstrap = new NpgsqlCommand(
             """
-            SELECT pg_advisory_xact_lock(hashtext('hive.registry.migrations'));
-            CREATE SCHEMA IF NOT EXISTS registry;
-            CREATE TABLE IF NOT EXISTS registry.schema_migrations (
+            SELECT pg_advisory_xact_lock(hashtext('hive.organogram.migrations'));
+            CREATE SCHEMA IF NOT EXISTS organogram;
+            CREATE TABLE IF NOT EXISTS organogram.schema_migrations (
                 version integer PRIMARY KEY,
                 name text NOT NULL,
                 applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -51,7 +50,7 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
 
         var applied = new HashSet<int>();
         await using (var command = new NpgsqlCommand(
-            "SELECT version FROM registry.schema_migrations;",
+            "SELECT version FROM organogram.schema_migrations;",
             connection,
             transaction))
         await using (var reader = await command.ExecuteReaderAsync(cancellationToken))
@@ -72,7 +71,7 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
 
             await using var record = new NpgsqlCommand(
                 """
-                INSERT INTO registry.schema_migrations (version, name)
+                INSERT INTO organogram.schema_migrations (version, name)
                 VALUES (@version, @name);
                 """,
                 connection,
@@ -83,10 +82,6 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
         }
 
         await transaction.CommitAsync(cancellationToken);
-
-        await new PostgreSqlOrganogramReadModelMigrator(_dataSource)
-            .MigrateAsync(cancellationToken)
-            .ConfigureAwait(false);
     }
 
     private IReadOnlyList<MigrationResource> DiscoverMigrations()
@@ -99,7 +94,8 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
 
         if (resources.Length == 0)
         {
-            throw new InvalidOperationException("No embedded PostgreSQL registry migrations were found.");
+            throw new InvalidOperationException(
+                "No embedded PostgreSQL organogram read-model migrations were found.");
         }
 
         var duplicate = resources
@@ -108,7 +104,7 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
         if (duplicate is not null)
         {
             throw new InvalidOperationException(
-                $"PostgreSQL registry migration version {duplicate.Key} is duplicated.");
+                $"PostgreSQL organogram migration version {duplicate.Key} is duplicated.");
         }
 
         return resources;
@@ -122,13 +118,10 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
         if (!match.Success || !int.TryParse(match.Groups["version"].Value, out var version))
         {
             throw new InvalidOperationException(
-                $"Embedded PostgreSQL registry migration '{resourceName}' must use NNN_name.sql naming.");
+                $"Embedded PostgreSQL organogram migration '{resourceName}' must use NNN_name.sql naming.");
         }
 
-        return new MigrationResource(
-            version,
-            match.Groups["name"].Value,
-            resourceName);
+        return new MigrationResource(version, match.Groups["name"].Value, resourceName);
     }
 
     private async Task<string> ReadResourceAsync(
@@ -137,12 +130,14 @@ public sealed partial class PostgreSqlOrganizationRegistryMigrator
     {
         await using var stream = _assembly.GetManifestResourceStream(resourceName)
             ?? throw new InvalidOperationException(
-                $"Embedded PostgreSQL registry migration '{resourceName}' could not be opened.");
+                $"Embedded PostgreSQL organogram migration '{resourceName}' could not be opened.");
         using var reader = new StreamReader(stream);
         return await reader.ReadToEndAsync(cancellationToken);
     }
 
-    [GeneratedRegex("^(?<version>[0-9]{3})_(?<name>[A-Za-z0-9_]+)\\.sql$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(
+        "^(?<version>[0-9]{3})_(?<name>[A-Za-z0-9_]+)\\.sql$",
+        RegexOptions.CultureInvariant)]
     private static partial Regex MigrationFileName();
 
     private sealed record MigrationResource(int Version, string Name, string ResourceName);

@@ -45,6 +45,33 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             }
         }
 
+        var organogramTableNames = new List<string>();
+        await using (var command = dataSource.CreateCommand(
+            """
+            SELECT table_name
+            FROM information_schema.tables
+            WHERE table_schema = 'organogram'
+            ORDER BY table_name;
+            """))
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                organogramTableNames.Add(reader.GetString(0));
+            }
+        }
+
+        var organogramAppliedVersions = new List<int>();
+        await using (var command = dataSource.CreateCommand(
+            "SELECT version FROM organogram.schema_migrations ORDER BY version;"))
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                organogramAppliedVersions.Add(reader.GetInt32(0));
+            }
+        }
+
         var authorityColumns = new List<string>();
         await using (var command = dataSource.CreateCommand(
             """
@@ -110,6 +137,10 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             ],
             tableNames);
         Assert.Equal([1, 2, 3, 4, 5], appliedVersions);
+        Assert.Equal(
+            ["current_snapshots", "positions", "schema_migrations", "snapshots", "units"],
+            organogramTableNames);
+        Assert.Equal([1], organogramAppliedVersions);
         Assert.Equal(
             [("occupants", "outcome_policy"), ("organizations", "outcome_policy")],
             outcomePolicyColumns);

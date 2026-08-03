@@ -43,29 +43,3 @@ public readonly record struct OrganizationReadResult<T>
 
     public static OrganizationReadResult<T> Unavailable { get; } = new(false, null);
 }
-
-internal sealed class UnavailableOrganizationReadModel : IOrganizationReadModel
-{
-    public static UnavailableOrganizationReadModel Instance { get; } = new();
-
-    private UnavailableOrganizationReadModel()
-    {
-    }
-
-    public ValueTask<OrganizationReadResult<OrganogramResponse>> ReadOrganogramAsync(
-        OrganizationId organizationId,
-        UnitId? rootUnitId,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult(OrganizationReadResult<OrganogramResponse>.Unavailable);
-
-    public ValueTask<OrganizationReadResult<PositionDetailResponse>> ReadPositionAsync(
-        OrganizationId organizationId,
-        PositionId positionId,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult(OrganizationReadResult<PositionDetailResponse>.Unavailable);
-
-    public ValueTask<OrganizationReadResult<PositionStatesResponse>> ReadPositionStatesAsync(
-        OrganizationId organizationId,
-        CancellationToken cancellationToken) =>
-        ValueTask.FromResult(OrganizationReadResult<PositionStatesResponse>.Unavailable);
-}

@@ -1,3 +1,5 @@
+using Hive.Infrastructure.Organization.ReadModels;
+using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Hive.Api.Organization;
@@ -8,8 +10,8 @@ public static class OrganizationApiServiceCollectionExtensions
     {
         ArgumentNullException.ThrowIfNull(services);
 
-        services.TryAddSingleton<IOrganizationReadModel>(
-            _ => UnavailableOrganizationReadModel.Instance);
+        services.TryAddSingleton<IOrganogramSnapshotReader, PostgreSqlOrganogramSnapshotReader>();
+        services.TryAddSingleton<IOrganizationReadModel, OrganizationReadModel>();
         return services;
     }
 }

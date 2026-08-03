@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Npgsql;
 using NpgsqlTypes;
 
@@ -119,6 +120,12 @@ internal static class PostgreSqlOrganizationRegistryWriter
             var id = RequireCurrent(current?.Units, change);
             await DeleteUnitAsync(connection, transaction, snapshot.OrganizationId, id, cancellationToken);
         }
+
+        await PostgreSqlOrganogramReadModelWriter.PublishAsync(
+            connection,
+            transaction,
+            snapshot,
+            cancellationToken);
     }
 
     private static async Task UpsertOrganizationAsync(

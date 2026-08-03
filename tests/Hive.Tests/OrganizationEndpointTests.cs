@@ -219,6 +219,22 @@ public sealed class OrganizationEndpointTests
         Assert.Empty(readModel.OrganogramRequests);
     }
 
+    [Fact]
+    public async Task Public_rest_queries_do_not_accept_signalr_query_string_tokens()
+    {
+        var readModel = RecordingReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/acme/organogram" +
+            $"?access_token={OrganizationToken}");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Empty(readModel.OrganogramRequests);
+    }
+
     [Theory]
     [InlineData("/organogram")]
     [InlineData("/units/delivery/organogram")]

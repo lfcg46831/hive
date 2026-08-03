@@ -117,6 +117,31 @@ public sealed class OrganizationPublicContractTests
     }
 
     [Fact]
+    public void Realtime_notifications_serialize_the_stable_public_shapes()
+    {
+        var organogram = new OrganogramChangedNotification(
+            "acme",
+            Registry,
+            GeneratedAt);
+        var positionState = new PositionStateChangedNotification(
+            "acme",
+            CreatePositions()[0].OperationalState);
+
+        var organogramJson = JsonSerializer.SerializeToElement(organogram);
+        var positionStateJson = JsonSerializer.SerializeToElement(positionState);
+
+        Assert.Equal("acme", organogramJson.GetProperty("organization_id").GetString());
+        Assert.Equal(7, organogramJson.GetProperty("registry").GetProperty("version").GetInt64());
+        Assert.Equal(
+            GeneratedAt,
+            organogramJson.GetProperty("changed_at_utc").GetDateTimeOffset());
+        Assert.Equal("acme", positionStateJson.GetProperty("organization_id").GetString());
+        Assert.Equal(
+            12,
+            positionStateJson.GetProperty("state").GetProperty("sequence").GetInt64());
+    }
+
+    [Fact]
     public void Position_rejects_operational_state_from_another_position()
     {
         var state = new OrganizationPositionState(

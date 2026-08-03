@@ -32,6 +32,7 @@ public static class Program
         app.MapHiveDirectiveAuditExportApi();
         app.MapHiveDirectiveSubmissionApi();
         app.MapHiveOrganizationApi();
+        app.MapHiveOrganizationUpdatesHub();
         app.MapHiveOrganizationRegistryApi();
         return app;
     }

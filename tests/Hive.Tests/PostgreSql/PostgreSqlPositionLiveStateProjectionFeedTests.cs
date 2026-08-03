@@ -134,8 +134,10 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
     {
         await ResetAndMigrateAsync();
         await InsertPositionStateAsync();
+        var changeSink = new RecordingChangeSink();
         await using var feed = new PostgreSqlPositionLiveStateProjectionFeed(
-            fixture.ConnectionString);
+            fixture.ConnectionString,
+            changeSink);
         var facts = TaskCreatedFacts(offset: 1);
         Assert.True(await feed.CapturePositionJournalAsync(1, facts));
         var item = Assert.Single(
@@ -180,6 +182,9 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
         Assert.Equal("TaskCreated", reader.GetString(3));
         Assert.Equal(item.SequenceId, reader.GetInt64(4));
         Assert.Equal(OccurredAt, reader.GetFieldValue<DateTimeOffset>(5));
+        Assert.Equal(
+            [("acme", "delivery-lead")],
+            changeSink.PositionStateChanges);
     }
 
     [Fact]
@@ -324,4 +329,26 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
             messageType: "Memo",
             occurredAtUtc: OccurredAt.AddMinutes(ordinal),
             idempotencyDiscriminator: $"projection-test-{ordinal}");
+
+    private sealed class RecordingChangeSink : IOrganizationReadModelChangeSink
+    {
+        public List<(string OrganizationId, string PositionId)> PositionStateChanges { get; } = [];
+
+        public ValueTask OrganogramChangedAsync(
+            OrganizationId organizationId,
+            long registryVersion,
+            string registryFingerprint,
+            DateTimeOffset changedAtUtc,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask PositionStateChangedAsync(
+            OrganizationId organizationId,
+            PositionId positionId,
+            CancellationToken cancellationToken = default)
+        {
+            PositionStateChanges.Add((organizationId.Value, positionId.Value));
+            return ValueTask.CompletedTask;
+        }
+    }
 }

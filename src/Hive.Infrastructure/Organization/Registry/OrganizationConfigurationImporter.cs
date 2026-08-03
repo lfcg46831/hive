@@ -2,6 +2,7 @@ using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Organization.Configuration.Validation;
 using Hive.Domain.Governance;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
+using Hive.Infrastructure.Organization.ReadModels;
 
 namespace Hive.Infrastructure.Organization.Registry;
 
@@ -9,28 +10,53 @@ public sealed class OrganizationConfigurationImporter
 {
     private readonly IOrganizationRegistryStore _store;
     private readonly TimeProvider _timeProvider;
+    private readonly IOrganizationReadModelChangeSink _changeSink;
 
     public OrganizationConfigurationImporter(
         InMemoryOrganizationRegistry registry,
         TimeProvider? timeProvider = null)
-        : this((IOrganizationRegistryStore)registry, timeProvider)
+        : this(
+            (IOrganizationRegistryStore)registry,
+            NoopOrganizationReadModelChangeSink.Instance,
+            timeProvider)
+    {
+    }
+
+    internal OrganizationConfigurationImporter(
+        InMemoryOrganizationRegistry registry,
+        IOrganizationReadModelChangeSink changeSink,
+        TimeProvider? timeProvider = null)
+        : this((IOrganizationRegistryStore)registry, changeSink, timeProvider)
     {
     }
 
     public OrganizationConfigurationImporter(
         PostgreSqlOrganizationRegistry registry,
         TimeProvider? timeProvider = null)
-        : this((IOrganizationRegistryStore)registry, timeProvider)
+        : this(
+            (IOrganizationRegistryStore)registry,
+            NoopOrganizationReadModelChangeSink.Instance,
+            timeProvider)
+    {
+    }
+
+    internal OrganizationConfigurationImporter(
+        PostgreSqlOrganizationRegistry registry,
+        IOrganizationReadModelChangeSink changeSink,
+        TimeProvider? timeProvider = null)
+        : this((IOrganizationRegistryStore)registry, changeSink, timeProvider)
     {
     }
 
     private OrganizationConfigurationImporter(
         IOrganizationRegistryStore store,
+        IOrganizationReadModelChangeSink changeSink,
         TimeProvider? timeProvider)
     {
         ArgumentNullException.ThrowIfNull(store);
 
         _store = store;
+        _changeSink = changeSink ?? throw new ArgumentNullException(nameof(changeSink));
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
@@ -92,10 +118,22 @@ public sealed class OrganizationConfigurationImporter
             ]);
         }
 
-        return await _store.ApplyAsync(
+        var result = await _store.ApplyAsync(
             target,
             _timeProvider.GetUtcNow(),
             cancellationToken);
+        if (result.Status == OrganizationImportStatus.Applied)
+        {
+            var snapshot = result.Snapshot!;
+            await _changeSink.OrganogramChangedAsync(
+                snapshot.OrganizationId,
+                snapshot.Version,
+                snapshot.Fingerprint,
+                snapshot.ImportedAt,
+                cancellationToken);
+        }
+
+        return result;
     }
 
     private static OrganizationConfigurationValidationResult Validate(

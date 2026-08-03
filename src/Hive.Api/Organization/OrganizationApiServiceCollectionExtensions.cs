@@ -12,8 +12,12 @@ public static class OrganizationApiServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddHiveOrganizationAuthorization();
+        services.AddSignalR();
         services.TryAddSingleton<IOrganogramSnapshotReader, PostgreSqlOrganogramSnapshotReader>();
         services.TryAddSingleton<IOrganizationReadModel, OrganizationReadModel>();
+        services.Replace(ServiceDescriptor.Singleton<
+            IOrganizationReadModelChangeSink,
+            SignalROrganizationReadModelChangeSink>());
         return services;
     }
 }

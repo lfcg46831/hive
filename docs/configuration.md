@@ -775,7 +775,7 @@ When the connection string is absent the scheduler migration is skipped and the 
 
 ## Public API organization authorization
 
-Every read-only organization route under `/api/v1/organizations/{organizationId}` requires a static bearer credential. The tracked `Hive:PublicApi:Authorization:Credentials` array is empty, so an operator must supply credentials outside the repository. Each credential maps one secret token to one or more allowed organization ids; the authorization seam resolves that list as the request principal's organization scope. A missing or unrecognized bearer token returns `401`. A valid credential used for an organization outside that scope returns the same `404 Organization not found` response as a missing organization, before the read model is queried.
+Every read-only organization route under `/api/v1/organizations/{organizationId}` and the SignalR hub at `/api/v1/organization-updates` require a static bearer credential. The tracked `Hive:PublicApi:Authorization:Credentials` array is empty, so an operator must supply credentials outside the repository. Each credential maps one secret token to one or more allowed organization ids; the authorization seam resolves that list as the request principal's organization scope. A missing or unrecognized bearer token returns `401`. A valid credential used for an organization outside that scope returns the same `404 Organization not found` response as a missing organization before a REST read, and hub subscriptions fail with the same non-disclosing message.
 
 Configure one credential for `acme-delivery` with standard hierarchical environment variables:
 
@@ -789,13 +789,15 @@ export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN='<high-entropy-secr
 export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__ORGANIZATIONIDS__0='acme-delivery'
 ```
 
-Add further organization ids to the same principal with `ORGANIZATIONIDS__1`, `ORGANIZATIONIDS__2`, and so on, or add a separate credential at `CREDENTIALS__1`. Send the selected secret without placing it in a query string:
+Add further organization ids to the same principal with `ORGANIZATIONIDS__1`, `ORGANIZATIONIDS__2`, and so on, or add a separate credential at `CREDENTIALS__1`. Send the selected secret to REST endpoints without placing it in a query string:
 
 ```http
 Authorization: Bearer <high-entropy-secret>
 ```
 
-Store production tokens in the deployment platform's secret store, inject them into the process at runtime, and restart the API host when rotating environment-provided values. Never put real tokens in `appsettings*.json`, `.env.example`, organization YAML, logs, or source control. Health, diagnostics, OpenAPI, and private `/internal` routes retain their existing access contracts; this credential protects the public organization read surface, and the SignalR hub introduced by `US-F1-01-T08` will reuse the same principal resolver and policy.
+Configure a browser SignalR client with its standard `accessTokenFactory`. The negotiate request can use the bearer header; WebSocket and Server-Sent Events transports may carry the token as `access_token` in the query string because browser transport APIs cannot set that header. The API accepts this query parameter only under the hub path. Require TLS and redact `access_token` from reverse-proxy/request logs, because URLs can otherwise expose it operationally. After connecting or reconnecting, invoke the authorized organization subscription and refresh the authoritative REST snapshot as specified in the [T08 realtime contract](bible.html).
+
+Store production tokens in the deployment platform's secret store, inject them into the process at runtime, and restart the API host when rotating environment-provided values. Never put real tokens in `appsettings*.json`, `.env.example`, organization YAML, logs, or source control. Health, diagnostics, OpenAPI, and private `/internal` routes retain their existing access contracts. During degraded realtime operation, clients poll `/api/v1/organizations/{organizationId}/position-states` at their configured interval, retain the last `ETag`, and send it as `If-None-Match`; an unchanged snapshot returns `304` with no body. There is no server-side polling interval setting.
 
 ## Node roles
 

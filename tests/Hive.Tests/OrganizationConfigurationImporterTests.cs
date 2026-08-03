@@ -4,6 +4,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Organization;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Organization.ReadModels;
 
 namespace Hive.Tests;
 
@@ -95,6 +96,29 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.Empty(second.Plan.Changes);
         Assert.All(second.Snapshot.Units.Values, entry => Assert.Equal(FirstImportAt, entry.UpdatedAt));
         Assert.All(second.Snapshot.Positions.Values, entry => Assert.Equal(FirstImportAt, entry.UpdatedAt));
+    }
+
+    [Fact]
+    public async Task Applied_import_publishes_one_post_commit_organogram_change()
+    {
+        var registry = new InMemoryOrganizationRegistry();
+        var sink = new RecordingChangeSink();
+        var importer = new OrganizationConfigurationImporter(
+            registry,
+            sink,
+            new ManualTimeProvider(FirstImportAt));
+        var configuration = ExampleConfiguration();
+
+        var applied = await importer.ImportAsync(configuration);
+        var unchanged = await importer.ImportAsync(configuration);
+
+        var change = Assert.Single(sink.OrganogramChanges);
+        Assert.Equal(OrganizationImportStatus.Applied, applied.Status);
+        Assert.Equal(OrganizationImportStatus.NoChanges, unchanged.Status);
+        Assert.Equal("acme-delivery", change.OrganizationId);
+        Assert.Equal(1, change.RegistryVersion);
+        Assert.Equal(applied.Snapshot!.Fingerprint, change.RegistryFingerprint);
+        Assert.Equal(FirstImportAt, change.ChangedAtUtc);
     }
 
     [Fact]
@@ -405,5 +429,35 @@ public sealed class OrganizationConfigurationImporterTests
         public DateTimeOffset UtcNow { get; set; } = utcNow;
 
         public override DateTimeOffset GetUtcNow() => UtcNow;
+    }
+
+    private sealed class RecordingChangeSink : IOrganizationReadModelChangeSink
+    {
+        public List<(
+            string OrganizationId,
+            long RegistryVersion,
+            string RegistryFingerprint,
+            DateTimeOffset ChangedAtUtc)> OrganogramChanges { get; } = [];
+
+        public ValueTask OrganogramChangedAsync(
+            OrganizationId organizationId,
+            long registryVersion,
+            string registryFingerprint,
+            DateTimeOffset changedAtUtc,
+            CancellationToken cancellationToken = default)
+        {
+            OrganogramChanges.Add((
+                organizationId.Value,
+                registryVersion,
+                registryFingerprint,
+                changedAtUtc));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask PositionStateChangedAsync(
+            OrganizationId organizationId,
+            PositionId positionId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
     }
 }

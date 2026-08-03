@@ -1,6 +1,7 @@
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Governance;
+using Hive.Infrastructure.Organization.ReadModels;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -15,17 +16,20 @@ internal sealed class PostgreSqlOrganizationRegistryImportHostedService : IHoste
     private readonly IOptions<HiveOptions> _options;
     private readonly ILogger<PostgreSqlOrganizationRegistryImportHostedService> _logger;
     private readonly IActionDomainContractRegistry _contractRegistry;
+    private readonly IOrganizationReadModelChangeSink _changeSink;
 
     public PostgreSqlOrganizationRegistryImportHostedService(
         IConfiguration configuration,
         IOptions<HiveOptions> options,
         ILogger<PostgreSqlOrganizationRegistryImportHostedService> logger,
-        IActionDomainContractRegistry contractRegistry)
+        IActionDomainContractRegistry contractRegistry,
+        IOrganizationReadModelChangeSink changeSink)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _options = options ?? throw new ArgumentNullException(nameof(options));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _contractRegistry = contractRegistry ?? throw new ArgumentNullException(nameof(contractRegistry));
+        _changeSink = changeSink ?? throw new ArgumentNullException(nameof(changeSink));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -48,7 +52,7 @@ internal sealed class PostgreSqlOrganizationRegistryImportHostedService : IHoste
         var registry = new PostgreSqlOrganizationRegistry(dataSource);
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
-            new OrganizationConfigurationImporter(registry),
+            new OrganizationConfigurationImporter(registry, _changeSink),
             _contractRegistry);
 
         var results = await importer

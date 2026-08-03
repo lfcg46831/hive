@@ -11,14 +11,30 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeed :
     IAsyncDisposable
 {
     private readonly NpgsqlDataSource? _dataSource;
+    private readonly IOrganizationReadModelChangeSink _changeSink;
 
     public PostgreSqlPositionLiveStateProjectionFeed(IConfiguration configuration)
-        : this(ConnectionString(configuration))
+        : this(ConnectionString(configuration), NoopOrganizationReadModelChangeSink.Instance)
+    {
+    }
+
+    public PostgreSqlPositionLiveStateProjectionFeed(
+        IConfiguration configuration,
+        IOrganizationReadModelChangeSink changeSink)
+        : this(ConnectionString(configuration), changeSink)
     {
     }
 
     internal PostgreSqlPositionLiveStateProjectionFeed(string? connectionString)
+        : this(connectionString, NoopOrganizationReadModelChangeSink.Instance)
     {
+    }
+
+    internal PostgreSqlPositionLiveStateProjectionFeed(
+        string? connectionString,
+        IOrganizationReadModelChangeSink changeSink)
+    {
+        _changeSink = changeSink ?? throw new ArgumentNullException(nameof(changeSink));
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
             _dataSource = NpgsqlDataSource.Create(connectionString);
@@ -347,6 +363,14 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeed :
         await AdvanceProjectionWatermarkAsync(item, connection, transaction, cancellationToken);
         await AdvanceProjectionProgressAsync(item, connection, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        if (update is not null)
+        {
+            await _changeSink.PositionStateChangedAsync(
+                update.OrganizationId,
+                update.PositionId,
+                cancellationToken);
+        }
+
         return true;
     }
 

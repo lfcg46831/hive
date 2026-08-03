@@ -10,6 +10,7 @@ using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Logging;
+using Hive.Infrastructure.Organization.ReadModels;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Hive.Infrastructure.Persistence.PostgreSql;
@@ -63,6 +64,8 @@ public static class HiveBootstrapExtensions
                 ? NoopJourneyAuditLog.Instance
                 : new PostgreSqlJourneyAuditLog(connectionString);
         });
+        builder.Services.TryAddSingleton<IOrganizationReadModelChangeSink>(
+            NoopOrganizationReadModelChangeSink.Instance);
         builder.Services.TryAddSingleton<IJourneyAuditReadModel>(serviceProvider =>
         {
             var connectionString = serviceProvider

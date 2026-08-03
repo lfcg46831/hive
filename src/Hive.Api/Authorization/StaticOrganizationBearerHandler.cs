@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using Hive.Api.Organization;
 using Hive.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Mvc;
@@ -27,23 +28,38 @@ internal sealed class StaticOrganizationBearerHandler :
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        if (!Request.Headers.TryGetValue("Authorization", out var values) ||
-            values.Count != 1)
+        if (Request.Headers.TryGetValue("Authorization", out var values))
         {
-            return Task.FromResult(AuthenticateResult.NoResult());
+            if (values.Count != 1 ||
+                !AuthenticationHeaderValue.TryParse(values[0], out var header) ||
+                !string.Equals(header.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) ||
+                string.IsNullOrWhiteSpace(header.Parameter))
+            {
+                return Task.FromResult(AuthenticateResult.Fail("A valid bearer token is required."));
+            }
+
+            return Task.FromResult(Authenticate(header.Parameter));
         }
 
-        if (!AuthenticationHeaderValue.TryParse(values[0], out var header) ||
-            !string.Equals(header.Scheme, "Bearer", StringComparison.OrdinalIgnoreCase) ||
-            string.IsNullOrWhiteSpace(header.Parameter))
+        if (Request.Path.StartsWithSegments(
+                OrganizationUpdatesEndpointExtensions.HubPath,
+                StringComparison.Ordinal) &&
+            Request.Query.TryGetValue("access_token", out var accessTokens) &&
+            accessTokens.Count == 1 &&
+            !string.IsNullOrWhiteSpace(accessTokens[0]))
         {
-            return Task.FromResult(AuthenticateResult.Fail("A valid bearer token is required."));
+            return Task.FromResult(Authenticate(accessTokens[0]!));
         }
 
-        var organizationIds = ResolveOrganizations(header.Parameter);
+        return Task.FromResult(AuthenticateResult.NoResult());
+    }
+
+    private AuthenticateResult Authenticate(string suppliedToken)
+    {
+        var organizationIds = ResolveOrganizations(suppliedToken);
         if (organizationIds.Count == 0)
         {
-            return Task.FromResult(AuthenticateResult.Fail("The bearer token is not recognized."));
+            return AuthenticateResult.Fail("The bearer token is not recognized.");
         }
 
         var claims = organizationIds.Select(static organizationId =>
@@ -56,7 +72,7 @@ internal sealed class StaticOrganizationBearerHandler :
         var ticket = new AuthenticationTicket(
             new ClaimsPrincipal(identity),
             OrganizationAuthorizationDefaults.AuthenticationScheme);
-        return Task.FromResult(AuthenticateResult.Success(ticket));
+        return AuthenticateResult.Success(ticket);
     }
 
     protected override async Task HandleChallengeAsync(AuthenticationProperties properties)

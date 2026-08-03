@@ -26,6 +26,8 @@ public static class Program
 
         var app = builder.Build();
         app.UseHivePublicApiOpenApi();
+        app.UseAuthentication();
+        app.UseAuthorization();
         app.MapHiveDiagnostics();
         app.MapHiveDirectiveAuditExportApi();
         app.MapHiveDirectiveSubmissionApi();

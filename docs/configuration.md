@@ -69,6 +69,7 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__NODE__ROLES__0` | compose, per service (US-F0-02-T05) | Active node role. Defaults to each host's `appsettings.json` when unset. |
 | `ConnectionStrings__PostgreSql` | operator / compose env | Required dependency; left empty so readiness stays not-ready until provided. No baked-in credentials. |
 | `HIVE__ORGANIZATIONS__ROOTPATH` | appsettings / deployment override | Root containing one directory per organization; defaults to `config/organizations` relative to the application directory. |
+| `HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__<credentialIndex>__TOKEN` / `...__ORGANIZATIONIDS__<organizationIndex>` | operator secret store / deployment environment | Static bearer credential and its allowed organization ids for the F1 public read-only API. Tokens are secrets and must never be committed. |
 | `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
 | `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
 | `HIVE__AGENTS__NUMBEROFSHARDS` | unset (extractor default `50`) | Number of Cluster Sharding shards for the position entity type, pinned by `agents`-role hosts (`Hive:Agents:NumberOfShards`, US-F0-06-T04b). A durable placement contract: keep it identical on every node and never change it while positions are persisted, since changing it reshuffles every position. Must be greater than zero when set. |
@@ -771,6 +772,30 @@ When the connection string is absent the persistence plugins are not wired into 
 The scheduler pulse delivery read model owns the `scheduler` schema and uses the same `ConnectionStrings:PostgreSql` value (US-F0-09-T07). The common bootstrap applies its embedded, versioned migration before role workloads start. Migration `001_pulse_delivery.sql` creates `scheduler.pulse_deliveries` for the current state keyed by the deterministic pulse idempotency key, `scheduler.pulse_delivery_history` for ordered transition history, and `scheduler.schema_migrations` for the migration ledger. The configured database user must be allowed to create and modify the owned `scheduler` schema; no additional credential is required.
 
 When the connection string is absent the scheduler migration is skipped and the in-process scheduler delivery store is a no-op. When the connection string is present, migration failure aborts host startup like the registry and persistence migrations. The schema name and status values (`Registered`, `Fired`, `Delivered`, `Skipped`, `Failed`, `Redelivered`) are durable contracts for scheduler idempotency and future audit/read-model consumers.
+
+## Public API organization authorization
+
+Every read-only organization route under `/api/v1/organizations/{organizationId}` requires a static bearer credential. The tracked `Hive:PublicApi:Authorization:Credentials` array is empty, so an operator must supply credentials outside the repository. Each credential maps one secret token to one or more allowed organization ids; the authorization seam resolves that list as the request principal's organization scope. A missing or unrecognized bearer token returns `401`. A valid credential used for an organization outside that scope returns the same `404 Organization not found` response as a missing organization, before the read model is queried.
+
+Configure one credential for `acme-delivery` with standard hierarchical environment variables:
+
+```powershell
+$env:HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN = "<high-entropy-secret>"
+$env:HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__ORGANIZATIONIDS__0 = "acme-delivery"
+```
+
+```bash
+export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN='<high-entropy-secret>'
+export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__ORGANIZATIONIDS__0='acme-delivery'
+```
+
+Add further organization ids to the same principal with `ORGANIZATIONIDS__1`, `ORGANIZATIONIDS__2`, and so on, or add a separate credential at `CREDENTIALS__1`. Send the selected secret without placing it in a query string:
+
+```http
+Authorization: Bearer <high-entropy-secret>
+```
+
+Store production tokens in the deployment platform's secret store, inject them into the process at runtime, and restart the API host when rotating environment-provided values. Never put real tokens in `appsettings*.json`, `.env.example`, organization YAML, logs, or source control. Health, diagnostics, OpenAPI, and private `/internal` routes retain their existing access contracts; this credential protects the public organization read surface, and the SignalR hub introduced by `US-F1-01-T08` will reuse the same principal resolver and policy.
 
 ## Node roles
 

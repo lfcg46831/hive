@@ -1,6 +1,8 @@
 using System.Net;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Hive.Api.Authorization;
 using Hive.Api.Organization;
 using Hive.Contracts.Organization;
 using Hive.Domain.Identity;
@@ -8,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
@@ -26,7 +29,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Available();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
 
         var organogram = await client.GetFromJsonAsync<JsonElement>(
             $"{OrganizationEndpointExtensions.BasePath}/acme/organogram");
@@ -64,7 +67,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Available();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
 
         var response = await client.GetAsync(
             $"{OrganizationEndpointExtensions.BasePath}/%20acme{suffix}");
@@ -89,7 +92,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Available();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
 
         var response = await client.GetAsync(
             $"{OrganizationEndpointExtensions.BasePath}/acme{suffix}");
@@ -111,7 +114,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Missing();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
 
         var response = await client.GetAsync(
             $"{OrganizationEndpointExtensions.BasePath}/acme{suffix}");
@@ -133,7 +136,7 @@ public sealed class OrganizationEndpointTests
     {
         await using var app = BuildApp(readModel: null);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
 
         var response = await client.GetAsync(
             $"{OrganizationEndpointExtensions.BasePath}/acme{suffix}");
@@ -151,7 +154,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Available();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
         var path = $"{OrganizationEndpointExtensions.BasePath}/acme/position-states";
 
         using var first = await client.GetAsync(path);
@@ -174,7 +177,7 @@ public sealed class OrganizationEndpointTests
         var readModel = RecordingReadModel.Available();
         await using var app = BuildApp(readModel);
         await app.StartAsync();
-        using var client = app.GetTestClient();
+        using var client = CreateAuthorizedClient(app);
         var path = $"{OrganizationEndpointExtensions.BasePath}/acme/position-states";
 
         using var first = await client.GetAsync(path);
@@ -189,10 +192,92 @@ public sealed class OrganizationEndpointTests
         Assert.NotEqual(firstEntityTag, Assert.Single(changed.Headers.GetValues("ETag")));
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-a-configured-token")]
+    public async Task Public_queries_require_a_valid_bearer_token(string? token)
+    {
+        var readModel = RecordingReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+        if (token is not null)
+        {
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        using var response = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/acme/organogram");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal("Bearer", Assert.Single(response.Headers.WwwAuthenticate).Scheme);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("Bearer token required", problem!.Title);
+        Assert.Equal(StatusCodes.Status401Unauthorized, problem.Status);
+        Assert.Empty(readModel.OrganogramRequests);
+    }
+
+    [Theory]
+    [InlineData("/organogram")]
+    [InlineData("/units/delivery/organogram")]
+    [InlineData("/positions/delivery-lead")]
+    [InlineData("/position-states")]
+    public async Task Public_queries_hide_organizations_outside_the_principal_scope(
+        string suffix)
+    {
+        var readModel = RecordingReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app, OtherOrganizationToken);
+
+        using var response = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/acme{suffix}");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal("Organization not found", problem!.Title);
+        Assert.Equal(StatusCodes.Status404NotFound, problem.Status);
+        Assert.Empty(readModel.OrganogramRequests);
+        Assert.Empty(readModel.PositionRequests);
+        Assert.Empty(readModel.PositionStateRequests);
+    }
+
+    [Fact]
+    public async Task One_bearer_principal_can_read_every_configured_organization()
+    {
+        var readModel = RecordingReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app);
+
+        using var response = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/umbrella/organogram");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal([("umbrella", (string?)null)], readModel.OrganogramRequests);
+    }
+
     private static WebApplication BuildApp(IOrganizationReadModel? readModel)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
+        builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Token"] =
+                    OrganizationToken,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:OrganizationIds:0"] =
+                    "acme",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:OrganizationIds:1"] =
+                    "umbrella",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:1:Token"] =
+                    OtherOrganizationToken,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:1:OrganizationIds:0"] =
+                    "globex",
+            });
         if (readModel is not null)
         {
             builder.Services.AddSingleton(readModel);
@@ -200,8 +285,20 @@ public sealed class OrganizationEndpointTests
 
         builder.Services.AddHiveOrganizationApi();
         var app = builder.Build();
+        app.UseAuthentication();
+        app.UseAuthorization();
         app.MapHiveOrganizationApi();
         return app;
+    }
+
+    private static HttpClient CreateAuthorizedClient(
+        WebApplication app,
+        string token = OrganizationToken)
+    {
+        var client = app.GetTestClient();
+        client.DefaultRequestHeaders.Authorization =
+            new AuthenticationHeaderValue("Bearer", token);
+        return client;
     }
 
     private static OrganogramResponse CreateOrganogram(string rootUnitId) => new(
@@ -280,6 +377,10 @@ public sealed class OrganizationEndpointTests
 
     private const string Fingerprint =
         "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    private const string OrganizationToken = "test-token-for-acme";
+
+    private const string OtherOrganizationToken = "test-token-for-globex";
 
     private sealed class RecordingReadModel : IOrganizationReadModel
     {

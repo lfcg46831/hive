@@ -55,6 +55,13 @@ public sealed class OrganizationOpenApiTests
         Assert.Equal(OrganizationPaths.Order(StringComparer.Ordinal), documentedPaths);
         Assert.DoesNotContain(documentedPaths, path =>
             path.StartsWith("/internal", StringComparison.Ordinal));
+
+        var bearerScheme = document.RootElement
+            .GetProperty("components")
+            .GetProperty("securitySchemes")
+            .GetProperty("Bearer");
+        Assert.Equal("http", bearerScheme.GetProperty("type").GetString());
+        Assert.Equal("bearer", bearerScheme.GetProperty("scheme").GetString());
     }
 
     [Theory]
@@ -87,6 +94,10 @@ public sealed class OrganizationOpenApiTests
         Assert.Equal(operationId, operation.GetProperty("operationId").GetString());
         Assert.Equal("Organization", Assert.Single(
             operation.GetProperty("tags").EnumerateArray()).GetString());
+        var securityRequirement = Assert.Single(
+            operation.GetProperty("security").EnumerateArray());
+        Assert.Empty(
+            securityRequirement.GetProperty("Bearer").EnumerateArray());
         Assert.Contains(
             "pagination",
             operation.GetProperty("description").GetString(),
@@ -102,7 +113,7 @@ public sealed class OrganizationOpenApiTests
                 .GetString(),
             StringComparison.Ordinal);
 
-        foreach (var statusCode in new[] { "400", "404", "503" })
+        foreach (var statusCode in new[] { "400", "401", "404", "503" })
         {
             var problemResponse = responses.GetProperty(statusCode);
             Assert.Contains(
@@ -231,6 +242,8 @@ public sealed class OrganizationOpenApiTests
 
         var app = builder.Build();
         app.UseHivePublicApiOpenApi();
+        app.UseAuthentication();
+        app.UseAuthorization();
         app.MapHiveOrganizationApi();
         app.MapHiveOrganizationRegistryApi();
         return app;

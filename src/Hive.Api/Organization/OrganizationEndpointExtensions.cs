@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Hive.Api.Authorization;
 using Hive.Contracts.Organization;
 using Hive.Domain.Identity;
 using Microsoft.Net.Http.Headers;
@@ -24,7 +25,9 @@ public static class OrganizationEndpointExtensions
         ArgumentNullException.ThrowIfNull(endpoints);
 
         var group = endpoints.MapGroup(BasePath)
-            .WithTags("Organization");
+            .WithTags("Organization")
+            .RequireAuthorization(OrganizationAuthorizationDefaults.Policy)
+            .AddEndpointFilter<OrganizationReadAuthorizationFilter>();
         group.MapGet(OrganogramRoute, ReadOrganogramAsync)
             .WithName("GetOrganizationOrganogramV1")
             .WithSummary("Get the complete organization organogram")
@@ -32,6 +35,7 @@ public static class OrganizationEndpointExtensions
                 "Returns the complete, deterministically ordered organogram snapshot. " +
                 "Pagination and query filtering do not apply to this snapshot resource.")
             .Produces<OrganogramResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -42,6 +46,7 @@ public static class OrganizationEndpointExtensions
                 "Returns the complete, deterministically ordered subtree for the requested unit. " +
                 "The unit route is the supported subtree filter; pagination and query filtering do not apply.")
             .Produces<OrganogramResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -52,6 +57,7 @@ public static class OrganizationEndpointExtensions
                 "Returns one position with its occupant, direct hierarchy and latest correlated operational event. " +
                 "Pagination and query filtering do not apply to this resource.")
             .Produces<PositionDetailResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
@@ -64,6 +70,7 @@ public static class OrganizationEndpointExtensions
                 "Pagination and query filtering do not apply.")
             .Produces<PositionStatesResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status304NotModified)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);

@@ -1,3 +1,4 @@
+using Hive.Api.Authorization;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -29,6 +30,16 @@ public static class PublicApiOpenApiExtensions
                         "Public read-only and command contracts for HIVE clients. " +
                         "The /api/v1 path is compatibility-stable: compatible additions may be made in place, " +
                         "while incompatible changes require a new path version.",
+                });
+            options.AddSecurityDefinition(
+                "Bearer",
+                new OpenApiSecurityScheme
+                {
+                    Type = SecuritySchemeType.Http,
+                    Scheme = "bearer",
+                    BearerFormat = "opaque",
+                    Description =
+                        "Static public API credential scoped to one or more organizations.",
                 });
             options.DocInclusionPredicate(
                 static (documentName, description) =>
@@ -70,6 +81,7 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
 
         DescribeRouteParameters(operation);
         DescribeResponses(operation, relativePath);
+        DescribeAuthorization(operation);
 
         if (relativePath.EndsWith(
                 "/position-states",
@@ -99,6 +111,10 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
     {
         SetResponseDescription(
             operation,
+            StatusCodes.Status401Unauthorized,
+            "A valid organization bearer token is required. Returns RFC 7807 Problem Details.");
+        SetResponseDescription(
+            operation,
             StatusCodes.Status400BadRequest,
             "A route identifier is invalid. Returns RFC 7807 Problem Details.");
         SetResponseDescription(
@@ -113,6 +129,22 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
             operation,
             StatusCodes.Status503ServiceUnavailable,
             "The materialized organization read model is unavailable. Returns RFC 7807 Problem Details.");
+    }
+
+    private static void DescribeAuthorization(OpenApiOperation operation)
+    {
+        operation.Security.Add(
+            new OpenApiSecurityRequirement
+            {
+                [new OpenApiSecurityScheme
+                {
+                    Reference = new OpenApiReference
+                    {
+                        Type = ReferenceType.SecurityScheme,
+                        Id = "Bearer",
+                    },
+                }] = Array.Empty<string>(),
+            });
     }
 
     private static void DescribeConditionalPolling(OpenApiOperation operation)

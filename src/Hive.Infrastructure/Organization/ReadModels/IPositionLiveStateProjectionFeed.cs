@@ -16,4 +16,17 @@ public interface IPositionLiveStateProjectionFeed
     ValueTask<int> CaptureAuditLogBatchAsync(
         int batchSize,
         CancellationToken cancellationToken = default);
+
+    ValueTask<PositionLiveStateProjectionProgress> ReadProjectionProgressAsync(
+        CancellationToken cancellationToken = default);
+
+    ValueTask<IReadOnlyList<PositionLiveStateProjectionItem>> ReadProjectionFactsAsync(
+        long afterSequenceId,
+        int batchSize,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<bool> ApplyProjectionFactAsync(
+        PositionLiveStateProjectionItem item,
+        PositionLiveStateProjectionUpdate? update,
+        CancellationToken cancellationToken = default);
 }

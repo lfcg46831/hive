@@ -123,6 +123,41 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
     }
 
     [Fact]
+    public async Task Position_state_snapshot_exposes_the_last_applied_projection_event()
+    {
+        var configuration = Configuration();
+        await ImportAsync(configuration, ImportedAt);
+        var appliedAt = ImportedAt.AddMinutes(3);
+        await using (var feed = new PostgreSqlPositionLiveStateProjectionFeed(
+                         fixture.ConnectionString))
+        {
+            var fact = new PositionLiveStateProjectionFact(
+                PositionLiveStateProjectionSource.PositionEvent,
+                sourceOffset: 1,
+                configuration.Organization.Id,
+                "position-passivated",
+                appliedAt,
+                "{}",
+                PositionId.From("delivery-lead"),
+                "position:acme-delivery/delivery-lead",
+                persistenceSequence: 1);
+            Assert.True(await feed.CapturePositionJournalAsync(1, [fact]));
+            var item = Assert.Single(
+                await feed.ReadProjectionFactsAsync(afterSequenceId: 0, batchSize: 1));
+            Assert.True(await feed.ApplyProjectionFactAsync(item, update: null));
+        }
+
+        await using var reader = SnapshotReader();
+        var result = await ReadModel(reader).ReadPositionStatesAsync(
+            configuration.Organization.Id,
+            CancellationToken.None);
+
+        var response = Assert.IsType<PositionStatesResponse>(result.Value);
+        Assert.Equal(appliedAt, response.LastEventAppliedAtUtc);
+        Assert.All(response.States, state => Assert.Equal(0, state.Sequence));
+    }
+
+    [Fact]
     public async Task Live_state_advances_monotonically_and_is_exposed_by_every_position_view()
     {
         var configuration = Configuration();

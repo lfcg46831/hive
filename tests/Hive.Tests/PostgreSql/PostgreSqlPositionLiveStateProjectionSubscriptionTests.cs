@@ -39,6 +39,7 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
                     entityId,
                     new MessageReceived(Message(entityId, ordinal: 1), OccurredAt));
                 await WaitForCapturedPositionFactsAsync(expectedCount: 2);
+                await WaitForAppliedPositionFactsAsync(expectedCount: 2);
             }
             finally
             {
@@ -68,6 +69,7 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
                     entityId,
                     new MessageReceived(Message(entityId, ordinal: 2), OccurredAt.AddMinutes(1)));
                 await WaitForCapturedPositionFactsAsync(expectedCount: 4);
+                await WaitForAppliedPositionFactsAsync(expectedCount: 4);
             }
             finally
             {
@@ -84,7 +86,17 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
                     WHERE source = 'PositionEvent'),
                    (SELECT count(*)
                     FROM organogram.position_state_projection_facts
-                    WHERE source = 'OrganizationalMessage')
+                    WHERE source = 'OrganizationalMessage'),
+                   (SELECT sequence_id
+                    FROM organogram.position_state_projection_progress
+                    WHERE projection = 'LiveState'),
+                   (SELECT sequence_id
+                    FROM organogram.position_state_projection_watermarks
+                    WHERE organization_id = 'acme-delivery'),
+                   (SELECT sequence
+                    FROM organogram.position_states
+                    WHERE organization_id = 'acme-delivery'
+                      AND position_id = 'delivery-lead')
             FROM organogram.position_state_projection_checkpoints
             WHERE subscription = 'PositionJournal';
             """))
@@ -94,6 +106,9 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
             Assert.True(reader.GetInt64(0) > checkpointAfterFirstHost);
             Assert.Equal(2, reader.GetInt64(1));
             Assert.Equal(2, reader.GetInt64(2));
+            Assert.True(reader.GetInt64(3) >= reader.GetInt64(4));
+            Assert.True(reader.GetInt64(4) > 0);
+            Assert.Equal(0, reader.GetInt64(5));
         }
     }
 
@@ -155,6 +170,33 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
 
         throw new TimeoutException(
             $"Position live-state projection did not capture {expectedCount} facts before timeout.");
+    }
+
+    private async Task WaitForAppliedPositionFactsAsync(long expectedCount)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await using var dataSource = fixture.CreateDataSource();
+            await using var command = dataSource.CreateCommand(
+                """
+                SELECT count(*)
+                FROM organogram.position_state_projection_facts fact
+                CROSS JOIN organogram.position_state_projection_progress progress
+                WHERE fact.source IN ('PositionEvent', 'OrganizationalMessage')
+                  AND fact.sequence_id <= progress.sequence_id
+                  AND progress.projection = 'LiveState';
+                """);
+            if ((long)(await command.ExecuteScalarAsync())! >= expectedCount)
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException(
+            $"Position live-state projection did not apply {expectedCount} facts before timeout.");
     }
 
     private async Task DropAuditAsync()

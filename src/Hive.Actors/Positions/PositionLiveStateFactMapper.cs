@@ -10,8 +10,8 @@ namespace Hive.Actors.Positions;
 
 /// <summary>
 /// Deterministically folds persisted position facts into the canonical live-state indicators of
-/// US-F1-01-T06b. Checkpointing, redelivery idempotency and durable replay of this fold belong to
-/// US-F1-01-T06c.
+/// US-F1-01-T06b. The durable projection worker checkpoints this fold and reconstructs it during
+/// replay without publishing historical transitions again.
 /// </summary>
 internal sealed class PositionLiveStateFactMapper
 {

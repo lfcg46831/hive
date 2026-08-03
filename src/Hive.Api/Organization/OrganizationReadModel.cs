@@ -123,7 +123,7 @@ internal sealed class OrganizationReadModel : IOrganizationReadModel
             new PositionStatesResponse(
                 MapRegistry(snapshot),
                 Utc(_timeProvider.GetUtcNow()),
-                lastEventAppliedAtUtc: null,
+                snapshot.LastEventAppliedAtUtc,
                 snapshot.PositionStates
                     .Select(MapPositionState)
                     .ToArray()));

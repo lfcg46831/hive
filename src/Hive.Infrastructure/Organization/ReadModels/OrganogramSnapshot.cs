@@ -12,6 +12,7 @@ public sealed record OrganogramSnapshot
         string? organizationName,
         string rootUnitId,
         string rootPositionId,
+        DateTimeOffset? lastEventAppliedAtUtc,
         IReadOnlyList<OrganogramUnitSnapshot> units,
         IReadOnlyList<OrganogramPositionSnapshot> positions,
         IReadOnlyList<PositionLiveStateSnapshot> positionStates)
@@ -23,6 +24,7 @@ public sealed record OrganogramSnapshot
         OrganizationName = organizationName;
         RootUnitId = rootUnitId;
         RootPositionId = rootPositionId;
+        LastEventAppliedAtUtc = lastEventAppliedAtUtc;
         Units = units;
         Positions = positions;
         PositionStates = positionStates;
@@ -41,6 +43,8 @@ public sealed record OrganogramSnapshot
     public string RootUnitId { get; }
 
     public string RootPositionId { get; }
+
+    public DateTimeOffset? LastEventAppliedAtUtc { get; }
 
     public IReadOnlyList<OrganogramUnitSnapshot> Units { get; }
 

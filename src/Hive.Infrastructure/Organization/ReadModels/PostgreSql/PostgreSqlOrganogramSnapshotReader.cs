@@ -73,6 +73,11 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             organizationId,
             header.RegistryVersion,
             cancellationToken);
+        var lastEventAppliedAtUtc = await LoadLastEventAppliedAtUtcAsync(
+            connection,
+            transaction,
+            organizationId,
+            cancellationToken);
         if (positionStates.Count != positions.Count)
         {
             throw new InvalidOperationException(
@@ -89,6 +94,7 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             header.OrganizationName,
             header.RootUnitId,
             header.RootPositionId,
+            lastEventAppliedAtUtc,
             units,
             positions,
             positionStates);
@@ -271,6 +277,27 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             ? parsed
             : throw new InvalidOperationException(
                 $"Unknown materialized position live state '{value}'.");
+
+    private static async Task<DateTimeOffset?> LoadLastEventAppliedAtUtcAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        OrganizationId organizationId,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            SELECT last_event_applied_at_utc
+            FROM organogram.position_state_projection_watermarks
+            WHERE organization_id = @organization_id;
+            """,
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("organization_id", organizationId.Value);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        return await reader.ReadAsync(cancellationToken)
+            ? reader.GetFieldValue<DateTimeOffset>(0).ToUniversalTime()
+            : null;
+    }
 
     private static NpgsqlCommand VersionedCommand(
         string sql,

@@ -80,6 +80,46 @@ public sealed class PositionLiveStateProjectionWorkerTests
         Assert.Equal([2L], feed.CapturedOffsets);
     }
 
+    [Fact]
+    public async Task Projection_replays_committed_facts_and_suppresses_a_redelivered_transition()
+    {
+        var taskId = PositionTaskId.From(
+            Guid.Parse("f84ad918-ec40-45d7-b011-8035f4d19ba6"));
+        var created = new TaskCreated(
+            taskId,
+            ThreadIdValue,
+            "Triage regression",
+            Priority.High,
+            OccurredAt);
+        var items = new[]
+        {
+            ProjectionItem(1, created),
+            ProjectionItem(2, created),
+            ProjectionItem(3, new TaskCompleted(
+                taskId,
+                OccurredAt.AddMinutes(2),
+                "Resolved")),
+        };
+        var feed = new RecordingFeed(
+            projectionFacts: items,
+            initialProjectionSequence: 1);
+        var worker = new PositionLiveStateProjectionWorker(
+            new RecordingJournal([]),
+            feed);
+
+        var applied = await worker.ApplyProjectionBatchAsync(CancellationToken.None);
+        var repeated = await worker.ApplyProjectionBatchAsync(CancellationToken.None);
+
+        Assert.Equal(2, applied);
+        Assert.Equal(0, repeated);
+        Assert.Equal([2L, 3L], feed.AppliedProjectionSequences);
+        var update = Assert.Single(feed.ProjectionUpdates);
+        Assert.Equal(PositionLiveState.Idle, update.State);
+        Assert.Equal(OccurredAt.AddMinutes(2), update.UpdatedAtUtc);
+        Assert.Equal(3, feed.ProjectionSequence);
+        Assert.Equal(OccurredAt.AddMinutes(2), feed.LastEventAppliedAtUtc);
+    }
+
     private static PositionLiveStateProjectionJournalEvent JournalEvent(
         long offset,
         PositionEvent @event) =>
@@ -89,6 +129,15 @@ public sealed class PositionLiveStateProjectionWorkerTests
             offset,
             PositionEntityId.Parse("acme/delivery-lead"),
             @event);
+
+    private static PositionLiveStateProjectionItem ProjectionItem(
+        long sequenceId,
+        PositionEvent @event) =>
+        new(
+            sequenceId,
+            Assert.Single(
+                PositionLiveStateProjectionWorker.Facts(JournalEvent(sequenceId, @event)),
+                fact => fact.Source == PositionLiveStateProjectionSource.PositionEvent));
 
     private static MessageReceived MessageReceived() =>
         new(
@@ -133,13 +182,30 @@ public sealed class PositionLiveStateProjectionWorkerTests
         }
     }
 
-    private sealed class RecordingFeed(long? failAtOffset = null) : IPositionLiveStateProjectionFeed
+    private sealed class RecordingFeed(
+        long? failAtOffset = null,
+        IReadOnlyCollection<PositionLiveStateProjectionItem>? projectionFacts = null,
+        long initialProjectionSequence = 0) : IPositionLiveStateProjectionFeed
     {
+        private readonly IReadOnlyCollection<PositionLiveStateProjectionItem> _projectionFacts =
+            projectionFacts ?? [];
+
         public bool IsConfigured => true;
 
         public long PositionCheckpoint { get; private set; }
 
         public List<long> CapturedOffsets { get; } = [];
+
+        public long ProjectionSequence { get; private set; } = initialProjectionSequence;
+
+        public DateTimeOffset? LastEventAppliedAtUtc { get; private set; } =
+            projectionFacts?
+                .SingleOrDefault(item => item.SequenceId == initialProjectionSequence)?
+                .Fact.OccurredAtUtc;
+
+        public List<long> AppliedProjectionSequences { get; } = [];
+
+        public List<PositionLiveStateProjectionUpdate> ProjectionUpdates { get; } = [];
 
         public ValueTask<long> ReadCheckpointAsync(
             PositionLiveStateProjectionSubscription subscription,
@@ -183,6 +249,55 @@ public sealed class PositionLiveStateProjectionWorkerTests
         {
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(0);
+        }
+
+        public ValueTask<PositionLiveStateProjectionProgress> ReadProjectionProgressAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new PositionLiveStateProjectionProgress(
+                ProjectionSequence,
+                LastEventAppliedAtUtc));
+        }
+
+        public ValueTask<IReadOnlyList<PositionLiveStateProjectionItem>> ReadProjectionFactsAsync(
+            long afterSequenceId,
+            int batchSize,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<PositionLiveStateProjectionItem> result = _projectionFacts
+                .Where(item => item.SequenceId > afterSequenceId)
+                .OrderBy(item => item.SequenceId)
+                .Take(batchSize)
+                .ToArray();
+            return ValueTask.FromResult(result);
+        }
+
+        public ValueTask<bool> ApplyProjectionFactAsync(
+            PositionLiveStateProjectionItem item,
+            PositionLiveStateProjectionUpdate? update,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (item.SequenceId <= ProjectionSequence)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            var next = _projectionFacts
+                .Where(candidate => candidate.SequenceId > ProjectionSequence)
+                .Min(candidate => candidate.SequenceId);
+            Assert.Equal(next, item.SequenceId);
+            ProjectionSequence = item.SequenceId;
+            LastEventAppliedAtUtc = item.Fact.OccurredAtUtc;
+            AppliedProjectionSequences.Add(item.SequenceId);
+            if (update is not null)
+            {
+                ProjectionUpdates.Add(update);
+            }
+
+            return ValueTask.FromResult(true);
         }
     }
 }

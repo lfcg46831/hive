@@ -1,5 +1,8 @@
+using Hive.Actors.Positions;
 using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
+using Hive.Domain.Positions;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Infrastructure.Organization.ReadModels;
 using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
@@ -126,6 +129,86 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
             rows);
     }
 
+    [Fact]
+    public async Task Applied_fact_advances_state_progress_and_watermark_atomically_once()
+    {
+        await ResetAndMigrateAsync();
+        await InsertPositionStateAsync();
+        await using var feed = new PostgreSqlPositionLiveStateProjectionFeed(
+            fixture.ConnectionString);
+        var facts = TaskCreatedFacts(offset: 1);
+        Assert.True(await feed.CapturePositionJournalAsync(1, facts));
+        var item = Assert.Single(
+            await feed.ReadProjectionFactsAsync(afterSequenceId: 0, batchSize: 1));
+        var correlated = new PositionLiveStateCorrelatedEvent(
+            "TaskCreated",
+            Guid.Parse("dce25441-c3eb-4803-a96d-3083434c2b38"),
+            OccurredAt);
+        var update = new PositionLiveStateProjectionUpdate(
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            PositionLiveState.Working,
+            OccurredAt,
+            correlated);
+
+        Assert.True(await feed.ApplyProjectionFactAsync(item, update));
+        Assert.False(await feed.ApplyProjectionFactAsync(item, update));
+
+        var progress = await feed.ReadProjectionProgressAsync();
+        Assert.Equal(item.SequenceId, progress.LastAppliedSequenceId);
+        Assert.Equal(OccurredAt, progress.LastEventAppliedAtUtc);
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT state.state,
+                   state.sequence,
+                   state.updated_at_utc,
+                   state.last_event_type,
+                   watermark.sequence_id,
+                   watermark.last_event_applied_at_utc
+            FROM organogram.position_states state
+            INNER JOIN organogram.position_state_projection_watermarks watermark
+                ON watermark.organization_id = state.organization_id
+            WHERE state.organization_id = 'acme'
+              AND state.position_id = 'delivery-lead';
+            """);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("Working", reader.GetString(0));
+        Assert.Equal(1, reader.GetInt64(1));
+        Assert.Equal(OccurredAt, reader.GetFieldValue<DateTimeOffset>(2));
+        Assert.Equal("TaskCreated", reader.GetString(3));
+        Assert.Equal(item.SequenceId, reader.GetInt64(4));
+        Assert.Equal(OccurredAt, reader.GetFieldValue<DateTimeOffset>(5));
+    }
+
+    [Fact]
+    public async Task Failed_state_update_does_not_advance_projection_progress_or_watermark()
+    {
+        await ResetAndMigrateAsync();
+        await using var feed = new PostgreSqlPositionLiveStateProjectionFeed(
+            fixture.ConnectionString);
+        Assert.True(await feed.CapturePositionJournalAsync(1, TaskCreatedFacts(offset: 1)));
+        var item = Assert.Single(
+            await feed.ReadProjectionFactsAsync(afterSequenceId: 0, batchSize: 1));
+        var update = new PositionLiveStateProjectionUpdate(
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            PositionLiveState.Working,
+            OccurredAt);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await feed.ApplyProjectionFactAsync(item, update));
+
+        var progress = await feed.ReadProjectionProgressAsync();
+        Assert.Equal(0, progress.LastAppliedSequenceId);
+        Assert.Null(progress.LastEventAppliedAtUtc);
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            "SELECT count(*) FROM organogram.position_state_projection_watermarks;");
+        Assert.Equal(0, (long)(await command.ExecuteScalarAsync())!);
+    }
+
     private async Task ResetAndMigrateAsync()
     {
         await fixture.ResetRegistryAsync();
@@ -137,6 +220,23 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
 
         await new PostgreSqlOrganizationRegistryMigrator(dataSource).MigrateAsync();
         await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
+    }
+
+    private async Task InsertPositionStateAsync()
+    {
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            INSERT INTO organogram.position_states (
+                organization_id,
+                position_id,
+                state,
+                sequence,
+                updated_at_utc)
+            VALUES ('acme', 'delivery-lead', 'Idle', 0, @occurred_at_utc);
+            """);
+        command.Parameters.AddWithValue("occurred_at_utc", OccurredAt.AddMinutes(-1));
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<IReadOnlyList<(string Source, long Offset, string FactType)>>
@@ -192,6 +292,25 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
                 messageId,
                 threadId),
         ];
+    }
+
+    private static PositionLiveStateProjectionFact[] TaskCreatedFacts(long offset)
+    {
+        var entityId = PositionEntityId.Parse("acme/delivery-lead");
+        var @event = new TaskCreated(
+            PositionTaskId.From(Guid.Parse("ed409772-0111-4a87-8fab-345e5a7a66f4")),
+            ThreadId.From(Guid.Parse("dce25441-c3eb-4803-a96d-3083434c2b38")),
+            "Triage regression",
+            Priority.High,
+            OccurredAt);
+        return PositionLiveStateProjectionWorker.Facts(
+                new PositionLiveStateProjectionJournalEvent(
+                    offset,
+                    "position:acme/delivery-lead",
+                    persistenceSequence: 3,
+                    entityId,
+                    @event))
+            .ToArray();
     }
 
     private static JourneyAuditRecord AuditRecord(int ordinal) =>

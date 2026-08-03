@@ -12,6 +12,8 @@ internal sealed class PositionLiveStateProjectionWorker
 
     private readonly IPositionLiveStateProjectionJournal _journal;
     private readonly IPositionLiveStateProjectionFeed _feed;
+    private PositionLiveStateFactMapper? _factMapper;
+    private long _mappedSequenceId;
 
     public PositionLiveStateProjectionWorker(
         IPositionLiveStateProjectionJournal journal,
@@ -42,6 +44,47 @@ internal sealed class PositionLiveStateProjectionWorker
 
     public ValueTask<int> CaptureAuditLogBatchAsync(CancellationToken cancellationToken) =>
         _feed.CaptureAuditLogBatchAsync(BatchSize, cancellationToken);
+
+    public async Task<int> ApplyProjectionBatchAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await EnsureMapperRestoredAsync(cancellationToken);
+            var items = await _feed.ReadProjectionFactsAsync(
+                _mappedSequenceId,
+                BatchSize,
+                cancellationToken);
+            var applied = 0;
+            foreach (var item in items)
+            {
+                var transition = _factMapper!.Apply(item.Fact);
+                var update = transition is null
+                    ? null
+                    : new PositionLiveStateProjectionUpdate(
+                        transition.EntityId.Organization,
+                        transition.EntityId.Position,
+                        transition.State,
+                        transition.OccurredAtUtc,
+                        transition.CorrelatedEvent);
+                if (await _feed.ApplyProjectionFactAsync(item, update, cancellationToken))
+                {
+                    applied++;
+                }
+
+                _mappedSequenceId = item.SequenceId;
+            }
+
+            return applied;
+        }
+        catch
+        {
+            // The mapper is ahead of durable progress when a commit or cancellation fails. Drop
+            // it so the next attempt rebuilds exclusively from committed facts.
+            _factMapper = null;
+            _mappedSequenceId = 0;
+            throw;
+        }
+    }
 
     internal static IReadOnlyCollection<PositionLiveStateProjectionFact> Facts(
         PositionLiveStateProjectionJournalEvent item)
@@ -83,5 +126,51 @@ internal sealed class PositionLiveStateProjectionWorker
         }
 
         return facts;
+    }
+
+    private async Task EnsureMapperRestoredAsync(CancellationToken cancellationToken)
+    {
+        if (_factMapper is not null)
+        {
+            return;
+        }
+
+        var progress = await _feed.ReadProjectionProgressAsync(cancellationToken);
+        var mapper = new PositionLiveStateFactMapper();
+        var mappedSequenceId = 0L;
+        while (mappedSequenceId < progress.LastAppliedSequenceId)
+        {
+            var items = await _feed.ReadProjectionFactsAsync(
+                mappedSequenceId,
+                BatchSize,
+                cancellationToken);
+            if (items.Count == 0)
+            {
+                throw new InvalidOperationException(
+                    $"Live-state projection progress {progress.LastAppliedSequenceId} cannot be " +
+                    "restored because its durable facts are incomplete.");
+            }
+
+            foreach (var item in items)
+            {
+                if (item.SequenceId > progress.LastAppliedSequenceId)
+                {
+                    break;
+                }
+
+                mapper.Apply(item.Fact);
+                mappedSequenceId = item.SequenceId;
+            }
+        }
+
+        if (mappedSequenceId != progress.LastAppliedSequenceId)
+        {
+            throw new InvalidOperationException(
+                $"Live-state projection progress {progress.LastAppliedSequenceId} does not " +
+                "identify a durable projection fact.");
+        }
+
+        _factMapper = mapper;
+        _mappedSequenceId = mappedSequenceId;
     }
 }

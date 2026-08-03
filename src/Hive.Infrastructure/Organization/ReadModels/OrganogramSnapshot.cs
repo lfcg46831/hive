@@ -13,7 +13,8 @@ public sealed record OrganogramSnapshot
         string rootUnitId,
         string rootPositionId,
         IReadOnlyList<OrganogramUnitSnapshot> units,
-        IReadOnlyList<OrganogramPositionSnapshot> positions)
+        IReadOnlyList<OrganogramPositionSnapshot> positions,
+        IReadOnlyList<PositionLiveStateSnapshot> positionStates)
     {
         OrganizationId = organizationId;
         RegistryVersion = registryVersion;
@@ -24,6 +25,7 @@ public sealed record OrganogramSnapshot
         RootPositionId = rootPositionId;
         Units = units;
         Positions = positions;
+        PositionStates = positionStates;
     }
 
     public string OrganizationId { get; }
@@ -43,6 +45,8 @@ public sealed record OrganogramSnapshot
     public IReadOnlyList<OrganogramUnitSnapshot> Units { get; }
 
     public IReadOnlyList<OrganogramPositionSnapshot> Positions { get; }
+
+    public IReadOnlyList<PositionLiveStateSnapshot> PositionStates { get; }
 }
 
 public sealed record OrganogramUnitSnapshot(

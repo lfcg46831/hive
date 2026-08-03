@@ -18,6 +18,7 @@ internal static class PostgreSqlOrganogramReadModelWriter
         await InsertSnapshotAsync(connection, transaction, snapshot, cancellationToken);
         await InsertUnitsAsync(connection, transaction, snapshot, cancellationToken);
         await InsertPositionsAsync(connection, transaction, snapshot, cancellationToken);
+        await SynchronizePositionStatesAsync(connection, transaction, snapshot, cancellationToken);
         await PublishCurrentVersionAsync(connection, transaction, snapshot, cancellationToken);
         await DeleteSupersededVersionsAsync(connection, transaction, snapshot, cancellationToken);
     }
@@ -178,6 +179,47 @@ internal static class PostgreSqlOrganogramReadModelWriter
             transaction);
         command.Parameters.AddWithValue("organization_id", snapshot.OrganizationId.Value);
         command.Parameters.AddWithValue("registry_version", snapshot.Version);
+        await command.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task SynchronizePositionStatesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        OrganizationRegistrySnapshot snapshot,
+        CancellationToken cancellationToken)
+    {
+        await using var command = new NpgsqlCommand(
+            """
+            INSERT INTO organogram.position_states (
+                organization_id,
+                position_id,
+                state,
+                sequence,
+                updated_at_utc)
+            SELECT organization_id,
+                   position_id,
+                   'Idle',
+                   0,
+                   @imported_at_utc
+            FROM organogram.positions
+            WHERE organization_id = @organization_id
+              AND registry_version = @registry_version
+            ON CONFLICT (organization_id, position_id) DO NOTHING;
+
+            DELETE FROM organogram.position_states state
+            WHERE state.organization_id = @organization_id
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM organogram.positions position
+                  WHERE position.organization_id = @organization_id
+                    AND position.registry_version = @registry_version
+                    AND position.position_id = state.position_id);
+            """,
+            connection,
+            transaction);
+        command.Parameters.AddWithValue("organization_id", snapshot.OrganizationId.Value);
+        command.Parameters.AddWithValue("registry_version", snapshot.Version);
+        command.Parameters.AddWithValue("imported_at_utc", snapshot.ImportedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);
     }
 

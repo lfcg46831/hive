@@ -124,8 +124,8 @@ internal sealed class OrganizationReadModel : IOrganizationReadModel
                 MapRegistry(snapshot),
                 Utc(_timeProvider.GetUtcNow()),
                 lastEventAppliedAtUtc: null,
-                snapshot.Positions
-                    .Select(position => InitialState(position.Id, snapshot.ImportedAtUtc))
+                snapshot.PositionStates
+                    .Select(MapPositionState)
                     .ToArray()));
     }
 
@@ -196,19 +196,40 @@ internal sealed class OrganizationReadModel : IOrganizationReadModel
                         StringComparison.Ordinal))
                     .Select(candidate => candidate.Id)
                     .ToArray()),
-            InitialState(position.Id, snapshot.ImportedAtUtc));
+            MapPositionState(FindPositionState(snapshot, position.Id)));
     }
 
-    private static OrganizationPositionState InitialState(
-        string positionId,
-        DateTimeOffset updatedAtUtc) =>
-        // The structural read model starts at the sequence-zero Idle baseline. US-F1-01-T05
-        // replaces this baseline with the persisted live-state projection and correlated event.
-        new(
+    private static PositionLiveStateSnapshot FindPositionState(
+        OrganogramSnapshot snapshot,
+        string positionId) =>
+        snapshot.PositionStates.SingleOrDefault(state => string.Equals(
+            state.PositionId,
             positionId,
-            PositionOperationalState.Idle,
-            sequence: 0,
-            updatedAtUtc: Utc(updatedAtUtc));
+            StringComparison.Ordinal))
+        ?? throw new InvalidOperationException(
+            $"Position '{positionId}' does not have a materialized live state.");
+
+    private static OrganizationPositionState MapPositionState(PositionLiveStateSnapshot snapshot) =>
+        new(
+            snapshot.PositionId,
+            snapshot.State switch
+            {
+                PositionLiveState.Offline => PositionOperationalState.Offline,
+                PositionLiveState.Blocked => PositionOperationalState.Blocked,
+                PositionLiveState.WaitingHuman => PositionOperationalState.WaitingHuman,
+                PositionLiveState.Working => PositionOperationalState.Working,
+                PositionLiveState.Idle => PositionOperationalState.Idle,
+                _ => throw new InvalidOperationException(
+                    $"Unknown materialized position live state '{snapshot.State}'."),
+            },
+            snapshot.Sequence,
+            Utc(snapshot.UpdatedAtUtc),
+            snapshot.LastCorrelatedEvent is null
+                ? null
+                : new PositionCorrelatedEvent(
+                    snapshot.LastCorrelatedEvent.Type,
+                    snapshot.LastCorrelatedEvent.ThreadId,
+                    Utc(snapshot.LastCorrelatedEvent.OccurredAtUtc)));
 
     private static RegistryVersion MapRegistry(OrganogramSnapshot snapshot) =>
         new(snapshot.RegistryVersion, snapshot.RegistryFingerprint);

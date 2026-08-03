@@ -138,9 +138,16 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             tableNames);
         Assert.Equal([1, 2, 3, 4, 5], appliedVersions);
         Assert.Equal(
-            ["current_snapshots", "positions", "schema_migrations", "snapshots", "units"],
+            [
+                "current_snapshots",
+                "position_states",
+                "positions",
+                "schema_migrations",
+                "snapshots",
+                "units",
+            ],
             organogramTableNames);
-        Assert.Equal([1], organogramAppliedVersions);
+        Assert.Equal([1, 2], organogramAppliedVersions);
         Assert.Equal(
             [("occupants", "outcome_policy"), ("organizations", "outcome_policy")],
             outcomePolicyColumns);

@@ -3,6 +3,7 @@ using Hive.Contracts.Organization;
 using Hive.Domain.Identity;
 using Hive.Domain.Organization.Configuration;
 using Hive.Infrastructure.Organization.Configuration;
+using Hive.Infrastructure.Organization.ReadModels;
 using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
@@ -122,6 +123,147 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
     }
 
     [Fact]
+    public async Task Live_state_advances_monotonically_and_is_exposed_by_every_position_view()
+    {
+        var configuration = Configuration();
+        await ImportAsync(configuration, ImportedAt);
+        var workingAt = ImportedAt.AddMinutes(5);
+        var blockedAt = ImportedAt.AddMinutes(10);
+        var taskThreadId = Guid.Parse("b0871395-704d-4d25-90b7-ae8278fe7b7a");
+        var escalationThreadId = Guid.Parse("c6102135-ced8-48db-a51b-e9c337acac3b");
+        await using (var writer = StateWriter())
+        {
+            var working = await writer.AdvanceAsync(
+                configuration.Organization.Id,
+                PositionId.From("delivery-lead"),
+                PositionLiveState.Working,
+                workingAt,
+                new PositionLiveStateCorrelatedEvent("TaskCreated", taskThreadId, workingAt));
+            var blocked = await writer.AdvanceAsync(
+                configuration.Organization.Id,
+                PositionId.From("delivery-lead"),
+                PositionLiveState.Blocked,
+                blockedAt,
+                new PositionLiveStateCorrelatedEvent(
+                    "Escalation",
+                    escalationThreadId,
+                    blockedAt));
+
+            Assert.Equal(1, working.Sequence);
+            Assert.Equal(2, blocked.Sequence);
+        }
+
+        await using var reader = SnapshotReader();
+        var readModel = ReadModel(reader);
+        var organogramResult = await readModel.ReadOrganogramAsync(
+            configuration.Organization.Id,
+            rootUnitId: null,
+            CancellationToken.None);
+        var positionResult = await readModel.ReadPositionAsync(
+            configuration.Organization.Id,
+            PositionId.From("delivery-lead"),
+            CancellationToken.None);
+        var statesResult = await readModel.ReadPositionStatesAsync(
+            configuration.Organization.Id,
+            CancellationToken.None);
+
+        var organogram = Assert.IsType<OrganogramResponse>(organogramResult.Value);
+        var detail = Assert.IsType<PositionDetailResponse>(positionResult.Value);
+        var states = Assert.IsType<PositionStatesResponse>(statesResult.Value);
+        var embedded = organogram.Positions.Single(position => position.Id == "delivery-lead")
+            .OperationalState;
+        var snapshot = states.States.Single(state => state.PositionId == "delivery-lead");
+        Assert.Equal(embedded, detail.Position.OperationalState);
+        Assert.Equal(embedded, snapshot);
+        Assert.Equal(PositionOperationalState.Blocked, snapshot.State);
+        Assert.Equal(2, snapshot.Sequence);
+        Assert.Equal(blockedAt, snapshot.UpdatedAtUtc);
+        Assert.Equal("Escalation", snapshot.LastCorrelatedEvent!.Type);
+        Assert.Equal(escalationThreadId, snapshot.LastCorrelatedEvent.ThreadId);
+        Assert.Equal(blockedAt, snapshot.LastCorrelatedEvent.OccurredAtUtc);
+    }
+
+    [Fact]
+    public async Task Structural_reimport_preserves_the_existing_live_state()
+    {
+        var configuration = Configuration();
+        await ImportAsync(configuration, ImportedAt);
+        var blockedAt = ImportedAt.AddMinutes(10);
+        var threadId = Guid.Parse("83c2158d-b0db-40a4-95a4-99f276e52bdd");
+        await using (var writer = StateWriter())
+        {
+            await writer.AdvanceAsync(
+                configuration.Organization.Id,
+                PositionId.From("delivery-lead"),
+                PositionLiveState.Blocked,
+                blockedAt,
+                new PositionLiveStateCorrelatedEvent("Escalation", threadId, blockedAt));
+        }
+
+        await ImportWithoutResetAsync(
+            WithRenamedDeliveryLead(configuration),
+            ImportedAt.AddHours(1));
+        await using var reader = SnapshotReader();
+        var result = await ReadModel(reader).ReadPositionAsync(
+            configuration.Organization.Id,
+            PositionId.From("delivery-lead"),
+            CancellationToken.None);
+
+        var response = Assert.IsType<PositionDetailResponse>(result.Value);
+        Assert.Equal("Engineering Lead", response.Position.Name);
+        Assert.Equal(PositionOperationalState.Blocked, response.Position.OperationalState.State);
+        Assert.Equal(1, response.Position.OperationalState.Sequence);
+        Assert.Equal(blockedAt, response.Position.OperationalState.UpdatedAtUtc);
+        Assert.Equal(threadId, response.Position.OperationalState.LastCorrelatedEvent!.ThreadId);
+    }
+
+    [Fact]
+    public async Task State_advance_rejects_a_position_outside_the_current_read_model()
+    {
+        var configuration = Configuration();
+        await ImportAsync(configuration, ImportedAt);
+        await using var writer = StateWriter();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+            await writer.AdvanceAsync(
+                configuration.Organization.Id,
+                PositionId.From("missing-position"),
+                PositionLiveState.Working,
+                ImportedAt.AddMinutes(1)));
+
+        Assert.Contains("does not have a live-state row", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Uncorrelated_state_change_preserves_the_last_correlated_event()
+    {
+        var configuration = Configuration();
+        await ImportAsync(configuration, ImportedAt);
+        var blockedAt = ImportedAt.AddMinutes(10);
+        var offlineAt = ImportedAt.AddHours(10);
+        var threadId = Guid.Parse("59a876f0-ff3c-43e0-b30e-d29c5d9793e9");
+        await using var writer = StateWriter();
+        await writer.AdvanceAsync(
+            configuration.Organization.Id,
+            PositionId.From("delivery-lead"),
+            PositionLiveState.Blocked,
+            blockedAt,
+            new PositionLiveStateCorrelatedEvent("Escalation", threadId, blockedAt));
+
+        var offline = await writer.AdvanceAsync(
+            configuration.Organization.Id,
+            PositionId.From("delivery-lead"),
+            PositionLiveState.Offline,
+            offlineAt);
+
+        Assert.Equal(PositionLiveState.Offline, offline.State);
+        Assert.Equal(2, offline.Sequence);
+        Assert.Equal(offlineAt, offline.UpdatedAtUtc);
+        Assert.Equal(threadId, offline.LastCorrelatedEvent!.ThreadId);
+        Assert.Equal(blockedAt, offline.LastCorrelatedEvent.OccurredAtUtc);
+    }
+
+    [Fact]
     public async Task Missing_resources_are_distinct_from_an_unconfigured_read_model()
     {
         await ResetAndMigrateAsync();
@@ -167,7 +309,7 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
         Assert.Equal(2, changed.Snapshot!.Version);
         Assert.Equal(changed.Snapshot.Fingerprint, response.Registry.Fingerprint);
         Assert.Equal("Engineering Lead", response.Position.Name);
-        Assert.Equal(changedAt, response.Position.OperationalState.UpdatedAtUtc);
+        Assert.Equal(ImportedAt, response.Position.OperationalState.UpdatedAtUtc);
 
         await using var dataSource = fixture.CreateDataSource();
         await using var command = dataSource.CreateCommand(
@@ -264,6 +406,9 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
     }
 
     private PostgreSqlOrganogramSnapshotReader SnapshotReader() =>
+        new(fixture.ConnectionString);
+
+    private PostgreSqlPositionLiveStateWriter StateWriter() =>
         new(fixture.ConnectionString);
 
     private static OrganizationReadModel ReadModel(

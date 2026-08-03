@@ -67,6 +67,19 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             organizationId,
             header.RegistryVersion,
             cancellationToken);
+        var positionStates = await LoadPositionStatesAsync(
+            connection,
+            transaction,
+            organizationId,
+            header.RegistryVersion,
+            cancellationToken);
+        if (positionStates.Count != positions.Count)
+        {
+            throw new InvalidOperationException(
+                $"Organogram version {header.RegistryVersion} for organization '{organizationId.Value}' " +
+                "does not have exactly one live state per position.");
+        }
+
         await transaction.CommitAsync(cancellationToken);
         return new OrganogramSnapshot(
             organizationId.Value,
@@ -77,7 +90,8 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             header.RootUnitId,
             header.RootPositionId,
             units,
-            positions);
+            positions,
+            positionStates);
     }
 
     public ValueTask DisposeAsync() =>
@@ -201,6 +215,62 @@ public sealed class PostgreSqlOrganogramSnapshotReader :
             ? parsed
             : throw new InvalidOperationException(
                 $"Unknown materialized occupant type '{value}'.");
+
+    private static async Task<IReadOnlyList<PositionLiveStateSnapshot>> LoadPositionStatesAsync(
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
+        OrganizationId organizationId,
+        long registryVersion,
+        CancellationToken cancellationToken)
+    {
+        var states = new List<PositionLiveStateSnapshot>();
+        await using var command = VersionedCommand(
+            """
+            SELECT position.position_id,
+                   state.state,
+                   state.sequence,
+                   state.updated_at_utc,
+                   state.last_event_type,
+                   state.last_event_thread_id,
+                   state.last_event_occurred_at_utc
+            FROM organogram.positions position
+            INNER JOIN organogram.position_states state
+                ON state.organization_id = position.organization_id
+               AND state.position_id = position.position_id
+            WHERE position.organization_id = @organization_id
+              AND position.registry_version = @registry_version
+            ORDER BY position.stable_order;
+            """,
+            connection,
+            transaction,
+            organizationId,
+            registryVersion);
+        await using var reader = await command.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            var correlatedEvent = reader.IsDBNull(4)
+                ? null
+                : new PositionLiveStateCorrelatedEvent(
+                    reader.GetString(4),
+                    reader.GetGuid(5),
+                    reader.GetFieldValue<DateTimeOffset>(6).ToUniversalTime());
+            states.Add(new PositionLiveStateSnapshot(
+                reader.GetString(0),
+                ParsePositionLiveState(reader.GetString(1)),
+                reader.GetInt64(2),
+                reader.GetFieldValue<DateTimeOffset>(3).ToUniversalTime(),
+                correlatedEvent));
+        }
+
+        return new ReadOnlyCollection<PositionLiveStateSnapshot>(states);
+    }
+
+    private static PositionLiveState ParsePositionLiveState(string value) =>
+        Enum.TryParse<PositionLiveState>(value, ignoreCase: false, out var parsed) &&
+        Enum.IsDefined(parsed)
+            ? parsed
+            : throw new InvalidOperationException(
+                $"Unknown materialized position live state '{value}'.");
 
     private static NpgsqlCommand VersionedCommand(
         string sql,

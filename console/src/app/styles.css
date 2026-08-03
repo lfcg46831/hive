@@ -57,6 +57,110 @@ body {
   color: var(--state-blocked);
 }
 
+/* Loading, failure and empty panels: what the console shows in place of an
+   organogram, each stating which of the three situations it is. */
+
+.panel {
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.panel--error {
+  border-color: var(--state-blocked);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.panel--error .panel__title {
+  color: var(--state-blocked);
+}
+
+.panel__detail {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+}
+
+.panel__action,
+.notice__action {
+  margin-top: 12px;
+  padding: 6px 12px;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notice__action {
+  margin: 0 0 0 auto;
+  flex: none;
+}
+
+.skeleton {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.skeleton__row {
+  height: 14px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--surface-muted), var(--border), var(--surface-muted));
+}
+
+.skeleton__row:nth-child(2) {
+  width: 80%;
+}
+
+.skeleton__row:nth-child(3) {
+  width: 60%;
+}
+
+/* Degraded-mode notices. They sit above the organogram instead of replacing it:
+   the last known snapshot stays readable, labelled for what it is. */
+
+.notices {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.notice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.notice--info {
+  border-left-color: var(--accent);
+}
+
+.notice--warning {
+  border-left-color: var(--state-waiting);
+}
+
+.notice__message {
+  flex: 1 1 320px;
+}
+
 .organogram__header {
   display: flex;
   flex-wrap: wrap;
@@ -123,6 +227,19 @@ body {
 
 .update-indicator__dot--polling {
   background: var(--accent);
+}
+
+.update-indicator__freshness--stale {
+  color: var(--state-blocked);
+  font-weight: 600;
+}
+
+.update-indicator__freshness--unknown {
+  font-style: italic;
+}
+
+.update-indicator__refreshing {
+  color: var(--accent);
 }
 
 .unit-list {

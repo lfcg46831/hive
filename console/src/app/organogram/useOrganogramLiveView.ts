@@ -7,6 +7,10 @@
  * `/organogram` and `/position-states`. When the hub is not live the same data
  * arrives through controlled ETag polling, and the view says so — a console
  * that silently shows stale states is worse than one that admits it is behind.
+ *
+ * This hook holds only facts: which channel is carrying updates, when the view
+ * last agreed with the server, whether a refetch is in flight. Judging those
+ * facts into what the reader is told belongs to `app/status/consoleStatus.ts`.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -17,7 +21,6 @@ import type {
   RegistryVersion,
 } from '../../api/index.js';
 import {
-  HiveApiError,
   createHiveApiClient,
   createOrganizationUpdatesClient,
   isNewerPositionState,
@@ -38,8 +41,16 @@ export interface OrganogramLiveView {
   readonly channel: UpdateChannel;
   /** When the view last agreed with the server, live or polled. */
   readonly lastSyncedAtUtc: string | null;
+  /**
+   * Timestamp of the last event applied by the server-side projection, as
+   * reported by `/position-states`. Null until the first poll: the organogram
+   * response does not carry the signal, and the console does not invent it.
+   */
+  readonly projectionAppliedAtUtc: string | null;
   /** True between an `OrganogramChanged` notification and the refetch. */
   readonly registryUpdating: boolean;
+  /** True while a snapshot refetch is in flight over an already shown view. */
+  readonly refreshing: boolean;
   readonly registry: RegistryVersion | null;
   refresh(): void;
 }
@@ -58,7 +69,9 @@ export function useOrganogramLiveView(config: ConsoleConfig): OrganogramLiveView
   );
   const [channel, setChannel] = useState<UpdateChannel>('connecting');
   const [lastSyncedAtUtc, setLastSyncedAtUtc] = useState<string | null>(null);
+  const [projectionAppliedAtUtc, setProjectionAppliedAtUtc] = useState<string | null>(null);
   const [registryUpdating, setRegistryUpdating] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
   const etagRef = useRef<string | null>(null);
@@ -87,6 +100,7 @@ export function useOrganogramLiveView(config: ConsoleConfig): OrganogramLiveView
   useEffect(() => {
     const abort = new AbortController();
     let cancelled = false;
+    setRefreshing(true);
 
     void (async () => {
       try {
@@ -116,6 +130,10 @@ export function useOrganogramLiveView(config: ConsoleConfig): OrganogramLiveView
 
         setError(toError(cause));
         setPhase((current) => (current === 'ready' ? current : 'failed'));
+      } finally {
+        if (!cancelled && !abort.signal.aborted) {
+          setRefreshing(false);
+        }
       }
     })();
 
@@ -194,9 +212,13 @@ export function useOrganogramLiveView(config: ConsoleConfig): OrganogramLiveView
           if (result.status === 'modified') {
             applyStates(result.snapshot.states);
             setLastSyncedAtUtc(result.snapshot.generated_at_utc);
+            setProjectionAppliedAtUtc(result.snapshot.last_event_applied_at_utc);
             setError(null);
           } else {
+            // Nothing changed server-side, which is still an agreement: the view
+            // is current as of now, not as of the last state transition.
             setLastSyncedAtUtc(new Date().toISOString());
+            setError(null);
           }
         } catch (cause) {
           if (!cancelled) {
@@ -219,31 +241,12 @@ export function useOrganogramLiveView(config: ConsoleConfig): OrganogramLiveView
     liveStates,
     channel,
     lastSyncedAtUtc,
+    projectionAppliedAtUtc,
     registryUpdating,
+    refreshing,
     registry: snapshot?.registry ?? null,
     refresh,
   };
-}
-
-/** Exposed so the view can explain a failure without re-deriving HTTP semantics. */
-export function describeLoadFailure(error: Error): string {
-  if (error instanceof HiveApiError) {
-    if (error.isUnauthorized) {
-      return 'The configured credential was rejected by the API.';
-    }
-
-    if (error.isNotFound) {
-      return 'No organization is visible to this credential.';
-    }
-
-    if (error.isReadModelUnavailable) {
-      return 'The organogram read model is not materialized yet.';
-    }
-
-    return error.problem?.detail ?? error.message;
-  }
-
-  return error.message;
 }
 
 /**

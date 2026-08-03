@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import type { OrganizationPositionState, OrganogramResponse } from '../../api/index.js';
 import { formatUtc } from '../format.js';
+import type { ConsoleFreshness } from '../status/consoleStatus.js';
+import { isEmptySnapshot } from '../status/consoleStatus.js';
+import { EmptyPanel } from '../status/StatusPanels.js';
 import { PositionCard } from './PositionCard.js';
 import { UnitBranch } from './UnitBranch.js';
 import { UpdateIndicator } from './UpdateIndicator.js';
@@ -11,8 +14,11 @@ export interface OrganogramViewProps {
   readonly snapshot: OrganogramResponse;
   readonly liveStates: ReadonlyMap<string, OrganizationPositionState>;
   readonly channel: UpdateChannel;
+  readonly freshness: ConsoleFreshness;
   readonly lastSyncedAtUtc: string | null;
+  readonly projectionAppliedAtUtc: string | null;
   readonly registryUpdating: boolean;
+  readonly refreshing: boolean;
 }
 
 /**
@@ -24,8 +30,11 @@ export function OrganogramView({
   snapshot,
   liveStates,
   channel,
+  freshness,
   lastSyncedAtUtc,
+  projectionAppliedAtUtc,
   registryUpdating,
+  refreshing,
 }: OrganogramViewProps) {
   const tree = useMemo(() => buildOrganogramTree(snapshot), [snapshot]);
   const positionCount = useMemo(
@@ -45,15 +54,27 @@ export function OrganogramView({
         </div>
         <UpdateIndicator
           channel={channel}
+          freshness={freshness}
           lastSyncedAtUtc={lastSyncedAtUtc}
+          projectionAppliedAtUtc={projectionAppliedAtUtc}
           registry={snapshot.registry}
           registryUpdating={registryUpdating}
+          refreshing={refreshing}
         />
       </header>
 
-      {tree.roots.length === 0 && tree.detachedUnits.length === 0 ? (
+      {isEmptySnapshot(snapshot) ? (
+        <EmptyPanel
+          organizationId={snapshot.organization.id}
+          registryVersion={snapshot.registry.version}
+        />
+      ) : null}
+
+      {!isEmptySnapshot(snapshot) && tree.roots.length === 0 && tree.detachedUnits.length === 0 ? (
         <p className="organogram__empty">This organization has no units in the current registry.</p>
-      ) : (
+      ) : null}
+
+      {tree.roots.length === 0 ? null : (
         <ul className="unit-list unit-list--root">
           {tree.roots.map((node) => (
             <UnitBranch key={node.unit.id} node={node} liveStates={liveStates} />

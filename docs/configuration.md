@@ -1038,6 +1038,24 @@ ETag polling of `/position-states` whenever the hub is not live. The REST snapsh
 the source of truth: any reconnection or structural change refetches `/organogram`, and the
 header states which channel is in use and when the view last agreed with the server.
 
+What the console reports about its own state, and what each signal means operationally:
+
+| Signal | Meaning |
+| --- | --- |
+| `Connecting to live updates` | The hub subscription is being established; polling covers the gap. |
+| `Reconnecting — polling meanwhile` | The hub dropped. The snapshot is refetched when the subscription returns, so no update is silently missed. |
+| `Polling fallback` | The hub is unavailable. States arrive with up to one `pollIntervalMs` of delay. |
+| `Registry v<n> · updating` | A new registry version was published; the organogram on screen is the previous one until the refetch completes. |
+| `Possibly out of date` | No update has succeeded for more than three `pollIntervalMs` (never less than 15s). Points at the API, the projection or the network, not at the console. |
+| `The last update attempt failed` | The last request failed and the previous snapshot is still shown. A rejected credential or an out-of-scope organization is reported without a retry, because retrying cannot fix either. |
+
+The view never replaces a snapshot it already holds with an error page, and it claims to be
+current only with an established subscription: while polling it always shows the age of the
+last agreement. `pollIntervalMs` therefore sets both how fast changes appear and how long a
+stalled view stays quiet before it warns. An unreachable API before the first snapshot, an
+unmaterialized read model (`503`) and an organization with no units or positions are three
+distinct screens, because the operator reaction differs for each.
+
 ### Same-origin requirement
 
 The API host declares no CORS policy, so a browser cannot call it from a different origin.

@@ -1,13 +1,16 @@
-import { useMemo } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import type { OrganizationPositionState, OrganogramResponse } from '../../api/index.js';
 import { formatUtc } from '../format.js';
 import type { ConsoleFreshness } from '../status/consoleStatus.js';
 import { isEmptySnapshot } from '../status/consoleStatus.js';
 import { EmptyPanel } from '../status/StatusPanels.js';
+import { OrganogramFilterBar } from './OrganogramFilterBar.js';
 import { PositionCard } from './PositionCard.js';
 import { UnitBranch } from './UnitBranch.js';
 import { UpdateIndicator } from './UpdateIndicator.js';
-import { buildOrganogramTree, countPositions, resolvePositionState } from './organogramTree.js';
+import type { OrganogramFilter } from './organogramFilter.js';
+import { EMPTY_FILTER, filterOrganogram } from './organogramFilter.js';
+import { buildOrganogramTree, resolvePositionState } from './organogramTree.js';
 import type { UpdateChannel } from './useOrganogramLiveView.js';
 
 export interface OrganogramViewProps {
@@ -36,11 +39,17 @@ export function OrganogramView({
   registryUpdating,
   refreshing,
 }: OrganogramViewProps) {
+  const [filter, setFilter] = useState<OrganogramFilter>(EMPTY_FILTER);
+  // Typing stays responsive on a large organization: the keystroke lands
+  // immediately, the re-filtered tree follows at React's convenience.
+  const deferredFilter = useDeferredValue(filter);
+
   const tree = useMemo(() => buildOrganogramTree(snapshot), [snapshot]);
-  const positionCount = useMemo(
-    () => countPositions(tree.roots) + countPositions(tree.detachedUnits) + tree.orphanPositions.length,
-    [tree],
+  const result = useMemo(
+    () => filterOrganogram(tree, liveStates, deferredFilter),
+    [tree, liveStates, deferredFilter],
   );
+  const view = result.tree;
 
   return (
     <section className="organogram" aria-label="Organogram">
@@ -48,7 +57,7 @@ export function OrganogramView({
         <div>
           <h2 className="organogram__title">{snapshot.organization.name ?? snapshot.organization.id}</h2>
           <p className="organogram__summary">
-            {snapshot.units.length} units · {positionCount} positions · snapshot generated{' '}
+            {snapshot.units.length} units · {result.totalPositions} positions · snapshot generated{' '}
             {formatUtc(snapshot.generated_at_utc)}
           </p>
         </div>
@@ -70,19 +79,31 @@ export function OrganogramView({
         />
       ) : null}
 
-      {!isEmptySnapshot(snapshot) && tree.roots.length === 0 && tree.detachedUnits.length === 0 ? (
+      {isEmptySnapshot(snapshot) ? null : (
+        <OrganogramFilterBar filter={filter} result={result} onChange={setFilter} />
+      )}
+
+      {!isEmptySnapshot(snapshot) &&
+      !result.active &&
+      view.roots.length === 0 &&
+      view.detachedUnits.length === 0 ? (
         <p className="organogram__empty">This organization has no units in the current registry.</p>
       ) : null}
 
-      {tree.roots.length === 0 ? null : (
+      {view.roots.length === 0 ? null : (
         <ul className="unit-list unit-list--root">
-          {tree.roots.map((node) => (
-            <UnitBranch key={node.unit.id} node={node} liveStates={liveStates} />
+          {view.roots.map((node) => (
+            <UnitBranch
+              key={node.unit.id}
+              node={node}
+              liveStates={liveStates}
+              filtered={result.active}
+            />
           ))}
         </ul>
       )}
 
-      {tree.detachedUnits.length > 0 ? (
+      {view.detachedUnits.length > 0 ? (
         <section className="organogram__detached" aria-label="Detached units">
           <h3>Units outside the hierarchy</h3>
           <p className="organogram__detached-note">
@@ -90,18 +111,23 @@ export function OrganogramView({
             snapshot or forms a cycle.
           </p>
           <ul className="unit-list unit-list--root">
-            {tree.detachedUnits.map((node) => (
-              <UnitBranch key={node.unit.id} node={node} liveStates={liveStates} />
+            {view.detachedUnits.map((node) => (
+              <UnitBranch
+                key={node.unit.id}
+                node={node}
+                liveStates={liveStates}
+                filtered={result.active}
+              />
             ))}
           </ul>
         </section>
       ) : null}
 
-      {tree.orphanPositions.length > 0 ? (
+      {view.orphanPositions.length > 0 ? (
         <section className="organogram__detached" aria-label="Positions without a unit">
           <h3>Positions without a unit</h3>
           <ul className="position-list">
-            {tree.orphanPositions.map((position) => (
+            {view.orphanPositions.map((position) => (
               <PositionCard
                 key={position.id}
                 position={position}

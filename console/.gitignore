@@ -1,0 +1,7 @@
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Exported from the API host by the OpenAPI snapshot test; never hand-edited.
+openapi/v1.json

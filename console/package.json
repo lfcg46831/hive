@@ -1,0 +1,24 @@
+{
+  "name": "hive-console",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HIVE operational console: TypeScript client for the public HIVE API.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "verify:contracts": "vitest run --config vitest.contracts.config.ts",
+    "verify": "npm run typecheck && npm run test && npm run verify:contracts"
+  },
+  "dependencies": {
+    "@microsoft/signalr": "^8.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.4"
+  }
+}

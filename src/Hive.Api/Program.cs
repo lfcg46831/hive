@@ -17,6 +17,7 @@ public static class Program
         var builder = WebApplication.CreateBuilder(args);
         builder.AddHiveBootstrap();
         builder.AddHiveActorSystem();
+        builder.AddHivePositionLiveStateProjection();
         builder.Services.AddHivePublicApiOpenApi();
         builder.Services.AddHiveDirectiveAuditExportApi();
         builder.Services.AddHiveDirectiveSubmissionApi();

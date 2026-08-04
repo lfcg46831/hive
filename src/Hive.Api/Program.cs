@@ -19,6 +19,7 @@ public static class Program
         builder.AddHiveBootstrap();
         builder.AddHiveActorSystem();
         builder.AddHivePositionLiveStateProjection();
+        builder.AddHiveInboxProjection();
         builder.Services.AddHivePublicApiOpenApi();
         builder.Services.AddHiveDirectiveAuditExportApi();
         builder.Services.AddHiveDirectiveSubmissionApi();

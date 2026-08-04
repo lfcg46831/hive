@@ -8,6 +8,7 @@ using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
+using Hive.Infrastructure.Inbox.ReadModels.PostgreSql;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.Logging;
 using Hive.Infrastructure.Organization.ReadModels;
@@ -183,6 +184,7 @@ public static class HiveBootstrapExtensions
         builder.Services.AddHostedService<PostgreSqlPositionPersistenceMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlSchedulerPulseDeliveryMigrationHostedService>();
         builder.Services.AddHostedService<PostgreSqlJourneyAuditLogMigrationHostedService>();
+        builder.Services.AddHostedService<PostgreSqlInboxProjectionMigrationHostedService>();
         builder.Services.AddHostedService<RoleWorkloadHostedService>();
 
         builder.Services.AddHiveHealthChecks();

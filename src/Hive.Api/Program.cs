@@ -2,6 +2,7 @@ using Hive.Actors;
 using Hive.Api.Auditing;
 using Hive.Api.Diagnostics;
 using Hive.Api.Directives;
+using Hive.Api.Inbox;
 using Hive.Api.OpenApi;
 using Hive.Api.Organization;
 using Hive.Infrastructure.Configuration;
@@ -21,6 +22,7 @@ public static class Program
         builder.Services.AddHivePublicApiOpenApi();
         builder.Services.AddHiveDirectiveAuditExportApi();
         builder.Services.AddHiveDirectiveSubmissionApi();
+        builder.Services.AddHiveInboxApi();
         builder.Services.AddHiveOrganizationApi();
         builder.Services.AddHiveOrganizationRegistryApi();
 
@@ -31,6 +33,7 @@ public static class Program
         app.MapHiveDiagnostics();
         app.MapHiveDirectiveAuditExportApi();
         app.MapHiveDirectiveSubmissionApi();
+        app.MapHiveInboxApi();
         app.MapHiveOrganizationApi();
         app.MapHiveOrganizationUpdatesHub();
         app.MapHiveOrganizationRegistryApi();

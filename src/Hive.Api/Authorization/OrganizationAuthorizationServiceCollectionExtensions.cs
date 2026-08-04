@@ -10,6 +10,13 @@ public static class OrganizationAuthorizationServiceCollectionExtensions
         this IServiceCollection services)
     {
         ArgumentNullException.ThrowIfNull(services);
+        if (services.Any(static descriptor =>
+                descriptor.ServiceType == typeof(OrganizationAuthorizationRegistrationMarker)))
+        {
+            return services;
+        }
+
+        services.AddSingleton<OrganizationAuthorizationRegistrationMarker>();
 
         services.AddOptions<OrganizationAuthorizationOptions>()
             .BindConfiguration(OrganizationAuthorizationOptions.SectionName)
@@ -37,6 +44,10 @@ public static class OrganizationAuthorizationServiceCollectionExtensions
             IOrganizationPrincipalResolver,
             ClaimsOrganizationPrincipalResolver>();
         return services;
+    }
+
+    private sealed class OrganizationAuthorizationRegistrationMarker
+    {
     }
 
     private static bool IsValidOrganizationId(string value)

@@ -5,6 +5,7 @@ internal static class InboxContractGuards
     private const int MaxIdentifierLength = 256;
     private const int MaxItemIdentifierLength = 512;
     private const int MaxDisplayTextLength = 4_096;
+    private const int MaxCursorLength = 2_048;
 
     public static string Identifier(string value, string parameterName) =>
         Text(value, parameterName, MaxIdentifierLength);
@@ -14,6 +15,9 @@ internal static class InboxContractGuards
 
     public static string DisplayText(string value, string parameterName) =>
         Text(value, parameterName, MaxDisplayTextLength);
+
+    public static string? OptionalCursor(string? value, string parameterName) =>
+        value is null ? null : Text(value, parameterName, MaxCursorLength);
 
     public static Guid MessageIdentifier(Guid value, string parameterName)
     {
@@ -49,6 +53,19 @@ internal static class InboxContractGuards
         DateTimeOffset? value,
         string parameterName) =>
         value is null ? null : UtcTimestamp(value.Value, parameterName);
+
+    public static int PageSize(int value, string parameterName)
+    {
+        if (value is < 1 or > 100)
+        {
+            throw new ArgumentOutOfRangeException(
+                parameterName,
+                value,
+                "Page size must be between 1 and 100 items.");
+        }
+
+        return value;
+    }
 
     public static T DefinedEnum<T>(T value, string parameterName)
         where T : struct, Enum

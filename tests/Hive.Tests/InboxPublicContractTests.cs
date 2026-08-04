@@ -204,6 +204,84 @@ public sealed class InboxPublicContractTests
         Assert.DoesNotContain(exposedTypes, value => value.StartsWith("Hive.Api", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Inbox_page_serializes_generation_staleness_and_cursor_pagination_metadata()
+    {
+        var lastEventAppliedAt = SentAt.AddMinutes(-1);
+        var page = new InboxPage(
+            SentAt.AddMinutes(1),
+            lastEventAppliedAt,
+            pageSize: 25,
+            nextCursor: "deadline-priority-message-item:v1",
+            [CreateApprovalRequest()]);
+
+        var json = JsonSerializer.SerializeToElement(page);
+
+        Assert.Equal(
+            SentAt.AddMinutes(1),
+            json.GetProperty("generated_at_utc").GetDateTimeOffset());
+        Assert.Equal(
+            lastEventAppliedAt,
+            json.GetProperty("last_event_applied_at_utc").GetDateTimeOffset());
+        Assert.Equal(25, json.GetProperty("page_size").GetInt32());
+        Assert.Equal(
+            "deadline-priority-message-item:v1",
+            json.GetProperty("next_cursor").GetString());
+        Assert.Equal(
+            RequestId,
+            Assert.Single(json.GetProperty("items").EnumerateArray())
+                .GetProperty("message_id")
+                .GetGuid());
+    }
+
+    [Fact]
+    public void Inbox_detail_serializes_the_item_with_projection_metadata()
+    {
+        var response = new InboxItemResponse(
+            SentAt.AddMinutes(1),
+            lastEventAppliedAtUtc: null,
+            CreateApprovalRequest());
+
+        var json = JsonSerializer.SerializeToElement(response);
+
+        Assert.Equal(
+            SentAt.AddMinutes(1),
+            json.GetProperty("generated_at_utc").GetDateTimeOffset());
+        Assert.Equal(
+            JsonValueKind.Null,
+            json.GetProperty("last_event_applied_at_utc").ValueKind);
+        Assert.Equal(
+            RequestId,
+            json.GetProperty("item").GetProperty("message_id").GetGuid());
+    }
+
+    [Fact]
+    public void Inbox_page_rejects_invalid_metadata_and_unbounded_or_null_items()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new InboxPage(
+            SentAt,
+            SentAt,
+            pageSize: 0,
+            nextCursor: null,
+            []));
+        Assert.Throws<ArgumentException>(() => new InboxPage(
+            SentAt,
+            SentAt,
+            pageSize: 1,
+            nextCursor: null,
+            [CreateApprovalRequest(), CreateApprovalRequest()]));
+        Assert.Throws<ArgumentException>(() => new InboxPage(
+            SentAt,
+            SentAt,
+            pageSize: 1,
+            nextCursor: " ",
+            [CreateApprovalRequest()]));
+        Assert.Throws<ArgumentNullException>(() => new InboxItemResponse(
+            SentAt,
+            SentAt,
+            item: null!));
+    }
+
     private static InboxItem CreateApprovalRequest() => new(
         "delivery-lead/cf2b086f-dd04-445f-a68e-8e40a75530b9",
         RequestId,

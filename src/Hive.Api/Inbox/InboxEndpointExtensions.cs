@@ -1,0 +1,451 @@
+using System.Globalization;
+using Hive.Api.Authorization;
+using Hive.Contracts.Inbox;
+using Hive.Domain.Identity;
+using Microsoft.AspNetCore.Mvc;
+
+namespace Hive.Api.Inbox;
+
+public static class InboxEndpointExtensions
+{
+    public const string BasePath = "/api/v1/organizations";
+
+    public const string InboxRoute = "/{organizationId}/inbox";
+
+    public const string PositionInboxRoute = "/{organizationId}/positions/{positionId}/inbox";
+
+    public const string InboxItemRoute = "/{organizationId}/inbox/{itemId}";
+
+    public static IEndpointRouteBuilder MapHiveInboxApi(this IEndpointRouteBuilder endpoints)
+    {
+        ArgumentNullException.ThrowIfNull(endpoints);
+
+        var group = endpoints.MapGroup(BasePath)
+            .WithTags("Inbox")
+            .RequireAuthorization(OrganizationAuthorizationDefaults.Policy)
+            .AddEndpointFilter<OrganizationReadAuthorizationFilter>();
+        group.MapGet(InboxRoute, ListInboxAsync)
+            .WithName("GetOrganizationInboxV1")
+            .WithSummary("List the authenticated person's organization inbox")
+            .WithDescription(
+                "Returns a cursor-paginated, server-filtered inbox snapshot across the authenticated " +
+                "person's occupied positions. The fixed order is deadline, priority, message timestamp " +
+                "and stable item identifier.")
+            .Produces<InboxPage>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapGet(PositionInboxRoute, ListPositionInboxAsync)
+            .WithName("GetOrganizationPositionInboxV1")
+            .WithSummary("List one occupied position's inbox")
+            .WithDescription(
+                "Returns the authenticated person's inbox subset for one occupied position, with the " +
+                "same filters, pagination and fixed ordering as the aggregate inbox.")
+            .Produces<InboxPage>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapGet(InboxItemRoute, ReadInboxItemAsync)
+            .WithName("GetOrganizationInboxItemV1")
+            .WithSummary("Get one inbox item")
+            .WithDescription(
+                "Returns one principal-scoped inbox item with thread correlation, deadline, response " +
+                "state and approval metadata.")
+            .Produces<InboxItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        return endpoints;
+    }
+
+    private static Task<IResult> ListInboxAsync(
+        string organizationId,
+        [AsParameters] InboxQueryParameters parameters,
+        IInboxReadModel readModel,
+        CancellationToken cancellationToken) =>
+        ListInboxCoreAsync(
+            organizationId,
+            positionId: null,
+            parameters,
+            readModel,
+            cancellationToken);
+
+    private static Task<IResult> ListPositionInboxAsync(
+        string organizationId,
+        string positionId,
+        [AsParameters] InboxQueryParameters parameters,
+        IInboxReadModel readModel,
+        CancellationToken cancellationToken) =>
+        ListInboxCoreAsync(
+            organizationId,
+            positionId,
+            parameters,
+            readModel,
+            cancellationToken);
+
+    private static async Task<IResult> ListInboxCoreAsync(
+        string organizationId,
+        string? positionId,
+        InboxQueryParameters parameters,
+        IInboxReadModel readModel,
+        CancellationToken cancellationToken)
+    {
+        if (!TryParseOrganizationId(organizationId, out var organization))
+        {
+            return InvalidOrganizationId();
+        }
+
+        PositionId? position = null;
+        if (positionId is not null && !TryParsePositionId(positionId, out position))
+        {
+            return InvalidPositionId();
+        }
+
+        if (!TryCreateQuery(parameters, out var query, out var error))
+        {
+            return InvalidQuery(error!);
+        }
+
+        var result = await readModel.ListAsync(
+                organization!,
+                position,
+                query!,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsAvailable)
+        {
+            return ReadModelUnavailable();
+        }
+
+        if (result.Value is not { } page)
+        {
+            return position is null ? OrganizationNotFound() : PositionNotFound();
+        }
+
+        return TypedResults.Ok(page);
+    }
+
+    private static async Task<IResult> ReadInboxItemAsync(
+        string organizationId,
+        string itemId,
+        IInboxReadModel readModel,
+        CancellationToken cancellationToken)
+    {
+        if (!TryParseOrganizationId(organizationId, out var organization))
+        {
+            return InvalidOrganizationId();
+        }
+
+        if (!TryParseItemId(itemId, out var parsedItemId))
+        {
+            return InvalidItemId();
+        }
+
+        var result = await readModel.ReadItemAsync(
+                organization!,
+                parsedItemId!,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!result.IsAvailable)
+        {
+            return ReadModelUnavailable();
+        }
+
+        return result.Value is { } item
+            ? TypedResults.Ok(item)
+            : InboxItemNotFound();
+    }
+
+    private static bool TryCreateQuery(
+        InboxQueryParameters parameters,
+        out InboxListQuery? query,
+        out string? error)
+    {
+        query = null;
+        if (!TryParseEnum(parameters.MessageType, "type", out InboxMessageType? messageType, out error) ||
+            !TryParseEnum(parameters.ReadState, "read_state", out InboxReadState? readState, out error) ||
+            !TryParseEnum(parameters.ResponseState, "response_state", out InboxResponseState? responseState, out error) ||
+            !TryParseEnum(parameters.Priority, "priority", out InboxPriority? priority, out error) ||
+            !TryParseUtc(parameters.DeadlineFromUtc, "deadline_from_utc", out var deadlineFrom, out error) ||
+            !TryParseUtc(parameters.DeadlineToUtc, "deadline_to_utc", out var deadlineTo, out error) ||
+            !TryParseBoolean(parameters.ApprovalPending, "approval_pending", out var approvalPending, out error) ||
+            !TryParsePageSize(parameters.PageSize, out var pageSize, out error) ||
+            !TryValidateCursor(parameters.Cursor, out var cursor, out error))
+        {
+            return false;
+        }
+
+        if (deadlineFrom > deadlineTo)
+        {
+            error = "deadline_from_utc cannot follow deadline_to_utc.";
+            return false;
+        }
+
+        query = new InboxListQuery(
+            messageType,
+            readState,
+            responseState,
+            priority,
+            deadlineFrom,
+            deadlineTo,
+            approvalPending,
+            pageSize,
+            cursor);
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseEnum<T>(
+        string? value,
+        string queryName,
+        out T? parsed,
+        out string? error)
+        where T : struct, Enum
+    {
+        parsed = null;
+        if (value is null)
+        {
+            error = null;
+            return true;
+        }
+
+        if (!Enum.TryParse<T>(value, ignoreCase: true, out var candidate) ||
+            !Enum.IsDefined(candidate))
+        {
+            error = $"{queryName} is not a supported value.";
+            return false;
+        }
+
+        parsed = candidate;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseUtc(
+        string? value,
+        string queryName,
+        out DateTimeOffset? parsed,
+        out string? error)
+    {
+        parsed = null;
+        if (value is null)
+        {
+            error = null;
+            return true;
+        }
+
+        var hasExplicitUtcDesignator =
+            value.EndsWith('Z') ||
+            value.EndsWith("+00:00", StringComparison.Ordinal) ||
+            value.EndsWith("-00:00", StringComparison.Ordinal);
+        if (!hasExplicitUtcDesignator ||
+            !DateTimeOffset.TryParse(
+                value,
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.RoundtripKind,
+                out var candidate) ||
+            candidate.Offset != TimeSpan.Zero)
+        {
+            error = $"{queryName} must be an ISO 8601 timestamp with a UTC offset.";
+            return false;
+        }
+
+        parsed = candidate;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseBoolean(
+        string? value,
+        string queryName,
+        out bool? parsed,
+        out string? error)
+    {
+        parsed = null;
+        if (value is null)
+        {
+            error = null;
+            return true;
+        }
+
+        if (!bool.TryParse(value, out var candidate))
+        {
+            error = $"{queryName} must be true or false.";
+            return false;
+        }
+
+        parsed = candidate;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParsePageSize(
+        string? value,
+        out int pageSize,
+        out string? error)
+    {
+        pageSize = InboxListQuery.DefaultPageSize;
+        if (value is null)
+        {
+            error = null;
+            return true;
+        }
+
+        if (!int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out pageSize) ||
+            pageSize is < 1 or > InboxListQuery.MaximumPageSize)
+        {
+            error = $"page_size must be between 1 and {InboxListQuery.MaximumPageSize}.";
+            return false;
+        }
+
+        error = null;
+        return true;
+    }
+
+    private static bool TryValidateCursor(
+        string? value,
+        out string? cursor,
+        out string? error)
+    {
+        cursor = null;
+        if (value is null)
+        {
+            error = null;
+            return true;
+        }
+
+        if (string.IsNullOrWhiteSpace(value) ||
+            !string.Equals(value, value.Trim(), StringComparison.Ordinal) ||
+            value.Length > 2_048)
+        {
+            error = "cursor must contain between 1 and 2048 characters without surrounding whitespace.";
+            return false;
+        }
+
+        cursor = value;
+        error = null;
+        return true;
+    }
+
+    private static bool TryParseOrganizationId(
+        string value,
+        out OrganizationId? organizationId) =>
+        TryParse(value, OrganizationId.From, out organizationId);
+
+    private static bool TryParsePositionId(string value, out PositionId? positionId) =>
+        TryParse(value, PositionId.From, out positionId);
+
+    private static bool TryParseItemId(string value, out string? itemId)
+    {
+        itemId = null;
+        try
+        {
+            var decoded = Uri.UnescapeDataString(value);
+            if (string.IsNullOrWhiteSpace(decoded) ||
+                !string.Equals(decoded, decoded.Trim(), StringComparison.Ordinal) ||
+                decoded.Length > 512)
+            {
+                return false;
+            }
+
+            itemId = decoded;
+            return true;
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+    }
+
+    private static bool TryParse<T>(
+        string value,
+        Func<string, T> parser,
+        out T? parsed)
+        where T : class
+    {
+        try
+        {
+            parsed = parser(value);
+            return true;
+        }
+        catch (ArgumentException)
+        {
+            parsed = null;
+            return false;
+        }
+    }
+
+    private static IResult InvalidOrganizationId() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Invalid organization identifier");
+
+    private static IResult InvalidPositionId() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Invalid position identifier");
+
+    private static IResult InvalidItemId() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Invalid inbox item identifier");
+
+    private static IResult InvalidQuery(string detail) =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "Invalid inbox query",
+            detail: detail);
+
+    private static IResult OrganizationNotFound() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "Organization not found");
+
+    private static IResult PositionNotFound() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "Position not found");
+
+    private static IResult InboxItemNotFound() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status404NotFound,
+            title: "Inbox item not found");
+
+    private static IResult ReadModelUnavailable() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Inbox read model unavailable");
+}
+
+internal sealed class InboxQueryParameters
+{
+    [FromQuery(Name = "type")]
+    public string? MessageType { get; init; }
+
+    [FromQuery(Name = "read_state")]
+    public string? ReadState { get; init; }
+
+    [FromQuery(Name = "response_state")]
+    public string? ResponseState { get; init; }
+
+    [FromQuery(Name = "priority")]
+    public string? Priority { get; init; }
+
+    [FromQuery(Name = "deadline_from_utc")]
+    public string? DeadlineFromUtc { get; init; }
+
+    [FromQuery(Name = "deadline_to_utc")]
+    public string? DeadlineToUtc { get; init; }
+
+    [FromQuery(Name = "approval_pending")]
+    public string? ApprovalPending { get; init; }
+
+    [FromQuery(Name = "page_size")]
+    public string? PageSize { get; init; }
+
+    [FromQuery(Name = "cursor")]
+    public string? Cursor { get; init; }
+}

@@ -1,4 +1,5 @@
 using Hive.Api.Authorization;
+using Hive.Contracts.Organization;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -20,6 +21,8 @@ public static class PublicApiOpenApiExtensions
         services.AddEndpointsApiExplorer();
         services.AddSwaggerGen(options =>
         {
+            options.SupportNonNullableReferenceTypes();
+            options.UseAllOfToExtendReferenceSchemas();
             options.SwaggerDoc(
                 DocumentName,
                 new OpenApiInfo
@@ -48,6 +51,7 @@ public static class PublicApiOpenApiExtensions
                         "api/v1/",
                         StringComparison.Ordinal) == true);
             options.OperationFilter<OrganizationOpenApiOperationFilter>();
+            options.SchemaFilter<OrganizationPublicContractSchemaFilter>();
         });
         return services;
     }
@@ -59,6 +63,45 @@ public static class PublicApiOpenApiExtensions
 
         application.UseSwagger(options => options.RouteTemplate = RouteTemplate);
         return application;
+    }
+}
+
+internal sealed class OrganizationPublicContractSchemaFilter : ISchemaFilter
+{
+    private static readonly HashSet<Type> CompleteSnapshotTypes =
+    [
+        typeof(RegistryVersion),
+        typeof(OrganizationSummary),
+        typeof(OrganizationUnit),
+        typeof(OrganizationOccupant),
+        typeof(PositionHierarchy),
+        typeof(PositionCorrelatedEvent),
+        typeof(OrganizationPositionState),
+        typeof(OrganizationPosition),
+        typeof(OrganogramResponse),
+        typeof(PositionDetailResponse),
+        typeof(PositionStatesResponse),
+    ];
+
+    public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (!CompleteSnapshotTypes.Contains(context.Type) ||
+            !string.Equals(schema.Type, "object", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        // These response DTOs are serialized as complete snapshots. Nullable
+        // properties are present with a JSON null value; they are not optional.
+        // Recording every property as required keeps the OpenAPI document aligned
+        // with the TypeScript mirror of the actual System.Text.Json wire shape.
+        foreach (var propertyName in schema.Properties.Keys)
+        {
+            schema.Required.Add(propertyName);
+        }
     }
 }
 

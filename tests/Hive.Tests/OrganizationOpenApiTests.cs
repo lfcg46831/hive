@@ -19,6 +19,34 @@ public sealed class OrganizationOpenApiTests
         "/api/v1/organizations/{organizationId}/position-states",
     ];
 
+    private static readonly string[] CompleteSnapshotSchemas =
+    [
+        "RegistryVersion",
+        "OrganizationSummary",
+        "OrganizationUnit",
+        "OrganizationOccupant",
+        "PositionHierarchy",
+        "PositionCorrelatedEvent",
+        "OrganizationPositionState",
+        "OrganizationPosition",
+        "OrganogramResponse",
+        "PositionDetailResponse",
+        "PositionStatesResponse",
+    ];
+
+    private static readonly HashSet<string> NullableSnapshotProperties = new(
+        StringComparer.Ordinal)
+    {
+        "OrganizationSummary.name",
+        "OrganizationUnit.name",
+        "OrganizationUnit.parent_unit_id",
+        "OrganizationOccupant.id",
+        "PositionHierarchy.reports_to_position_id",
+        "OrganizationPositionState.last_correlated_event",
+        "OrganizationPosition.name",
+        "PositionStatesResponse.last_event_applied_at_utc",
+    };
+
     [Fact]
     public async Task Public_document_exposes_only_the_versioned_public_surface()
     {
@@ -207,6 +235,50 @@ public sealed class OrganizationOpenApiTests
             name =>
                 name.Contains("Infrastructure", StringComparison.Ordinal) ||
                 name.Contains("Domain", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Public_snapshot_schemas_distinguish_required_fields_from_nullable_values()
+    {
+        using var document = await ReadDocumentAsync();
+
+        var schemas = document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+        foreach (var schemaName in CompleteSnapshotSchemas)
+        {
+            var schema = schemas.GetProperty(schemaName);
+            var properties = schema
+                .GetProperty("properties")
+                .EnumerateObject()
+                .ToArray();
+            var required = schema
+                .GetProperty("required")
+                .EnumerateArray()
+                .Select(property => property.GetString())
+                .ToArray();
+
+            Assert.Equal(
+                properties.Select(property => property.Name).Order(StringComparer.Ordinal),
+                required.Order(StringComparer.Ordinal));
+            Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+
+            foreach (var property in properties)
+            {
+                var expectedNullable = NullableSnapshotProperties.Contains(
+                    $"{schemaName}.{property.Name}");
+                var actualNullable =
+                    property.Value.TryGetProperty("nullable", out var nullable) &&
+                    nullable.GetBoolean();
+                Assert.Equal(expectedNullable, actualNullable);
+            }
+        }
+
+        var problemDetails = schemas.GetProperty("ProblemDetails");
+        Assert.False(problemDetails.TryGetProperty("required", out _));
+        Assert.Equal(
+            JsonValueKind.Object,
+            problemDetails.GetProperty("additionalProperties").ValueKind);
     }
 
     private static async Task<JsonDocument> ReadDocumentAsync()

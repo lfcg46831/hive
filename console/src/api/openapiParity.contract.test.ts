@@ -4,10 +4,19 @@ import { describe, expect, it } from 'vitest';
 
 import { PUBLIC_API_ROUTE_TEMPLATES } from './client.js';
 import { enumWireShape, objectWireShape } from './wireShape.js';
+import type { RuntimePropertyWireShape } from './wireShape.js';
 
 interface OpenApiSchema {
+  type?: string;
+  format?: string;
+  nullable?: boolean;
   properties?: Record<string, unknown>;
+  required?: string[];
+  items?: OpenApiSchema;
+  allOf?: OpenApiSchema[];
+  $ref?: string;
   enum?: string[];
+  additionalProperties?: boolean | OpenApiSchema;
 }
 
 interface OpenApiDocument {
@@ -42,13 +51,40 @@ describe('public API parity', () => {
   });
 
   it.each(Object.entries(objectWireShape))(
-    '%s mirrors the documented properties',
-    (schemaName, properties) => {
+    '%s mirrors the complete documented schema',
+    (schemaName, expectedSchema) => {
       const schema = document.components.schemas[schemaName];
       expect(schema, `${schemaName} is missing from the document`).toBeDefined();
-      expect([...properties].sort()).toEqual(
-        Object.keys(schema?.properties ?? {}).sort(),
+      expect(schema?.type).toBe('object');
+      expect(schema?.additionalProperties !== false).toBe(
+        expectedSchema.additionalProperties,
       );
+
+      const properties = schema?.properties ?? {};
+      const expectedProperties = expectedSchema.properties as Record<
+        string,
+        RuntimePropertyWireShape
+      >;
+      expect(Object.keys(properties).sort()).toEqual(
+        Object.keys(expectedProperties).sort(),
+      );
+      expect([...(schema?.required ?? [])].sort()).toEqual(
+        Object.entries(expectedProperties)
+          .filter(([, property]) => property.required)
+          .map(([propertyName]) => propertyName)
+          .sort(),
+      );
+
+      for (const [propertyName, expectedProperty] of Object.entries(
+        expectedProperties,
+      )) {
+        expectPropertySchema(
+          schemaName,
+          propertyName,
+          properties[propertyName] as OpenApiSchema | undefined,
+          expectedProperty,
+        );
+      }
     },
   );
 
@@ -57,7 +93,56 @@ describe('public API parity', () => {
     (schemaName, values) => {
       const schema = document.components.schemas[schemaName];
       expect(schema, `${schemaName} is missing from the document`).toBeDefined();
+      expect(schema?.type).toBe('string');
       expect(schema?.enum).toEqual([...values]);
     },
   );
 });
+
+function expectPropertySchema(
+  schemaName: string,
+  propertyName: string,
+  actual: OpenApiSchema | undefined,
+  expected: RuntimePropertyWireShape,
+): void {
+  const location = `${schemaName}.${propertyName}`;
+  expect(actual, `${location} is missing from the document`).toBeDefined();
+  expect(actual?.nullable ?? false, `${location} nullability changed`).toBe(
+    expected.nullable,
+  );
+
+  if (expected.type === 'reference') {
+    expect(referenceName(actual), `${location} reference changed`).toBe(expected.schema);
+    return;
+  }
+
+  expect(actual?.type, `${location} type changed`).toBe(expected.type);
+  if (expected.type === 'array') {
+    expectArrayItemSchema(location, actual?.items, expected.items);
+    return;
+  }
+
+  expect(actual?.format, `${location} format changed`).toBe(expected.format);
+}
+
+function expectArrayItemSchema(
+  location: string,
+  actual: OpenApiSchema | undefined,
+  expected: { type: 'string' } | { type: 'reference'; schema: string },
+): void {
+  expect(actual, `${location} item schema is missing`).toBeDefined();
+  if (expected.type === 'reference') {
+    expect(referenceName(actual), `${location} item reference changed`).toBe(
+      expected.schema,
+    );
+    return;
+  }
+
+  expect(actual?.type, `${location} item type changed`).toBe(expected.type);
+}
+
+function referenceName(schema: OpenApiSchema | undefined): string | undefined {
+  const reference = schema?.$ref ??
+    (schema?.allOf?.length === 1 ? schema.allOf[0]?.$ref : undefined);
+  return reference?.split('/').at(-1);
+}

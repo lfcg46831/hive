@@ -261,6 +261,37 @@ public sealed class OrganizationEndpointTests
         Assert.Empty(readModel.PositionStateRequests);
     }
 
+    [Theory]
+    [InlineData("/organogram")]
+    [InlineData("/units/delivery/organogram")]
+    [InlineData("/positions/delivery-lead")]
+    [InlineData("/position-states")]
+    public async Task Out_of_scope_responses_do_not_reveal_whether_an_organization_exists(
+        string suffix)
+    {
+        var readModel = RecordingReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app, OtherOrganizationToken);
+
+        using var existing = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/acme{suffix}");
+        using var unknown = await client.GetAsync(
+            $"{OrganizationEndpointExtensions.BasePath}/unknown{suffix}");
+
+        Assert.Equal(HttpStatusCode.NotFound, existing.StatusCode);
+        Assert.Equal(existing.StatusCode, unknown.StatusCode);
+        Assert.Equal(
+            existing.Content.Headers.ContentType?.ToString(),
+            unknown.Content.Headers.ContentType?.ToString());
+        Assert.Equal(
+            await existing.Content.ReadAsStringAsync(),
+            await unknown.Content.ReadAsStringAsync());
+        Assert.Empty(readModel.OrganogramRequests);
+        Assert.Empty(readModel.PositionRequests);
+        Assert.Empty(readModel.PositionStateRequests);
+    }
+
     [Fact]
     public async Task One_bearer_principal_can_read_every_configured_organization()
     {

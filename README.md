@@ -6,7 +6,7 @@ HIVE is an internal-first distributed runtime for organizations made of AI agent
 
 ### Current — F0 runtime and initial F1 slice
 
-The repository contains the F0 runtime through the F0.8 stabilization cut: a local Akka.NET cluster, PostgreSQL persistence, GitOps organization configuration, the vertical directive flow, and the isolated audit/export boundary. It also contains the first F1 read-only organization slice through `US-F1-01-T10`: public REST snapshots, organization-scoped authorization, live-state projection, SignalR change notifications with REST/ETag fallback, the typed TypeScript client for that public surface verified against the published OpenAPI document, and a read-only React organogram view built on it — all in [`console/`](console/), operated per the [console guide](docs/configuration.md#console-web-application). Start with the [F0 roadmap and exit criteria](docs/bible.html#phase-panel-f0), then use the [configuration guide](docs/configuration.md#run-locally-without-docker-compose) or the [Docker Compose runbook](docs/configuration.md#run-with-docker-compose).
+The repository contains the F0 runtime through the F0.8 stabilization cut: a local Akka.NET cluster, PostgreSQL persistence, GitOps organization configuration, the vertical directive flow, and the isolated audit/export boundary. It also contains the complete F1 read-only organization slice of `US-F1-01` (`T01`–`T14`): public REST snapshots, organization-scoped authorization, live-state projection, SignalR change notifications with REST/ETag fallback, the typed TypeScript client for that public surface verified against the published OpenAPI document, and a read-only React organogram view built on it, with its degraded-mode states, client-side filters and search, and API/contract and frontend test suites — all in [`console/`](console/), operated per the [console guide](docs/configuration.md#console-web-application). Start with the [F0 roadmap and exit criteria](docs/bible.html#phase-panel-f0), then use the [configuration guide](docs/configuration.md#run-locally-without-docker-compose) or the [Docker Compose runbook](docs/configuration.md#run-with-docker-compose).
 
 F0.8 makes the solution eligible for controlled measurement; it does not satisfy the product-quality gate. After the approved post-F0.8 preflight, the separately authorized three-run [calibration](evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md#decision) preserved the frozen manifest but failed projection coverage and all quality thresholds except cost, so the result is `rejected-for-freeze-request`. The run ids are burned, no freeze or holdout is authorized, and F1a remains closed.
 
@@ -16,7 +16,7 @@ The Evaluation Lab is disabled by default and lives in separate tooling that obs
 
 ### Planned — not implemented
 
-The remaining [F1](docs/bible.html#phase-panel-f1) work, [F2](docs/bible.html#phase-panel-f2), and [F3](docs/bible.html#phase-panel-f3) remain roadmap. In particular, the console's degraded-mode and filtering surfaces, the human inbox and identity, production connectors, Kubernetes deployment, and strong multi-tenant product surface are not implemented.
+The remaining [F1](docs/bible.html#phase-panel-f1) work, [F2](docs/bible.html#phase-panel-f2), and [F3](docs/bible.html#phase-panel-f3) remain roadmap. In particular, the human inbox and identity, editing of the organization, production connectors, Kubernetes deployment, and strong multi-tenant product surface are not implemented.
 
 ## Documentation map
 

@@ -43,6 +43,7 @@ public sealed class PostgreSqlInboxProjectionSubscriptionTests(PostgreSqlFixture
                     new MessageReceived(Message(entityId, ordinal: 1), OccurredAt));
                 await AppendAuditRecordAsync(ordinal: 1);
                 await WaitForCapturedFactsAsync(expectedCount: 3);
+                await WaitForAppliedProjectionAsync(expectedFacts: 3, expectedItems: 1);
             }
             finally
             {
@@ -63,6 +64,7 @@ public sealed class PostgreSqlInboxProjectionSubscriptionTests(PostgreSqlFixture
                     new MessageReceived(Message(entityId, ordinal: 2), OccurredAt.AddMinutes(1)));
                 await AppendAuditRecordAsync(ordinal: 2);
                 await WaitForCapturedFactsAsync(expectedCount: 6);
+                await WaitForAppliedProjectionAsync(expectedFacts: 6, expectedItems: 2);
             }
             finally
             {
@@ -96,6 +98,20 @@ public sealed class PostgreSqlInboxProjectionSubscriptionTests(PostgreSqlFixture
                 ("PositionEvent", 2L),
             ],
             counts);
+
+        await using var projection = dataSource.CreateCommand(
+            """
+            SELECT progress.sequence_id,
+                   progress.last_event_applied_at_utc,
+                   (SELECT count(*) FROM inbox.items)
+            FROM inbox.projection_progress progress
+            WHERE progress.projection = 'Inbox';
+            """);
+        await using var projectionReader = await projection.ExecuteReaderAsync();
+        Assert.True(await projectionReader.ReadAsync());
+        Assert.Equal(6, projectionReader.GetInt64(0));
+        Assert.NotEqual(default, projectionReader.GetFieldValue<DateTimeOffset>(1));
+        Assert.Equal(2, projectionReader.GetInt64(2));
     }
 
     private IHost BuildHost(int port)
@@ -167,6 +183,35 @@ public sealed class PostgreSqlInboxProjectionSubscriptionTests(PostgreSqlFixture
 
         throw new TimeoutException(
             $"Inbox projection did not capture {expectedCount} facts before timeout.");
+    }
+
+    private async Task WaitForAppliedProjectionAsync(long expectedFacts, long expectedItems)
+    {
+        var deadline = DateTimeOffset.UtcNow.AddSeconds(15);
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            await using var dataSource = fixture.CreateDataSource();
+            await using var command = dataSource.CreateCommand(
+                """
+                SELECT
+                    (SELECT sequence_id
+                     FROM inbox.projection_progress
+                     WHERE projection = 'Inbox'),
+                    (SELECT count(*) FROM inbox.items);
+                """);
+            await using var reader = await command.ExecuteReaderAsync();
+            if (await reader.ReadAsync() &&
+                reader.GetInt64(0) >= expectedFacts &&
+                reader.GetInt64(1) >= expectedItems)
+            {
+                return;
+            }
+
+            await Task.Delay(100);
+        }
+
+        throw new TimeoutException(
+            $"Inbox projection did not apply {expectedFacts} facts and {expectedItems} items before timeout.");
     }
 
     private async Task<(long Position, long Audit)> ReadCheckpointsAsync()

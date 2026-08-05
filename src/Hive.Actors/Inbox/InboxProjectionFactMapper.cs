@@ -12,7 +12,6 @@ namespace Hive.Actors.Inbox;
 
 /// <summary>
 /// Deterministically folds persisted inbox facts into one item per recipient position and message.
-/// Durable application, replay idempotency and projection watermarks belong to US-F1-02-T03c.
 /// </summary>
 internal sealed class InboxProjectionFactMapper
 {
@@ -65,14 +64,14 @@ internal sealed class InboxProjectionFactMapper
                     "Unknown inbox projection source.");
         }
 
-        ExpireDueItems(changes);
+        ExpireDueItems(fact.OrganizationId, changes);
         return changes;
     }
 
     public IReadOnlyList<InboxProjectionChange> RefreshExpirations()
     {
         var changes = new List<InboxProjectionChange>();
-        ExpireDueItems(changes);
+        ExpireDueItems(organizationId: null, changes);
         return changes;
     }
 
@@ -281,11 +280,18 @@ internal sealed class InboxProjectionFactMapper
             responseState,
             ApprovalMetadata(message));
 
-        if (!_items.TryAdd(key, new TrackedInboxItem(message, item)))
+        if (_items.TryGetValue(key, out var existing))
         {
-            throw new InvalidOperationException(
-                $"Inbox item '{key}' was mapped more than once before replay handling was applied.");
+            if (!string.Equals(existing.PayloadJson, fact.PayloadJson, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"Inbox item '{key}' was redelivered with a conflicting payload.");
+            }
+
+            return;
         }
+
+        _items.Add(key, new TrackedInboxItem(message, item, fact.PayloadJson));
 
         changes.Add(new InboxProjectionChange(
             item,
@@ -382,6 +388,11 @@ internal sealed class InboxProjectionFactMapper
                 DecidedAtUtc = decision.SentAt.ToUniversalTime(),
             },
         };
+        if (updated == tracked.Item)
+        {
+            return;
+        }
+
         Replace(
             tracked,
             updated,
@@ -440,11 +451,15 @@ internal sealed class InboxProjectionFactMapper
         return matches[0];
     }
 
-    private void ExpireDueItems(ICollection<InboxProjectionChange> changes)
+    private void ExpireDueItems(
+        OrganizationId? organizationId,
+        ICollection<InboxProjectionChange> changes)
     {
         var now = _timeProvider.GetUtcNow();
         foreach (var tracked in _items.Values
-                     .Where(item => !item.Item.IsExpired
+                     .Where(item => (organizationId is null
+                             || item.Item.Key.OrganizationId == organizationId)
+                         && !item.Item.IsExpired
                          && item.Item.DeadlineAtUtc is { } deadline
                          && deadline <= now)
                      .OrderBy(item => item.Item.Key.OrganizationId.Value, StringComparer.Ordinal)
@@ -530,11 +545,16 @@ internal sealed class InboxProjectionFactMapper
                 $"Organizational message '{message.GetType().Name}' has no inbox response state."),
         };
 
-    private sealed class TrackedInboxItem(OrgMessage message, InboxProjectionItem item)
+    private sealed class TrackedInboxItem(
+        OrgMessage message,
+        InboxProjectionItem item,
+        string payloadJson)
     {
         public OrgMessage Message { get; } = message;
 
         public InboxProjectionItem Item { get; set; } = item;
+
+        public string PayloadJson { get; } = payloadJson;
     }
 
     private sealed record InboxResponseEvidence(
@@ -542,65 +562,3 @@ internal sealed class InboxProjectionFactMapper
         ThreadId ThreadId,
         DateTimeOffset OccurredAtUtc);
 }
-
-internal readonly record struct InboxProjectionItemKey(
-    OrganizationId OrganizationId,
-    PositionId AssignedPositionId,
-    MessageId MessageId)
-{
-    public override string ToString() =>
-        $"{OrganizationId.Value}/{AssignedPositionId.Value}/{MessageId}";
-}
-
-internal enum InboxProjectionMessageType
-{
-    Directive,
-    Report,
-    Escalation,
-    Memo,
-    PeerRequest,
-    PeerResponse,
-    ApprovalRequest,
-    ApprovalDecision,
-}
-
-internal enum InboxProjectionResponseState
-{
-    NotApplicable,
-    AwaitingResponse,
-    Responded,
-}
-
-internal enum InboxProjectionApprovalState
-{
-    Pending,
-    Approved,
-    Rejected,
-    Expired,
-}
-
-internal sealed record InboxProjectionApproval(
-    MessageId RequestId,
-    string Action,
-    ApprovalPolicyRef Policy,
-    InboxProjectionApprovalState State,
-    MessageId? DecisionMessageId,
-    DateTimeOffset? DecidedAtUtc);
-
-internal sealed record InboxProjectionItem(
-    InboxProjectionItemKey Key,
-    InboxProjectionMessageType Type,
-    EndpointRef Origin,
-    EndpointRef Destination,
-    ThreadId ThreadId,
-    Priority Priority,
-    DateTimeOffset SentAtUtc,
-    DateTimeOffset? DeadlineAtUtc,
-    bool IsExpired,
-    InboxProjectionResponseState ResponseState,
-    InboxProjectionApproval? Approval);
-
-internal sealed record InboxProjectionChange(
-    InboxProjectionItem Item,
-    string FactType,
-    DateTimeOffset OccurredAtUtc);

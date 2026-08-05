@@ -41,6 +41,10 @@ internal sealed class InboxProjectionHostedService : BackgroundService
             RunContinuouslyAsync(
                 "audit log",
                 token => _worker.CaptureAuditLogBatchAsync(token).AsTask(),
+                stoppingToken),
+            RunContinuouslyAsync(
+                "captured facts",
+                _worker.ApplyProjectionBatchAsync,
                 stoppingToken));
     }
 

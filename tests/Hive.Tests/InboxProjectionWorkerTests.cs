@@ -59,11 +59,14 @@ public sealed class InboxProjectionWorkerTests
         };
         var feed = new RecordingFeed();
         var firstJournal = new RecordingJournal(events[..2]);
-        var firstWorker = new InboxProjectionWorker(firstJournal, feed);
+        var firstWorker = new InboxProjectionWorker(firstJournal, feed, TimeProvider.System);
 
         var firstCaptured = await firstWorker.CapturePositionJournalBatchAsync(CancellationToken.None);
         var restartedJournal = new RecordingJournal(events);
-        var restartedWorker = new InboxProjectionWorker(restartedJournal, feed);
+        var restartedWorker = new InboxProjectionWorker(
+            restartedJournal,
+            feed,
+            TimeProvider.System);
         var restartedCaptured = await restartedWorker.CapturePositionJournalBatchAsync(
             CancellationToken.None);
 
@@ -84,13 +87,58 @@ public sealed class InboxProjectionWorkerTests
             JournalEvent(4, new PositionPassivated(OccurredAt.AddMinutes(1), "idle")),
         };
         var feed = new RecordingFeed(failAtOffset: 4);
-        var worker = new InboxProjectionWorker(new RecordingJournal(events), feed);
+        var worker = new InboxProjectionWorker(
+            new RecordingJournal(events),
+            feed,
+            TimeProvider.System);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             worker.CapturePositionJournalBatchAsync(CancellationToken.None));
 
         Assert.Equal(2, feed.PositionCheckpoint);
         Assert.Equal([2L], feed.CapturedOffsets);
+    }
+
+    [Fact]
+    public async Task Projection_restores_committed_facts_and_suppresses_a_redelivered_item()
+    {
+        var messageFact = Assert.Single(
+            InboxProjectionWorker.Facts(JournalEvent(offset: 1, MessageReceived())),
+            fact => fact.Source == InboxProjectionSource.OrganizationalMessage);
+        var redeliveredFact = new InboxProjectionFact(
+            messageFact.Source,
+            sourceOffset: 2,
+            messageFact.OrganizationId,
+            messageFact.FactType,
+            messageFact.OccurredAtUtc,
+            messageFact.PayloadJson,
+            messageFact.PositionId,
+            messageFact.PersistenceId,
+            persistenceSequence: 2,
+            messageFact.MessageId,
+            messageFact.ThreadId);
+        var items = new[]
+        {
+            new InboxProjectionFactItem(1, messageFact),
+            new InboxProjectionFactItem(2, redeliveredFact),
+        };
+        var feed = new RecordingFeed(
+            projectionFacts: items,
+            initialProjectionSequence: 1);
+        var worker = new InboxProjectionWorker(
+            new RecordingJournal([]),
+            feed,
+            new FixedTimeProvider(OccurredAt));
+
+        var applied = await worker.ApplyProjectionBatchAsync(CancellationToken.None);
+        var repeated = await worker.ApplyProjectionBatchAsync(CancellationToken.None);
+
+        Assert.Equal(1, applied);
+        Assert.Equal(0, repeated);
+        Assert.Equal([2L], feed.AppliedProjectionSequences);
+        Assert.Empty(feed.ProjectionChanges);
+        Assert.Equal(2, feed.ProjectionSequence);
+        Assert.Equal(OccurredAt, feed.LastEventAppliedAtUtc);
     }
 
     private static InboxProjectionJournalEvent JournalEvent(
@@ -146,13 +194,30 @@ public sealed class InboxProjectionWorkerTests
         }
     }
 
-    private sealed class RecordingFeed(long? failAtOffset = null) : IInboxProjectionFeed
+    private sealed class RecordingFeed(
+        long? failAtOffset = null,
+        IReadOnlyCollection<InboxProjectionFactItem>? projectionFacts = null,
+        long initialProjectionSequence = 0) : IInboxProjectionFeed
     {
+        private readonly IReadOnlyCollection<InboxProjectionFactItem> _projectionFacts =
+            projectionFacts ?? [];
+
         public bool IsConfigured => true;
 
         public long PositionCheckpoint { get; private set; }
 
         public List<long> CapturedOffsets { get; } = [];
+
+        public long ProjectionSequence { get; private set; } = initialProjectionSequence;
+
+        public DateTimeOffset? LastEventAppliedAtUtc { get; private set; } =
+            projectionFacts?
+                .SingleOrDefault(item => item.SequenceId == initialProjectionSequence)?
+                .Fact.OccurredAtUtc;
+
+        public List<long> AppliedProjectionSequences { get; } = [];
+
+        public List<InboxProjectionChange> ProjectionChanges { get; } = [];
 
         public ValueTask<long> ReadCheckpointAsync(
             InboxProjectionSubscription subscription,
@@ -197,5 +262,66 @@ public sealed class InboxProjectionWorkerTests
             cancellationToken.ThrowIfCancellationRequested();
             return ValueTask.FromResult(0);
         }
+
+        public ValueTask<InboxProjectionProgress> ReadProjectionProgressAsync(
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return ValueTask.FromResult(new InboxProjectionProgress(
+                ProjectionSequence,
+                LastEventAppliedAtUtc));
+        }
+
+        public ValueTask<IReadOnlyList<InboxProjectionFactItem>> ReadProjectionFactsAsync(
+            long afterSequenceId,
+            int batchSize,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            IReadOnlyList<InboxProjectionFactItem> result = _projectionFacts
+                .Where(item => item.SequenceId > afterSequenceId)
+                .OrderBy(item => item.SequenceId)
+                .Take(batchSize)
+                .ToArray();
+            return ValueTask.FromResult(result);
+        }
+
+        public ValueTask<bool> ApplyProjectionFactAsync(
+            InboxProjectionFactItem item,
+            IReadOnlyCollection<InboxProjectionChange> changes,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (item.SequenceId <= ProjectionSequence)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            var next = _projectionFacts
+                .Where(candidate => candidate.SequenceId > ProjectionSequence)
+                .Min(candidate => candidate.SequenceId);
+            Assert.Equal(next, item.SequenceId);
+            ProjectionSequence = item.SequenceId;
+            LastEventAppliedAtUtc = item.Fact.OccurredAtUtc;
+            AppliedProjectionSequences.Add(item.SequenceId);
+            ProjectionChanges.AddRange(changes);
+            return ValueTask.FromResult(true);
+        }
+
+        public ValueTask<int> ApplyProjectionChangesAsync(
+            long expectedProjectionSequence,
+            IReadOnlyCollection<InboxProjectionChange> changes,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Assert.Equal(ProjectionSequence, expectedProjectionSequence);
+            ProjectionChanges.AddRange(changes);
+            return ValueTask.FromResult(changes.Count);
+        }
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 }

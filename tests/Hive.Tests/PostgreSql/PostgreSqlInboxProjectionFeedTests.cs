@@ -1,5 +1,6 @@
 using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Infrastructure.Inbox.ReadModels;
 using Hive.Infrastructure.Inbox.ReadModels.PostgreSql;
@@ -39,11 +40,27 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         }
 
         Assert.Equal(
-            ["projection_checkpoints", "projection_facts", "schema_migrations"],
+            [
+                "items",
+                "projection_checkpoints",
+                "projection_facts",
+                "projection_progress",
+                "projection_watermarks",
+                "schema_migrations",
+            ],
             tableNames);
+        var appliedVersions = new List<int>();
         await using var versions = dataSource.CreateCommand(
             "SELECT version FROM inbox.schema_migrations ORDER BY version;");
-        Assert.Equal(1, (int)(await versions.ExecuteScalarAsync())!);
+        await using (var reader = await versions.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                appliedVersions.Add(reader.GetInt32(0));
+            }
+        }
+
+        Assert.Equal([1, 2], appliedVersions);
     }
 
     [Fact]
@@ -155,6 +172,115 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             rows);
     }
 
+    [Fact]
+    public async Task Projection_application_is_idempotent_and_exposes_the_organization_watermark()
+    {
+        await ResetAndMigrateAsync();
+        var organizationId = OrganizationId.From("acme");
+        var positionId = PositionId.From("delivery-lead");
+        var facts = PositionFacts(offset: 11);
+        await using (var feed = new PostgreSqlInboxProjectionFeed(fixture.ConnectionString))
+        {
+            Assert.True(await feed.CapturePositionJournalAsync(11, facts));
+            var captured = await feed.ReadProjectionFactsAsync(0, batchSize: 10);
+            var positionEvent = Assert.Single(
+                captured,
+                item => item.Fact.Source == InboxProjectionSource.PositionEvent);
+            var message = Assert.Single(
+                captured,
+                item => item.Fact.Source == InboxProjectionSource.OrganizationalMessage);
+            var change = MaterializedChange(organizationId, positionId, message.Fact);
+
+            Assert.True(await feed.ApplyProjectionFactAsync(positionEvent, []));
+            Assert.True(await feed.ApplyProjectionFactAsync(message, [change]));
+            Assert.False(await feed.ApplyProjectionFactAsync(message, [change]));
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+                await feed.ApplyProjectionChangesAsync(
+                    positionEvent.SequenceId,
+                    [change]));
+
+            var progress = await feed.ReadProjectionProgressAsync();
+            Assert.Equal(message.SequenceId, progress.LastAppliedSequenceId);
+            Assert.Equal(OccurredAt, progress.LastEventAppliedAtUtc);
+        }
+
+        await using var snapshotReader = new PostgreSqlInboxProjectionSnapshotReader(
+            fixture.ConnectionString);
+        var snapshot = await snapshotReader.ReadAsync(organizationId, [positionId]);
+        var item = Assert.Single(snapshot.Items);
+
+        Assert.Equal(OccurredAt, snapshot.LastEventAppliedAtUtc);
+        Assert.Equal(positionId, item.Key.AssignedPositionId);
+        Assert.Equal(InboxProjectionMessageType.Memo, item.Type);
+        Assert.Equal(InboxProjectionResponseState.NotApplicable, item.ResponseState);
+
+        var otherPosition = await snapshotReader.ReadAsync(
+            organizationId,
+            [PositionId.From("engineer")]);
+        Assert.Empty(otherPosition.Items);
+        Assert.Equal(OccurredAt, otherPosition.LastEventAppliedAtUtc);
+    }
+
+    [Fact]
+    public async Task Failed_item_materialization_rolls_back_progress_and_watermark()
+    {
+        await ResetAndMigrateAsync();
+        var organizationId = OrganizationId.From("acme");
+        var positionId = PositionId.From("delivery-lead");
+        await using var feed = new PostgreSqlInboxProjectionFeed(fixture.ConnectionString);
+        Assert.True(await feed.CapturePositionJournalAsync(11, PositionFacts(offset: 11)));
+        var captured = await feed.ReadProjectionFactsAsync(0, batchSize: 10);
+        var positionEvent = Assert.Single(
+            captured,
+            item => item.Fact.Source == InboxProjectionSource.PositionEvent);
+        var message = Assert.Single(
+            captured,
+            item => item.Fact.Source == InboxProjectionSource.OrganizationalMessage);
+        Assert.True(await feed.ApplyProjectionFactAsync(positionEvent, []));
+
+        await using (var dataSource = fixture.CreateDataSource())
+        await using (var command = dataSource.CreateCommand(
+            """
+            CREATE FUNCTION inbox.reject_item_materialization()
+            RETURNS trigger
+            LANGUAGE plpgsql
+            AS $$
+            BEGIN
+                RAISE EXCEPTION 'forced item materialization failure';
+            END;
+            $$;
+
+            CREATE TRIGGER reject_item_materialization
+            BEFORE INSERT ON inbox.items
+            FOR EACH ROW
+            EXECUTE FUNCTION inbox.reject_item_materialization();
+            """))
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+            await feed.ApplyProjectionFactAsync(
+                message,
+                [MaterializedChange(organizationId, positionId, message.Fact)]));
+
+        var progress = await feed.ReadProjectionProgressAsync();
+        Assert.Equal(positionEvent.SequenceId, progress.LastAppliedSequenceId);
+        await using var verification = fixture.CreateDataSource();
+        await using var verify = verification.CreateCommand(
+            """
+            SELECT
+                (SELECT sequence_id
+                 FROM inbox.projection_watermarks
+                 WHERE organization_id = 'acme'),
+                (SELECT count(*) FROM inbox.items);
+            """);
+        await using var reader = await verify.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal(positionEvent.SequenceId, reader.GetInt64(0));
+        Assert.Equal(0, reader.GetInt64(1));
+    }
+
     private async Task ResetAndMigrateAsync()
     {
         await fixture.ResetInboxAsync();
@@ -222,6 +348,29 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
                 threadId),
         ];
     }
+
+    private static InboxProjectionChange MaterializedChange(
+        OrganizationId organizationId,
+        PositionId positionId,
+        InboxProjectionFact fact) =>
+        new(
+            new InboxProjectionItem(
+                new InboxProjectionItemKey(
+                    organizationId,
+                    positionId,
+                    fact.MessageId!),
+                InboxProjectionMessageType.Memo,
+                new PositionEndpointRef(PositionId.From("ceo")),
+                new PositionEndpointRef(positionId),
+                fact.ThreadId!,
+                Priority.Normal,
+                OccurredAt.AddMinutes(-1),
+                DeadlineAtUtc: null,
+                IsExpired: false,
+                InboxProjectionResponseState.NotApplicable,
+                Approval: null),
+            fact.FactType,
+            fact.OccurredAtUtc);
 
     private static JourneyAuditRecord AuditRecord(int ordinal) =>
         JourneyAuditRecord.Create(

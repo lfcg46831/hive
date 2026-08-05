@@ -69,7 +69,7 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__NODE__ROLES__0` | compose, per service (US-F0-02-T05) | Active node role. Defaults to each host's `appsettings.json` when unset. |
 | `ConnectionStrings__PostgreSql` | operator / compose env | Required dependency; left empty so readiness stays not-ready until provided. No baked-in credentials. |
 | `HIVE__ORGANIZATIONS__ROOTPATH` | appsettings / deployment override | Root containing one directory per organization; defaults to `config/organizations` relative to the application directory. |
-| `HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__<credentialIndex>__TOKEN` / `...__ORGANIZATIONIDS__<organizationIndex>` | operator secret store / deployment environment | Static bearer credential and its allowed organization ids for the F1 public read-only API. Tokens are secrets and must never be committed. |
+| `HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__<credentialIndex>__TOKEN` / `...__ORGANIZATIONIDS__<organizationIndex>` / `...__PERSONID` / `...__POSITIONS__<positionIndex>__ORGANIZATIONID|POSITIONID` | operator secret store / deployment environment | Static bearer credential, organization scope and optional F1 person-to-occupied-position binding for the public API. Tokens are secrets and must never be committed. |
 | `HIVE__CLUSTER__HOSTNAME` | compose (US-F0-02-T06) | Stable DNS name other nodes dial in multi-node topologies. |
 | `HIVE__CLUSTER__SEEDNODES__0` | compose | Join target (`akka.tcp://hive@<host>:<port>`); self-seeds a single node when empty. |
 | `HIVE__AGENTS__NUMBEROFSHARDS` | unset (extractor default `50`) | Number of Cluster Sharding shards for the position entity type, pinned by `agents`-role hosts (`Hive:Agents:NumberOfShards`, US-F0-06-T04b). A durable placement contract: keep it identical on every node and never change it while positions are persisted, since changing it reshuffles every position. Must be greater than zero when set. |
@@ -775,7 +775,7 @@ When the connection string is absent the scheduler migration is skipped and the 
 
 ## Public API organization authorization
 
-Every read-only organization route under `/api/v1/organizations/{organizationId}` and the SignalR hub at `/api/v1/organization-updates` require a static bearer credential. The tracked `Hive:PublicApi:Authorization:Credentials` array is empty, so an operator must supply credentials outside the repository. Each credential maps one secret token to one or more allowed organization ids; the authorization seam resolves that list as the request principal's organization scope. A missing or unrecognized bearer token returns `401`. A valid credential used for an organization outside that scope returns the same `404 Organization not found` response as a missing organization before a REST read, and hub subscriptions fail with the same non-disclosing message.
+Every read-only organization route under `/api/v1/organizations/{organizationId}` and the SignalR hub at `/api/v1/organization-updates` require a static bearer credential. The tracked `Hive:PublicApi:Authorization:Credentials` array is empty, so an operator must supply credentials outside the repository. Each credential maps one unique secret token to one or more allowed organization ids; the authorization seam resolves that list as the request principal's organization scope. A credential may additionally identify one F1 person and the positions that person occupies. A missing or unrecognized bearer token returns `401`. A valid credential used for an organization outside that scope returns the same `404 Organization not found` response as a missing organization before a REST read, and hub subscriptions fail with the same non-disclosing message.
 
 Configure one credential for `acme-delivery` with standard hierarchical environment variables:
 
@@ -794,6 +794,31 @@ Add further organization ids to the same principal with `ORGANIZATIONIDS__1`, `O
 ```http
 Authorization: Bearer <high-entropy-secret>
 ```
+
+The human inbox additionally requires a person binding on that credential. `PersonId` is a
+stable opaque identifier for the F1 principal; every occupied-position entry is the exact
+pair `(OrganizationId, PositionId)` and its organization must already be present in the
+credential's `OrganizationIds`. For example:
+
+```powershell
+$env:HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__PERSONID = "person-alice"
+$env:HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__ORGANIZATIONID = "acme-delivery"
+$env:HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__POSITIONID = "delivery-lead"
+```
+
+```bash
+export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__PERSONID='person-alice'
+export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__ORGANIZATIONID='acme-delivery'
+export HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__POSITIONID='delivery-lead'
+```
+
+Add further occupations with `POSITIONS__1`, `POSITIONS__2`, and so on. The aggregate inbox
+contains only items assigned to those configured positions; a position route outside that set
+and an item outside the effective set both return `404` without revealing whether the resource
+exists. A credential without `PersonId` remains valid for organization-level read-only routes
+but cannot read a human inbox. Do not configure substitutes as occupations: a delegation only
+extends inbox scope when it exists as a persisted organizational fact, and F1 does not infer
+delegation from configuration.
 
 Configure a browser SignalR client with its standard `accessTokenFactory`. The negotiate request can use the bearer header; WebSocket and Server-Sent Events transports may carry the token as `access_token` in the query string because browser transport APIs cannot set that header. The API accepts this query parameter only under the hub path. Require TLS and redact `access_token` from reverse-proxy/request logs, because URLs can otherwise expose it operationally. After connecting or reconnecting, invoke the authorized organization subscription and refresh the authoritative REST snapshot as specified in the [T08 realtime contract](bible.html).
 

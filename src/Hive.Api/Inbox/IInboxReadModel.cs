@@ -1,4 +1,5 @@
 using Hive.Contracts.Inbox;
+using Hive.Api.Authorization;
 using Hive.Domain.Identity;
 
 namespace Hive.Api.Inbox;
@@ -14,7 +15,7 @@ public interface IInboxReadModel
     /// deadlines last), highest priority first, newest message first, then item identifier ordinal.
     /// </summary>
     ValueTask<InboxReadResult<InboxPage>> ListAsync(
-        OrganizationId organizationId,
+        PersonOrganizationScope scope,
         PositionId? positionId,
         InboxListQuery query,
         CancellationToken cancellationToken);
@@ -23,7 +24,7 @@ public interface IInboxReadModel
     /// Reads one item only when it belongs to the authenticated principal's effective inbox scope.
     /// </summary>
     ValueTask<InboxReadResult<InboxItemResponse>> ReadItemAsync(
-        OrganizationId organizationId,
+        PersonOrganizationScope scope,
         string itemId,
         CancellationToken cancellationToken);
 }
@@ -173,14 +174,14 @@ internal sealed class UnavailableInboxReadModel : IInboxReadModel
     }
 
     public ValueTask<InboxReadResult<InboxPage>> ListAsync(
-        OrganizationId organizationId,
+        PersonOrganizationScope scope,
         PositionId? positionId,
         InboxListQuery query,
         CancellationToken cancellationToken) =>
         ValueTask.FromResult(InboxReadResult<InboxPage>.Unavailable);
 
     public ValueTask<InboxReadResult<InboxItemResponse>> ReadItemAsync(
-        OrganizationId organizationId,
+        PersonOrganizationScope scope,
         string itemId,
         CancellationToken cancellationToken) =>
         ValueTask.FromResult(InboxReadResult<InboxItemResponse>.Unavailable);

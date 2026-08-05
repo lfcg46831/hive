@@ -15,6 +15,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Hive.Tests;
 
@@ -76,7 +78,9 @@ public sealed class InboxEndpointTests
             readModel.ListRequests,
             request =>
             {
+                Assert.Equal(PersonId, request.PersonId);
                 Assert.Equal("acme", request.OrganizationId);
+                Assert.Equal(["delivery-lead"], request.ScopedPositionIds);
                 Assert.Null(request.PositionId);
                 Assert.Equal(InboxMessageType.ApprovalRequest, request.Query.MessageType);
                 Assert.Equal(InboxReadState.Unread, request.Query.ReadState);
@@ -94,11 +98,17 @@ public sealed class InboxEndpointTests
             },
             request =>
             {
+                Assert.Equal(PersonId, request.PersonId);
                 Assert.Equal("acme", request.OrganizationId);
+                Assert.Equal(["delivery-lead"], request.ScopedPositionIds);
                 Assert.Equal("delivery-lead", request.PositionId);
                 Assert.Equal(10, request.Query.PageSize);
             });
-        Assert.Equal([("acme", ItemId)], readModel.ItemRequests);
+        var itemRequest = Assert.Single(readModel.ItemRequests);
+        Assert.Equal(PersonId, itemRequest.PersonId);
+        Assert.Equal("acme", itemRequest.OrganizationId);
+        Assert.Equal(["delivery-lead"], itemRequest.ScopedPositionIds);
+        Assert.Equal(ItemId, itemRequest.ItemId);
     }
 
     [Theory]
@@ -212,6 +222,66 @@ public sealed class InboxEndpointTests
     }
 
     [Fact]
+    public async Task Position_scope_is_applied_before_the_inbox_read_model()
+    {
+        var readModel = RecordingInboxReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app);
+
+        using var response = await client.GetAsync(
+            $"{InboxEndpointExtensions.BasePath}/acme/positions/engineer/inbox");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("Position not found", problem!.Title);
+        Assert.Empty(readModel.ListRequests);
+    }
+
+    [Fact]
+    public async Task Organization_only_credentials_cannot_be_used_as_person_inbox_credentials()
+    {
+        var readModel = RecordingInboxReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app, OrganizationOnlyToken);
+
+        using var response = await client.GetAsync(
+            $"{InboxEndpointExtensions.BasePath}/acme/inbox");
+        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+
+        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal("Organization not found", problem!.Title);
+        Assert.Empty(readModel.ListRequests);
+    }
+
+    [Fact]
+    public async Task Person_positions_outside_the_credential_organization_scope_fail_startup()
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Configuration.AddInMemoryCollection(
+            new Dictionary<string, string?>
+            {
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Token"] =
+                    "invalid-person-scope-token",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:OrganizationIds:0"] =
+                    "acme",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:PersonId"] =
+                    PersonId,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Positions:0:OrganizationId"] =
+                    "globex",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Positions:0:PositionId"] =
+                    "delivery-lead",
+            });
+        builder.Services.AddHiveInboxApi();
+        await using var app = builder.Build();
+
+        await Assert.ThrowsAsync<OptionsValidationException>(() => app.StartAsync());
+    }
+
+    [Fact]
     public async Task Public_document_can_describe_all_inbox_routes_and_query_parameters()
     {
         var readModel = RecordingInboxReadModel.Available();
@@ -267,6 +337,16 @@ public sealed class InboxEndpointTests
                     OrganizationToken,
                 [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:OrganizationIds:0"] =
                     "acme",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:PersonId"] =
+                    PersonId,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Positions:0:OrganizationId"] =
+                    "acme",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:0:Positions:0:PositionId"] =
+                    "delivery-lead",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:1:Token"] =
+                    OrganizationOnlyToken,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:1:OrganizationIds:0"] =
+                    "acme",
             });
         if (readModel is not null)
         {
@@ -293,11 +373,13 @@ public sealed class InboxEndpointTests
         return app;
     }
 
-    private static HttpClient CreateAuthorizedClient(WebApplication app)
+    private static HttpClient CreateAuthorizedClient(
+        WebApplication app,
+        string token = OrganizationToken)
     {
         var client = app.GetTestClient();
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", OrganizationToken);
+            new AuthenticationHeaderValue("Bearer", token);
         return client;
     }
 
@@ -333,11 +415,21 @@ public sealed class InboxEndpointTests
 
         public bool IsMissing { get; }
 
-        public List<(string OrganizationId, string? PositionId, InboxListQuery Query)>
+        public List<(
+            string PersonId,
+            string OrganizationId,
+            string[] ScopedPositionIds,
+            string? PositionId,
+            InboxListQuery Query)>
             ListRequests
         { get; } = [];
 
-        public List<(string OrganizationId, string ItemId)> ItemRequests { get; } = [];
+        public List<(
+            string PersonId,
+            string OrganizationId,
+            string[] ScopedPositionIds,
+            string ItemId)> ItemRequests
+        { get; } = [];
 
         public static RecordingInboxReadModel Available() =>
             new(available: true, missing: false);
@@ -346,13 +438,18 @@ public sealed class InboxEndpointTests
             new(available: true, missing: true);
 
         public ValueTask<InboxReadResult<InboxPage>> ListAsync(
-            OrganizationId organizationId,
+            PersonOrganizationScope scope,
             PositionId? positionId,
             InboxListQuery query,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ListRequests.Add((organizationId.Value, positionId?.Value, query));
+            ListRequests.Add((
+                scope.PersonId,
+                scope.OrganizationId.Value,
+                scope.PositionIds.Select(static position => position.Value).ToArray(),
+                positionId?.Value,
+                query));
             if (!IsAvailable)
             {
                 return ValueTask.FromResult(InboxReadResult<InboxPage>.Unavailable);
@@ -370,12 +467,16 @@ public sealed class InboxEndpointTests
         }
 
         public ValueTask<InboxReadResult<InboxItemResponse>> ReadItemAsync(
-            OrganizationId organizationId,
+            PersonOrganizationScope scope,
             string itemId,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            ItemRequests.Add((organizationId.Value, itemId));
+            ItemRequests.Add((
+                scope.PersonId,
+                scope.OrganizationId.Value,
+                scope.PositionIds.Select(static position => position.Value).ToArray(),
+                itemId));
             if (!IsAvailable)
             {
                 return ValueTask.FromResult(InboxReadResult<InboxItemResponse>.Unavailable);
@@ -392,4 +493,8 @@ public sealed class InboxEndpointTests
     }
 
     private const string OrganizationToken = "test-token-for-acme";
+
+    private const string OrganizationOnlyToken = "organization-only-token-for-acme";
+
+    private const string PersonId = "person-alice";
 }

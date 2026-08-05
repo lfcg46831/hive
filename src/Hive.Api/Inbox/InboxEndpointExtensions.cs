@@ -22,8 +22,7 @@ public static class InboxEndpointExtensions
 
         var group = endpoints.MapGroup(BasePath)
             .WithTags("Inbox")
-            .RequireAuthorization(OrganizationAuthorizationDefaults.Policy)
-            .AddEndpointFilter<OrganizationReadAuthorizationFilter>();
+            .RequireAuthorization(OrganizationAuthorizationDefaults.Policy);
         group.MapGet(InboxRoute, ListInboxAsync)
             .WithName("GetOrganizationInboxV1")
             .WithSummary("List the authenticated person's organization inbox")
@@ -65,12 +64,16 @@ public static class InboxEndpointExtensions
         string organizationId,
         [AsParameters] InboxQueryParameters parameters,
         IInboxReadModel readModel,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
         CancellationToken cancellationToken) =>
         ListInboxCoreAsync(
             organizationId,
             positionId: null,
             parameters,
             readModel,
+            principalResolver,
+            httpContext,
             cancellationToken);
 
     private static Task<IResult> ListPositionInboxAsync(
@@ -78,12 +81,16 @@ public static class InboxEndpointExtensions
         string positionId,
         [AsParameters] InboxQueryParameters parameters,
         IInboxReadModel readModel,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
         CancellationToken cancellationToken) =>
         ListInboxCoreAsync(
             organizationId,
             positionId,
             parameters,
             readModel,
+            principalResolver,
+            httpContext,
             cancellationToken);
 
     private static async Task<IResult> ListInboxCoreAsync(
@@ -91,6 +98,8 @@ public static class InboxEndpointExtensions
         string? positionId,
         InboxQueryParameters parameters,
         IInboxReadModel readModel,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         if (!TryParseOrganizationId(organizationId, out var organization))
@@ -109,8 +118,24 @@ public static class InboxEndpointExtensions
             return InvalidQuery(error!);
         }
 
-        var result = await readModel.ListAsync(
+        var scope = await ResolveScopeAsync(
                 organization!,
+                principalResolver,
+                httpContext,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (scope is null)
+        {
+            return OrganizationNotFound();
+        }
+
+        if (position is not null && !scope.Occupies(position))
+        {
+            return PositionNotFound();
+        }
+
+        var result = await readModel.ListAsync(
+                scope,
                 position,
                 query!,
                 cancellationToken)
@@ -132,6 +157,8 @@ public static class InboxEndpointExtensions
         string organizationId,
         string itemId,
         IInboxReadModel readModel,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
         CancellationToken cancellationToken)
     {
         if (!TryParseOrganizationId(organizationId, out var organization))
@@ -144,8 +171,19 @@ public static class InboxEndpointExtensions
             return InvalidItemId();
         }
 
-        var result = await readModel.ReadItemAsync(
+        var scope = await ResolveScopeAsync(
                 organization!,
+                principalResolver,
+                httpContext,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (scope is null)
+        {
+            return OrganizationNotFound();
+        }
+
+        var result = await readModel.ReadItemAsync(
+                scope,
                 parsedItemId!,
                 cancellationToken)
             .ConfigureAwait(false);
@@ -157,6 +195,19 @@ public static class InboxEndpointExtensions
         return result.Value is { } item
             ? TypedResults.Ok(item)
             : InboxItemNotFound();
+    }
+
+    private static async ValueTask<PersonOrganizationScope?> ResolveScopeAsync(
+        OrganizationId organizationId,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        var principal = await principalResolver.ResolveAsync(
+                httpContext.User,
+                cancellationToken)
+            .ConfigureAwait(false);
+        return principal.PersonScopeFor(organizationId);
     }
 
     private static bool TryCreateQuery(

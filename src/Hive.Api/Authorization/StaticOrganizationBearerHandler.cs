@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
+using System.Text.Json;
 using Hive.Api.Organization;
 using Hive.Domain.Identity;
 using Microsoft.AspNetCore.Authentication;
@@ -56,16 +57,32 @@ internal sealed class StaticOrganizationBearerHandler :
 
     private AuthenticateResult Authenticate(string suppliedToken)
     {
-        var organizationIds = ResolveOrganizations(suppliedToken);
-        if (organizationIds.Count == 0)
+        var credential = ResolveCredential(suppliedToken);
+        if (credential is null)
         {
             return AuthenticateResult.Fail("The bearer token is not recognized.");
         }
 
-        var claims = organizationIds.Select(static organizationId =>
+        var claims = credential.OrganizationIds.Select(static organizationId =>
             new Claim(
                 OrganizationAuthorizationDefaults.OrganizationClaimType,
-                organizationId.Value));
+                OrganizationId.From(organizationId).Value))
+            .ToList();
+        if (credential.PersonId is not null)
+        {
+            claims.Add(new Claim(
+                OrganizationAuthorizationDefaults.PersonClaimType,
+                credential.PersonId));
+            claims.AddRange(credential.Positions.Select(static position =>
+                new Claim(
+                    OrganizationAuthorizationDefaults.OccupiedPositionClaimType,
+                    JsonSerializer.Serialize(new
+                    {
+                        position.OrganizationId,
+                        position.PositionId,
+                    }))));
+        }
+
         var identity = new ClaimsIdentity(
             claims,
             OrganizationAuthorizationDefaults.AuthenticationScheme);
@@ -85,20 +102,22 @@ internal sealed class StaticOrganizationBearerHandler :
             .ConfigureAwait(false);
     }
 
-    private List<OrganizationId> ResolveOrganizations(string suppliedToken)
+    private OrganizationBearerCredentialOptions? ResolveCredential(string suppliedToken)
     {
         var suppliedBytes = Encoding.UTF8.GetBytes(suppliedToken);
-        var organizations = new List<OrganizationId>();
+        OrganizationBearerCredentialOptions? match = null;
+        var matchCount = 0;
         foreach (var credential in _authorizationOptions.CurrentValue.Credentials)
         {
             var expectedBytes = Encoding.UTF8.GetBytes(credential.Token);
             if (expectedBytes.Length == suppliedBytes.Length &&
                 CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes))
             {
-                organizations.AddRange(credential.OrganizationIds.Select(OrganizationId.From));
+                match = credential;
+                matchCount++;
             }
         }
 
-        return organizations;
+        return matchCount == 1 ? match : null;
     }
 }

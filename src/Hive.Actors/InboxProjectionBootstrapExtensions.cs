@@ -19,6 +19,11 @@ public static class InboxProjectionBootstrapExtensions
         builder.Services.TryAddSingleton<
             IInboxProjectionSnapshotReader,
             PostgreSqlInboxProjectionSnapshotReader>();
+        builder.Services.TryAddSingleton<
+            IInboxInteractionStore,
+            PostgreSqlInboxInteractionStore>();
+        builder.Services.TryAddSingleton<IInboxInteractionReader>(serviceProvider =>
+            serviceProvider.GetRequiredService<IInboxInteractionStore>());
         builder.Services.TryAddSingleton<IInboxProjectionJournal, AkkaInboxProjectionJournal>();
         builder.Services.TryAddSingleton<InboxProjectionWorker>();
         builder.Services.AddHostedService<InboxProjectionHostedService>();

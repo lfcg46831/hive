@@ -41,6 +41,8 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
 
         Assert.Equal(
             [
+                "human_interaction_audit",
+                "human_interactions",
                 "items",
                 "projection_checkpoints",
                 "projection_facts",
@@ -60,7 +62,7 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             }
         }
 
-        Assert.Equal([1, 2], appliedVersions);
+        Assert.Equal([1, 2, 3], appliedVersions);
     }
 
     [Fact]
@@ -213,6 +215,7 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         Assert.Equal(positionId, item.Key.AssignedPositionId);
         Assert.Equal(InboxProjectionMessageType.Memo, item.Type);
         Assert.Equal(InboxProjectionResponseState.NotApplicable, item.ResponseState);
+        Assert.False(item.IsDelegated);
 
         var otherPosition = await snapshotReader.ReadAsync(
             organizationId,

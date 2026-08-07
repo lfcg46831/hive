@@ -13,9 +13,11 @@ public static class InboxApiServiceCollectionExtensions
         services.AddHiveOrganizationAuthorization();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IInboxReadModel>(serviceProvider =>
-            serviceProvider.GetService<IInboxProjectionSnapshotReader>() is { } snapshotReader
+            serviceProvider.GetService<IInboxProjectionSnapshotReader>() is { } snapshotReader &&
+            serviceProvider.GetService<IInboxInteractionReader>() is { } interactionReader
                 ? new ProjectionInboxReadModel(
                     snapshotReader,
+                    interactionReader,
                     serviceProvider.GetRequiredService<TimeProvider>())
                 : UnavailableInboxReadModel.Instance);
         return services;

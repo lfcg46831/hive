@@ -8,6 +8,7 @@ namespace Hive.Api.Inbox;
 
 internal sealed class ProjectionInboxReadModel(
     IInboxProjectionSnapshotReader snapshotReader,
+    IInboxInteractionReader interactionReader,
     TimeProvider timeProvider) : IInboxReadModel
 {
     public async ValueTask<InboxReadResult<InboxPage>> ListAsync(
@@ -19,7 +20,7 @@ internal sealed class ProjectionInboxReadModel(
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(query);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!snapshotReader.IsAvailable)
+        if (!snapshotReader.IsAvailable || !interactionReader.IsAvailable)
         {
             return InboxReadResult<InboxPage>.Unavailable;
         }
@@ -38,9 +39,19 @@ internal sealed class ProjectionInboxReadModel(
                 cancellationToken)
             .ConfigureAwait(false);
         var authorizedPositions = effectivePositions.ToHashSet();
-        var filtered = snapshot.Items
+        var scopedItems = snapshot.Items
             .Where(item => authorizedPositions.Contains(item.Key.AssignedPositionId))
-            .Select(MapItem)
+            .ToArray();
+        var interactions = await interactionReader.ReadAsync(
+                scope.OrganizationId,
+                scope.PersonId,
+                scopedItems.Select(static item => item.Key).ToArray(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        var filtered = scopedItems
+            .Select(item => MapItem(
+                item,
+                interactions.GetValueOrDefault(item.Key)))
             .Where(item => Matches(item, query))
             .ToArray();
         var afterCursor = AfterCursor(filtered, query.Cursor);
@@ -65,7 +76,7 @@ internal sealed class ProjectionInboxReadModel(
         ArgumentNullException.ThrowIfNull(scope);
         ArgumentNullException.ThrowIfNull(itemId);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!snapshotReader.IsAvailable)
+        if (!snapshotReader.IsAvailable || !interactionReader.IsAvailable)
         {
             return InboxReadResult<InboxItemResponse>.Unavailable;
         }
@@ -76,10 +87,20 @@ internal sealed class ProjectionInboxReadModel(
                 cancellationToken)
             .ConfigureAwait(false);
         var authorizedPositions = scope.PositionIds.ToHashSet();
-        var item = snapshot.Items
+        var scopedItems = snapshot.Items
             .Where(candidate => authorizedPositions.Contains(
                 candidate.Key.AssignedPositionId))
-            .Select(MapItem)
+            .ToArray();
+        var interactions = await interactionReader.ReadAsync(
+                scope.OrganizationId,
+                scope.PersonId,
+                scopedItems.Select(static item => item.Key).ToArray(),
+                cancellationToken)
+            .ConfigureAwait(false);
+        var item = scopedItems
+            .Select(candidate => MapItem(
+                candidate,
+                interactions.GetValueOrDefault(candidate.Key)))
             .SingleOrDefault(candidate =>
                 string.Equals(candidate.ItemId, itemId, StringComparison.Ordinal));
         return InboxReadResult<InboxItemResponse>.Available(
@@ -116,7 +137,9 @@ internal sealed class ProjectionInboxReadModel(
         (query.ApprovalPending is null ||
             (item.Approval?.State == InboxApprovalState.Pending) == query.ApprovalPending);
 
-    private static InboxItem MapItem(InboxProjectionItem item) =>
+    private static InboxItem MapItem(
+        InboxProjectionItem item,
+        InboxInteractionState? interaction) =>
         new(
             $"{item.Key.AssignedPositionId.Value}/{item.Key.MessageId}",
             item.Key.MessageId.Value,
@@ -128,9 +151,19 @@ internal sealed class ProjectionInboxReadModel(
             MapEnum<Priority, InboxPriority>(item.Priority),
             item.SentAtUtc,
             item.DeadlineAtUtc,
-            InboxReadState.Unread,
-            MapEnum<InboxProjectionResponseState, InboxResponseState>(item.ResponseState),
+            interaction is null
+                ? InboxReadState.Unread
+                : MapEnum<InboxInteractionReadState, InboxReadState>(interaction.ReadState),
+            MapResponseState(item.ResponseState, interaction),
             item.Approval is null ? null : MapApproval(item.Approval));
+
+    private static InboxResponseState MapResponseState(
+        InboxProjectionResponseState derivedState,
+        InboxInteractionState? interaction) =>
+        derivedState == InboxProjectionResponseState.AwaitingResponse &&
+        interaction?.ReplyState == InboxInteractionReplyState.InProgress
+            ? InboxResponseState.InProgress
+            : MapEnum<InboxProjectionResponseState, InboxResponseState>(derivedState);
 
     private static InboxApprovalMetadata MapApproval(InboxProjectionApproval approval)
     {

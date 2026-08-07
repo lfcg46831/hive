@@ -58,7 +58,8 @@ public sealed record InboxProjectionItem(
     DateTimeOffset? DeadlineAtUtc,
     bool IsExpired,
     InboxProjectionResponseState ResponseState,
-    InboxProjectionApproval? Approval);
+    InboxProjectionApproval? Approval,
+    bool IsDelegated = false);
 
 public sealed record InboxProjectionChange(
     InboxProjectionItem Item,

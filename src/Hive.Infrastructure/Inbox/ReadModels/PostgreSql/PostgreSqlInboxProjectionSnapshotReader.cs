@@ -121,7 +121,8 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                    approval_policy_ref,
                    approval_state,
                    approval_decision_message_id,
-                   approval_decided_at_utc
+                   approval_decided_at_utc,
+                   is_delegated
             FROM inbox.items
             WHERE organization_id = @organization_id
               AND assigned_position_id = ANY(@assigned_position_ids)
@@ -174,7 +175,8 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                     : reader.GetFieldValue<DateTimeOffset>(10).ToUniversalTime(),
                 reader.GetBoolean(11),
                 ParseEnum<InboxProjectionResponseState>(reader.GetString(12)),
-                approval));
+                approval,
+                reader.GetBoolean(19)));
         }
 
         return items;

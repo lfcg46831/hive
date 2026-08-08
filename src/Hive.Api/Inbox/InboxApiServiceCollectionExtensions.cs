@@ -29,6 +29,10 @@ public static class InboxApiServiceCollectionExtensions
             serviceProvider.GetService<IPositionCommandRequester>() is { } requester
                 ? new ShardedInboxReplyCommandSink(requester)
                 : UnavailableInboxReplyCommandSink.Instance);
+        services.TryAddSingleton<IInboxDecisionCommandSink>(serviceProvider =>
+            serviceProvider.GetService<IPositionCommandRequester>() is { } requester
+                ? new ShardedInboxDecisionCommandSink(requester)
+                : UnavailableInboxDecisionCommandSink.Instance);
         return services;
     }
 }

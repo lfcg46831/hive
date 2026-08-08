@@ -107,6 +107,53 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
     }
 
     [Fact]
+    public void Publish_audits_human_approval_decision_without_exposing_its_reason()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        var decisionMessageId = MessageId.From(
+            Guid.Parse("aaaaaaaa-0000-0000-0000-000000001913"));
+        var decision = new ApprovalDecision(
+            decisionMessageId,
+            Organization,
+            new PositionEndpointRef(Position),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            Thread,
+            Priority.Critical,
+            1,
+            At.AddMinutes(6),
+            deadline: null,
+            Message,
+            approved: false,
+            "Sensitive human rejection reason.");
+
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new OccupantReplyEmitted(
+                Message,
+                OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+                decision,
+                At.AddMinutes(6))));
+
+        var record = Assert.Single(audit.Records);
+        Assert.Equal(JourneyAuditStage.ResultMessageCreated, record.Stage);
+        Assert.Equal(JourneyAuditOutcome.Succeeded, record.Outcome);
+        Assert.Equal("occupant-reply-emitted", record.ReasonCode);
+        Assert.Equal(Message, record.MessageId);
+        Assert.Equal(Position, record.PositionId);
+        Assert.Equal(nameof(ApprovalDecision), record.MessageType);
+        Assert.Equal("web-inbox", record.Payload["source"]);
+        Assert.Equal("human-user", record.Payload["authorKind"]);
+        Assert.Equal("person-alice", record.Payload["authorSubjectId"]);
+        Assert.Equal(decisionMessageId.ToString(), record.Payload["resultMessageId"]);
+        Assert.Equal(MessageChannel.Governance.ToString(), record.Payload["channel"]);
+        Assert.DoesNotContain(
+            "Sensitive human rejection reason",
+            string.Join(" ", record.Payload.Values),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Publish_records_deterministic_audit_ids_for_repeated_position_events()
     {
         var audit = new RecordingJourneyAuditLog();

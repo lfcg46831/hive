@@ -104,6 +104,18 @@ public static class InboxEndpointExtensions
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost(InboxItemRoute + "/decision", DecideInboxApprovalAsync)
+            .WithName("DecideOrganizationInboxApprovalV1")
+            .WithSummary("Approve or reject one pending human approval request")
+            .WithDescription(
+                "Resolves the principal-scoped ApprovalRequest through its occupied PositionActor, " +
+                "which emits a canonical, correlated and audited ApprovalDecision after governance validation.")
+            .Accepts<InboxDecisionRequest>("application/json")
+            .Produces<InboxDecisionResponse>(StatusCodes.Status202Accepted)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
         return endpoints;
     }
 
@@ -343,6 +355,108 @@ public static class InboxEndpointExtensions
             statusCode: StatusCodes.Status202Accepted);
     }
 
+    private static async Task<IResult> DecideInboxApprovalAsync(
+        string organizationId,
+        string itemId,
+        InboxDecisionRequest? request,
+        IInboxReadModel readModel,
+        IInboxDecisionCommandSink decisionSink,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryParseOrganizationId(organizationId, out var organization))
+        {
+            return InvalidOrganizationId();
+        }
+
+        if (!TryParseItemId(itemId, out var parsedItemId))
+        {
+            return InvalidItemId();
+        }
+
+        if (!TryValidateDecisionRequest(request, out var approved, out var reason, out var problem))
+        {
+            return problem!;
+        }
+
+        var scope = await ResolveScopeAsync(
+                organization!,
+                principalResolver,
+                httpContext,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (scope is null)
+        {
+            return OrganizationNotFound();
+        }
+
+        var readResult = await readModel.ReadItemAsync(
+                scope,
+                parsedItemId!,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!readResult.IsAvailable)
+        {
+            return ReadModelUnavailable();
+        }
+
+        if (readResult.Value?.Item is not { } item)
+        {
+            return InboxItemNotFound();
+        }
+
+        if (item.Type != InboxMessageType.ApprovalRequest || item.Approval is null)
+        {
+            return InvalidDecision(
+                "Only an ApprovalRequest can be decided.",
+                "item_id");
+        }
+
+        if (!item.Approval.CanDecide || item.Approval.State != InboxApprovalState.Pending)
+        {
+            return InvalidDecision(
+                "The approval request is not pending for this principal.",
+                "item_id");
+        }
+
+        if (!decisionSink.IsAvailable)
+        {
+            return DecisionEmissionUnavailable();
+        }
+
+        var command = new EmitOccupantApprovalDecision(
+            MessageId.From(item.Approval.RequestId),
+            MessageId.New(),
+            OccupantReplyAuthor.HumanUser(scope.PersonId, "web-inbox"),
+            approved,
+            reason);
+        OccupantReplyEmissionResult emission;
+        try
+        {
+            emission = await decisionSink.EmitAsync(
+                    PositionEntityId.From(
+                        organization!,
+                        PositionId.From(item.AssignedPositionId)),
+                    command,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InboxDecisionEmissionUnavailableException)
+        {
+            return DecisionEmissionUnavailable();
+        }
+
+        if (!emission.IsAccepted)
+        {
+            return DecisionRejected(emission);
+        }
+
+        return TypedResults.Json(
+            ToDecisionResponse(emission),
+            statusCode: StatusCodes.Status202Accepted);
+    }
+
     private static Task<IResult> MarkInboxItemReadAsync(
         string organizationId,
         string itemId,
@@ -520,6 +634,47 @@ public static class InboxEndpointExtensions
             : throw new InvalidOperationException(
                 $"Inbox interaction value '{typeof(TSource).Name}.{value}' has no public mapping.");
 
+    private static bool TryValidateDecisionRequest(
+        InboxDecisionRequest? request,
+        out bool approved,
+        out string? reason,
+        out IResult? problem)
+    {
+        approved = default;
+        reason = null;
+        problem = null;
+        if (request?.Approved is not { } decision)
+        {
+            problem = InvalidDecision("approved is required.", "approved");
+            return false;
+        }
+
+        if (request.Reason is { } suppliedReason
+            && (string.IsNullOrWhiteSpace(suppliedReason)
+                || !string.Equals(
+                    suppliedReason,
+                    suppliedReason.Trim(),
+                    StringComparison.Ordinal)))
+        {
+            problem = InvalidDecision(
+                "reason must be omitted or contain text without leading or trailing whitespace.",
+                "reason");
+            return false;
+        }
+
+        if (request.Reason?.Length > EmitOccupantApprovalDecision.MaximumReasonLength)
+        {
+            problem = InvalidDecision(
+                $"reason cannot exceed {EmitOccupantApprovalDecision.MaximumReasonLength} characters.",
+                "reason");
+            return false;
+        }
+
+        approved = decision;
+        reason = request.Reason;
+        return true;
+    }
+
     private static bool TryValidateReplyRequest(
         InboxReplyRequest? request,
         out string? body,
@@ -642,6 +797,25 @@ public static class InboxEndpointExtensions
                 Directive directive => directive.DirectiveId.Value,
                 _ => null,
             });
+    }
+
+    private static InboxDecisionResponse ToDecisionResponse(OccupantReplyEmissionResult emission)
+    {
+        var decision = emission.Message as ApprovalDecision
+            ?? throw new InvalidOperationException(
+                "Accepted inbox decision result has no ApprovalDecision message.");
+        var from = decision.From as PositionEndpointRef
+            ?? throw new InvalidOperationException("Human approval source is not a position.");
+        var to = decision.To as PositionEndpointRef
+            ?? throw new InvalidOperationException("Human approval destination is not a position.");
+        return new InboxDecisionResponse(
+            decision.RequestId.Value,
+            decision.Id.Value,
+            decision.Approved,
+            decision.Reason,
+            from.PositionId.Value,
+            to.PositionId.Value,
+            decision.Thread.Value);
     }
 
     private static async ValueTask<PersonOrganizationScope?> ResolveScopeAsync(
@@ -910,6 +1084,19 @@ public static class InboxEndpointExtensions
                 },
             });
 
+    private static IResult InvalidDecision(string detail, string path) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid inbox decision",
+                Detail = detail,
+                Extensions =
+                {
+                    ["path"] = path,
+                },
+            });
+
     private static IResult InvalidDraft(string detail, string path) =>
         TypedResults.Problem(
             new ProblemDetails
@@ -933,7 +1120,25 @@ public static class InboxEndpointExtensions
                 Extensions =
                 {
                     ["errors"] = emission.Errors
-                        .Select(error => new InboxReplyErrorResponse(
+                        .Select(error => new InboxEmissionErrorResponse(
+                            error.Code,
+                            error.Path,
+                            RejectionReasonContract.ToWireValue(error.Reason)))
+                        .ToArray(),
+                },
+            });
+
+    private static IResult DecisionRejected(OccupantReplyEmissionResult emission) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Inbox decision rejected",
+                Detail = "The occupied position rejected the approval decision.",
+                Extensions =
+                {
+                    ["errors"] = emission.Errors
+                        .Select(error => new InboxEmissionErrorResponse(
                             error.Code,
                             error.Path,
                             RejectionReasonContract.ToWireValue(error.Reason)))
@@ -966,13 +1171,18 @@ public static class InboxEndpointExtensions
             statusCode: StatusCodes.Status503ServiceUnavailable,
             title: "Inbox reply emission unavailable");
 
+    private static IResult DecisionEmissionUnavailable() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Inbox decision emission unavailable");
+
     private static IResult InteractionStoreUnavailable() =>
         TypedResults.Problem(
             statusCode: StatusCodes.Status503ServiceUnavailable,
             title: "Inbox interaction store unavailable");
 }
 
-internal sealed record InboxReplyErrorResponse(
+internal sealed record InboxEmissionErrorResponse(
     string Code,
     string Path,
     string Reason);

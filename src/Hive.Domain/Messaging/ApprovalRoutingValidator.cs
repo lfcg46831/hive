@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using Hive.Domain.Governance;
+using Hive.Domain.Identity;
 
 namespace Hive.Domain.Messaging;
 
@@ -145,45 +146,106 @@ public sealed class ApprovalRoutingValidator
             return ValidationResult.Create([ApprovalValidationCatalog.ApprovalRequestNotFound()]);
         }
 
+        return ValidateDecision(
+            decision,
+            record.Requester,
+            record.ResolvedApprover,
+            record.Thread,
+            record.Deadline,
+            record.State);
+    }
+
+    /// <summary>
+    /// Validates a decision against the canonical approval request retained by the deciding
+    /// position. The request destination is the approver resolved and admitted when the request was
+    /// emitted; it is deliberately not re-resolved against a later policy revision.
+    /// </summary>
+    public ValueTask<ValidationResult> ValidateAsync(
+        ApprovalDecision decision,
+        ApprovalRequest request,
+        MessageState requestState,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(request);
+        MessageStateContract.RequireDefined(requestState, nameof(requestState));
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var shapeErrors = new List<ValidationError>();
+        _ = RequireEndpoint(decision.From, DecisionFromTypes, "from", shapeErrors);
+        _ = RequireEndpoint(decision.To, DecisionToTypes, "to", shapeErrors);
+        if (shapeErrors.Count != 0)
+        {
+            return ValueTask.FromResult(ValidationResult.Create(shapeErrors));
+        }
+
+        if (request.OrganizationId != decision.OrganizationId || request.Id != decision.RequestId)
+        {
+            return ValueTask.FromResult(ValidationResult.Create(
+                [ApprovalValidationCatalog.ApprovalRequestNotFound()]));
+        }
+
+        if (request.From is not PositionEndpointRef requester)
+        {
+            return ValueTask.FromResult(ValidationResult.Create(
+                [ApprovalValidationCatalog.OriginalRequesterRequired()]));
+        }
+
+        return ValueTask.FromResult(ValidateDecision(
+            decision,
+            requester.PositionId,
+            request.To,
+            request.Thread,
+            request.Deadline,
+            requestState));
+    }
+
+    private bool IsExpired(DateTimeOffset? deadline) =>
+        deadline is { } value && value <= _timeProvider.GetUtcNow();
+
+    private ValidationResult ValidateDecision(
+        ApprovalDecision decision,
+        PositionId requester,
+        EndpointRef resolvedApprover,
+        ThreadId thread,
+        DateTimeOffset? deadline,
+        MessageState requestState)
+    {
         var errors = new List<ValidationError>();
 
-        if (decision.Thread != record.Thread)
+        if (decision.Thread != thread)
         {
             errors.Add(ApprovalValidationCatalog.ApprovalThreadMismatch());
         }
 
-        if (decision.From != record.ResolvedApprover)
+        if (decision.From != resolvedApprover)
         {
             errors.Add(ApprovalValidationCatalog.UnauthorizedApprover());
         }
 
-        if (decision.To is not PositionEndpointRef requester
-            || requester.PositionId != record.Requester)
+        if (decision.To is not PositionEndpointRef decisionRequester
+            || decisionRequester.PositionId != requester)
         {
             errors.Add(ApprovalValidationCatalog.OriginalRequesterRequired());
         }
 
-        // A request that was already decided (Completed) rejects any further decision as a
-        // duplicate; other terminal states were closed without a decision and are merely not open.
-        if (record.IsDecided)
+        if (requestState is MessageState.Completed)
         {
             errors.Add(ApprovalValidationCatalog.ApprovalDecisionDuplicate());
         }
-        else if (!record.IsAwaitingDecision)
+        else if (requestState is not (
+                     MessageState.Received or MessageState.Accepted or MessageState.Processing))
         {
             errors.Add(ApprovalValidationCatalog.ApprovalRequestNotOpen());
         }
 
-        if (IsExpired(record.Deadline))
+        if (IsExpired(deadline))
         {
             errors.Add(ApprovalValidationCatalog.ApprovalDecisionExpired());
         }
 
         return ValidationResult.Create(errors);
     }
-
-    private bool IsExpired(DateTimeOffset? deadline) =>
-        deadline is { } value && value <= _timeProvider.GetUtcNow();
 
     private static EndpointRef? RequireEndpoint(
         EndpointRef endpoint,

@@ -28,10 +28,10 @@ public sealed record OccupantReplyEmitted : PositionEvent
                 nameof(message));
         }
 
-        if (message is not (Report or PeerResponse or Directive))
+        if (message is not (Report or PeerResponse or Directive or ApprovalDecision))
         {
             throw new ArgumentException(
-                "An occupant reply must be a report, peer response, or directive.",
+                "An occupant reply must be a report, peer response, directive, or approval decision.",
                 nameof(message));
         }
     }

@@ -34,6 +34,7 @@ internal sealed class PositionActor :
     private readonly HashSet<Guid> _handledResumeAttempts = [];
     private readonly HashSet<RetainedActionId> _resumingActions = [];
     private readonly HashSet<MessageId> _pendingOccupantReplyIds = [];
+    private readonly HashSet<MessageId> _pendingApprovalRequestIds = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -183,10 +184,20 @@ internal sealed class PositionActor :
         });
         Command<EmitOccupantReply>(command =>
             WhenReady(() => BeginOccupantReplyEmission(command, Sender)));
+        Command<EmitOccupantApprovalDecision>(command =>
+            WhenReady(() => BeginOccupantApprovalDecisionEmission(command, Sender)));
         Command<OccupantReplyValidationCompleted>(HandleOccupantReplyValidationCompleted);
         Command<OccupantReplyValidationFailed>(failed =>
         {
             _pendingOccupantReplyIds.Remove(failed.ReplyMessageId);
+            failed.ReplyTo.Tell(new Status.Failure(failed.Cause));
+        });
+        Command<OccupantApprovalDecisionValidationCompleted>(
+            HandleOccupantApprovalDecisionValidationCompleted);
+        Command<OccupantApprovalDecisionValidationFailed>(failed =>
+        {
+            _pendingOccupantReplyIds.Remove(failed.DecisionMessageId);
+            _pendingApprovalRequestIds.Remove(failed.RequestId);
             failed.ReplyTo.Tell(new Status.Failure(failed.Cause));
         });
         Command<OpenTask>(command =>
@@ -442,6 +453,151 @@ internal sealed class PositionActor :
         });
     }
 
+    private void BeginOccupantApprovalDecisionEmission(
+        EmitOccupantApprovalDecision command,
+        IActorRef replyTo)
+    {
+        var existing = _state.OccupantReplies.FirstOrDefault(
+            reply => reply.Message.Id == command.DecisionMessageId);
+        if (existing is not null)
+        {
+            if (Matches(existing, command))
+            {
+                _messageEmitter.Emit(Context.System, existing.Message);
+                replyTo.Tell(OccupantReplyEmissionResult.Accepted(
+                    existing.SourceMessageId,
+                    existing.Message));
+            }
+            else
+            {
+                replyTo.Tell(Rejected(
+                    command.RequestId,
+                    "decision-message-id-conflict",
+                    "decisionMessageId",
+                    RejectionReason.Duplicate));
+            }
+
+            return;
+        }
+
+        var request = _state.Inbox
+            .Concat(_state.MaterializedHistory)
+            .OfType<ApprovalRequest>()
+            .FirstOrDefault(candidate => candidate.Id == command.RequestId);
+        if (request is null)
+        {
+            replyTo.Tell(Rejected(
+                command.RequestId,
+                ApprovalValidationCatalog.Codes.ApprovalRequestNotFound,
+                "requestId",
+                RejectionReason.InvalidRoute));
+            return;
+        }
+
+        if (request.OrganizationId != EntityId.Organization
+            || request.To is not PositionEndpointRef destination
+            || destination.PositionId != EntityId.Position)
+        {
+            replyTo.Tell(Rejected(
+                command.RequestId,
+                "approval-request-not-owned",
+                "requestId",
+                RejectionReason.Unauthorized));
+            return;
+        }
+
+        var decision = new ApprovalDecision(
+            command.DecisionMessageId,
+            request.OrganizationId,
+            new PositionEndpointRef(EntityId.Position),
+            request.From,
+            request.Thread,
+            request.Priority,
+            schemaVersion: 1,
+            _clock(),
+            deadline: null,
+            request.Id,
+            command.Approved,
+            command.Reason);
+
+        if (!_pendingOccupantReplyIds.Add(command.DecisionMessageId))
+        {
+            replyTo.Tell(Rejected(
+                command.RequestId,
+                "approval-decision-emission-in-progress",
+                "decisionMessageId",
+                RejectionReason.Duplicate));
+            return;
+        }
+
+        if (!_pendingApprovalRequestIds.Add(command.RequestId))
+        {
+            _pendingOccupantReplyIds.Remove(command.DecisionMessageId);
+            replyTo.Tell(Rejected(
+                command.RequestId,
+                "approval-decision-in-progress",
+                "requestId",
+                RejectionReason.Duplicate));
+            return;
+        }
+
+        _occupantReplyValidator
+            .ValidateAsync(_state, decision, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: validation => new OccupantApprovalDecisionValidationCompleted(
+                    command,
+                    replyTo,
+                    decision,
+                    validation),
+                failure: exception => new OccupantApprovalDecisionValidationFailed(
+                    command.RequestId,
+                    command.DecisionMessageId,
+                    replyTo,
+                    exception));
+    }
+
+    private void HandleOccupantApprovalDecisionValidationCompleted(
+        OccupantApprovalDecisionValidationCompleted completed)
+    {
+        _pendingOccupantReplyIds.Remove(completed.Command.DecisionMessageId);
+        _pendingApprovalRequestIds.Remove(completed.Command.RequestId);
+        if (!completed.Validation.IsValid)
+        {
+            completed.ReplyTo.Tell(OccupantReplyEmissionResult.Rejected(
+                completed.Command.RequestId,
+                completed.Validation.Errors
+                    .Select(error => new OccupantReplyEmissionError(
+                        error.Code,
+                        error.Path,
+                        error.Reason))
+                    .ToArray()));
+            return;
+        }
+
+        var emitted = new OccupantReplyEmitted(
+            completed.Command.RequestId,
+            completed.Command.Author,
+            completed.Decision,
+            _clock());
+        Persist(emitted, persisted =>
+        {
+            ApplyPersisted(persisted);
+            try
+            {
+                _messageEmitter.Emit(Context.System, persisted.Message);
+                completed.ReplyTo.Tell(OccupantReplyEmissionResult.Accepted(
+                    persisted.SourceMessageId,
+                    persisted.Message));
+            }
+            catch (Exception exception)
+            {
+                completed.ReplyTo.Tell(new Status.Failure(exception));
+            }
+        });
+    }
+
     private bool TryCreateOccupantReply(
         EmitOccupantReply command,
         OrgMessage source,
@@ -574,12 +730,23 @@ internal sealed class PositionActor :
             new OccupantReplyEmissionError(code, path, reason));
 
     private static bool Matches(OccupantReplyEmitted emitted, EmitOccupantReply command) =>
-        emitted.SourceMessageId == command.SourceMessageId
+        emitted.Message is Report or PeerResponse or OrgDirective
+        && emitted.SourceMessageId == command.SourceMessageId
         && emitted.Author == command.Author
         && string.Equals(ReplyBody(emitted.Message), command.Body, StringComparison.Ordinal)
         && (emitted.Message is Report report ? report.Kind : null) == command.ReportKind
         && (emitted.Message is OrgDirective directive ? directive.DirectiveId : null)
             == command.ReplyDirectiveId;
+
+    private static bool Matches(
+        OccupantReplyEmitted emitted,
+        EmitOccupantApprovalDecision command) =>
+        emitted.SourceMessageId == command.RequestId
+        && emitted.Author == command.Author
+        && emitted.Message is ApprovalDecision decision
+        && decision.RequestId == command.RequestId
+        && decision.Approved == command.Approved
+        && string.Equals(decision.Reason, command.Reason, StringComparison.Ordinal);
 
     private static string ReplyBody(OrgMessage message) =>
         message switch
@@ -1197,6 +1364,18 @@ internal sealed record OccupantReplyValidationCompleted(
 
 internal sealed record OccupantReplyValidationFailed(
     MessageId ReplyMessageId,
+    IActorRef ReplyTo,
+    Exception Cause);
+
+internal sealed record OccupantApprovalDecisionValidationCompleted(
+    EmitOccupantApprovalDecision Command,
+    IActorRef ReplyTo,
+    ApprovalDecision Decision,
+    ValidationResult Validation);
+
+internal sealed record OccupantApprovalDecisionValidationFailed(
+    MessageId RequestId,
+    MessageId DecisionMessageId,
     IActorRef ReplyTo,
     Exception Cause);
 

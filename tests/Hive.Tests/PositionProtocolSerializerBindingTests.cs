@@ -160,6 +160,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(PositionCommand);
         yield return typeof(AcceptMessage);
         yield return typeof(EmitOccupantReply);
+        yield return typeof(EmitOccupantApprovalDecision);
         yield return typeof(OccupantReplyEmissionResult);
         yield return typeof(OpenTask);
         yield return typeof(UpdateTask);
@@ -210,6 +211,12 @@ public sealed class PositionProtocolSerializerBindingTests
             OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
             "The release window is confirmed.",
             ReportKind.Done));
+        yield return ("emit-occupant-approval-decision", new EmitOccupantApprovalDecision(
+            MessageId(),
+            ReplyMessageId(),
+            OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+            approved: true,
+            "Approved for the planned release window."));
         yield return ("occupant-reply-emission-result", OccupantReplyEmissionResult.Accepted(
             MessageId(),
             SampleOccupantReply()));
@@ -249,6 +256,11 @@ public sealed class PositionProtocolSerializerBindingTests
             MessageId(),
             OccupantReplyAuthor.ExternalOccupant("remote-agent-7", "https-api"),
             SampleOccupantReply(),
+            At));
+        yield return ("occupant-reply-emitted", new OccupantReplyEmitted(
+            MessageId(),
+            OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+            SampleApprovalDecision(),
             At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
         yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
@@ -426,6 +438,21 @@ public sealed class PositionProtocolSerializerBindingTests
             deadline: null,
             MessageId(),
             "The release window is confirmed.");
+
+    private static ApprovalDecision SampleApprovalDecision() =>
+        new(
+            ReplyMessageId(),
+            OrganizationId.From("acme"),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            new PositionEndpointRef(PositionId.From("bug-triage")),
+            ThreadId(),
+            Priority.High,
+            schemaVersion: 1,
+            sentAt: At,
+            deadline: null,
+            MessageId(),
+            approved: true,
+            "Approved for the planned release window.");
 
     private static MessageId MessageId() =>
         Hive.Domain.Identity.MessageId.From(new Guid("aaaaaaaa-0000-0000-0000-000000000001"));

@@ -21,18 +21,20 @@ internal interface IOccupantReplyMessageValidator
 internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValidator
 {
     private readonly MessageContractValidator _contractValidator = new();
+    private readonly ApprovalRoutingValidator _approvalValidator;
     private readonly RoutingAdmissionValidator _routingValidator;
 
     public OccupantReplyMessageValidator(IOrganizationRelations relations)
     {
         ArgumentNullException.ThrowIfNull(relations);
+        _approvalValidator = new ApprovalRoutingValidator(
+            UnsupportedApprovalAuthority.Instance,
+            UnsupportedApprovalRequestLog.Instance);
         _routingValidator = new RoutingAdmissionValidator(
             new DirectiveRoutingValidator(relations),
             new ReportRoutingValidator(relations),
             new EscalationRoutingValidator(relations),
-            new ApprovalRoutingValidator(
-                UnsupportedApprovalAuthority.Instance,
-                UnsupportedApprovalRequestLog.Instance));
+            _approvalValidator);
     }
 
     public async ValueTask<ValidationResult> ValidateAsync(
@@ -52,6 +54,31 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
         if (!contract.IsValid)
         {
             return contract;
+        }
+
+        if (message is ApprovalDecision decision)
+        {
+            var request = state.Inbox
+                .Concat(state.MaterializedHistory)
+                .OfType<ApprovalRequest>()
+                .FirstOrDefault(candidate => candidate.Id == decision.RequestId);
+            if (request is null)
+            {
+                return ValidationResult.Create(
+                    [ApprovalValidationCatalog.ApprovalRequestNotFound()]);
+            }
+
+            var requestState = state.OccupantReplies.Any(reply =>
+                reply.Message is ApprovalDecision existing
+                && existing.RequestId == decision.RequestId)
+                    ? MessageState.Completed
+                    : MessageState.Processing;
+            return await _approvalValidator.ValidateAsync(
+                    decision,
+                    request,
+                    requestState,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
 
         var admission = await _routingValidator

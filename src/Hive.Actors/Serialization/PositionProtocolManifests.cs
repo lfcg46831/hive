@@ -15,6 +15,7 @@ internal static class PositionProtocolManifests
         ("position-envelope", typeof(PositionEnvelope)),
         ("accept-message", typeof(AcceptMessage)),
         ("emit-occupant-reply", typeof(EmitOccupantReply)),
+        ("emit-occupant-approval-decision", typeof(EmitOccupantApprovalDecision)),
         ("occupant-reply-emission-result", typeof(OccupantReplyEmissionResult)),
         ("open-task", typeof(OpenTask)),
         ("update-task", typeof(UpdateTask)),

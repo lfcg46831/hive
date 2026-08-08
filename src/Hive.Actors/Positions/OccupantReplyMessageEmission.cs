@@ -25,11 +25,20 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
     private readonly RoutingAdmissionValidator _routingValidator;
 
     public OccupantReplyMessageValidator(IOrganizationRelations relations)
+        : this(relations, TimeProvider.System)
+    {
+    }
+
+    public OccupantReplyMessageValidator(
+        IOrganizationRelations relations,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(relations);
+        ArgumentNullException.ThrowIfNull(timeProvider);
         _approvalValidator = new ApprovalRoutingValidator(
             UnsupportedApprovalAuthority.Instance,
-            UnsupportedApprovalRequestLog.Instance);
+            UnsupportedApprovalRequestLog.Instance,
+            timeProvider);
         _routingValidator = new RoutingAdmissionValidator(
             new DirectiveRoutingValidator(relations),
             new ReportRoutingValidator(relations),

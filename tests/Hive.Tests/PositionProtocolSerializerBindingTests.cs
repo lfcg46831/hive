@@ -214,6 +214,9 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("emit-occupant-approval-decision", new EmitOccupantApprovalDecision(
             MessageId(),
             ReplyMessageId(),
+            ThreadId(),
+            PositionId.From("delivery-lead"),
+            Priority.High,
             OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
             approved: true,
             "Approved for the planned release window."));

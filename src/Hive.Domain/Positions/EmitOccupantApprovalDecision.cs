@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 
 namespace Hive.Domain.Positions;
 
@@ -14,6 +15,9 @@ public sealed record EmitOccupantApprovalDecision : PositionCommand
     public EmitOccupantApprovalDecision(
         MessageId requestId,
         MessageId decisionMessageId,
+        ThreadId requestThread,
+        PositionId requesterPositionId,
+        Priority requestPriority,
         OccupantReplyAuthor author,
         bool approved,
         string? reason = null)
@@ -28,6 +32,13 @@ public sealed record EmitOccupantApprovalDecision : PositionCommand
                 nameof(decisionMessageId));
         }
 
+        RequestThread = requestThread
+            ?? throw new ArgumentNullException(nameof(requestThread));
+        RequesterPositionId = requesterPositionId
+            ?? throw new ArgumentNullException(nameof(requesterPositionId));
+        RequestPriority = PriorityContract.RequireDefined(
+            requestPriority,
+            nameof(requestPriority));
         Author = author ?? throw new ArgumentNullException(nameof(author));
         Approved = approved;
         Reason = reason is null ? null : CommandText.RequireContent(reason, nameof(reason));
@@ -43,6 +54,16 @@ public sealed record EmitOccupantApprovalDecision : PositionCommand
     public MessageId RequestId { get; }
 
     public MessageId DecisionMessageId { get; }
+
+    /// <summary>
+    /// Correlation evidence supplied by the inbox projection. The position uses its persisted
+    /// request when available; these values let a missing-correlation rejection remain auditable.
+    /// </summary>
+    public ThreadId RequestThread { get; }
+
+    public PositionId RequesterPositionId { get; }
+
+    public Priority RequestPriority { get; }
 
     public OccupantReplyAuthor Author { get; }
 

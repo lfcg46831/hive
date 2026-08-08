@@ -38,6 +38,10 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         {
             PublishDuplicateSuppression(duplicate);
         }
+        else if (@event is PositionApprovalDecisionRejected decisionRejected)
+        {
+            PublishApprovalDecisionRejection(decisionRejected);
+        }
         else if (@event is PositionRetainedActionLifecycleChanged lifecycle)
         {
             PublishRetainedActionLifecycle(lifecycle);
@@ -216,6 +220,60 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
             occurredAtUtc: duplicate.OccurredAt,
             idempotencyDiscriminator: TerminalResultAlreadyMaterializedReason));
     }
+
+    private void PublishApprovalDecisionRejection(
+        PositionApprovalDecisionRejected rejected)
+    {
+        var audit = RoutingRejectionAuditEvent.FromRejection(
+            rejected.Rejection,
+            rejected.OccurredAt);
+        var errors = audit.Errors
+            .Select(error =>
+                $"{error.Code}@{error.Path}:{RejectionReasonContract.ToWireValue(error.Reason)}")
+            .ToArray();
+        var reasons = audit.Reasons
+            .Select(RejectionReasonContract.ToWireValue)
+            .ToArray();
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.PositionAccepted,
+            JourneyAuditOutcome.Rejected,
+            audit.OrganizationId,
+            audit.Thread,
+            audit.MessageId,
+            positionId: rejected.EntityId.Position,
+            reasonCode: audit.Errors[0].Code,
+            messageType: nameof(ApprovalDecision),
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["source"] = rejected.Author.Channel,
+                ["authorKind"] = OccupantReplyAuthorKindContract.ToWireValue(
+                    rejected.Author.Kind),
+                ["authorSubjectId"] = rejected.Author.SubjectId,
+                ["requestMessageId"] = rejected.RequestId.ToString(),
+                ["sender"] = EndpointValue(audit.Sender),
+                ["recipient"] = EndpointValue(audit.Recipient),
+                ["expectedApprover"] = audit.ExpectedApprover is null
+                    ? "unknown"
+                    : EndpointValue(audit.ExpectedApprover),
+                ["receivedPolicy"] = audit.ReceivedPolicy?.Value ?? "unknown",
+                ["expectedPolicyVersion"] = audit.ExpectedPolicyVersion?.ToString() ?? "unknown",
+                ["errors"] = string.Join(",", errors),
+                ["rejectionReasons"] = string.Join(",", reasons),
+                ["redactions"] = "reason",
+            },
+            occurredAtUtc: rejected.OccurredAt,
+            idempotencyDiscriminator:
+                $"{rejected.RequestId}:{string.Join(',', errors)}"));
+    }
+
+    private static string EndpointValue(EndpointRef endpoint) =>
+        endpoint switch
+        {
+            PositionEndpointRef position => $"position:{position.PositionId.Value}",
+            OrganizationOwnerEndpointRef => "organization-owner",
+            SystemEndpointRef system => $"system:{system.Kind}",
+            _ => endpoint.GetType().Name,
+        };
 
     private void PublishRetainedActionLifecycle(PositionRetainedActionLifecycleChanged lifecycle)
     {

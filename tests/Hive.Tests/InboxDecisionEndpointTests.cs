@@ -100,11 +100,40 @@ public sealed class InboxDecisionEndpointTests
         Assert.Empty(sink.Requests);
     }
 
-    [Fact]
-    public async Task Item_without_server_calculated_decision_capability_is_not_dispatched()
+    [Theory]
+    [InlineData(
+        ApprovalValidationCatalog.Codes.UnauthorizedApprover,
+        "from",
+        "unauthorized",
+        InboxApprovalState.Pending,
+        false)]
+    [InlineData(
+        ApprovalValidationCatalog.Codes.ApprovalDecisionDuplicate,
+        "requestId",
+        "duplicate",
+        InboxApprovalState.Approved,
+        false)]
+    [InlineData(
+        ApprovalValidationCatalog.Codes.ApprovalDecisionExpired,
+        "requestId",
+        "expired",
+        InboxApprovalState.Expired,
+        false)]
+    [InlineData(
+        ApprovalValidationCatalog.Codes.ApprovalRequestNotFound,
+        "requestId",
+        "invalid-route",
+        InboxApprovalState.Pending,
+        true)]
+    public async Task Governance_rejection_is_returned_as_structured_problem_from_the_pipeline(
+        string code,
+        string path,
+        string reason,
+        InboxApprovalState state,
+        bool canDecide)
     {
-        var readModel = new StaticInboxReadModel(Item(canDecide: false));
-        var sink = RecordingDecisionSink.Accepting();
+        var readModel = new StaticInboxReadModel(Item(canDecide, state));
+        var sink = RecordingDecisionSink.Rejecting(code, path, reason);
         await using var app = BuildApp(readModel, sink);
         await app.StartAsync();
         using var client = AuthorizedClient(app, PersonToken);
@@ -112,11 +141,15 @@ public sealed class InboxDecisionEndpointTests
         using var response = await client.PostAsJsonAsync(
             $"{InboxEndpointExtensions.BasePath}/acme/inbox/{Uri.EscapeDataString(ItemId)}/decision",
             new InboxDecisionRequest(approved: true));
-        var problem = await response.Content.ReadFromJsonAsync<ProblemDetails>();
+        var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        Assert.Equal("Invalid inbox decision", problem!.Title);
-        Assert.Empty(sink.Requests);
+        Assert.Equal("Inbox decision rejected", problem.GetProperty("title").GetString());
+        var error = Assert.Single(problem.GetProperty("errors").EnumerateArray());
+        Assert.Equal(code, error.GetProperty("code").GetString());
+        Assert.Equal(path, error.GetProperty("path").GetString());
+        Assert.Equal(reason, error.GetProperty("reason").GetString());
+        Assert.Single(sink.Requests);
     }
 
     [Fact]
@@ -214,7 +247,9 @@ public sealed class InboxDecisionEndpointTests
         return client;
     }
 
-    private static InboxItem Item(bool canDecide) => new(
+    private static InboxItem Item(
+        bool canDecide,
+        InboxApprovalState state = InboxApprovalState.Pending) => new(
         ItemId,
         RequestId,
         "ceo",
@@ -231,8 +266,14 @@ public sealed class InboxDecisionEndpointTests
             RequestId,
             "publish external release statement",
             "comms.external-official",
-            InboxApprovalState.Pending,
-            canDecide));
+            state,
+            canDecide,
+            state is InboxApprovalState.Approved or InboxApprovalState.Rejected
+                ? Guid.Parse("73000000-0000-0000-0000-000000000001")
+                : null,
+            state is InboxApprovalState.Approved or InboxApprovalState.Rejected
+                ? At.AddMinutes(15)
+                : null));
 
     private sealed class StaticInboxReadModel(InboxItem item) : IInboxReadModel
     {
@@ -283,6 +324,17 @@ public sealed class InboxDecisionEndpointTests
                     command.RequestId,
                     command.Approved,
                     command.Reason)));
+
+        public static RecordingDecisionSink Rejecting(
+            string code,
+            string path,
+            string reason) => new((_, command) =>
+                OccupantReplyEmissionResult.Rejected(
+                    command.RequestId,
+                    new OccupantReplyEmissionError(
+                        code,
+                        path,
+                        RejectionReasonContract.ParseWireValue(reason))));
 
         public ValueTask<OccupantReplyEmissionResult> EmitAsync(
             PositionEntityId sourcePosition,

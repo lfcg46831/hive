@@ -457,6 +457,24 @@ internal sealed class PositionActor :
         EmitOccupantApprovalDecision command,
         IActorRef replyTo)
     {
+        var request = _state.Inbox
+            .Concat(_state.MaterializedHistory)
+            .OfType<ApprovalRequest>()
+            .FirstOrDefault(candidate => candidate.Id == command.RequestId);
+        var decision = new ApprovalDecision(
+            command.DecisionMessageId,
+            EntityId.Organization,
+            new PositionEndpointRef(EntityId.Position),
+            request?.From ?? new PositionEndpointRef(command.RequesterPositionId),
+            request?.Thread ?? command.RequestThread,
+            request?.Priority ?? command.RequestPriority,
+            schemaVersion: 1,
+            _clock(),
+            deadline: null,
+            command.RequestId,
+            command.Approved,
+            command.Reason);
+
         var existing = _state.OccupantReplies.FirstOrDefault(
             reply => reply.Message.Id == command.DecisionMessageId);
         if (existing is not null)
@@ -470,74 +488,43 @@ internal sealed class PositionActor :
             }
             else
             {
-                replyTo.Tell(Rejected(
-                    command.RequestId,
-                    "decision-message-id-conflict",
-                    "decisionMessageId",
-                    RejectionReason.Duplicate));
+                replyTo.Tell(RejectApprovalDecision(
+                    command,
+                    decision,
+                    request,
+                    ValidationResult.Create([new ValidationError(
+                        "decision-message-id-conflict",
+                        "decisionMessageId",
+                        RejectionReason.Duplicate)])));
             }
 
             return;
         }
 
-        var request = _state.Inbox
-            .Concat(_state.MaterializedHistory)
-            .OfType<ApprovalRequest>()
-            .FirstOrDefault(candidate => candidate.Id == command.RequestId);
-        if (request is null)
-        {
-            replyTo.Tell(Rejected(
-                command.RequestId,
-                ApprovalValidationCatalog.Codes.ApprovalRequestNotFound,
-                "requestId",
-                RejectionReason.InvalidRoute));
-            return;
-        }
-
-        if (request.OrganizationId != EntityId.Organization
-            || request.To is not PositionEndpointRef destination
-            || destination.PositionId != EntityId.Position)
-        {
-            replyTo.Tell(Rejected(
-                command.RequestId,
-                "approval-request-not-owned",
-                "requestId",
-                RejectionReason.Unauthorized));
-            return;
-        }
-
-        var decision = new ApprovalDecision(
-            command.DecisionMessageId,
-            request.OrganizationId,
-            new PositionEndpointRef(EntityId.Position),
-            request.From,
-            request.Thread,
-            request.Priority,
-            schemaVersion: 1,
-            _clock(),
-            deadline: null,
-            request.Id,
-            command.Approved,
-            command.Reason);
-
         if (!_pendingOccupantReplyIds.Add(command.DecisionMessageId))
         {
-            replyTo.Tell(Rejected(
-                command.RequestId,
-                "approval-decision-emission-in-progress",
-                "decisionMessageId",
-                RejectionReason.Duplicate));
+            replyTo.Tell(RejectApprovalDecision(
+                command,
+                decision,
+                request,
+                ValidationResult.Create([new ValidationError(
+                    "approval-decision-emission-in-progress",
+                    "decisionMessageId",
+                    RejectionReason.Duplicate)])));
             return;
         }
 
         if (!_pendingApprovalRequestIds.Add(command.RequestId))
         {
             _pendingOccupantReplyIds.Remove(command.DecisionMessageId);
-            replyTo.Tell(Rejected(
-                command.RequestId,
-                "approval-decision-in-progress",
-                "requestId",
-                RejectionReason.Duplicate));
+            replyTo.Tell(RejectApprovalDecision(
+                command,
+                decision,
+                request,
+                ValidationResult.Create([new ValidationError(
+                    "approval-decision-in-progress",
+                    "requestId",
+                    RejectionReason.Duplicate)])));
             return;
         }
 
@@ -550,6 +537,7 @@ internal sealed class PositionActor :
                     command,
                     replyTo,
                     decision,
+                    request,
                     validation),
                 failure: exception => new OccupantApprovalDecisionValidationFailed(
                     command.RequestId,
@@ -565,14 +553,11 @@ internal sealed class PositionActor :
         _pendingApprovalRequestIds.Remove(completed.Command.RequestId);
         if (!completed.Validation.IsValid)
         {
-            completed.ReplyTo.Tell(OccupantReplyEmissionResult.Rejected(
-                completed.Command.RequestId,
-                completed.Validation.Errors
-                    .Select(error => new OccupantReplyEmissionError(
-                        error.Code,
-                        error.Path,
-                        error.Reason))
-                    .ToArray()));
+            completed.ReplyTo.Tell(RejectApprovalDecision(
+                completed.Command,
+                completed.Decision,
+                completed.Request,
+                completed.Validation));
             return;
         }
 
@@ -596,6 +581,40 @@ internal sealed class PositionActor :
                 completed.ReplyTo.Tell(new Status.Failure(exception));
             }
         });
+    }
+
+    private OccupantReplyEmissionResult RejectApprovalDecision(
+        EmitOccupantApprovalDecision command,
+        ApprovalDecision decision,
+        ApprovalRequest? request,
+        ValidationResult validation)
+    {
+        var context = RoutingValidationContext.ForMessage(decision);
+        if (request is not null)
+        {
+            context = context.WithGovernance(
+                request.Policy,
+                appliedVersion: null,
+                request.To);
+        }
+
+        var rejection = RoutingRejection.Create(
+            context,
+            validation);
+        PublishProjection(new PositionApprovalDecisionRejected(
+            EntityId,
+            command.RequestId,
+            command.Author,
+            rejection,
+            _clock()));
+        return OccupantReplyEmissionResult.Rejected(
+            command.RequestId,
+            validation.Errors
+                .Select(error => new OccupantReplyEmissionError(
+                    error.Code,
+                    error.Path,
+                    error.Reason))
+                .ToArray());
     }
 
     private bool TryCreateOccupantReply(
@@ -1371,6 +1390,7 @@ internal sealed record OccupantApprovalDecisionValidationCompleted(
     EmitOccupantApprovalDecision Command,
     IActorRef ReplyTo,
     ApprovalDecision Decision,
+    ApprovalRequest? Request,
     ValidationResult Validation);
 
 internal sealed record OccupantApprovalDecisionValidationFailed(

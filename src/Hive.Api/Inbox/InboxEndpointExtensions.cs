@@ -413,10 +413,10 @@ public static class InboxEndpointExtensions
                 "item_id");
         }
 
-        if (!item.Approval.CanDecide || item.Approval.State != InboxApprovalState.Pending)
+        if (item.Origin.Type != InboxMessageEndpointType.Position || item.Origin.PositionId is null)
         {
             return InvalidDecision(
-                "The approval request is not pending for this principal.",
+                "The ApprovalRequest requester must be a position.",
                 "item_id");
         }
 
@@ -428,6 +428,9 @@ public static class InboxEndpointExtensions
         var command = new EmitOccupantApprovalDecision(
             MessageId.From(item.Approval.RequestId),
             MessageId.New(),
+            Hive.Domain.Identity.ThreadId.From(item.ThreadId),
+            PositionId.From(item.Origin.PositionId),
+            MapPriority(item.Priority),
             OccupantReplyAuthor.HumanUser(scope.PersonId, "web-inbox"),
             approved,
             reason);
@@ -817,6 +820,13 @@ public static class InboxEndpointExtensions
             to.PositionId.Value,
             decision.Thread.Value);
     }
+
+    private static Priority MapPriority(InboxPriority priority) =>
+        Enum.TryParse<Priority>(priority.ToString(), ignoreCase: false, out var mapped)
+        && Enum.IsDefined(mapped)
+            ? mapped
+            : throw new InvalidOperationException(
+                $"Inbox priority '{priority}' has no organizational message mapping.");
 
     private static async ValueTask<PersonOrganizationScope?> ResolveScopeAsync(
         OrganizationId organizationId,

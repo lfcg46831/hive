@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 
 namespace Hive.Domain.Positions;
 
@@ -162,6 +163,38 @@ public sealed record PositionMessageDuplicateRejected : PositionProjectionEvent
 
     /// <summary>The thread carried by the duplicate message.</summary>
     public ThreadId Thread { get; }
+}
+
+/// <summary>
+/// A human approval decision was rejected by the canonical governance validator before it could
+/// be persisted or routed. The detailed rejection is reserved for the authorized audit trail.
+/// </summary>
+public sealed record PositionApprovalDecisionRejected : PositionProjectionEvent
+{
+    public PositionApprovalDecisionRejected(
+        PositionEntityId entityId,
+        MessageId requestId,
+        OccupantReplyAuthor author,
+        RoutingRejection rejection,
+        DateTimeOffset occurredAt)
+        : base(entityId, occurredAt)
+    {
+        RequestId = requestId ?? throw new ArgumentNullException(nameof(requestId));
+        Author = author ?? throw new ArgumentNullException(nameof(author));
+        Rejection = rejection ?? throw new ArgumentNullException(nameof(rejection));
+        if (Rejection.Context.OrganizationId != entityId.Organization)
+        {
+            throw new ArgumentException(
+                "The approval rejection organization must match the position entity.",
+                nameof(rejection));
+        }
+    }
+
+    public MessageId RequestId { get; }
+
+    public OccupantReplyAuthor Author { get; }
+
+    public RoutingRejection Rejection { get; }
 }
 
 /// <summary>A fail-closed runtime configuration decision blocked the position from processing work.</summary>

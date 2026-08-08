@@ -145,6 +145,18 @@ internal sealed class OccupantTypeJsonConverter : WireEnumJsonConverter<Occupant
     }
 }
 
+internal sealed class OccupantReplyAuthorKindJsonConverter :
+    WireEnumJsonConverter<OccupantReplyAuthorKind>
+{
+    protected override string ToWire(OccupantReplyAuthorKind value) =>
+        OccupantReplyAuthorKindContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out OccupantReplyAuthorKind result) =>
+        OccupantReplyAuthorKindContract.TryParseWireValue(value, out result);
+}
+
 internal sealed class MessageProcessingCompletionStatusJsonConverter :
     WireEnumJsonConverter<MessageProcessingCompletionStatus>
 {

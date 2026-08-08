@@ -8,6 +8,7 @@ using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
+using OrgDirective = Hive.Domain.Messaging.Directive;
 
 namespace Hive.Actors.Positions;
 
@@ -26,10 +27,13 @@ internal sealed class PositionActor :
     private readonly IPositionOccupantFactory _occupantFactory;
     private readonly IPositionProjectionPublisher? _projectionPublisher;
     private readonly RetainedActionResumeCoordinator _resumeCoordinator;
+    private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
+    private readonly IPositionMessageEmitter _messageEmitter;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
     private readonly HashSet<Guid> _handledResumeAttempts = [];
     private readonly HashSet<RetainedActionId> _resumingActions = [];
+    private readonly HashSet<MessageId> _pendingOccupantReplyIds = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -107,6 +111,27 @@ internal sealed class PositionActor :
         IPositionProjectionPublisher? projectionPublisher,
         Func<DateTimeOffset> clock,
         RetainedActionResumeCoordinator? resumeCoordinator)
+        : this(
+            entityId,
+            configurationProvider,
+            occupantFactory,
+            projectionPublisher,
+            clock,
+            resumeCoordinator,
+            occupantReplyValidator: null,
+            messageEmitter: null)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock,
+        RetainedActionResumeCoordinator? resumeCoordinator,
+        IOccupantReplyMessageValidator? occupantReplyValidator,
+        IPositionMessageEmitter? messageEmitter)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
@@ -119,6 +144,9 @@ internal sealed class PositionActor :
             EscalatingRetainedActionPolicyEvaluator.Instance,
             UnavailableRetainedActionExecutor.Instance,
             Domain.Auditing.NoopJourneyAuditLog.Instance);
+        _occupantReplyValidator = occupantReplyValidator
+            ?? UnavailableOccupantReplyMessageValidator.Instance;
+        _messageEmitter = messageEmitter ?? ShardedPositionMessageEmitter.Instance;
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -152,6 +180,14 @@ internal sealed class PositionActor :
 
                 PersistAcceptedMessage(command.Message);
             });
+        });
+        Command<EmitOccupantReply>(command =>
+            WhenReady(() => BeginOccupantReplyEmission(command, Sender)));
+        Command<OccupantReplyValidationCompleted>(HandleOccupantReplyValidationCompleted);
+        Command<OccupantReplyValidationFailed>(failed =>
+        {
+            _pendingOccupantReplyIds.Remove(failed.ReplyMessageId);
+            failed.ReplyTo.Tell(new Status.Failure(failed.Cause));
         });
         Command<OpenTask>(command =>
             WhenReady(() =>
@@ -285,6 +321,275 @@ internal sealed class PositionActor :
 
         PersistEvents(events);
     }
+
+    private void BeginOccupantReplyEmission(EmitOccupantReply command, IActorRef replyTo)
+    {
+        var existing = _state.OccupantReplies.FirstOrDefault(
+            reply => reply.Message.Id == command.ReplyMessageId);
+        if (existing is not null)
+        {
+            if (Matches(existing, command))
+            {
+                _messageEmitter.Emit(Context.System, existing.Message);
+                replyTo.Tell(OccupantReplyEmissionResult.Accepted(
+                    existing.SourceMessageId,
+                    existing.Message));
+            }
+            else
+            {
+                replyTo.Tell(Rejected(
+                    command.SourceMessageId,
+                    "reply-message-id-conflict",
+                    "replyMessageId",
+                    RejectionReason.Duplicate));
+            }
+
+            return;
+        }
+
+        var source = _state.Inbox
+            .Concat(_state.MaterializedHistory)
+            .FirstOrDefault(message => message.Id == command.SourceMessageId);
+        if (source is null)
+        {
+            replyTo.Tell(Rejected(
+                command.SourceMessageId,
+                "source-message-not-found",
+                "sourceMessageId",
+                RejectionReason.InvalidContract));
+            return;
+        }
+
+        if (source.OrganizationId != EntityId.Organization
+            || source.To is not PositionEndpointRef destination
+            || destination.PositionId != EntityId.Position)
+        {
+            replyTo.Tell(Rejected(
+                command.SourceMessageId,
+                "source-message-not-owned",
+                "sourceMessageId",
+                RejectionReason.Unauthorized));
+            return;
+        }
+
+        if (!TryCreateOccupantReply(command, source, out var message, out var rejection))
+        {
+            replyTo.Tell(rejection!);
+            return;
+        }
+
+        if (!_pendingOccupantReplyIds.Add(command.ReplyMessageId))
+        {
+            replyTo.Tell(Rejected(
+                command.SourceMessageId,
+                "reply-emission-in-progress",
+                "replyMessageId",
+                RejectionReason.Duplicate));
+            return;
+        }
+
+        _occupantReplyValidator
+            .ValidateAsync(_state, message!, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: validation => new OccupantReplyValidationCompleted(
+                    command,
+                    replyTo,
+                    message!,
+                    validation),
+                failure: exception => new OccupantReplyValidationFailed(
+                    command.ReplyMessageId,
+                    replyTo,
+                    exception));
+    }
+
+    private void HandleOccupantReplyValidationCompleted(OccupantReplyValidationCompleted completed)
+    {
+        _pendingOccupantReplyIds.Remove(completed.Command.ReplyMessageId);
+        if (!completed.Validation.IsValid)
+        {
+            completed.ReplyTo.Tell(OccupantReplyEmissionResult.Rejected(
+                completed.Command.SourceMessageId,
+                completed.Validation.Errors
+                    .Select(error => new OccupantReplyEmissionError(
+                        error.Code,
+                        error.Path,
+                        error.Reason))
+                    .ToArray()));
+            return;
+        }
+
+        var emitted = new OccupantReplyEmitted(
+            completed.Command.SourceMessageId,
+            completed.Command.Author,
+            completed.Message,
+            _clock());
+        Persist(emitted, persisted =>
+        {
+            ApplyPersisted(persisted);
+            try
+            {
+                _messageEmitter.Emit(Context.System, persisted.Message);
+                completed.ReplyTo.Tell(OccupantReplyEmissionResult.Accepted(
+                    persisted.SourceMessageId,
+                    persisted.Message));
+            }
+            catch (Exception exception)
+            {
+                completed.ReplyTo.Tell(new Status.Failure(exception));
+            }
+        });
+    }
+
+    private bool TryCreateOccupantReply(
+        EmitOccupantReply command,
+        OrgMessage source,
+        out OrgMessage? message,
+        out OccupantReplyEmissionResult? rejection)
+    {
+        message = null;
+        rejection = null;
+        var from = new PositionEndpointRef(EntityId.Position);
+        var to = source.From;
+        var sentAt = _clock();
+
+        switch (source)
+        {
+            case OrgDirective directive:
+                if (command.ReportKind is not { } reportKind)
+                {
+                    rejection = Rejected(
+                        command.SourceMessageId,
+                        "report-kind-required",
+                        "reportKind",
+                        RejectionReason.InvalidContract);
+                    return false;
+                }
+
+                if (command.ReplyDirectiveId is not null)
+                {
+                    rejection = Rejected(
+                        command.SourceMessageId,
+                        "reply-directive-id-not-applicable",
+                        "replyDirectiveId",
+                        RejectionReason.InvalidContract);
+                    return false;
+                }
+
+                message = new Report(
+                    command.ReplyMessageId,
+                    source.OrganizationId,
+                    from,
+                    to,
+                    source.Thread,
+                    source.Priority,
+                    schemaVersion: 1,
+                    sentAt,
+                    deadline: null,
+                    directive.DirectiveId,
+                    reportKind,
+                    command.Body);
+                return true;
+
+            case PeerRequest request:
+                if (command.ReportKind is not null || command.ReplyDirectiveId is not null)
+                {
+                    rejection = Rejected(
+                        command.SourceMessageId,
+                        "reply-metadata-not-applicable",
+                        "$",
+                        RejectionReason.InvalidContract);
+                    return false;
+                }
+
+                message = new PeerResponse(
+                    command.ReplyMessageId,
+                    source.OrganizationId,
+                    from,
+                    to,
+                    source.Thread,
+                    source.Priority,
+                    schemaVersion: 1,
+                    sentAt,
+                    deadline: null,
+                    request.Id,
+                    command.Body);
+                return true;
+
+            case Escalation:
+                if (command.ReportKind is not null)
+                {
+                    rejection = Rejected(
+                        command.SourceMessageId,
+                        "report-kind-not-applicable",
+                        "reportKind",
+                        RejectionReason.InvalidContract);
+                    return false;
+                }
+
+                if (command.ReplyDirectiveId is not { } replyDirectiveId)
+                {
+                    rejection = Rejected(
+                        command.SourceMessageId,
+                        "reply-directive-id-required",
+                        "replyDirectiveId",
+                        RejectionReason.InvalidContract);
+                    return false;
+                }
+
+                message = new OrgDirective(
+                    command.ReplyMessageId,
+                    source.OrganizationId,
+                    from,
+                    to,
+                    source.Thread,
+                    source.Priority,
+                    schemaVersion: 1,
+                    sentAt,
+                    deadline: null,
+                    replyDirectiveId,
+                    parentDirectiveId: null,
+                    command.Body,
+                    $"Human response to escalation {source.Id}.");
+                return true;
+
+            default:
+                rejection = Rejected(
+                    command.SourceMessageId,
+                    "reply-not-supported",
+                    "sourceMessageId",
+                    RejectionReason.InvalidContract);
+                return false;
+        }
+    }
+
+    private static OccupantReplyEmissionResult Rejected(
+        MessageId sourceMessageId,
+        string code,
+        string path,
+        RejectionReason reason) =>
+        OccupantReplyEmissionResult.Rejected(
+            sourceMessageId,
+            new OccupantReplyEmissionError(code, path, reason));
+
+    private static bool Matches(OccupantReplyEmitted emitted, EmitOccupantReply command) =>
+        emitted.SourceMessageId == command.SourceMessageId
+        && emitted.Author == command.Author
+        && string.Equals(ReplyBody(emitted.Message), command.Body, StringComparison.Ordinal)
+        && (emitted.Message is Report report ? report.Kind : null) == command.ReportKind
+        && (emitted.Message is OrgDirective directive ? directive.DirectiveId : null)
+            == command.ReplyDirectiveId;
+
+    private static string ReplyBody(OrgMessage message) =>
+        message switch
+        {
+            Report report => report.Body,
+            PeerResponse response => response.Body,
+            OrgDirective directive => directive.Objective,
+            _ => throw new InvalidOperationException(
+                $"Unsupported persisted occupant reply '{message.GetType().Name}'."),
+        };
 
     private void PersistOccupantChange(ChangeOccupant command)
     {
@@ -882,6 +1187,17 @@ internal sealed record RetainedActionResumeCompleted(
 internal sealed record RetainedActionResumeFailed(
     RetainedActionId ActionId,
     Guid AttemptId,
+    Exception Cause);
+
+internal sealed record OccupantReplyValidationCompleted(
+    EmitOccupantReply Command,
+    IActorRef ReplyTo,
+    OrgMessage Message,
+    ValidationResult Validation);
+
+internal sealed record OccupantReplyValidationFailed(
+    MessageId ReplyMessageId,
+    IActorRef ReplyTo,
     Exception Cause);
 
 internal sealed record PositionRuntimeStatus(

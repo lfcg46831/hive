@@ -25,7 +25,8 @@ public sealed record PositionState
         OccupantType? occupantType,
         PositionConfigurationStamp? lastConfigurationStamp,
         ImmutableDictionary<RetainedActionId, PersistedRetainedAction> retainedActions,
-        ImmutableDictionary<DirectiveId, DirectiveCheckpoint> directiveCheckpoints)
+        ImmutableDictionary<DirectiveId, DirectiveCheckpoint> directiveCheckpoints,
+        ImmutableArray<OccupantReplyEmitted> occupantReplies)
     {
         Inbox = inbox;
         OpenTasks = openTasks;
@@ -39,6 +40,7 @@ public sealed record PositionState
         LastConfigurationStamp = lastConfigurationStamp;
         RetainedActions = retainedActions;
         DirectiveCheckpoints = directiveCheckpoints;
+        OccupantReplies = occupantReplies;
     }
 
     /// <summary>The initial state before any snapshot or event has been replayed.</summary>
@@ -54,7 +56,8 @@ public sealed record PositionState
         occupantType: null,
         lastConfigurationStamp: null,
         ImmutableDictionary<RetainedActionId, PersistedRetainedAction>.Empty,
-        ImmutableDictionary<DirectiveId, DirectiveCheckpoint>.Empty);
+        ImmutableDictionary<DirectiveId, DirectiveCheckpoint>.Empty,
+        ImmutableArray<OccupantReplyEmitted>.Empty);
 
     /// <summary>The messages admitted but not yet dispatched.</summary>
     public ImmutableArray<OrgMessage> Inbox { get; }
@@ -92,6 +95,9 @@ public sealed record PositionState
     /// <summary>The latest durable checkpoint revision for each directive handled here.</summary>
     public ImmutableDictionary<DirectiveId, DirectiveCheckpoint> DirectiveCheckpoints { get; }
 
+    /// <summary>Canonical occupant-authored replies emitted by this position.</summary>
+    public ImmutableArray<OccupantReplyEmitted> OccupantReplies { get; }
+
     /// <summary>Rebuilds live state from a persisted point-in-time snapshot.</summary>
     public static PositionState Restore(PositionSnapshot snapshot)
     {
@@ -110,7 +116,8 @@ public sealed record PositionState
             snapshot.LastConfigurationStamp,
             snapshot.RetainedActions.ToImmutableDictionary(action => action.Id),
             snapshot.DirectiveCheckpoints.ToImmutableDictionary(
-                checkpoint => checkpoint.Correlation.DirectiveId));
+                checkpoint => checkpoint.Correlation.DirectiveId),
+            snapshot.OccupantReplies);
     }
 
     /// <summary>Exports the live state into the persisted snapshot shape.</summary>
@@ -128,7 +135,8 @@ public sealed record PositionState
         ShortMemoryContextScopes,
         MaterializedHistory,
         DirectiveCheckpoints.Values.OrderBy(
-            checkpoint => checkpoint.Correlation.DirectiveId.Value));
+            checkpoint => checkpoint.Correlation.DirectiveId.Value),
+        OccupantReplies.OrderBy(reply => reply.Message.Id.Value));
 
     /// <summary>
     /// Evaluates an attempted checkpoint revision without mutating state. Re-delivered or stale
@@ -245,6 +253,7 @@ public sealed record PositionState
             RetainedActionExpired expired => Apply(expired),
             RetainedActionReturned returned => Apply(returned),
             DirectiveCheckpointPersisted persisted => Apply(persisted),
+            OccupantReplyEmitted emitted => Apply(emitted),
             _ => this,
         };
     }
@@ -261,7 +270,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(TaskCreated @event) => new(
         Inbox,
@@ -284,7 +294,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(TaskUpdated @event)
     {
@@ -315,7 +326,8 @@ public sealed record PositionState
             OccupantType,
             LastConfigurationStamp,
             RetainedActions,
-            DirectiveCheckpoints);
+            DirectiveCheckpoints,
+            OccupantReplies);
     }
 
     private PositionState Apply(TaskCompleted @event) => new(
@@ -330,7 +342,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(ShortMemoryUpdated @event) => new(
         Inbox,
@@ -348,7 +361,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(OccupantChanged @event) => new(
         Inbox,
@@ -362,7 +376,8 @@ public sealed record PositionState
         @event.Type,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(MessageDispatched @event)
     {
@@ -386,7 +401,8 @@ public sealed record PositionState
             OccupantType,
             LastConfigurationStamp,
             RetainedActions,
-            DirectiveCheckpoints);
+            DirectiveCheckpoints,
+            OccupantReplies);
     }
 
     private PositionState Apply(MessageProcessingCompleted @event) => new(
@@ -401,7 +417,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(PositionConfigurationApplied @event) => new(
         Inbox,
@@ -415,7 +432,8 @@ public sealed record PositionState
         OccupantType,
         @event.Stamp,
         RetainedActions,
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(ActionRetained @event)
     {
@@ -440,7 +458,8 @@ public sealed record PositionState
             OccupantType,
             LastConfigurationStamp,
             RetainedActions.Add(@event.Action.Id, @event.Action),
-            DirectiveCheckpoints);
+            DirectiveCheckpoints,
+            OccupantReplies);
     }
 
     private PositionState Apply(RetainedActionAuthorized @event)
@@ -533,7 +552,8 @@ public sealed record PositionState
         OccupantType,
         LastConfigurationStamp,
         RetainedActions.SetItem(action.Id, action),
-        DirectiveCheckpoints);
+        DirectiveCheckpoints,
+        OccupantReplies);
 
     private PositionState Apply(DirectiveCheckpointPersisted @event)
     {
@@ -560,7 +580,36 @@ public sealed record PositionState
             RetainedActions,
             DirectiveCheckpoints.SetItem(
                 checkpoint.Correlation.DirectiveId,
-                checkpoint));
+                checkpoint),
+            OccupantReplies);
+    }
+
+    private PositionState Apply(OccupantReplyEmitted @event)
+    {
+        var existing = OccupantReplies.FirstOrDefault(
+            reply => reply.Message.Id == @event.Message.Id);
+        if (existing is not null)
+        {
+            return existing == @event
+                ? this
+                : throw new InvalidOperationException(
+                    $"Occupant reply message '{@event.Message.Id}' was replayed with conflicting content.");
+        }
+
+        return new PositionState(
+            Inbox,
+            OpenTasks,
+            ShortMemory,
+            ShortMemoryContextScopes,
+            RecentHistory,
+            MaterializedHistory,
+            ProcessedMessages,
+            Occupant,
+            OccupantType,
+            LastConfigurationStamp,
+            RetainedActions,
+            DirectiveCheckpoints,
+            OccupantReplies.Add(@event));
     }
 
     private static bool IsStructurallyPersistable(

@@ -36,7 +36,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.RetainedActions,
             dto.ShortMemoryContextScopes,
             dto.MaterializedHistory,
-            dto.DirectiveCheckpoints);
+            dto.DirectiveCheckpoints,
+            dto.OccupantReplies);
     }
 
     public override void Write(
@@ -74,6 +75,9 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             DirectiveCheckpoints = value.DirectiveCheckpoints.IsEmpty
                 ? null
                 : value.DirectiveCheckpoints.ToList(),
+            OccupantReplies = value.OccupantReplies.IsEmpty
+                ? null
+                : value.OccupantReplies.ToList(),
         };
 
         JsonSerializer.Serialize(writer, dto, options);
@@ -110,5 +114,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<DirectiveCheckpoint>? DirectiveCheckpoints { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<OccupantReplyEmitted>? OccupantReplies { get; set; }
     }
 }

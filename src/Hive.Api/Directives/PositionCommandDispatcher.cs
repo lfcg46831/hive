@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Akka.Cluster;
 using Akka.Cluster.Sharding;
+using Akka.Pattern;
 using Hive.Actors.Sharding;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Configuration;
@@ -15,7 +16,16 @@ internal interface IPositionCommandDispatcher
         CancellationToken cancellationToken);
 }
 
-internal sealed class AkkaClusterShardingPositionCommandDispatcher : IPositionCommandDispatcher
+internal interface IPositionCommandRequester
+{
+    ValueTask<TResponse> RequestAsync<TResponse>(
+        PositionEnvelope envelope,
+        CancellationToken cancellationToken);
+}
+
+internal sealed class AkkaClusterShardingPositionCommandDispatcher :
+    IPositionCommandDispatcher,
+    IPositionCommandRequester
 {
     private readonly ActorSystem _system;
     private readonly int _numberOfShards;
@@ -47,6 +57,19 @@ internal sealed class AkkaClusterShardingPositionCommandDispatcher : IPositionCo
         var region = GetOrStartShardRegion();
         region.Tell(envelope);
         return ValueTask.CompletedTask;
+    }
+
+    public async ValueTask<TResponse> RequestAsync<TResponse>(
+        PositionEnvelope envelope,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var region = GetOrStartShardRegion();
+        return await region
+            .Ask<TResponse>(envelope, TimeSpan.FromSeconds(30), cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private IActorRef GetOrStartShardRegion()

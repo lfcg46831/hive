@@ -2,6 +2,8 @@ using System.Globalization;
 using Hive.Api.Authorization;
 using Hive.Contracts.Inbox;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
+using Hive.Domain.Positions;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Hive.Api.Inbox;
@@ -53,6 +55,18 @@ public static class InboxEndpointExtensions
                 "Returns one principal-scoped inbox item with thread correlation, deadline, response " +
                 "state and approval metadata.")
             .Produces<InboxItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost(InboxItemRoute + "/reply", ReplyToInboxItemAsync)
+            .WithName("ReplyToOrganizationInboxItemV1")
+            .WithSummary("Reply to one inbox item as its occupied position")
+            .WithDescription(
+                "Converts authenticated human input into the closed canonical response mapping " +
+                "inside the occupied PositionActor, preserving thread correlation and authorship audit.")
+            .Accepts<InboxReplyRequest>("application/json")
+            .Produces<InboxReplyResponse>(StatusCodes.Status202Accepted)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -195,6 +209,229 @@ public static class InboxEndpointExtensions
         return result.Value is { } item
             ? TypedResults.Ok(item)
             : InboxItemNotFound();
+    }
+
+    private static async Task<IResult> ReplyToInboxItemAsync(
+        string organizationId,
+        string itemId,
+        InboxReplyRequest? request,
+        IInboxReadModel readModel,
+        IInboxReplyCommandSink replySink,
+        IOrganizationPrincipalResolver principalResolver,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryParseOrganizationId(organizationId, out var organization))
+        {
+            return InvalidOrganizationId();
+        }
+
+        if (!TryParseItemId(itemId, out var parsedItemId))
+        {
+            return InvalidItemId();
+        }
+
+        if (!TryValidateReplyRequest(request, out var body, out var requestedReportKind, out var problem))
+        {
+            return problem!;
+        }
+
+        var scope = await ResolveScopeAsync(
+                organization!,
+                principalResolver,
+                httpContext,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (scope is null)
+        {
+            return OrganizationNotFound();
+        }
+
+        var readResult = await readModel.ReadItemAsync(
+                scope,
+                parsedItemId!,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!readResult.IsAvailable)
+        {
+            return ReadModelUnavailable();
+        }
+
+        if (readResult.Value?.Item is not { } item)
+        {
+            return InboxItemNotFound();
+        }
+
+        if (!TryResolveReplyMetadata(
+                item.Type,
+                requestedReportKind,
+                out var reportKind,
+                out var replyDirectiveId,
+                out problem))
+        {
+            return problem!;
+        }
+
+        if (!replySink.IsAvailable)
+        {
+            return ReplyEmissionUnavailable();
+        }
+
+        var command = new EmitOccupantReply(
+            MessageId.From(item.MessageId),
+            MessageId.New(),
+            OccupantReplyAuthor.HumanUser(scope.PersonId, "web-inbox"),
+            body!,
+            reportKind,
+            replyDirectiveId);
+        OccupantReplyEmissionResult emission;
+        try
+        {
+            emission = await replySink.EmitAsync(
+                    PositionEntityId.From(
+                        organization!,
+                        PositionId.From(item.AssignedPositionId)),
+                    command,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InboxReplyEmissionUnavailableException)
+        {
+            return ReplyEmissionUnavailable();
+        }
+
+        if (!emission.IsAccepted)
+        {
+            return ReplyRejected(emission);
+        }
+
+        return TypedResults.Json(
+            ToReplyResponse(emission),
+            statusCode: StatusCodes.Status202Accepted);
+    }
+
+    private static bool TryValidateReplyRequest(
+        InboxReplyRequest? request,
+        out string? body,
+        out string? reportKind,
+        out IResult? problem)
+    {
+        body = null;
+        reportKind = null;
+        problem = null;
+        if (request is null)
+        {
+            problem = InvalidReply("Request body is required.", "body");
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Body)
+            || !string.Equals(request.Body, request.Body.Trim(), StringComparison.Ordinal))
+        {
+            problem = InvalidReply(
+                "body must contain text without leading or trailing whitespace.",
+                "body");
+            return false;
+        }
+
+        if (request.Body.Length > EmitOccupantReply.MaximumBodyLength)
+        {
+            problem = InvalidReply(
+                $"body cannot exceed {EmitOccupantReply.MaximumBodyLength} characters.",
+                "body");
+            return false;
+        }
+
+        if (request.ReportKind is not null
+            && (string.IsNullOrWhiteSpace(request.ReportKind)
+                || !string.Equals(
+                    request.ReportKind,
+                    request.ReportKind.Trim(),
+                    StringComparison.Ordinal)))
+        {
+            problem = InvalidReply(
+                "report_kind must be omitted or contain a supported value without surrounding whitespace.",
+                "report_kind");
+            return false;
+        }
+
+        body = request.Body;
+        reportKind = request.ReportKind;
+        return true;
+    }
+
+    private static bool TryResolveReplyMetadata(
+        InboxMessageType itemType,
+        string? requestedReportKind,
+        out ReportKind? reportKind,
+        out DirectiveId? replyDirectiveId,
+        out IResult? problem)
+    {
+        reportKind = null;
+        replyDirectiveId = null;
+        problem = null;
+
+        if (itemType == InboxMessageType.Directive)
+        {
+            if (!ReportKindContract.TryParseWireValue(requestedReportKind, out var parsed))
+            {
+                problem = InvalidReply(
+                    "report_kind must be 'progress' or 'done' when replying to a Directive.",
+                    "report_kind");
+                return false;
+            }
+
+            reportKind = parsed;
+            return true;
+        }
+
+        if (requestedReportKind is not null)
+        {
+            problem = InvalidReply(
+                "report_kind is only valid when replying to a Directive.",
+                "report_kind");
+            return false;
+        }
+
+        if (itemType == InboxMessageType.Escalation)
+        {
+            replyDirectiveId = DirectiveId.New();
+        }
+
+        return true;
+    }
+
+    private static InboxReplyResponse ToReplyResponse(OccupantReplyEmissionResult emission)
+    {
+        var message = emission.Message
+            ?? throw new InvalidOperationException("Accepted occupant reply result has no message.");
+        var from = message.From as PositionEndpointRef
+            ?? throw new InvalidOperationException("Human reply source is not a position.");
+        var to = message.To as PositionEndpointRef
+            ?? throw new InvalidOperationException("Human reply destination is not a position.");
+        if (!Enum.TryParse<InboxMessageType>(
+                message.GetType().Name,
+                ignoreCase: false,
+                out var type)
+            || !Enum.IsDefined(type))
+        {
+            throw new InvalidOperationException(
+                $"Human reply type '{message.GetType().Name}' has no public inbox mapping.");
+        }
+
+        return new InboxReplyResponse(
+            emission.SourceMessageId.Value,
+            message.Id.Value,
+            type,
+            from.PositionId.Value,
+            to.PositionId.Value,
+            message.Thread.Value,
+            message switch
+            {
+                Report report => report.AboutDirectiveId.Value,
+                Directive directive => directive.DirectiveId.Value,
+                _ => null,
+            });
     }
 
     private static async ValueTask<PersonOrganizationScope?> ResolveScopeAsync(
@@ -450,6 +687,37 @@ public static class InboxEndpointExtensions
             title: "Invalid inbox query",
             detail: detail);
 
+    private static IResult InvalidReply(string detail, string path) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid inbox reply",
+                Detail = detail,
+                Extensions =
+                {
+                    ["path"] = path,
+                },
+            });
+
+    private static IResult ReplyRejected(OccupantReplyEmissionResult emission) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Inbox reply rejected",
+                Detail = "The occupied position rejected the organizational response.",
+                Extensions =
+                {
+                    ["errors"] = emission.Errors
+                        .Select(error => new InboxReplyErrorResponse(
+                            error.Code,
+                            error.Path,
+                            RejectionReasonContract.ToWireValue(error.Reason)))
+                        .ToArray(),
+                },
+            });
+
     private static IResult OrganizationNotFound() =>
         TypedResults.Problem(
             statusCode: StatusCodes.Status404NotFound,
@@ -469,7 +737,17 @@ public static class InboxEndpointExtensions
         TypedResults.Problem(
             statusCode: StatusCodes.Status503ServiceUnavailable,
             title: "Inbox read model unavailable");
+
+    private static IResult ReplyEmissionUnavailable() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Inbox reply emission unavailable");
 }
+
+internal sealed record InboxReplyErrorResponse(
+    string Code,
+    string Path,
+    string Reason);
 
 internal sealed class InboxQueryParameters
 {

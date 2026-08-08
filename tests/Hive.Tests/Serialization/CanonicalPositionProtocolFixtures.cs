@@ -28,6 +28,11 @@ internal static class CanonicalPositionProtocolFixtures
         ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(25))),
         ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(30))),
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
+        ("occupant-reply-emitted", new OccupantReplyEmitted(
+            MessageId(),
+            OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+            OccupantReply(),
+            OccurredAt.AddMinutes(40))),
         ("position-passivated", new PositionPassivated(OccurredAt.AddMinutes(45), "idle")),
         ("action-retained", new ActionRetained(RetainedAction())),
         ("retained-action-authorized", new RetainedActionAuthorized(Grant(), OccurredAt.AddMinutes(41))),
@@ -98,6 +103,20 @@ internal static class CanonicalPositionProtocolFixtures
 
     private static OrgMessage Message() =>
         CanonicalMessageFixtures.All.Single(entry => entry.Manifest == "memo").Message;
+
+    private static OrgMessage OccupantReply() => new PeerResponse(
+        Hive.Domain.Identity.MessageId.From(
+            new Guid("d3000000-0000-0000-0000-000000000002")),
+        OrganizationId.From("acme"),
+        new PositionEndpointRef(PositionId.From("release-manager")),
+        new PositionEndpointRef(PositionId.From("bug-triage")),
+        ThreadId(),
+        Priority.High,
+        schemaVersion: 1,
+        OccurredAt.AddMinutes(40),
+        deadline: null,
+        MessageId(),
+        "The release window is confirmed.");
 
     private static MessageId MessageId() =>
         Hive.Domain.Identity.MessageId.From(new Guid("d3000000-0000-0000-0000-000000000001"));

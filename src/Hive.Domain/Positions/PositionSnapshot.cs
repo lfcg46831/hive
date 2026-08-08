@@ -39,7 +39,8 @@ public sealed record PositionSnapshot
         IEnumerable<PersistedRetainedAction>? retainedActions = null,
         IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
         IEnumerable<OrgMessage>? materializedHistory = null,
-        IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null)
+        IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null,
+        IEnumerable<OccupantReplyEmitted>? occupantReplies = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -110,6 +111,15 @@ public sealed record PositionSnapshot
                 "Directive checkpoint ids must be unique.",
                 nameof(directiveCheckpoints));
         }
+
+        OccupantReplies = ToValidatedArray(occupantReplies, nameof(occupantReplies));
+        if (OccupantReplies.Select(reply => reply.Message.Id).Distinct().Count() !=
+            OccupantReplies.Length)
+        {
+            throw new ArgumentException(
+                "Occupant reply message ids must be unique.",
+                nameof(occupantReplies));
+        }
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -150,6 +160,9 @@ public sealed record PositionSnapshot
 
     /// <summary>The latest checkpoint revision retained for each directive.</summary>
     public ImmutableArray<DirectiveCheckpoint> DirectiveCheckpoints { get; }
+
+    /// <summary>Occupant-authored organizational replies emitted by this position.</summary>
+    public ImmutableArray<OccupantReplyEmitted> OccupantReplies { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

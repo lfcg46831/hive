@@ -96,7 +96,8 @@ internal sealed class PositionLiveStateFactMapper
             // is deliberately ignored here because its embedded message is captured as a separate
             // OrganizationalMessage fact by T06a.
             MessageReceived or TaskUpdated or ShortMemoryUpdated or OccupantChanged
-                or PositionPassivated or DirectiveCheckpointPersisted => null,
+                or PositionPassivated or DirectiveCheckpointPersisted
+                or OccupantReplyEmitted => null,
             _ => throw new InvalidOperationException(
                 $"Position event '{@event.GetType().Name}' has no explicit live-state mapping."),
         };

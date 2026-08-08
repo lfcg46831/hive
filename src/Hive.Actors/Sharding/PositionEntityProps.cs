@@ -1,6 +1,7 @@
 using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Auditing;
+using Hive.Domain.Organization;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Auditing;
 
@@ -16,10 +17,12 @@ internal sealed class PositionEntityProps : IPositionEntityProps
     private readonly IPositionOccupantFactory _occupantFactory;
     private readonly IPositionProjectionPublisher _projectionPublisher;
     private readonly RetainedActionResumeCoordinator? _resumeCoordinator;
+    private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
         IPositionOccupantFactory occupantFactory,
+        IOrganizationRelations organizationRelations,
         IJourneyAuditLog? auditLog = null,
         RetainedActionResumeCoordinator? resumeCoordinator = null)
     {
@@ -27,6 +30,8 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             ?? throw new ArgumentNullException(nameof(configurationProvider));
         _occupantFactory = occupantFactory
             ?? throw new ArgumentNullException(nameof(occupantFactory));
+        _occupantReplyValidator = new OccupantReplyMessageValidator(
+            organizationRelations ?? throw new ArgumentNullException(nameof(organizationRelations)));
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
         _projectionPublisher = new JourneyAuditPositionProjectionPublisher(
             resolvedAuditLog);
@@ -40,5 +45,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             _occupantFactory,
             _projectionPublisher,
             () => DateTimeOffset.UtcNow,
-            _resumeCoordinator));
+            _resumeCoordinator,
+            _occupantReplyValidator,
+            ShardedPositionMessageEmitter.Instance));
 }

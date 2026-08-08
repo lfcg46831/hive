@@ -59,6 +59,54 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
     }
 
     [Fact]
+    public void Publish_records_occupant_reply_authorship_and_correlation_without_raw_reply_text()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        var replyMessageId = MessageId.From(
+            Guid.Parse("aaaaaaaa-0000-0000-0000-000000001912"));
+        var report = new Report(
+            replyMessageId,
+            Organization,
+            new PositionEndpointRef(Position),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            Thread,
+            Priority.High,
+            1,
+            At.AddMinutes(5),
+            deadline: null,
+            Directive,
+            ReportKind.Done,
+            "Sensitive human-authored completion text.");
+
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new OccupantReplyEmitted(
+                Message,
+                OccupantReplyAuthor.ExternalOccupant("remote-agent-7", "https-api"),
+                report,
+                At.AddMinutes(5))));
+
+        var record = Assert.Single(audit.Records);
+        Assert.Equal(JourneyAuditStage.ResultMessageCreated, record.Stage);
+        Assert.Equal(JourneyAuditOutcome.Succeeded, record.Outcome);
+        Assert.Equal("occupant-reply-emitted", record.ReasonCode);
+        Assert.Equal(Message, record.MessageId);
+        Assert.Equal(Directive, record.DirectiveId);
+        Assert.Equal(Position, record.PositionId);
+        Assert.Equal(nameof(Report), record.MessageType);
+        Assert.Equal("https-api", record.Payload["source"]);
+        Assert.Equal("external-occupant", record.Payload["authorKind"]);
+        Assert.Equal("remote-agent-7", record.Payload["authorSubjectId"]);
+        Assert.Equal(replyMessageId.ToString(), record.Payload["resultMessageId"]);
+        Assert.Equal("message.payload", record.Payload["redactions"]);
+        Assert.DoesNotContain(
+            "Sensitive human-authored completion text",
+            string.Join(" ", record.Payload.Values),
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Publish_records_deterministic_audit_ids_for_repeated_position_events()
     {
         var audit = new RecordingJourneyAuditLog();

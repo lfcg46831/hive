@@ -1,4 +1,5 @@
 using Hive.Api.Authorization;
+using Hive.Api.Directives;
 using Hive.Infrastructure.Inbox.ReadModels;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 
@@ -20,6 +21,10 @@ public static class InboxApiServiceCollectionExtensions
                     interactionReader,
                     serviceProvider.GetRequiredService<TimeProvider>())
                 : UnavailableInboxReadModel.Instance);
+        services.TryAddSingleton<IInboxReplyCommandSink>(serviceProvider =>
+            serviceProvider.GetService<IPositionCommandRequester>() is { } requester
+                ? new ShardedInboxReplyCommandSink(requester)
+                : UnavailableInboxReplyCommandSink.Instance);
         return services;
     }
 }

@@ -14,6 +14,8 @@ internal static class PositionProtocolManifests
     [
         ("position-envelope", typeof(PositionEnvelope)),
         ("accept-message", typeof(AcceptMessage)),
+        ("emit-occupant-reply", typeof(EmitOccupantReply)),
+        ("occupant-reply-emission-result", typeof(OccupantReplyEmissionResult)),
         ("open-task", typeof(OpenTask)),
         ("update-task", typeof(UpdateTask)),
         ("complete-task", typeof(CompleteTask)),
@@ -36,6 +38,7 @@ internal static class PositionProtocolManifests
         ("occupant-changed", typeof(OccupantChanged)),
         ("message-dispatched", typeof(MessageDispatched)),
         ("message-processing-completed", typeof(MessageProcessingCompleted)),
+        ("occupant-reply-emitted", typeof(OccupantReplyEmitted)),
         ("position-passivated", typeof(PositionPassivated)),
         ("position-configuration-applied", typeof(PositionConfigurationApplied)),
         ("action-retained", typeof(ActionRetained)),

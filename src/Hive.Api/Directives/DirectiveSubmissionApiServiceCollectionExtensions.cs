@@ -13,7 +13,11 @@ public static class DirectiveSubmissionApiServiceCollectionExtensions
 
         services.TryAddSingleton<DirectiveRoutingValidator>();
         services.TryAddSingleton<IJourneyAuditLog>(_ => NoopJourneyAuditLog.Instance);
-        services.TryAddSingleton<IPositionCommandDispatcher, AkkaClusterShardingPositionCommandDispatcher>();
+        services.TryAddSingleton<AkkaClusterShardingPositionCommandDispatcher>();
+        services.TryAddSingleton<IPositionCommandDispatcher>(serviceProvider =>
+            serviceProvider.GetRequiredService<AkkaClusterShardingPositionCommandDispatcher>());
+        services.TryAddSingleton<IPositionCommandRequester>(serviceProvider =>
+            serviceProvider.GetRequiredService<AkkaClusterShardingPositionCommandDispatcher>());
         services.TryAddSingleton<IDirectiveSubmissionSink, ShardedDirectiveSubmissionSink>();
         return services;
     }

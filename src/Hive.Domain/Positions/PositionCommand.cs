@@ -5,8 +5,10 @@ namespace Hive.Domain.Positions;
 /// intents that drive its persisted state — accepting an inbound message
 /// (<see cref="AcceptMessage"/>), opening/updating/completing a task (<see cref="OpenTask"/>,
 /// <see cref="UpdateTask"/>, <see cref="CompleteTask"/>), updating short-term memory
-/// (<see cref="UpdateShortMemory"/>), changing the occupant (<see cref="ChangeOccupant"/>) and
-/// requesting passivation (<see cref="RequestPassivation"/>).
+/// (<see cref="UpdateShortMemory"/>), changing the occupant (<see cref="ChangeOccupant"/>),
+/// emitting a correlated response supplied by an occupant principal
+/// (<see cref="EmitOccupantReply"/>), and requesting passivation
+/// (<see cref="RequestPassivation"/>).
 /// </summary>
 /// <remarks>
 /// <para>

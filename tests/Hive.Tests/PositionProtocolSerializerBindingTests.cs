@@ -133,6 +133,7 @@ public sealed class PositionProtocolSerializerBindingTests
             node.Remove("ShortMemoryContextScopes");
             node.Remove("MaterializedHistory");
             node.Remove("DirectiveCheckpoints");
+            node.Remove("OccupantReplies");
             node["OpenTasks"]![0]!.AsObject().Remove("LatestProgress");
 
             var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
@@ -143,6 +144,7 @@ public sealed class PositionProtocolSerializerBindingTests
             Assert.Empty(restored.ShortMemoryContextScopes);
             Assert.Empty(restored.MaterializedHistory);
             Assert.Empty(restored.DirectiveCheckpoints);
+            Assert.Empty(restored.OccupantReplies);
             Assert.NotEmpty(restored.RecentHistory);
             Assert.Null(Assert.Single(restored.OpenTasks).LatestProgress);
         }
@@ -157,6 +159,8 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(PositionEnvelope);
         yield return typeof(PositionCommand);
         yield return typeof(AcceptMessage);
+        yield return typeof(EmitOccupantReply);
+        yield return typeof(OccupantReplyEmissionResult);
         yield return typeof(OpenTask);
         yield return typeof(UpdateTask);
         yield return typeof(CompleteTask);
@@ -180,6 +184,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(OccupantChanged);
         yield return typeof(MessageDispatched);
         yield return typeof(MessageProcessingCompleted);
+        yield return typeof(OccupantReplyEmitted);
         yield return typeof(PositionPassivated);
         yield return typeof(PositionConfigurationApplied);
         yield return typeof(ActionRetained);
@@ -199,6 +204,15 @@ public sealed class PositionProtocolSerializerBindingTests
         var denial = SampleAuthorizationDenial(retained);
         yield return ("position-envelope", SampleEnvelope());
         yield return ("accept-message", new AcceptMessage(SampleMessage()));
+        yield return ("emit-occupant-reply", new EmitOccupantReply(
+            MessageId(),
+            ReplyMessageId(),
+            OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+            "The release window is confirmed.",
+            ReportKind.Done));
+        yield return ("occupant-reply-emission-result", OccupantReplyEmissionResult.Accepted(
+            MessageId(),
+            SampleOccupantReply()));
         yield return ("open-task", new OpenTask(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At.AddHours(2), MessageId()));
         yield return ("update-task", new UpdateTask(TaskId(), "reproduced locally", Priority.Critical, At.AddHours(1)));
         yield return ("complete-task", new CompleteTask(TaskId(), "fixed"));
@@ -231,6 +245,11 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, At));
         yield return ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, At));
+        yield return ("occupant-reply-emitted", new OccupantReplyEmitted(
+            MessageId(),
+            OccupantReplyAuthor.ExternalOccupant("remote-agent-7", "https-api"),
+            SampleOccupantReply(),
+            At));
         yield return ("position-passivated", new PositionPassivated(At, "idle"));
         yield return ("position-configuration-applied", new PositionConfigurationApplied(ConfigurationStamp(), At));
         yield return ("action-retained", new ActionRetained(retained));
@@ -282,7 +301,15 @@ public sealed class PositionProtocolSerializerBindingTests
                 ["current-thread"] = ShortMemoryContextScope.ForThread(ThreadId()),
             },
             new[] { message },
-            new[] { SampleCheckpoint() });
+            new[] { SampleCheckpoint() },
+            new[]
+            {
+                new OccupantReplyEmitted(
+                    MessageId(),
+                    OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+                    SampleOccupantReply(),
+                    At),
+            });
     }
 
     private static DirectiveCheckpoint SampleCheckpoint() => new(
@@ -386,8 +413,25 @@ public sealed class PositionProtocolSerializerBindingTests
             deadline: null,
             body: "Customer reported a regression.");
 
+    private static PeerResponse SampleOccupantReply() =>
+        new(
+            ReplyMessageId(),
+            OrganizationId.From("acme"),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            new PositionEndpointRef(PositionId.From("bug-triage")),
+            ThreadId(),
+            Priority.Normal,
+            schemaVersion: 1,
+            sentAt: At,
+            deadline: null,
+            MessageId(),
+            "The release window is confirmed.");
+
     private static MessageId MessageId() =>
         Hive.Domain.Identity.MessageId.From(new Guid("aaaaaaaa-0000-0000-0000-000000000001"));
+
+    private static MessageId ReplyMessageId() =>
+        Hive.Domain.Identity.MessageId.From(new Guid("aaaaaaaa-0000-0000-0000-000000000002"));
 
     private static ThreadId ThreadId() =>
         Hive.Domain.Identity.ThreadId.From(new Guid("bbbbbbbb-0000-0000-0000-000000000001"));

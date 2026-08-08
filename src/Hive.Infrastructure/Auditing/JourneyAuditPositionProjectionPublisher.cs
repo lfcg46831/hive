@@ -85,7 +85,46 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
             case DirectiveCheckpointPersisted checkpoint:
                 PublishDirectiveCheckpointTransition(committed, checkpoint.Checkpoint);
                 break;
+
+            case OccupantReplyEmitted reply:
+                PublishOccupantReply(committed, reply);
+                break;
         }
+    }
+
+    private void PublishOccupantReply(
+        PositionEventCommitted committed,
+        OccupantReplyEmitted reply)
+    {
+        Remember(reply.Message);
+        var directiveId = reply.Message switch
+        {
+            Report report => report.AboutDirectiveId,
+            Directive directive => directive.DirectiveId,
+            _ => null,
+        };
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.ResultMessageCreated,
+            JourneyAuditOutcome.Succeeded,
+            committed.EntityId.Organization,
+            reply.Message.Thread,
+            reply.SourceMessageId,
+            directiveId,
+            committed.EntityId.Position,
+            reasonCode: "occupant-reply-emitted",
+            messageType: reply.Message.GetType().Name,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["source"] = reply.Author.Channel,
+                ["authorKind"] = OccupantReplyAuthorKindContract.ToWireValue(
+                    reply.Author.Kind),
+                ["authorSubjectId"] = reply.Author.SubjectId,
+                ["resultMessageId"] = reply.Message.Id.ToString(),
+                ["channel"] = reply.Message.Channel.ToString(),
+                ["redactions"] = "message.payload",
+            },
+            occurredAtUtc: committed.OccurredAt,
+            idempotencyDiscriminator: reply.Message.Id.ToString()));
     }
 
     private void PublishDirectiveCheckpointTransition(

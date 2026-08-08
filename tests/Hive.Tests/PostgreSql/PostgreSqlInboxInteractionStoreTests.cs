@@ -24,7 +24,10 @@ public sealed class PostgreSqlInboxInteractionStoreTests(PostgreSqlFixture fixtu
     public async Task Interaction_state_is_person_scoped_audited_and_survives_store_restart()
     {
         await ResetMigrateAndInsertItemAsync();
-        await using (var store = new PostgreSqlInboxInteractionStore(fixture.ConnectionString))
+        var changeSink = new RecordingChangeSink();
+        await using (var store = new PostgreSqlInboxInteractionStore(
+                         fixture.ConnectionString,
+                         changeSink))
         {
             await store.ApplyAsync(Mutation(InboxInteractionAction.MarkRead, minute: 1));
             await store.ApplyAsync(Mutation(InboxInteractionAction.StartReply, minute: 2));
@@ -38,6 +41,14 @@ public sealed class PostgreSqlInboxInteractionStoreTests(PostgreSqlFixture fixtu
                 "Revised draft"));
             await store.ApplyAsync(Mutation(InboxInteractionAction.MarkUnread, minute: 5));
         }
+
+        Assert.Equal(5, changeSink.InteractionChanges.Count);
+        Assert.Equal(
+            InboxInteractionAction.MarkUnread,
+            changeSink.InteractionChanges[^1].Mutation.Action);
+        Assert.Equal(
+            InboxInteractionReadState.Unread,
+            changeSink.InteractionChanges[^1].State.ReadState);
 
         await using var restarted =
             new PostgreSqlInboxInteractionStore(fixture.ConnectionString);
@@ -149,5 +160,26 @@ public sealed class PostgreSqlInboxInteractionStoreTests(PostgreSqlFixture fixtu
                 '2026-08-07T08:00:00Z');
             """);
         await command.ExecuteNonQueryAsync();
+    }
+
+    private sealed class RecordingChangeSink : IInboxReadModelChangeSink
+    {
+        public List<(InboxInteractionMutation Mutation, InboxInteractionState State)>
+            InteractionChanges { get; } = [];
+
+        public ValueTask ProjectionChangedAsync(
+            InboxProjectionChange change,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+
+        public ValueTask InteractionChangedAsync(
+            InboxInteractionMutation mutation,
+            InboxInteractionState state,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            InteractionChanges.Add((mutation, state));
+            return ValueTask.CompletedTask;
+        }
     }
 }

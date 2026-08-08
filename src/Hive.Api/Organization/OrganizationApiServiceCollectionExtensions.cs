@@ -1,4 +1,5 @@
 using Hive.Api.Authorization;
+using Hive.Api.Inbox;
 using Hive.Infrastructure.Organization.ReadModels;
 using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -13,6 +14,7 @@ public static class OrganizationApiServiceCollectionExtensions
 
         services.AddHiveOrganizationAuthorization();
         services.AddSignalR();
+        services.TryAddSingleton<InboxRealtimeSubscriptionRegistry>();
         services.TryAddSingleton<IOrganogramSnapshotReader, PostgreSqlOrganogramSnapshotReader>();
         services.TryAddSingleton<IOrganizationReadModel, OrganizationReadModel>();
         services.Replace(ServiceDescriptor.Singleton<

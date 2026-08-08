@@ -34,6 +34,7 @@ public static class InboxEndpointExtensions
                 "person's occupied positions. The fixed order is deadline, priority, message timestamp " +
                 "and stable item identifier.")
             .Produces<InboxPage>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -45,6 +46,7 @@ public static class InboxEndpointExtensions
                 "Returns the authenticated person's inbox subset for one occupied position, with the " +
                 "same filters, pagination and fixed ordering as the aggregate inbox.")
             .Produces<InboxPage>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -56,6 +58,7 @@ public static class InboxEndpointExtensions
                 "Returns one principal-scoped inbox item with thread correlation, deadline, expiry, " +
                 "reminder, delegation, response state and approval metadata.")
             .Produces<InboxItemResponse>(StatusCodes.Status200OK)
+            .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -209,7 +212,7 @@ public static class InboxEndpointExtensions
             return position is null ? OrganizationNotFound() : PositionNotFound();
         }
 
-        return TypedResults.Ok(page);
+        return InboxResponseEtag.OkOrNotModified(httpContext, page);
     }
 
     private static async Task<IResult> ReadInboxItemAsync(
@@ -252,7 +255,7 @@ public static class InboxEndpointExtensions
         }
 
         return result.Value is { } item
-            ? TypedResults.Ok(item)
+            ? InboxResponseEtag.OkOrNotModified(httpContext, item)
             : InboxItemNotFound();
     }
 

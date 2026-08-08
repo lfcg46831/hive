@@ -181,7 +181,10 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         var organizationId = OrganizationId.From("acme");
         var positionId = PositionId.From("delivery-lead");
         var facts = PositionFacts(offset: 11);
-        await using (var feed = new PostgreSqlInboxProjectionFeed(fixture.ConnectionString))
+        var changeSink = new RecordingChangeSink();
+        await using (var feed = new PostgreSqlInboxProjectionFeed(
+                         fixture.ConnectionString,
+                         changeSink))
         {
             Assert.True(await feed.CapturePositionJournalAsync(11, facts));
             var captured = await feed.ReadProjectionFactsAsync(0, batchSize: 10);
@@ -205,6 +208,10 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             Assert.Equal(message.SequenceId, progress.LastAppliedSequenceId);
             Assert.Equal(OccurredAt, progress.LastEventAppliedAtUtc);
         }
+
+        var committedChange = Assert.Single(changeSink.ProjectionChanges);
+        Assert.Equal(positionId, committedChange.Item.Key.AssignedPositionId);
+        Assert.Equal("memo", committedChange.FactType);
 
         await using var snapshotReader = new PostgreSqlInboxProjectionSnapshotReader(
             fixture.ConnectionString);
@@ -231,7 +238,10 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         await ResetAndMigrateAsync();
         var organizationId = OrganizationId.From("acme");
         var positionId = PositionId.From("delivery-lead");
-        await using var feed = new PostgreSqlInboxProjectionFeed(fixture.ConnectionString);
+        var changeSink = new RecordingChangeSink();
+        await using var feed = new PostgreSqlInboxProjectionFeed(
+            fixture.ConnectionString,
+            changeSink);
         Assert.True(await feed.CapturePositionJournalAsync(11, PositionFacts(offset: 11)));
         var captured = await feed.ReadProjectionFactsAsync(0, batchSize: 10);
         var positionEvent = Assert.Single(
@@ -270,6 +280,7 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
 
         var progress = await feed.ReadProjectionProgressAsync();
         Assert.Equal(positionEvent.SequenceId, progress.LastAppliedSequenceId);
+        Assert.Empty(changeSink.ProjectionChanges);
         await using var verification = fixture.CreateDataSource();
         await using var verify = verification.CreateCommand(
             """
@@ -389,4 +400,24 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             messageType: "Memo",
             occurredAtUtc: OccurredAt.AddMinutes(ordinal),
             idempotencyDiscriminator: $"inbox-projection-test-{ordinal}");
+
+    private sealed class RecordingChangeSink : IInboxReadModelChangeSink
+    {
+        public List<InboxProjectionChange> ProjectionChanges { get; } = [];
+
+        public ValueTask ProjectionChangedAsync(
+            InboxProjectionChange change,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ProjectionChanges.Add(change);
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask InteractionChangedAsync(
+            InboxInteractionMutation mutation,
+            InboxInteractionState state,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.CompletedTask;
+    }
 }

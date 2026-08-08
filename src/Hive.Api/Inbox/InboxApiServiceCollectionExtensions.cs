@@ -12,7 +12,12 @@ public static class InboxApiServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
 
         services.AddHiveOrganizationAuthorization();
+        services.AddSignalR();
         services.TryAddSingleton(TimeProvider.System);
+        services.TryAddSingleton<InboxRealtimeSubscriptionRegistry>();
+        services.Replace(ServiceDescriptor.Singleton<
+            IInboxReadModelChangeSink,
+            SignalRInboxReadModelChangeSink>());
         services.TryAddSingleton<IInboxReadModel>(serviceProvider =>
             serviceProvider.GetService<IInboxProjectionSnapshotReader>() is { } snapshotReader &&
             serviceProvider.GetService<IInboxInteractionReader>() is { } interactionReader

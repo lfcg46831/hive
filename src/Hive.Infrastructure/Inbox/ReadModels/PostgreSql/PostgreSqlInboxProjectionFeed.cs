@@ -10,14 +10,30 @@ namespace Hive.Infrastructure.Inbox.ReadModels.PostgreSql;
 public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsyncDisposable
 {
     private readonly NpgsqlDataSource? _dataSource;
+    private readonly IInboxReadModelChangeSink _changeSink;
 
     public PostgreSqlInboxProjectionFeed(IConfiguration configuration)
-        : this(ConnectionString(configuration))
+        : this(ConnectionString(configuration), NoopInboxReadModelChangeSink.Instance)
+    {
+    }
+
+    public PostgreSqlInboxProjectionFeed(
+        IConfiguration configuration,
+        IInboxReadModelChangeSink changeSink)
+        : this(ConnectionString(configuration), changeSink)
     {
     }
 
     internal PostgreSqlInboxProjectionFeed(string? connectionString)
+        : this(connectionString, NoopInboxReadModelChangeSink.Instance)
     {
+    }
+
+    internal PostgreSqlInboxProjectionFeed(
+        string? connectionString,
+        IInboxReadModelChangeSink changeSink)
+    {
+        _changeSink = changeSink ?? throw new ArgumentNullException(nameof(changeSink));
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
             _dataSource = NpgsqlDataSource.Create(connectionString);
@@ -330,14 +346,23 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 $"{nextSequenceId?.ToString() ?? "missing"}.");
         }
 
+        var appliedChanges = new List<InboxProjectionChange>(changes.Count);
         foreach (var change in changes)
         {
-            await ApplyItemChangeAsync(change, connection, transaction, cancellationToken);
+            if (await ApplyItemChangeAsync(change, connection, transaction, cancellationToken) > 0)
+            {
+                appliedChanges.Add(change);
+            }
         }
 
         await AdvanceProjectionWatermarkAsync(item, connection, transaction, cancellationToken);
         await AdvanceProjectionProgressAsync(item, connection, transaction, cancellationToken);
         await transaction.CommitAsync(cancellationToken);
+        foreach (var change in appliedChanges)
+        {
+            await _changeSink.ProjectionChangedAsync(change, cancellationToken);
+        }
+
         return true;
     }
 
@@ -372,18 +397,26 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 $"be applied after durable sequence {progress.LastAppliedSequenceId}.");
         }
 
-        var applied = 0;
+        var appliedChanges = new List<InboxProjectionChange>(changes.Count);
         foreach (var change in changes)
         {
-            applied += await ApplyItemChangeAsync(
-                change,
-                connection,
-                transaction,
-                cancellationToken);
+            if (await ApplyItemChangeAsync(
+                    change,
+                    connection,
+                    transaction,
+                    cancellationToken) > 0)
+            {
+                appliedChanges.Add(change);
+            }
         }
 
         await transaction.CommitAsync(cancellationToken);
-        return applied;
+        foreach (var change in appliedChanges)
+        {
+            await _changeSink.ProjectionChangedAsync(change, cancellationToken);
+        }
+
+        return appliedChanges.Count;
     }
 
     public ValueTask DisposeAsync() =>

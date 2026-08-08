@@ -112,6 +112,51 @@ public sealed class InboxEndpointTests
     }
 
     [Theory]
+    [InlineData("/acme/inbox")]
+    [InlineData("/acme/positions/delivery-lead/inbox")]
+    [InlineData("/acme/inbox/delivery-lead%2Fcf2b086f-dd04-445f-a68e-8e40a75530b9")]
+    public async Task Public_snapshots_support_private_etag_polling(string suffix)
+    {
+        await using var app = BuildApp(RecordingInboxReadModel.Available());
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app);
+
+        using var initial = await client.GetAsync(InboxEndpointExtensions.BasePath + suffix);
+        var etag = initial.Headers.ETag;
+        using var poll = new HttpRequestMessage(
+            HttpMethod.Get,
+            InboxEndpointExtensions.BasePath + suffix);
+        poll.Headers.IfNoneMatch.Add(etag!);
+        using var unchanged = await client.SendAsync(poll);
+
+        Assert.Equal(HttpStatusCode.OK, initial.StatusCode);
+        Assert.NotNull(etag);
+        Assert.True(etag!.IsWeak);
+        Assert.True(initial.Headers.CacheControl?.Private);
+        Assert.True(initial.Headers.CacheControl?.NoCache);
+        Assert.Equal(HttpStatusCode.NotModified, unchanged.StatusCode);
+        Assert.Equal(etag, unchanged.Headers.ETag);
+        Assert.Equal(0, unchanged.Content.Headers.ContentLength);
+    }
+
+    [Fact]
+    public async Task Malformed_polling_validator_is_ignored_and_replaced()
+    {
+        await using var app = BuildApp(RecordingInboxReadModel.Available());
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get,
+            $"{InboxEndpointExtensions.BasePath}/acme/inbox");
+        request.Headers.TryAddWithoutValidation("If-None-Match", "not-an-entity-tag");
+
+        using var response = await client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(response.Headers.ETag);
+    }
+
+    [Theory]
     [InlineData("?type=Pulse")]
     [InlineData("?read_state=Maybe")]
     [InlineData("?response_state=Expired")]

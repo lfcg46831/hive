@@ -87,6 +87,31 @@ public sealed class InboxPublicContractTests
     }
 
     [Fact]
+    public void Realtime_invalidation_serializes_sequence_scope_and_change_type()
+    {
+        var notification = new InboxChangedNotification(
+            sequence: 42,
+            organizationId: "acme",
+            itemId: "delivery-lead/cf2b086f-dd04-445f-a68e-8e40a75530b9",
+            assignedPositionId: "delivery-lead",
+            InboxChangeType.ApprovalPending,
+            SentAt);
+
+        var json = JsonSerializer.SerializeToElement(notification);
+
+        Assert.Equal(42, json.GetProperty("sequence").GetInt64());
+        Assert.Equal("acme", json.GetProperty("organization_id").GetString());
+        Assert.Equal(
+            "delivery-lead/cf2b086f-dd04-445f-a68e-8e40a75530b9",
+            json.GetProperty("item_id").GetString());
+        Assert.Equal(
+            "delivery-lead",
+            json.GetProperty("assigned_position_id").GetString());
+        Assert.Equal("ApprovalPending", json.GetProperty("change_type").GetString());
+        Assert.Equal(SentAt, json.GetProperty("changed_at_utc").GetDateTimeOffset());
+    }
+
+    [Fact]
     public void Deadline_reminder_expiry_and_delegation_serialize_as_derived_item_state()
     {
         var reminderAt = DeadlineAt.AddMinutes(-30);

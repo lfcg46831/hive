@@ -11,14 +11,30 @@ public sealed class PostgreSqlInboxInteractionStore :
     IAsyncDisposable
 {
     private readonly NpgsqlDataSource? _dataSource;
+    private readonly IInboxReadModelChangeSink _changeSink;
 
     public PostgreSqlInboxInteractionStore(IConfiguration configuration)
-        : this(ConnectionString(configuration))
+        : this(ConnectionString(configuration), NoopInboxReadModelChangeSink.Instance)
+    {
+    }
+
+    public PostgreSqlInboxInteractionStore(
+        IConfiguration configuration,
+        IInboxReadModelChangeSink changeSink)
+        : this(ConnectionString(configuration), changeSink)
     {
     }
 
     internal PostgreSqlInboxInteractionStore(string? connectionString)
+        : this(connectionString, NoopInboxReadModelChangeSink.Instance)
     {
+    }
+
+    internal PostgreSqlInboxInteractionStore(
+        string? connectionString,
+        IInboxReadModelChangeSink changeSink)
+    {
+        _changeSink = changeSink ?? throw new ArgumentNullException(nameof(changeSink));
         if (!string.IsNullOrWhiteSpace(connectionString))
         {
             _dataSource = NpgsqlDataSource.Create(connectionString);
@@ -141,6 +157,8 @@ public sealed class PostgreSqlInboxInteractionStore :
                 cancellationToken)
             .ConfigureAwait(false);
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        await _changeSink.InteractionChangedAsync(mutation, current, cancellationToken)
+            .ConfigureAwait(false);
         return current;
     }
 

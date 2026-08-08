@@ -21,6 +21,10 @@ public static class InboxApiServiceCollectionExtensions
                     interactionReader,
                     serviceProvider.GetRequiredService<TimeProvider>())
                 : UnavailableInboxReadModel.Instance);
+        services.TryAddSingleton<IInboxInteractionCommandSink>(serviceProvider =>
+            serviceProvider.GetService<IInboxInteractionStore>() is { } interactionStore
+                ? new DurableInboxInteractionCommandSink(interactionStore)
+                : UnavailableInboxInteractionCommandSink.Instance);
         services.TryAddSingleton<IInboxReplyCommandSink>(serviceProvider =>
             serviceProvider.GetService<IPositionCommandRequester>() is { } requester
                 ? new ShardedInboxReplyCommandSink(requester)

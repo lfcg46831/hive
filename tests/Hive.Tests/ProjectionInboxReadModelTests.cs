@@ -133,6 +133,34 @@ public sealed class ProjectionInboxReadModelTests
                 .ResponseState);
     }
 
+    [Fact]
+    public async Task Detail_read_exposes_only_the_current_principal_draft()
+    {
+        var projected = Item(
+            DeliveryLead,
+            1,
+            InboxProjectionResponseState.AwaitingResponse);
+        var interaction = Interaction(projected.Key);
+        var readModel = new ProjectionInboxReadModel(
+            new RecordingSnapshotReader([projected]),
+            new RecordingInteractionReader(
+                new Dictionary<InboxProjectionItemKey, InboxInteractionState>
+                {
+                    [projected.Key] = interaction,
+                }),
+            new FixedTimeProvider(GeneratedAt));
+
+        var result = await readModel.ReadItemAsync(
+            Scope(DeliveryLead),
+            PublicItemId(projected),
+            CancellationToken.None);
+
+        var detail = Assert.IsType<InboxItemResponse>(result.Value);
+        Assert.Equal("Work in progress", detail.DraftText);
+        Assert.Equal(InboxReadState.Read, detail.Item.ReadState);
+        Assert.Equal(InboxResponseState.InProgress, detail.Item.ResponseState);
+    }
+
     private static PersonOrganizationScope Scope(params PositionId[] positionIds) =>
         new("person-alice", OrganizationId, positionIds);
 

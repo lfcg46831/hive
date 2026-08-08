@@ -109,7 +109,13 @@ internal sealed class ProjectionInboxReadModel(
                 : new InboxItemResponse(
                     timeProvider.GetUtcNow(),
                     snapshot.LastEventAppliedAtUtc,
-                    item));
+                    item,
+                    interactions
+                        .GetValueOrDefault(new InboxProjectionItemKey(
+                            scope.OrganizationId,
+                            PositionId.From(item.AssignedPositionId),
+                            MessageId.From(item.MessageId)))
+                        ?.DraftText));
     }
 
     private static InboxItem[] AfterCursor(InboxItem[] items, string? cursor)

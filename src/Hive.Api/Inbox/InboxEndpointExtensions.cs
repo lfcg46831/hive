@@ -4,6 +4,7 @@ using Hive.Contracts.Inbox;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Inbox.ReadModels;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Hive.Api.Inbox;
@@ -55,6 +56,38 @@ public static class InboxEndpointExtensions
                 "Returns one principal-scoped inbox item with thread correlation, deadline, response " +
                 "state and approval metadata.")
             .Produces<InboxItemResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost(InboxItemRoute + "/read", MarkInboxItemReadAsync)
+            .WithName("MarkOrganizationInboxItemReadV1")
+            .WithSummary("Mark one inbox item as read")
+            .WithDescription(
+                "Persists and audits person-scoped read state without emitting an organizational message.")
+            .Produces<InboxInteractionResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost(InboxItemRoute + "/unread", MarkInboxItemUnreadAsync)
+            .WithName("MarkOrganizationInboxItemUnreadV1")
+            .WithSummary("Mark one inbox item as unread")
+            .WithDescription(
+                "Persists and audits person-scoped unread state without emitting an organizational message.")
+            .Produces<InboxInteractionResponse>(StatusCodes.Status200OK)
+            .ProducesProblem(StatusCodes.Status400BadRequest)
+            .ProducesProblem(StatusCodes.Status401Unauthorized)
+            .ProducesProblem(StatusCodes.Status404NotFound)
+            .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
+        group.MapPost(InboxItemRoute + "/draft", SaveInboxItemDraftAsync)
+            .WithName("SaveOrganizationInboxItemDraftV1")
+            .WithSummary("Start or draft one inbox response")
+            .WithDescription(
+                "A null body starts a response, text saves or replaces the principal's single " +
+                "plain-text draft, and an empty body clears that draft. No organizational message is emitted.")
+            .Accepts<InboxDraftRequest>("application/json")
+            .Produces<InboxInteractionResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)
             .ProducesProblem(StatusCodes.Status404NotFound)
@@ -309,6 +342,183 @@ public static class InboxEndpointExtensions
             ToReplyResponse(emission),
             statusCode: StatusCodes.Status202Accepted);
     }
+
+    private static Task<IResult> MarkInboxItemReadAsync(
+        string organizationId,
+        string itemId,
+        IInboxReadModel readModel,
+        IInboxInteractionCommandSink interactionSink,
+        IOrganizationPrincipalResolver principalResolver,
+        TimeProvider timeProvider,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+        ApplyInteractionAsync(
+            organizationId,
+            itemId,
+            InboxInteractionAction.MarkRead,
+            draftText: null,
+            readModel,
+            interactionSink,
+            principalResolver,
+            timeProvider,
+            httpContext,
+            cancellationToken);
+
+    private static Task<IResult> MarkInboxItemUnreadAsync(
+        string organizationId,
+        string itemId,
+        IInboxReadModel readModel,
+        IInboxInteractionCommandSink interactionSink,
+        IOrganizationPrincipalResolver principalResolver,
+        TimeProvider timeProvider,
+        HttpContext httpContext,
+        CancellationToken cancellationToken) =>
+        ApplyInteractionAsync(
+            organizationId,
+            itemId,
+            InboxInteractionAction.MarkUnread,
+            draftText: null,
+            readModel,
+            interactionSink,
+            principalResolver,
+            timeProvider,
+            httpContext,
+            cancellationToken);
+
+    private static Task<IResult> SaveInboxItemDraftAsync(
+        string organizationId,
+        string itemId,
+        InboxDraftRequest? request,
+        IInboxReadModel readModel,
+        IInboxInteractionCommandSink interactionSink,
+        IOrganizationPrincipalResolver principalResolver,
+        TimeProvider timeProvider,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (request is null)
+        {
+            return Task.FromResult(InvalidDraft("Request body is required.", "body"));
+        }
+
+        if (request.Body?.Length > EmitOccupantReply.MaximumBodyLength)
+        {
+            return Task.FromResult(InvalidDraft(
+                $"body cannot exceed {EmitOccupantReply.MaximumBodyLength} characters.",
+                "body"));
+        }
+
+        var action = request.Body switch
+        {
+            null => InboxInteractionAction.StartReply,
+            "" => InboxInteractionAction.ClearDraft,
+            _ => InboxInteractionAction.SaveDraft,
+        };
+        return ApplyInteractionAsync(
+            organizationId,
+            itemId,
+            action,
+            request.Body is { Length: > 0 } ? request.Body : null,
+            readModel,
+            interactionSink,
+            principalResolver,
+            timeProvider,
+            httpContext,
+            cancellationToken);
+    }
+
+    private static async Task<IResult> ApplyInteractionAsync(
+        string organizationId,
+        string itemId,
+        InboxInteractionAction action,
+        string? draftText,
+        IInboxReadModel readModel,
+        IInboxInteractionCommandSink interactionSink,
+        IOrganizationPrincipalResolver principalResolver,
+        TimeProvider timeProvider,
+        HttpContext httpContext,
+        CancellationToken cancellationToken)
+    {
+        if (!TryParseOrganizationId(organizationId, out var organization))
+        {
+            return InvalidOrganizationId();
+        }
+
+        if (!TryParseItemId(itemId, out var parsedItemId))
+        {
+            return InvalidItemId();
+        }
+
+        var scope = await ResolveScopeAsync(
+                organization!,
+                principalResolver,
+                httpContext,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (scope is null)
+        {
+            return OrganizationNotFound();
+        }
+
+        var readResult = await readModel.ReadItemAsync(
+                scope,
+                parsedItemId!,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (!readResult.IsAvailable)
+        {
+            return ReadModelUnavailable();
+        }
+
+        if (readResult.Value?.Item is not { } item)
+        {
+            return InboxItemNotFound();
+        }
+
+        if (!interactionSink.IsAvailable)
+        {
+            return InteractionStoreUnavailable();
+        }
+
+        var occurredAtUtc = timeProvider.GetUtcNow().ToUniversalTime();
+        var state = await interactionSink.ApplyAsync(
+                new InboxInteractionMutation(
+                    new InboxProjectionItemKey(
+                        organization!,
+                        PositionId.From(item.AssignedPositionId),
+                        MessageId.From(item.MessageId)),
+                    scope.PersonId,
+                    action,
+                    occurredAtUtc,
+                    draftText),
+                cancellationToken)
+            .ConfigureAwait(false);
+        return TypedResults.Ok(new InboxInteractionResponse(
+            occurredAtUtc,
+            readResult.Value.LastEventAppliedAtUtc,
+            item.ItemId,
+            MapInteractionEnum<InboxInteractionReadState, InboxReadState>(state.ReadState),
+            InteractionResponseState(item.ResponseState, state.ReplyState),
+            state.DraftText,
+            state.UpdatedAtUtc));
+    }
+
+    private static InboxResponseState InteractionResponseState(
+        InboxResponseState derivedState,
+        InboxInteractionReplyState interactionState) =>
+        derivedState == InboxResponseState.AwaitingResponse &&
+        interactionState == InboxInteractionReplyState.InProgress
+            ? InboxResponseState.InProgress
+            : derivedState;
+
+    private static TTarget MapInteractionEnum<TSource, TTarget>(TSource value)
+        where TSource : struct, Enum
+        where TTarget : struct, Enum =>
+        Enum.TryParse<TTarget>(value.ToString(), ignoreCase: false, out var mapped) &&
+        Enum.IsDefined(mapped)
+            ? mapped
+            : throw new InvalidOperationException(
+                $"Inbox interaction value '{typeof(TSource).Name}.{value}' has no public mapping.");
 
     private static bool TryValidateReplyRequest(
         InboxReplyRequest? request,
@@ -700,6 +910,19 @@ public static class InboxEndpointExtensions
                 },
             });
 
+    private static IResult InvalidDraft(string detail, string path) =>
+        TypedResults.Problem(
+            new ProblemDetails
+            {
+                Status = StatusCodes.Status400BadRequest,
+                Title = "Invalid inbox draft",
+                Detail = detail,
+                Extensions =
+                {
+                    ["path"] = path,
+                },
+            });
+
     private static IResult ReplyRejected(OccupantReplyEmissionResult emission) =>
         TypedResults.Problem(
             new ProblemDetails
@@ -742,6 +965,11 @@ public static class InboxEndpointExtensions
         TypedResults.Problem(
             statusCode: StatusCodes.Status503ServiceUnavailable,
             title: "Inbox reply emission unavailable");
+
+    private static IResult InteractionStoreUnavailable() =>
+        TypedResults.Problem(
+            statusCode: StatusCodes.Status503ServiceUnavailable,
+            title: "Inbox interaction store unavailable");
 }
 
 internal sealed record InboxReplyErrorResponse(

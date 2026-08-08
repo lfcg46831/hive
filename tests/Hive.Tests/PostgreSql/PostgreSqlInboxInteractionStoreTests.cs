@@ -78,6 +78,28 @@ public sealed class PostgreSqlInboxInteractionStoreTests(PostgreSqlFixture fixtu
         Assert.Equal(1L, (long)(await command.ExecuteScalarAsync())!);
     }
 
+    [Fact]
+    public async Task Clearing_a_draft_keeps_the_reply_in_progress_and_is_audited()
+    {
+        await ResetMigrateAndInsertItemAsync();
+        await using var store = new PostgreSqlInboxInteractionStore(fixture.ConnectionString);
+        await store.ApplyAsync(Mutation(
+            InboxInteractionAction.SaveDraft,
+            minute: 1,
+            "Draft to clear"));
+
+        var state = await store.ApplyAsync(Mutation(
+            InboxInteractionAction.ClearDraft,
+            minute: 2));
+
+        Assert.Equal(InboxInteractionReplyState.InProgress, state.ReplyState);
+        Assert.Null(state.DraftText);
+        var audit = await store.ReadAuditAsync(ItemKey, "person-alice");
+        Assert.Equal(InboxInteractionAction.ClearDraft, audit[^1].Action);
+        Assert.True(audit[^1].PreviousDraftPresent);
+        Assert.False(audit[^1].DraftPresent);
+    }
+
     private static InboxInteractionMutation Mutation(
         InboxInteractionAction action,
         int minute,

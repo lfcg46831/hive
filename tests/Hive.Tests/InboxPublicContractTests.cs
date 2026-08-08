@@ -240,7 +240,8 @@ public sealed class InboxPublicContractTests
         var response = new InboxItemResponse(
             SentAt.AddMinutes(1),
             lastEventAppliedAtUtc: null,
-            CreateApprovalRequest());
+            CreateApprovalRequest(),
+            draftText: "Pending rationale");
 
         var json = JsonSerializer.SerializeToElement(response);
 
@@ -253,6 +254,29 @@ public sealed class InboxPublicContractTests
         Assert.Equal(
             RequestId,
             json.GetProperty("item").GetProperty("message_id").GetGuid());
+        Assert.Equal("Pending rationale", json.GetProperty("draft_text").GetString());
+    }
+
+    [Fact]
+    public void Interaction_response_serializes_public_state_without_runtime_types()
+    {
+        var response = new InboxInteractionResponse(
+            SentAt.AddMinutes(2),
+            SentAt.AddMinutes(1),
+            "delivery-lead/cf2b086f-dd04-445f-a68e-8e40a75530b9",
+            InboxReadState.Read,
+            InboxResponseState.InProgress,
+            "Pending rationale",
+            SentAt.AddMinutes(2));
+
+        var json = JsonSerializer.SerializeToElement(response);
+
+        Assert.Equal("Read", json.GetProperty("read_state").GetString());
+        Assert.Equal("InProgress", json.GetProperty("response_state").GetString());
+        Assert.Equal("Pending rationale", json.GetProperty("draft_text").GetString());
+        Assert.Equal(
+            SentAt.AddMinutes(2),
+            json.GetProperty("interaction_updated_at_utc").GetDateTimeOffset());
     }
 
     [Fact]

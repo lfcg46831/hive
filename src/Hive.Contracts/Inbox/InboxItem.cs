@@ -20,7 +20,11 @@ public sealed record InboxItem
         DateTimeOffset? deadlineAtUtc,
         InboxReadState readState,
         InboxResponseState responseState,
-        InboxApprovalMetadata? approval = null)
+        InboxApprovalMetadata? approval = null,
+        bool isExpired = false,
+        InboxReminderState reminderState = InboxReminderState.None,
+        DateTimeOffset? lastReminderAtUtc = null,
+        bool isDelegated = false)
     {
         ItemId = InboxContractGuards.ItemIdentifier(itemId, nameof(itemId));
         MessageId = InboxContractGuards.MessageIdentifier(messageId, nameof(messageId));
@@ -38,6 +42,10 @@ public sealed record InboxItem
             nameof(deadlineAtUtc));
         ReadState = InboxContractGuards.DefinedEnum(readState, nameof(readState));
         ResponseState = InboxContractGuards.DefinedEnum(responseState, nameof(responseState));
+        ReminderState = InboxContractGuards.DefinedEnum(reminderState, nameof(reminderState));
+        LastReminderAtUtc = InboxContractGuards.OptionalUtcTimestamp(
+            lastReminderAtUtc,
+            nameof(lastReminderAtUtc));
 
         if (DeadlineAtUtc < SentAtUtc)
         {
@@ -45,6 +53,34 @@ public sealed record InboxItem
                 "Deadline cannot precede the message timestamp.",
                 nameof(deadlineAtUtc));
         }
+
+        if (isExpired && DeadlineAtUtc is null)
+        {
+            throw new ArgumentException(
+                "An item without a deadline cannot be expired.",
+                nameof(isExpired));
+        }
+
+        var hasReminder = ReminderState == InboxReminderState.Sent;
+        if (hasReminder != (LastReminderAtUtc is not null))
+        {
+            throw new ArgumentException(
+                "A sent reminder requires its timestamp; an item without a reminder cannot contain one.",
+                nameof(lastReminderAtUtc));
+        }
+
+        if (LastReminderAtUtc is { } reminderAt &&
+            (DeadlineAtUtc is not { } deadline ||
+             reminderAt < SentAtUtc ||
+             reminderAt >= deadline))
+        {
+            throw new ArgumentException(
+                "A reminder must occur during the item's active deadline window.",
+                nameof(lastReminderAtUtc));
+        }
+
+        IsExpired = isExpired;
+        IsDelegated = isDelegated;
 
         var isApprovalMessage = Type is
             InboxMessageType.ApprovalRequest or InboxMessageType.ApprovalDecision;
@@ -112,6 +148,18 @@ public sealed record InboxItem
 
     [JsonPropertyName("deadline_at_utc")]
     public DateTimeOffset? DeadlineAtUtc { get; }
+
+    [JsonPropertyName("is_expired")]
+    public bool IsExpired { get; }
+
+    [JsonPropertyName("reminder_state")]
+    public InboxReminderState ReminderState { get; }
+
+    [JsonPropertyName("last_reminder_at_utc")]
+    public DateTimeOffset? LastReminderAtUtc { get; }
+
+    [JsonPropertyName("is_delegated")]
+    public bool IsDelegated { get; }
 
     [JsonPropertyName("read_state")]
     public InboxReadState ReadState { get; }

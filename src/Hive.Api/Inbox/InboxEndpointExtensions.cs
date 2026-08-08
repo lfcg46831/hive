@@ -53,8 +53,8 @@ public static class InboxEndpointExtensions
             .WithName("GetOrganizationInboxItemV1")
             .WithSummary("Get one inbox item")
             .WithDescription(
-                "Returns one principal-scoped inbox item with thread correlation, deadline, response " +
-                "state and approval metadata.")
+                "Returns one principal-scoped inbox item with thread correlation, deadline, expiry, " +
+                "reminder, delegation, response state and approval metadata.")
             .Produces<InboxItemResponse>(StatusCodes.Status200OK)
             .ProducesProblem(StatusCodes.Status400BadRequest)
             .ProducesProblem(StatusCodes.Status401Unauthorized)

@@ -122,7 +122,8 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                    approval_state,
                    approval_decision_message_id,
                    approval_decided_at_utc,
-                   is_delegated
+                   is_delegated,
+                   last_reminder_at_utc
             FROM inbox.items
             WHERE organization_id = @organization_id
               AND assigned_position_id = ANY(@assigned_position_ids)
@@ -176,7 +177,10 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                 reader.GetBoolean(11),
                 ParseEnum<InboxProjectionResponseState>(reader.GetString(12)),
                 approval,
-                reader.GetBoolean(19)));
+                reader.GetBoolean(19),
+                reader.IsDBNull(20)
+                    ? null
+                    : reader.GetFieldValue<DateTimeOffset>(20).ToUniversalTime()));
         }
 
         return items;

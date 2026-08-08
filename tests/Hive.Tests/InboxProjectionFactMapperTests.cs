@@ -41,6 +41,7 @@ public sealed class InboxProjectionFactMapperTests
         Assert.Equal(directive.Deadline, change.Item.DeadlineAtUtc);
         Assert.Equal(InboxProjectionResponseState.AwaitingResponse, change.Item.ResponseState);
         Assert.False(change.Item.IsExpired);
+        Assert.Null(change.Item.LastReminderAtUtc);
         Assert.Null(change.Item.Approval);
 
         var memo = new Memo(
@@ -226,6 +227,58 @@ public sealed class InboxProjectionFactMapperTests
     }
 
     [Fact]
+    public void Deadline_event_updates_the_source_item_without_rewriting_its_envelope()
+    {
+        var mapper = new InboxProjectionFactMapper(new MutableTimeProvider(At));
+        var deadline = At.AddHours(2);
+        var directive = DirectiveMessage(
+            Message("10000000-0000-0000-0000-000000000053"),
+            Thread("20000000-0000-0000-0000-000000000053"),
+            Directive("30000000-0000-0000-0000-000000000053"),
+            deadline);
+        mapper.Apply(MessageFact(Engineer, directive));
+        var remindedAt = deadline.AddMinutes(-30);
+        var reminder = DeadlineReminder(
+            directive,
+            Message("10000000-0000-0000-0000-000000000054"),
+            Thread("20000000-0000-0000-0000-000000000054"),
+            remindedAt);
+
+        var change = Assert.Single(mapper.Apply(MessageFact(Engineer, reminder)));
+
+        Assert.Equal(directive.Id, change.Item.Key.MessageId);
+        Assert.Equal(remindedAt, change.Item.LastReminderAtUtc);
+        Assert.Equal(deadline, change.Item.DeadlineAtUtc);
+        Assert.Equal(Priority.High, change.Item.Priority);
+        Assert.Equal(
+            InboxProjectionFactMapper.DeadlineApproachingEventType,
+            change.FactType);
+        Assert.Null(mapper.CurrentItem(Organization, Engineer.Position, reminder.Id));
+        Assert.Empty(mapper.Apply(MessageFact(Engineer, reminder)));
+    }
+
+    [Fact]
+    public void Deadline_event_rejects_invalid_or_mismatched_source_correlation()
+    {
+        var mapper = new InboxProjectionFactMapper(new MutableTimeProvider(At));
+        var directive = DirectiveMessage(
+            Message("10000000-0000-0000-0000-000000000056"),
+            Thread("20000000-0000-0000-0000-000000000056"),
+            Directive("30000000-0000-0000-0000-000000000056"),
+            At.AddHours(1));
+        mapper.Apply(MessageFact(Engineer, directive));
+        var reminder = DeadlineReminder(
+            directive,
+            Message("10000000-0000-0000-0000-000000000057"),
+            Thread("20000000-0000-0000-0000-000000000057"),
+            At.AddMinutes(30),
+            sourceMessageId: Message("10000000-0000-0000-0000-000000000058"));
+
+        Assert.Throws<InvalidOperationException>(() =>
+            mapper.Apply(MessageFact(Engineer, reminder)));
+    }
+
+    [Fact]
     public void Successful_report_audit_closes_a_directive_even_when_captured_first()
     {
         var mapper = new InboxProjectionFactMapper(new MutableTimeProvider(At));
@@ -267,6 +320,20 @@ public sealed class InboxProjectionFactMapperTests
             "daily",
             "{}");
         Assert.Empty(mapper.Apply(MessageFact(Engineer, pulse)));
+
+        var unrelatedTrigger = new EventTrigger(
+            Message("10000000-0000-0000-0000-000000000061"),
+            Organization,
+            new SystemEndpointRef(SystemEndpointKind.DomainEvents),
+            Position(Engineer),
+            Thread("20000000-0000-0000-0000-000000000061"),
+            Priority.Normal,
+            schemaVersion: 1,
+            At,
+            deadline: null,
+            "position-blocked-prolonged",
+            "not-json-because-this-event-is-not-an-inbox-reminder");
+        Assert.Empty(mapper.Apply(MessageFact(Engineer, unrelatedTrigger)));
         Assert.Empty(mapper.Apply(AuditFact(nameof(Hive.Domain.Auditing.JourneyAuditStage.PositionAccepted))));
 
         Assert.Throws<InvalidOperationException>(() =>
@@ -412,6 +479,32 @@ public sealed class InboxProjectionFactMapperTests
             request.Id,
             approved,
             approved ? "Approved" : "Rejected");
+
+    private static EventTrigger DeadlineReminder(
+        Directive source,
+        MessageId messageId,
+        ThreadId triggerThreadId,
+        DateTimeOffset sentAt,
+        MessageId? sourceMessageId = null) =>
+        new(
+            messageId,
+            Organization,
+            new SystemEndpointRef(SystemEndpointKind.DomainEvents),
+            source.To,
+            triggerThreadId,
+            Priority.Low,
+            schemaVersion: 1,
+            sentAt,
+            deadline: null,
+            InboxProjectionFactMapper.DeadlineApproachingEventType,
+            $$"""
+            {
+              "schema_version": 1,
+              "source_message_id": "{{sourceMessageId ?? source.Id}}",
+              "source_thread_id": "{{source.Thread}}",
+              "deadline_at_utc": "{{source.Deadline:O}}"
+            }
+            """);
 
     private static PositionEndpointRef Position(PositionEntityId entityId) =>
         new(entityId.Position);

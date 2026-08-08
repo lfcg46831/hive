@@ -467,6 +467,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 deadline_at_utc,
                 is_expired,
                 is_delegated,
+                last_reminder_at_utc,
                 response_state,
                 approval_request_id,
                 approval_action,
@@ -491,6 +492,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 @deadline_at_utc,
                 @is_expired,
                 @is_delegated,
+                @last_reminder_at_utc,
                 @response_state,
                 @approval_request_id,
                 @approval_action,
@@ -512,6 +514,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 deadline_at_utc = EXCLUDED.deadline_at_utc,
                 is_expired = EXCLUDED.is_expired,
                 is_delegated = EXCLUDED.is_delegated,
+                last_reminder_at_utc = EXCLUDED.last_reminder_at_utc,
                 response_state = EXCLUDED.response_state,
                 approval_request_id = EXCLUDED.approval_request_id,
                 approval_action = EXCLUDED.approval_action,
@@ -533,6 +536,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                     inbox.items.deadline_at_utc,
                     inbox.items.is_expired,
                     inbox.items.is_delegated,
+                    inbox.items.last_reminder_at_utc,
                     inbox.items.response_state,
                     inbox.items.approval_request_id,
                     inbox.items.approval_action,
@@ -552,6 +556,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                     EXCLUDED.deadline_at_utc,
                     EXCLUDED.is_expired,
                     EXCLUDED.is_delegated,
+                    EXCLUDED.last_reminder_at_utc,
                     EXCLUDED.response_state,
                     EXCLUDED.approval_request_id,
                     EXCLUDED.approval_action,
@@ -577,6 +582,8 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
             item.DeadlineAtUtc ?? (object)DBNull.Value;
         command.Parameters.Add("is_expired", NpgsqlDbType.Boolean).Value = item.IsExpired;
         command.Parameters.Add("is_delegated", NpgsqlDbType.Boolean).Value = item.IsDelegated;
+        command.Parameters.Add("last_reminder_at_utc", NpgsqlDbType.TimestampTz).Value =
+            item.LastReminderAtUtc ?? (object)DBNull.Value;
         AddText(command, "response_state", item.ResponseState.ToString());
         command.Parameters.Add("approval_request_id", NpgsqlDbType.Uuid).Value =
             item.Approval?.RequestId.Value ?? (object)DBNull.Value;

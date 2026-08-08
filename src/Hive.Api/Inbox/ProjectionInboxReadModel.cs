@@ -161,7 +161,13 @@ internal sealed class ProjectionInboxReadModel(
                 ? InboxReadState.Unread
                 : MapEnum<InboxInteractionReadState, InboxReadState>(interaction.ReadState),
             MapResponseState(item.ResponseState, interaction),
-            item.Approval is null ? null : MapApproval(item.Approval));
+            item.Approval is null ? null : MapApproval(item.Approval),
+            item.IsExpired,
+            item.LastReminderAtUtc is null
+                ? InboxReminderState.None
+                : InboxReminderState.Sent,
+            item.LastReminderAtUtc,
+            item.IsDelegated);
 
     private static InboxResponseState MapResponseState(
         InboxProjectionResponseState derivedState,

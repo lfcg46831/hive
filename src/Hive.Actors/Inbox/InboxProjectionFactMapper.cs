@@ -16,6 +16,7 @@ namespace Hive.Actors.Inbox;
 internal sealed class InboxProjectionFactMapper
 {
     internal const string DeadlineExpiredFactType = "deadline-expired";
+    internal const string DeadlineApproachingEventType = "directive-deadline-approaching";
 
     private readonly Dictionary<InboxProjectionItemKey, TrackedInboxItem> _items = [];
     private readonly Dictionary<InboxProjectionItemKey, InboxResponseEvidence> _responseEvidence = [];
@@ -115,16 +116,151 @@ internal sealed class InboxProjectionFactMapper
                 ApplyCorrelations(message, fact.OccurredAtUtc, changes);
                 break;
 
+            case EventTrigger trigger:
+                ApplyEventTrigger(trigger, fact.OccurredAtUtc, changes);
+                break;
+
             // Authorization resolutions belong to the retained-action lifecycle (§9.11), while
-            // scheduler pulses and domain event triggers belong to system/proactive processing.
-            // None is a public human-inbox item in US-F1-02-T01.
-            case AuthorizationGrant or AuthorizationDenial or Pulse or EventTrigger:
+            // scheduler pulses and unrelated domain event triggers belong to system/proactive
+            // processing. None is a public human-inbox item in US-F1-02-T01.
+            case AuthorizationGrant or AuthorizationDenial or Pulse:
                 break;
 
             default:
                 throw new InvalidOperationException(
                     $"Organizational message '{message.GetType().Name}' has no explicit inbox mapping.");
         }
+    }
+
+    private void ApplyEventTrigger(
+        EventTrigger trigger,
+        DateTimeOffset occurredAtUtc,
+        ICollection<InboxProjectionChange> changes)
+    {
+        if (!string.Equals(
+                trigger.EventType,
+                DeadlineApproachingEventType,
+                StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        if (trigger.From is not SystemEndpointRef { Kind: SystemEndpointKind.DomainEvents } ||
+            trigger.To is not PositionEndpointRef destination)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' does not use the domain-events to position route.");
+        }
+
+        var correlation = ParseDeadlineReminder(trigger);
+        var key = new InboxProjectionItemKey(
+            trigger.OrganizationId,
+            destination.PositionId,
+            correlation.SourceMessageId);
+        if (!_items.TryGetValue(key, out var tracked) ||
+            tracked.Message is not Directive directive)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' has no projected source directive '{key}'.");
+        }
+
+        var deadlineAtUtc = directive.Deadline?.ToUniversalTime();
+        if (directive.Thread != correlation.SourceThreadId ||
+            deadlineAtUtc != correlation.DeadlineAtUtc)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' does not match source directive '{directive.Id}'.");
+        }
+
+        var reminderAtUtc = trigger.SentAt.ToUniversalTime();
+        if (reminderAtUtc < tracked.Item.SentAtUtc ||
+            reminderAtUtc >= correlation.DeadlineAtUtc)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' falls outside source directive '{directive.Id}' deadline window.");
+        }
+
+        if (tracked.Item.LastReminderAtUtc is { } current && current >= reminderAtUtc)
+        {
+            return;
+        }
+
+        Replace(
+            tracked,
+            tracked.Item with { LastReminderAtUtc = reminderAtUtc },
+            trigger.EventType,
+            occurredAtUtc,
+            changes);
+    }
+
+    private static DeadlineReminderCorrelation ParseDeadlineReminder(EventTrigger trigger)
+    {
+        try
+        {
+            using var payload = JsonDocument.Parse(trigger.Payload);
+            var root = payload.RootElement;
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("schema_version", out var schemaVersion) ||
+                schemaVersion.ValueKind != JsonValueKind.Number ||
+                !schemaVersion.TryGetInt32(out var version) ||
+                version != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Deadline reminder '{trigger.Id}' has no supported schema_version.");
+            }
+
+            return new DeadlineReminderCorrelation(
+                MessageId.From(RequiredGuid(root, "source_message_id", trigger)),
+                ThreadId.From(RequiredGuid(root, "source_thread_id", trigger)),
+                RequiredUtcTimestamp(root, "deadline_at_utc", trigger));
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' has an invalid JSON payload.",
+                exception);
+        }
+        catch (ArgumentException exception)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' has invalid correlation metadata.",
+                exception);
+        }
+    }
+
+    private static Guid RequiredGuid(
+        JsonElement payload,
+        string propertyName,
+        EventTrigger trigger)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String ||
+            !property.TryGetGuid(out var value) ||
+            value == Guid.Empty)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' has no valid '{propertyName}'.");
+        }
+
+        return value;
+    }
+
+    private static DateTimeOffset RequiredUtcTimestamp(
+        JsonElement payload,
+        string propertyName,
+        EventTrigger trigger)
+    {
+        if (!payload.TryGetProperty(propertyName, out var property) ||
+            property.ValueKind != JsonValueKind.String ||
+            !property.TryGetDateTimeOffset(out var value) ||
+            value == default ||
+            value.Offset != TimeSpan.Zero)
+        {
+            throw new InvalidOperationException(
+                $"Deadline reminder '{trigger.Id}' has no valid UTC '{propertyName}'.");
+        }
+
+        return value;
     }
 
     private void ApplyAuditFact(
@@ -561,4 +697,9 @@ internal sealed class InboxProjectionFactMapper
         string FactType,
         ThreadId ThreadId,
         DateTimeOffset OccurredAtUtc);
+
+    private sealed record DeadlineReminderCorrelation(
+        MessageId SourceMessageId,
+        ThreadId SourceThreadId,
+        DateTimeOffset DeadlineAtUtc);
 }

@@ -62,7 +62,7 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             }
         }
 
-        Assert.Equal([1, 2, 3], appliedVersions);
+        Assert.Equal([1, 2, 3, 4], appliedVersions);
     }
 
     [Fact]
@@ -215,7 +215,8 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         Assert.Equal(positionId, item.Key.AssignedPositionId);
         Assert.Equal(InboxProjectionMessageType.Memo, item.Type);
         Assert.Equal(InboxProjectionResponseState.NotApplicable, item.ResponseState);
-        Assert.False(item.IsDelegated);
+        Assert.True(item.IsDelegated);
+        Assert.Equal(OccurredAt, item.LastReminderAtUtc);
 
         var otherPosition = await snapshotReader.ReadAsync(
             organizationId,
@@ -368,10 +369,12 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
                 fact.ThreadId!,
                 Priority.Normal,
                 OccurredAt.AddMinutes(-1),
-                DeadlineAtUtc: null,
+                DeadlineAtUtc: OccurredAt.AddHours(1),
                 IsExpired: false,
                 InboxProjectionResponseState.NotApplicable,
-                Approval: null),
+                Approval: null,
+                IsDelegated: true,
+                LastReminderAtUtc: OccurredAt),
             fact.FactType,
             fact.OccurredAtUtc);
 

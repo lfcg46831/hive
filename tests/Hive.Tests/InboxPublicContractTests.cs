@@ -45,6 +45,10 @@ public sealed class InboxPublicContractTests
         Assert.Equal("Critical", json.GetProperty("priority").GetString());
         Assert.Equal(SentAt, json.GetProperty("sent_at_utc").GetDateTimeOffset());
         Assert.Equal(DeadlineAt, json.GetProperty("deadline_at_utc").GetDateTimeOffset());
+        Assert.False(json.GetProperty("is_expired").GetBoolean());
+        Assert.Equal("None", json.GetProperty("reminder_state").GetString());
+        Assert.Equal(JsonValueKind.Null, json.GetProperty("last_reminder_at_utc").ValueKind);
+        Assert.False(json.GetProperty("is_delegated").GetBoolean());
         Assert.Equal("Unread", json.GetProperty("read_state").GetString());
         Assert.Equal("NotApplicable", json.GetProperty("response_state").GetString());
 
@@ -80,6 +84,44 @@ public sealed class InboxPublicContractTests
         Assert.Equal(JsonValueKind.Null, json.GetProperty("deadline_at_utc").ValueKind);
         Assert.Equal(JsonValueKind.Null, json.GetProperty("approval").ValueKind);
         Assert.Equal("InProgress", json.GetProperty("response_state").GetString());
+    }
+
+    [Fact]
+    public void Deadline_reminder_expiry_and_delegation_serialize_as_derived_item_state()
+    {
+        var reminderAt = DeadlineAt.AddMinutes(-30);
+        var item = new InboxItem(
+            "delivery-lead/cf2b086f-dd04-445f-a68e-8e40a75530b9",
+            RequestId,
+            "delivery-lead",
+            InboxMessageType.ApprovalRequest,
+            new InboxMessageEndpoint(InboxMessageEndpointType.Position, "engineer"),
+            new InboxMessageEndpoint(InboxMessageEndpointType.Position, "delivery-lead"),
+            ThreadId,
+            InboxPriority.Critical,
+            SentAt,
+            DeadlineAt,
+            InboxReadState.Unread,
+            InboxResponseState.NotApplicable,
+            new InboxApprovalMetadata(
+                RequestId,
+                "deployment.production",
+                "production-change",
+                InboxApprovalState.Expired,
+                canDecide: false),
+            isExpired: true,
+            reminderState: InboxReminderState.Sent,
+            lastReminderAtUtc: reminderAt,
+            isDelegated: true);
+
+        var json = JsonSerializer.SerializeToElement(item);
+
+        Assert.True(json.GetProperty("is_expired").GetBoolean());
+        Assert.Equal("Sent", json.GetProperty("reminder_state").GetString());
+        Assert.Equal(
+            reminderAt,
+            json.GetProperty("last_reminder_at_utc").GetDateTimeOffset());
+        Assert.True(json.GetProperty("is_delegated").GetBoolean());
     }
 
     [Fact]
@@ -181,6 +223,17 @@ public sealed class InboxPublicContractTests
         Assert.Throws<ArgumentException>(() => CreateItem(
             InboxMessageType.Directive,
             deadlineAtUtc: SentAt.AddSeconds(-1)));
+        Assert.Throws<ArgumentException>(() => CreateItem(
+            InboxMessageType.Directive,
+            isExpired: true));
+        Assert.Throws<ArgumentException>(() => CreateItem(
+            InboxMessageType.Directive,
+            deadlineAtUtc: DeadlineAt,
+            reminderState: InboxReminderState.Sent));
+        Assert.Throws<ArgumentException>(() => CreateItem(
+            InboxMessageType.Directive,
+            deadlineAtUtc: DeadlineAt,
+            lastReminderAtUtc: DeadlineAt));
         Assert.Throws<ArgumentOutOfRangeException>(() => CreateItem(
             (InboxMessageType)999));
     }
@@ -332,7 +385,10 @@ public sealed class InboxPublicContractTests
         Guid? messageId = null,
         Guid? threadId = null,
         DateTimeOffset? sentAtUtc = null,
-        DateTimeOffset? deadlineAtUtc = null) =>
+        DateTimeOffset? deadlineAtUtc = null,
+        bool isExpired = false,
+        InboxReminderState reminderState = InboxReminderState.None,
+        DateTimeOffset? lastReminderAtUtc = null) =>
         new(
             "engineer/c15095cd-7f12-4099-a15b-995275dfb3d0",
             messageId ?? DecisionId,
@@ -346,7 +402,10 @@ public sealed class InboxPublicContractTests
             deadlineAtUtc,
             InboxReadState.Unread,
             InboxResponseState.AwaitingResponse,
-            approval);
+            approval,
+            isExpired,
+            reminderState,
+            lastReminderAtUtc);
 
     private static IEnumerable<Type> PublicSurfaceTypes(Type type)
     {

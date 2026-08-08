@@ -161,13 +161,47 @@ public sealed class ProjectionInboxReadModelTests
         Assert.Equal(InboxResponseState.InProgress, detail.Item.ResponseState);
     }
 
+    [Fact]
+    public async Task Read_maps_deadline_reminder_expiry_and_declared_delegation()
+    {
+        var deadline = GeneratedAt.AddSeconds(-30);
+        var reminderAt = GeneratedAt.AddMinutes(-1);
+        var projected = Item(
+            DeliveryLead,
+            3,
+            deadlineAtUtc: deadline,
+            isExpired: true,
+            isDelegated: true,
+            lastReminderAtUtc: reminderAt);
+        var readModel = new ProjectionInboxReadModel(
+            new RecordingSnapshotReader([projected]),
+            new RecordingInteractionReader(),
+            new FixedTimeProvider(GeneratedAt));
+
+        var result = await readModel.ReadItemAsync(
+            Scope(DeliveryLead),
+            PublicItemId(projected),
+            CancellationToken.None);
+
+        var item = Assert.IsType<InboxItemResponse>(result.Value).Item;
+        Assert.Equal(deadline, item.DeadlineAtUtc);
+        Assert.True(item.IsExpired);
+        Assert.Equal(InboxReminderState.Sent, item.ReminderState);
+        Assert.Equal(reminderAt, item.LastReminderAtUtc);
+        Assert.True(item.IsDelegated);
+    }
+
     private static PersonOrganizationScope Scope(params PositionId[] positionIds) =>
         new("person-alice", OrganizationId, positionIds);
 
     private static InboxProjectionItem Item(
         PositionId assignedPositionId,
         int ordinal,
-        InboxProjectionResponseState responseState = InboxProjectionResponseState.NotApplicable)
+        InboxProjectionResponseState responseState = InboxProjectionResponseState.NotApplicable,
+        DateTimeOffset? deadlineAtUtc = null,
+        bool isExpired = false,
+        bool isDelegated = false,
+        DateTimeOffset? lastReminderAtUtc = null)
     {
         var messageId = MessageId.From(Guid.Parse($"10000000-0000-0000-0000-{ordinal:D12}"));
         return new InboxProjectionItem(
@@ -178,10 +212,12 @@ public sealed class ProjectionInboxReadModelTests
             ThreadId.From(Guid.Parse($"20000000-0000-0000-0000-{ordinal:D12}")),
             Priority.Normal,
             GeneratedAt.AddMinutes(-ordinal),
-            DeadlineAtUtc: null,
-            IsExpired: false,
+            deadlineAtUtc,
+            isExpired,
             responseState,
-            Approval: null);
+            Approval: null,
+            isDelegated,
+            lastReminderAtUtc);
     }
 
     private static InboxInteractionState Interaction(InboxProjectionItemKey itemKey) =>

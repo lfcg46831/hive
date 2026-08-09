@@ -1,4 +1,4 @@
-# Read-only console override (US-F1-01-T10).
+# Console override (US-F1-01-T10, extended for the inbox of US-F1-02).
 #
 # Layers on top of the base one-node stack (docker-compose.yml, US-F0-02-T03)
 # without editing it, in the same style as the cluster and roles overrides:
@@ -18,10 +18,14 @@
 #
 # The credential is shared on purpose: `HIVE_CONSOLE_TOKEN` is both the token the
 # API accepts and the token the console presents. It is served to the browser in
-# `config.js` and is therefore readable by anyone who can open the page, which is
-# acceptable only because the F1 public surface is read-only. Real identity
-# arrives with US-F1-09. Use a local development value here and never a token
-# that is worth anything.
+# `config.js` and is therefore readable by anyone who can open the page.
+#
+# That was acceptable while the public surface was read-only. With the inbox it
+# no longer is: this credential emits organizational messages — replies and
+# approval decisions — as the position it binds, and whoever opens the page
+# holds it. Local development only, never a token that is worth anything, and
+# never an environment whose audit trail matters. Real identity arrives with
+# US-F1-09.
 #
 # Values come from the untracked `.env` file; copy `.env.example` first.
 
@@ -30,6 +34,19 @@ services:
     environment:
       HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__TOKEN: "${HIVE_CONSOLE_TOKEN:?Set HIVE_CONSOLE_TOKEN in .env}"
       HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__ORGANIZATIONIDS__0: "${HIVE_CONSOLE_ORGANIZATION_ID:?Set HIVE_CONSOLE_ORGANIZATION_ID in .env}"
+      # Person binding of the same credential. The organogram needs only the
+      # organization scope above; the inbox (US-F1-02) needs a person and the
+      # positions that person occupies, and answers 404 without them.
+      #
+      # Interim: the example organization declares no human position, so this
+      # points at a position occupied by an agent. It exercises the inbox
+      # against real traffic but is not the model — a person occupies a human
+      # position. Using the console as the owner is not possible at all today:
+      # the owner is not a position and therefore has no inbox. Both are closed
+      # by US-F2-08, which makes the owner the human position at the top.
+      HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__PERSONID: "${HIVE_CONSOLE_PERSON_ID:?Set HIVE_CONSOLE_PERSON_ID in .env}"
+      HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__ORGANIZATIONID: "${HIVE_CONSOLE_ORGANIZATION_ID:?Set HIVE_CONSOLE_ORGANIZATION_ID in .env}"
+      HIVE__PUBLICAPI__AUTHORIZATION__CREDENTIALS__0__POSITIONS__0__POSITIONID: "${HIVE_CONSOLE_POSITION_ID:?Set HIVE_CONSOLE_POSITION_ID in .env}"
 
   console:
     build:

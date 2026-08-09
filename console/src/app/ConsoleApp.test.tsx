@@ -539,15 +539,31 @@ describe('ConsoleApp when there is no organogram to show', () => {
 describe('ConsoleApp read-only guarantee', () => {
   it('exposes no control beyond re-reading and narrowing the view', async () => {
     const container = await renderConsole();
+    // Scoped to the organogram section: the shell also carries navigation to the
+    // inbox (US-F1-02), which is where a person acts. The guarantee this test
+    // protects is that the organogram itself never becomes such a place.
+    const organogram = container.querySelector('.console__section');
+    expect(organogram).not.toBeNull();
 
     const allowed = ['Clear filters', 'Refresh now', 'Try again'];
-    for (const button of container.querySelectorAll('button')) {
+    for (const button of organogram!.querySelectorAll('button')) {
       expect(allowed).toContain(button.textContent);
     }
 
-    expect(container.querySelector('form')).toBeNull();
-    expect(container.querySelector('textarea')).toBeNull();
-    expect(container.querySelector('[contenteditable]')).toBeNull();
+    expect(organogram!.querySelector('form')).toBeNull();
+    expect(organogram!.querySelector('textarea')).toBeNull();
+    expect(organogram!.querySelector('[contenteditable]')).toBeNull();
+  });
+
+  it('navigates between sections without offering any other shell control', async () => {
+    const container = await renderConsole();
+    const nav = container.querySelector('.console__nav');
+    expect(nav).not.toBeNull();
+
+    expect([...nav!.querySelectorAll('button')].map((button) => button.textContent)).toEqual([
+      'Organogram',
+      'Inbox',
+    ]);
   });
 
   it('never sends anything other than reads to the API', async () => {

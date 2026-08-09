@@ -16,9 +16,13 @@ export interface ConsoleConfig {
    */
   readonly apiBaseUrl: string;
   readonly organizationId: string;
-  /** Read-only organization bearer credential (US-F1-01-T07). */
+  /**
+   * Public API bearer credential. Its organization scope authorizes the
+   * organogram (US-F1-01-T07); a credential that also binds a person and the
+   * positions they occupy authorizes the inbox (US-F1-02-T04).
+   */
   readonly token: string;
-  /** Interval of the controlled `/position-states` polling fallback. */
+  /** Interval of the controlled polling fallback for states and inbox. */
   readonly pollIntervalMs: number;
 }
 

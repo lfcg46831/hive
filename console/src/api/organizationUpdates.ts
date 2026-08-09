@@ -9,6 +9,7 @@
 
 import { HubConnectionBuilder, LogLevel } from '@microsoft/signalr';
 import type {
+  InboxChangedNotification,
   OrganizationPositionState,
   OrganogramChangedNotification,
   PositionStateChangedNotification,
@@ -19,12 +20,18 @@ export const ORGANIZATION_UPDATES_HUB_PATH = '/api/v1/organization-updates';
 export const ORGANIZATION_UPDATES_METHODS = {
   subscribe: 'SubscribeToOrganization',
   unsubscribe: 'UnsubscribeFromOrganization',
+  subscribeInbox: 'SubscribeToInbox',
+  unsubscribeInbox: 'UnsubscribeFromInbox',
 } as const;
 
 export const ORGANIZATION_UPDATES_EVENTS = {
   organogramChanged: 'OrganogramChanged',
   positionStateChanged: 'PositionStateChanged',
+  inboxChanged: 'InboxChanged',
 } as const;
+
+/** Which of the hub's two subscriptions a client wants. */
+export type OrganizationUpdatesScope = 'organization' | 'inbox';
 
 export type OrganizationUpdatesStatus =
   | 'connecting'
@@ -50,6 +57,7 @@ export interface HubConnectionLike {
 export interface OrganizationUpdatesHandlers {
   onOrganogramChanged?(notification: OrganogramChangedNotification): void;
   onPositionStateChanged?(notification: PositionStateChangedNotification): void;
+  onInboxChanged?(notification: InboxChangedNotification): void;
   onStatusChanged?(status: OrganizationUpdatesStatus, error?: Error): void;
   onSnapshotRequired?(reason: SnapshotReason): void;
 }
@@ -59,6 +67,11 @@ export interface OrganizationUpdatesClientOptions {
   readonly organizationId: string;
   readonly token: string | (() => string | Promise<string>);
   readonly handlers: OrganizationUpdatesHandlers;
+  /**
+   * Which hub subscription to hold. Defaults to the organization scope so the
+   * organogram view is unchanged by the arrival of the inbox.
+   */
+  readonly scope?: OrganizationUpdatesScope;
   /** Injected for tests; defaults to a reconnecting SignalR connection. */
   readonly connectionFactory?: (hubUrl: string) => HubConnectionLike;
 }
@@ -75,6 +88,17 @@ export function createOrganizationUpdatesClient(
 ): OrganizationUpdatesClient {
   const hubUrl = `${options.baseUrl.trim().replace(/\/+$/, '')}${ORGANIZATION_UPDATES_HUB_PATH}`;
   const { handlers, organizationId } = options;
+  const scope: OrganizationUpdatesScope = options.scope ?? 'organization';
+  const methods =
+    scope === 'inbox'
+      ? {
+          subscribe: ORGANIZATION_UPDATES_METHODS.subscribeInbox,
+          unsubscribe: ORGANIZATION_UPDATES_METHODS.unsubscribeInbox,
+        }
+      : {
+          subscribe: ORGANIZATION_UPDATES_METHODS.subscribe,
+          unsubscribe: ORGANIZATION_UPDATES_METHODS.unsubscribe,
+        };
   const connection = (options.connectionFactory ?? defaultConnectionFactory(options.token))(
     hubUrl,
   );
@@ -91,6 +115,9 @@ export function createOrganizationUpdatesClient(
   connection.on(ORGANIZATION_UPDATES_EVENTS.positionStateChanged, (notification) => {
     handlers.onPositionStateChanged?.(notification as PositionStateChangedNotification);
   });
+  connection.on(ORGANIZATION_UPDATES_EVENTS.inboxChanged, (notification) => {
+    handlers.onInboxChanged?.(notification as InboxChangedNotification);
+  });
   connection.onreconnecting((error) => setStatus('reconnecting', error));
   connection.onclose((error) => setStatus('disconnected', error));
   connection.onreconnected(() => {
@@ -98,7 +125,7 @@ export function createOrganizationUpdatesClient(
   });
 
   async function subscribe(reason: SnapshotReason): Promise<void> {
-    await connection.invoke(ORGANIZATION_UPDATES_METHODS.subscribe, organizationId);
+    await connection.invoke(methods.subscribe, organizationId);
     setStatus('live');
     handlers.onSnapshotRequired?.(reason);
   }
@@ -115,7 +142,7 @@ export function createOrganizationUpdatesClient(
     },
     async stop() {
       try {
-        await connection.invoke(ORGANIZATION_UPDATES_METHODS.unsubscribe, organizationId);
+        await connection.invoke(methods.unsubscribe, organizationId);
       } finally {
         await connection.stop();
         setStatus('disconnected');
@@ -142,6 +169,30 @@ export function isNewerPositionState(
   }
 
   return incoming.sequence > known.sequence;
+}
+
+/**
+ * True when `incoming` is a notification the principal has not already acted on.
+ * Inbox sequences are monotonic per principal, so a replayed or out-of-order
+ * notification is dropped rather than triggering a redundant refetch.
+ */
+export function isNewerInboxNotification(
+  knownSequence: number | null,
+  incoming: InboxChangedNotification,
+): boolean {
+  return knownSequence === null || incoming.sequence > knownSequence;
+}
+
+/**
+ * True when notifications were missed between `knownSequence` and `incoming`.
+ * The REST snapshot is refetched either way; this only lets the view say that
+ * it is recovering from a gap instead of silently papering over one.
+ */
+export function hasInboxSequenceGap(
+  knownSequence: number | null,
+  incoming: InboxChangedNotification,
+): boolean {
+  return knownSequence !== null && incoming.sequence > knownSequence + 1;
 }
 
 function defaultConnectionFactory(

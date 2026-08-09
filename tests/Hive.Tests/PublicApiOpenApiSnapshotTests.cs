@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Hive.Api.Inbox;
 using Hive.Api.OpenApi;
 using Hive.Api.Organization;
 using Microsoft.AspNetCore.Builder;
@@ -36,11 +37,18 @@ public sealed class PublicApiOpenApiSnapshotTests
         Assert.DoesNotContain(
             paths,
             path => !path.StartsWith("/api/v1/", StringComparison.Ordinal));
-        Assert.True(
-            parsed.RootElement
-                .GetProperty("components")
-                .GetProperty("schemas")
-                .TryGetProperty("OrganogramResponse", out _));
+        var schemas = parsed.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+        Assert.True(schemas.TryGetProperty("OrganogramResponse", out _));
+
+        // The console mirrors the inbox surface from this same document, so an
+        // export without it would let the parity check pass over a client the
+        // backend no longer serves.
+        Assert.True(schemas.TryGetProperty("InboxPage", out _));
+        Assert.Contains(
+            paths,
+            path => path.EndsWith("/inbox", StringComparison.Ordinal));
     }
 
     private static async Task<string> ExportDocumentAsync()
@@ -67,6 +75,7 @@ public sealed class PublicApiOpenApiSnapshotTests
         builder.Services.AddHivePublicApiOpenApi();
         builder.Services.AddHiveOrganizationApi();
         builder.Services.AddHiveOrganizationRegistryApi();
+        builder.Services.AddHiveInboxApi();
 
         var app = builder.Build();
         app.UseHivePublicApiOpenApi();
@@ -74,6 +83,7 @@ public sealed class PublicApiOpenApiSnapshotTests
         app.UseAuthorization();
         app.MapHiveOrganizationApi();
         app.MapHiveOrganizationRegistryApi();
+        app.MapHiveInboxApi();
         return app;
     }
 

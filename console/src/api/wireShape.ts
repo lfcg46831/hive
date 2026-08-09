@@ -9,6 +9,24 @@
  */
 
 import type {
+  InboxApprovalMetadata,
+  InboxApprovalState,
+  InboxDecisionRequest,
+  InboxDecisionResponse,
+  InboxDraftRequest,
+  InboxInteractionResponse,
+  InboxItem,
+  InboxItemResponse,
+  InboxMessageEndpoint,
+  InboxMessageEndpointType,
+  InboxMessageType,
+  InboxPage,
+  InboxPriority,
+  InboxReadState,
+  InboxReminderState,
+  InboxReplyRequest,
+  InboxReplyResponse,
+  InboxResponseState,
   OrganizationOccupant,
   OrganizationOccupantType,
   OrganizationPosition,
@@ -25,7 +43,41 @@ import type {
   RegistryVersion,
 } from './contracts.js';
 
-type ReferenceSchemaName<T> =
+/**
+ * Component name of the schema a property references, resolved structurally.
+ *
+ * The chains are ordered: the first matching arm wins, so a narrower DTO must
+ * appear before any DTO it structurally satisfies. They are split by owning user
+ * story to stay readable as the public surface grows.
+ */
+type ReferenceSchemaName<T> = [OrganizationReferenceSchemaName<T>] extends [never]
+  ? InboxReferenceSchemaName<T>
+  : OrganizationReferenceSchemaName<T>;
+
+type InboxReferenceSchemaName<T> =
+  NonNullable<T> extends InboxMessageEndpoint
+    ? 'InboxMessageEndpoint'
+    : NonNullable<T> extends InboxApprovalMetadata
+      ? 'InboxApprovalMetadata'
+      : NonNullable<T> extends InboxItem
+        ? 'InboxItem'
+        : NonNullable<T> extends InboxMessageType
+          ? 'InboxMessageType'
+          : NonNullable<T> extends InboxMessageEndpointType
+            ? 'InboxMessageEndpointType'
+            : NonNullable<T> extends InboxPriority
+              ? 'InboxPriority'
+              : NonNullable<T> extends InboxReadState
+                ? 'InboxReadState'
+                : NonNullable<T> extends InboxResponseState
+                  ? 'InboxResponseState'
+                  : NonNullable<T> extends InboxApprovalState
+                    ? 'InboxApprovalState'
+                    : NonNullable<T> extends InboxReminderState
+                      ? 'InboxReminderState'
+                      : never;
+
+type OrganizationReferenceSchemaName<T> =
   NonNullable<T> extends RegistryVersion
     ? 'RegistryVersion'
     : NonNullable<T> extends OrganizationSummary
@@ -71,17 +123,24 @@ type ArrayItemWireShape<T> = [ReferenceSchemaName<T>] extends [never]
 type PropertyKindWireShape<T> = NonNullable<T> extends readonly (infer TItem)[]
   ? { type: 'array'; items: ArrayItemWireShape<TItem> }
   : [ReferenceSchemaName<T>] extends [never]
-    ? NonNullable<T> extends number
-      ? { type: 'integer'; format: 'int32' | 'int64' }
-      : NonNullable<T> extends string
-        ? { type: 'string'; format?: 'date-time' | 'uuid' }
-        : never
+    ? NonNullable<T> extends boolean
+      ? { type: 'boolean' }
+      : NonNullable<T> extends number
+        ? { type: 'integer'; format: 'int32' | 'int64' }
+        : NonNullable<T> extends string
+          ? { type: 'string'; format?: 'date-time' | 'uuid' }
+          : never
     : { type: 'reference'; schema: ReferenceSchemaName<T> };
 
 export type RuntimePropertyWireShape =
   | {
       type: 'string';
       format?: 'date-time' | 'uuid';
+      required: boolean;
+      nullable: boolean;
+    }
+  | {
+      type: 'boolean';
       required: boolean;
       nullable: boolean;
     }
@@ -294,6 +353,231 @@ export const objectWireShape = {
       nullable: false,
     },
   }),
+  InboxMessageEndpoint: defineObjectWireShape<InboxMessageEndpoint>(false)({
+    type: {
+      type: 'reference',
+      schema: 'InboxMessageEndpointType',
+      required: true,
+      nullable: false,
+    },
+    position_id: { type: 'string', required: true, nullable: true },
+  }),
+  InboxApprovalMetadata: defineObjectWireShape<InboxApprovalMetadata>(false)({
+    request_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    action: { type: 'string', required: true, nullable: false },
+    policy_ref: { type: 'string', required: true, nullable: false },
+    state: {
+      type: 'reference',
+      schema: 'InboxApprovalState',
+      required: true,
+      nullable: false,
+    },
+    can_decide: { type: 'boolean', required: true, nullable: false },
+    decision_message_id: {
+      type: 'string',
+      format: 'uuid',
+      required: true,
+      nullable: true,
+    },
+    decided_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+  }),
+  InboxItem: defineObjectWireShape<InboxItem>(false)({
+    item_id: { type: 'string', required: true, nullable: false },
+    message_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    assigned_position_id: { type: 'string', required: true, nullable: false },
+    type: {
+      type: 'reference',
+      schema: 'InboxMessageType',
+      required: true,
+      nullable: false,
+    },
+    origin: {
+      type: 'reference',
+      schema: 'InboxMessageEndpoint',
+      required: true,
+      nullable: false,
+    },
+    destination: {
+      type: 'reference',
+      schema: 'InboxMessageEndpoint',
+      required: true,
+      nullable: false,
+    },
+    thread_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    priority: {
+      type: 'reference',
+      schema: 'InboxPriority',
+      required: true,
+      nullable: false,
+    },
+    sent_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: false,
+    },
+    deadline_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+    is_expired: { type: 'boolean', required: true, nullable: false },
+    reminder_state: {
+      type: 'reference',
+      schema: 'InboxReminderState',
+      required: true,
+      nullable: false,
+    },
+    last_reminder_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+    is_delegated: { type: 'boolean', required: true, nullable: false },
+    read_state: {
+      type: 'reference',
+      schema: 'InboxReadState',
+      required: true,
+      nullable: false,
+    },
+    response_state: {
+      type: 'reference',
+      schema: 'InboxResponseState',
+      required: true,
+      nullable: false,
+    },
+    approval: {
+      type: 'reference',
+      schema: 'InboxApprovalMetadata',
+      required: true,
+      nullable: true,
+    },
+  }),
+  InboxPage: defineObjectWireShape<InboxPage>(false)({
+    generated_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: false,
+    },
+    last_event_applied_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+    page_size: { type: 'integer', format: 'int32', required: true, nullable: false },
+    next_cursor: { type: 'string', required: true, nullable: true },
+    items: {
+      type: 'array',
+      items: { type: 'reference', schema: 'InboxItem' },
+      required: true,
+      nullable: false,
+    },
+  }),
+  InboxItemResponse: defineObjectWireShape<InboxItemResponse>(false)({
+    generated_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: false,
+    },
+    last_event_applied_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+    item: {
+      type: 'reference',
+      schema: 'InboxItem',
+      required: true,
+      nullable: false,
+    },
+    draft_text: { type: 'string', required: true, nullable: true },
+  }),
+  InboxInteractionResponse: defineObjectWireShape<InboxInteractionResponse>(false)({
+    generated_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: false,
+    },
+    last_event_applied_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: true,
+    },
+    item_id: { type: 'string', required: true, nullable: false },
+    read_state: {
+      type: 'reference',
+      schema: 'InboxReadState',
+      required: true,
+      nullable: false,
+    },
+    response_state: {
+      type: 'reference',
+      schema: 'InboxResponseState',
+      required: true,
+      nullable: false,
+    },
+    draft_text: { type: 'string', required: true, nullable: true },
+    interaction_updated_at_utc: {
+      type: 'string',
+      format: 'date-time',
+      required: true,
+      nullable: false,
+    },
+  }),
+  InboxReplyResponse: defineObjectWireShape<InboxReplyResponse>(false)({
+    source_message_id: {
+      type: 'string',
+      format: 'uuid',
+      required: true,
+      nullable: false,
+    },
+    message_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    type: {
+      type: 'reference',
+      schema: 'InboxMessageType',
+      required: true,
+      nullable: false,
+    },
+    from_position_id: { type: 'string', required: true, nullable: false },
+    to_position_id: { type: 'string', required: true, nullable: false },
+    thread_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    directive_id: { type: 'string', format: 'uuid', required: true, nullable: true },
+  }),
+  InboxDecisionResponse: defineObjectWireShape<InboxDecisionResponse>(false)({
+    request_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    message_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+    approved: { type: 'boolean', required: true, nullable: false },
+    reason: { type: 'string', required: true, nullable: true },
+    from_position_id: { type: 'string', required: true, nullable: false },
+    to_position_id: { type: 'string', required: true, nullable: false },
+    thread_id: { type: 'string', format: 'uuid', required: true, nullable: false },
+  }),
+  // Request bodies, unlike the snapshot responses above, are genuinely partial:
+  // an omitted property and a null one mean different things to the API.
+  InboxDraftRequest: defineObjectWireShape<InboxDraftRequest>(false)({
+    body: { type: 'string', required: false, nullable: true },
+  }),
+  InboxReplyRequest: defineObjectWireShape<InboxReplyRequest>(false)({
+    body: { type: 'string', required: false, nullable: true },
+    report_kind: { type: 'string', required: false, nullable: true },
+  }),
+  InboxDecisionRequest: defineObjectWireShape<InboxDecisionRequest>(false)({
+    approved: { type: 'boolean', required: false, nullable: true },
+    reason: { type: 'string', required: false, nullable: true },
+  }),
   ProblemDetails: defineObjectWireShape<
     Pick<ProblemDetails, 'type' | 'title' | 'status' | 'detail' | 'instance'>
   >(true)({
@@ -314,8 +598,45 @@ const operationalStates: readonly PositionOperationalState[] = [
   'Idle',
 ];
 
+const inboxMessageTypes: readonly InboxMessageType[] = [
+  'Directive',
+  'Report',
+  'Escalation',
+  'Memo',
+  'PeerRequest',
+  'PeerResponse',
+  'ApprovalRequest',
+  'ApprovalDecision',
+];
+const inboxMessageEndpointTypes: readonly InboxMessageEndpointType[] = [
+  'Position',
+  'OrganizationOwner',
+];
+const inboxPriorities: readonly InboxPriority[] = ['Low', 'Normal', 'High', 'Critical'];
+const inboxReadStates: readonly InboxReadState[] = ['Unread', 'Read'];
+const inboxResponseStates: readonly InboxResponseState[] = [
+  'NotApplicable',
+  'AwaitingResponse',
+  'InProgress',
+  'Responded',
+];
+const inboxApprovalStates: readonly InboxApprovalState[] = [
+  'Pending',
+  'Approved',
+  'Rejected',
+  'Expired',
+];
+const inboxReminderStates: readonly InboxReminderState[] = ['None', 'Sent'];
+
 /** Enum schemas keyed by their OpenAPI component name, in declaration order. */
 export const enumWireShape = {
   OrganizationOccupantType: occupantTypes,
   PositionOperationalState: operationalStates,
+  InboxMessageType: inboxMessageTypes,
+  InboxMessageEndpointType: inboxMessageEndpointTypes,
+  InboxPriority: inboxPriorities,
+  InboxReadState: inboxReadStates,
+  InboxResponseState: inboxResponseStates,
+  InboxApprovalState: inboxApprovalStates,
+  InboxReminderState: inboxReminderStates,
 } as const satisfies Record<string, readonly string[]>;

@@ -7,6 +7,19 @@
  */
 
 import type {
+  InboxDecisionRequest,
+  InboxDecisionResponse,
+  InboxDraftRequest,
+  InboxEmissionError,
+  InboxInteractionResponse,
+  InboxItemResponse,
+  InboxMessageType,
+  InboxPage,
+  InboxPriority,
+  InboxReadState,
+  InboxReplyRequest,
+  InboxReplyResponse,
+  InboxResponseState,
   OrganogramResponse,
   PositionDetailResponse,
   PositionStatesResponse,
@@ -24,6 +37,14 @@ export const PUBLIC_API_ROUTE_TEMPLATES = [
   '/api/v1/organizations/{organizationId}/units/{unitId}/organogram',
   '/api/v1/organizations/{organizationId}/positions/{positionId}',
   '/api/v1/organizations/{organizationId}/position-states',
+  '/api/v1/organizations/{organizationId}/inbox',
+  '/api/v1/organizations/{organizationId}/positions/{positionId}/inbox',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}/read',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}/unread',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}/draft',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}/reply',
+  '/api/v1/organizations/{organizationId}/inbox/{itemId}/decision',
 ] as const;
 
 export type FetchLike = (
@@ -31,6 +52,7 @@ export type FetchLike = (
   init?: {
     method?: string;
     headers?: Record<string, string>;
+    body?: string;
     signal?: AbortSignal | undefined;
   },
 ) => Promise<Response>;
@@ -56,6 +78,30 @@ export interface PositionStatesRequestOptions extends RequestOptions {
 /** Result of a position-state poll, discriminated by server-side change. */
 export type PositionStatesResult =
   | { readonly status: 'modified'; readonly etag: string | null; readonly snapshot: PositionStatesResponse }
+  | { readonly status: 'not-modified'; readonly etag: string | null };
+
+/** Server-side inbox filters. Everything the API cannot filter is not filtered. */
+export interface InboxQuery {
+  readonly type?: InboxMessageType;
+  readonly readState?: InboxReadState;
+  readonly responseState?: InboxResponseState;
+  readonly priority?: InboxPriority;
+  readonly deadlineFromUtc?: string;
+  readonly deadlineToUtc?: string;
+  readonly approvalPending?: boolean;
+  readonly pageSize?: number;
+  /** Opaque `next_cursor` of the previous page. */
+  readonly cursor?: string;
+}
+
+export interface InboxRequestOptions extends RequestOptions {
+  /** Last `ETag` observed, sent as `If-None-Match` for controlled polling. */
+  readonly ifNoneMatch?: string | null;
+}
+
+/** A conditional inbox read, discriminated by server-side change. */
+export type ConditionalResult<T> =
+  | { readonly status: 'modified'; readonly etag: string | null; readonly snapshot: T }
   | { readonly status: 'not-modified'; readonly etag: string | null };
 
 /** Any non-success response from the public API. */
@@ -90,6 +136,16 @@ export class HiveApiError extends Error {
   get isReadModelUnavailable(): boolean {
     return this.status === 503;
   }
+
+  /**
+   * Structured rejections from the governance validator, when the failure is a
+   * rejected emission rather than a malformed request. The console reports them;
+   * it never re-implements the rules that produced them.
+   */
+  get emissionErrors(): readonly InboxEmissionError[] {
+    const errors = this.problem?.['errors'];
+    return Array.isArray(errors) ? (errors as InboxEmissionError[]) : [];
+  }
 }
 
 export interface HiveApiClient {
@@ -109,6 +165,53 @@ export interface HiveApiClient {
     organizationId: string,
     options?: PositionStatesRequestOptions,
   ): Promise<PositionStatesResult>;
+  listInbox(
+    organizationId: string,
+    query?: InboxQuery,
+    options?: InboxRequestOptions,
+  ): Promise<ConditionalResult<InboxPage>>;
+  listPositionInbox(
+    organizationId: string,
+    positionId: string,
+    query?: InboxQuery,
+    options?: InboxRequestOptions,
+  ): Promise<ConditionalResult<InboxPage>>;
+  getInboxItem(
+    organizationId: string,
+    itemId: string,
+    options?: InboxRequestOptions,
+  ): Promise<ConditionalResult<InboxItemResponse>>;
+  /** Person-scoped read state. Emits no organizational message. */
+  setInboxItemRead(
+    organizationId: string,
+    itemId: string,
+    read: boolean,
+    options?: RequestOptions,
+  ): Promise<InboxInteractionResponse>;
+  /**
+   * Starts (`null`), replaces (text) or clears (`''`) the single draft this
+   * principal holds for the item. Emits no organizational message.
+   */
+  saveInboxItemDraft(
+    organizationId: string,
+    itemId: string,
+    body: string | null,
+    options?: RequestOptions,
+  ): Promise<InboxInteractionResponse>;
+  /** Asks the occupied position to emit the correlated canonical response. */
+  replyToInboxItem(
+    organizationId: string,
+    itemId: string,
+    request: InboxReplyRequest,
+    options?: RequestOptions,
+  ): Promise<InboxReplyResponse>;
+  /** Asks the occupied position to emit a correlated `ApprovalDecision`. */
+  decideInboxApproval(
+    organizationId: string,
+    itemId: string,
+    request: InboxDecisionRequest,
+    options?: RequestOptions,
+  ): Promise<InboxDecisionResponse>;
 }
 
 export function createHiveApiClient(options: HiveApiClientOptions): HiveApiClient {
@@ -124,11 +227,18 @@ export function createHiveApiClient(options: HiveApiClientOptions): HiveApiClien
     path: string,
     headers: Record<string, string>,
     signal: AbortSignal | undefined,
+    body?: { readonly payload: unknown },
   ): Promise<{ response: Response; url: string }> {
     const url = `${baseUrl}${path}`;
     const response = await fetchImpl(url, {
-      method: 'GET',
-      headers: { accept: 'application/json', authorization: await authorizationHeader(), ...headers },
+      method: body === undefined ? 'GET' : 'POST',
+      headers: {
+        accept: 'application/json',
+        authorization: await authorizationHeader(),
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+        ...headers,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body.payload) }),
       signal,
     });
     return { response, url };
@@ -141,6 +251,40 @@ export function createHiveApiClient(options: HiveApiClientOptions): HiveApiClien
     }
 
     return (await response.json()) as T;
+  }
+
+  async function postJson<T>(
+    path: string,
+    payload: unknown,
+    options?: RequestOptions,
+  ): Promise<T> {
+    const { response, url } = await send(path, {}, options?.signal, { payload });
+    if (!response.ok) {
+      throw new HiveApiError(response.status, await readProblemDetails(response), url);
+    }
+
+    return (await response.json()) as T;
+  }
+
+  /** Shared shape of the three conditionally polled GET endpoints. */
+  async function getConditional<T>(
+    path: string,
+    options?: InboxRequestOptions,
+  ): Promise<ConditionalResult<T>> {
+    const conditional: Record<string, string> = options?.ifNoneMatch
+      ? { 'if-none-match': options.ifNoneMatch }
+      : {};
+    const { response, url } = await send(path, conditional, options?.signal);
+    const etag = response.headers.get('etag');
+    if (response.status === 304) {
+      return { status: 'not-modified', etag: etag ?? options?.ifNoneMatch ?? null };
+    }
+
+    if (!response.ok) {
+      throw new HiveApiError(response.status, await readProblemDetails(response), url);
+    }
+
+    return { status: 'modified', etag, snapshot: (await response.json()) as T };
   }
 
   return {
@@ -187,6 +331,56 @@ export function createHiveApiClient(options: HiveApiClientOptions): HiveApiClien
         snapshot: (await response.json()) as PositionStatesResponse,
       };
     },
+    listInbox(organizationId, query, requestOptions) {
+      return getConditional<InboxPage>(
+        `${organizationPath(organizationId)}/inbox${inboxQueryString(query)}`,
+        requestOptions,
+      );
+    },
+    listPositionInbox(organizationId, positionId, query, requestOptions) {
+      return getConditional<InboxPage>(
+        `${organizationPath(organizationId)}/positions/${segment(positionId)}/inbox${inboxQueryString(
+          query,
+        )}`,
+        requestOptions,
+      );
+    },
+    getInboxItem(organizationId, itemId, requestOptions) {
+      return getConditional<InboxItemResponse>(
+        inboxItemPath(organizationId, itemId),
+        requestOptions,
+      );
+    },
+    setInboxItemRead(organizationId, itemId, read, requestOptions) {
+      return postJson<InboxInteractionResponse>(
+        `${inboxItemPath(organizationId, itemId)}/${read ? 'read' : 'unread'}`,
+        // These actions carry no input; the API still expects a JSON body.
+        {},
+        requestOptions,
+      );
+    },
+    saveInboxItemDraft(organizationId, itemId, body, requestOptions) {
+      const request: InboxDraftRequest = { body };
+      return postJson<InboxInteractionResponse>(
+        `${inboxItemPath(organizationId, itemId)}/draft`,
+        request,
+        requestOptions,
+      );
+    },
+    replyToInboxItem(organizationId, itemId, request, requestOptions) {
+      return postJson<InboxReplyResponse>(
+        `${inboxItemPath(organizationId, itemId)}/reply`,
+        request,
+        requestOptions,
+      );
+    },
+    decideInboxApproval(organizationId, itemId, request, requestOptions) {
+      return postJson<InboxDecisionResponse>(
+        `${inboxItemPath(organizationId, itemId)}/decision`,
+        request,
+        requestOptions,
+      );
+    },
   };
 }
 
@@ -200,11 +394,50 @@ const ambientFetch: FetchLike = (input, init) => {
     requestInit.headers = init.headers;
   }
 
+  if (init?.body !== undefined) {
+    requestInit.body = init.body;
+  }
+
   return globalThis.fetch(input, requestInit);
 };
 
 function organizationPath(organizationId: string): string {
   return `${PUBLIC_API_BASE_PATH}/organizations/${segment(organizationId)}`;
+}
+
+function inboxItemPath(organizationId: string, itemId: string): string {
+  return `${organizationPath(organizationId)}/inbox/${segment(itemId)}`;
+}
+
+/**
+ * Serializes the server-side inbox filters. Undefined means «not filtered» and
+ * is left off the wire entirely, so an unset filter never turns into a value the
+ * API would have to interpret.
+ */
+function inboxQueryString(query: InboxQuery | undefined): string {
+  if (query === undefined) {
+    return '';
+  }
+
+  const parameters = new URLSearchParams();
+  const append = (name: string, value: string | number | boolean | undefined): void => {
+    if (value !== undefined) {
+      parameters.append(name, String(value));
+    }
+  };
+
+  append('type', query.type);
+  append('read_state', query.readState);
+  append('response_state', query.responseState);
+  append('priority', query.priority);
+  append('deadline_from_utc', query.deadlineFromUtc);
+  append('deadline_to_utc', query.deadlineToUtc);
+  append('approval_pending', query.approvalPending);
+  append('page_size', query.pageSize);
+  append('cursor', query.cursor);
+
+  const serialized = parameters.toString();
+  return serialized.length === 0 ? '' : `?${serialized}`;
 }
 
 function segment(value: string): string {

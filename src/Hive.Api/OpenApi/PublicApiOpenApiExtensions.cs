@@ -1,4 +1,6 @@
+using System.Globalization;
 using Hive.Api.Authorization;
+using Hive.Contracts.Inbox;
 using Hive.Contracts.Organization;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
@@ -81,6 +83,14 @@ internal sealed class OrganizationPublicContractSchemaFilter : ISchemaFilter
         typeof(OrganogramResponse),
         typeof(PositionDetailResponse),
         typeof(PositionStatesResponse),
+        typeof(InboxMessageEndpoint),
+        typeof(InboxApprovalMetadata),
+        typeof(InboxItem),
+        typeof(InboxItemResponse),
+        typeof(InboxPage),
+        typeof(InboxInteractionResponse),
+        typeof(InboxReplyResponse),
+        typeof(InboxDecisionResponse),
     ];
 
     public void Apply(OpenApiSchema schema, SchemaFilterContext context)
@@ -126,11 +136,17 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
         DescribeResponses(operation, relativePath);
         DescribeAuthorization(operation);
 
-        if (relativePath.EndsWith(
-                "/position-states",
-                StringComparison.Ordinal))
+        // Every endpoint that answers 304 is polled conditionally, so the ETag
+        // contract is documented from the declared responses rather than from a
+        // list of routes that a new endpoint would silently fall outside of.
+        if (operation.Responses.ContainsKey(
+                StatusCodes.Status304NotModified.ToString(CultureInfo.InvariantCulture)))
         {
-            DescribeConditionalPolling(operation);
+            DescribeConditionalPolling(
+                operation,
+                relativePath.EndsWith("/position-states", StringComparison.Ordinal)
+                    ? "position-state"
+                    : "inbox");
         }
     }
 
@@ -143,6 +159,7 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
                 "organizationId" => "Stable organization identifier from the published registry.",
                 "unitId" => "Stable unit identifier scoped to the organization.",
                 "positionId" => "Stable position identifier scoped to the organization.",
+                "itemId" => "Stable inbox item identifier scoped to the authenticated person.",
                 _ => parameter.Description,
             };
         }
@@ -163,11 +180,13 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
         SetResponseDescription(
             operation,
             StatusCodes.Status404NotFound,
-            relativePath.Contains("/units/", StringComparison.Ordinal)
-                ? "The organization or unit was not found. Returns RFC 7807 Problem Details."
-                : relativePath.Contains("/positions/", StringComparison.Ordinal)
-                    ? "The organization or position was not found. Returns RFC 7807 Problem Details."
-                    : "The organization was not found. Returns RFC 7807 Problem Details.");
+            relativePath.Contains("/inbox/", StringComparison.Ordinal)
+                ? "The organization or inbox item was not found. Returns RFC 7807 Problem Details."
+                : relativePath.Contains("/units/", StringComparison.Ordinal)
+                    ? "The organization or unit was not found. Returns RFC 7807 Problem Details."
+                    : relativePath.Contains("/positions/", StringComparison.Ordinal)
+                        ? "The organization or position was not found. Returns RFC 7807 Problem Details."
+                        : "The organization was not found. Returns RFC 7807 Problem Details.");
         SetResponseDescription(
             operation,
             StatusCodes.Status503ServiceUnavailable,
@@ -190,7 +209,9 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
             });
     }
 
-    private static void DescribeConditionalPolling(OpenApiOperation operation)
+    private static void DescribeConditionalPolling(
+        OpenApiOperation operation,
+        string snapshotLabel)
     {
         operation.Parameters.Add(
             new OpenApiParameter
@@ -198,27 +219,27 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
                 Name = "If-None-Match",
                 In = ParameterLocation.Header,
                 Required = false,
-                Description = "Weak ETag returned by an earlier position-state snapshot.",
+                Description = $"Weak ETag returned by an earlier {snapshotLabel} snapshot.",
                 Schema = new OpenApiSchema { Type = "string" },
             });
 
-        AddEntityTagHeader(operation, StatusCodes.Status200OK);
-        AddEntityTagHeader(operation, StatusCodes.Status304NotModified);
+        AddEntityTagHeader(operation, StatusCodes.Status200OK, snapshotLabel);
+        AddEntityTagHeader(operation, StatusCodes.Status304NotModified, snapshotLabel);
         SetResponseDescription(
             operation,
             StatusCodes.Status304NotModified,
-            "The position-state snapshot still matches If-None-Match; the response has no body.");
+            $"The {snapshotLabel} snapshot still matches If-None-Match; the response has no body.");
     }
 
     private static void AddEntityTagHeader(
         OpenApiOperation operation,
-        int statusCode)
+        int statusCode,
+        string snapshotLabel)
     {
-        var response = operation.Responses[statusCode.ToString(
-            System.Globalization.CultureInfo.InvariantCulture)];
+        var response = operation.Responses[statusCode.ToString(CultureInfo.InvariantCulture)];
         response.Headers["ETag"] = new OpenApiHeader
         {
-            Description = "Weak validator for the complete position-state snapshot.",
+            Description = $"Weak validator for the complete {snapshotLabel} snapshot.",
             Schema = new OpenApiSchema { Type = "string" },
         };
     }
@@ -228,7 +249,7 @@ internal sealed class OrganizationOpenApiOperationFilter : IOperationFilter
         int statusCode,
         string description)
     {
-        var key = statusCode.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var key = statusCode.ToString(CultureInfo.InvariantCulture);
         if (operation.Responses.TryGetValue(key, out var response))
         {
             response.Description = description;

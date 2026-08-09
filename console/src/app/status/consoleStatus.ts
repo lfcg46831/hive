@@ -43,7 +43,9 @@ export interface ConsoleNotice {
     | 'polling'
     | 'registry-updating'
     | 'stale'
-    | 'update-failed';
+    | 'update-failed'
+    | 'inbox-pending-update'
+    | 'inbox-missed-notifications';
   readonly severity: NoticeSeverity;
   readonly message: string;
   /** True when a manual snapshot refetch is a sensible reaction. */
@@ -98,7 +100,12 @@ const STALE_POLL_INTERVALS = 3;
 const MIN_STALE_AFTER_MS = 15_000;
 
 export function deriveConsoleStatus(input: ConsoleStatusInput): ConsoleStatus {
-  const freshness = deriveFreshness(input);
+  const freshness = deriveFreshness(
+    input.channel,
+    input.lastSyncedAtUtc,
+    input.pollIntervalMs,
+    input.nowMs,
+  );
   const stage = deriveStage(input);
 
   return {
@@ -119,11 +126,17 @@ export function isEmptySnapshot(snapshot: OrganogramResponse): boolean {
   return snapshot.units.length === 0 && snapshot.positions.length === 0;
 }
 
+/** Which view is reporting the failure, so the wording names the right thing. */
+export type FailureSubject = 'organogram' | 'inbox';
+
 /** Turns an API failure into something a reader can act on. */
-export function describeFailure(error: Error | null): ConsoleFailure {
+export function describeFailure(
+  error: Error | null,
+  subject: FailureSubject = 'organogram',
+): ConsoleFailure {
   if (error === null) {
     return {
-      title: 'The organogram could not be loaded',
+      title: `The ${subject} could not be loaded`,
       detail: 'The API did not return a snapshot.',
       retryable: true,
     };
@@ -134,29 +147,46 @@ export function describeFailure(error: Error | null): ConsoleFailure {
       return {
         title: 'The credential was rejected',
         detail:
-          'The configured read-only token is unknown to the API. Check the console configuration before retrying.',
+          'The configured token is unknown to the API. Check the console configuration before retrying.',
         retryable: false,
       };
     }
 
     if (error.isNotFound) {
       // The API answers alike for absent and out-of-scope organizations, so the
-      // console must not imply which of the two happened.
-      return {
-        title: 'No organization is visible to this credential',
-        detail:
-          'The configured organization is either unknown or outside the scope of this credential.',
-        retryable: false,
-      };
+      // console must not imply which of the two happened. The inbox adds a third
+      // cause that is not a disclosure at all — a credential with no person bound
+      // to it — and naming it is the difference between an operator fixing their
+      // configuration and hunting a registry problem that does not exist.
+      return subject === 'inbox'
+        ? {
+            title: 'No inbox is visible to this credential',
+            detail:
+              'An inbox needs both an organization in scope and a person bound to the credential. Either the organization is unknown or outside this credential’s scope, or the credential has no person binding — if the organogram loads with the same token, the person binding is what is missing.',
+            retryable: false,
+          }
+        : {
+            title: 'No organization is visible to this credential',
+            detail:
+              'The configured organization is either unknown or outside the scope of this credential.',
+            retryable: false,
+          };
     }
 
     if (error.isReadModelUnavailable) {
-      return {
-        title: 'The organogram read model is not ready',
-        detail:
-          'The registry snapshot has not been materialized yet. This resolves on its own once the import completes.',
-        retryable: true,
-      };
+      return subject === 'inbox'
+        ? {
+            title: 'The inbox read model is not ready',
+            detail:
+              'The projection has not materialized yet. This resolves on its own once it catches up.',
+            retryable: true,
+          }
+        : {
+            title: 'The organogram read model is not ready',
+            detail:
+              'The registry snapshot has not been materialized yet. This resolves on its own once the import completes.',
+            retryable: true,
+          };
     }
 
     return {
@@ -183,24 +213,34 @@ function deriveStage(input: ConsoleStatusInput): ConsoleStage {
   return input.phase === 'failed' ? 'failed' : 'loading';
 }
 
-function deriveFreshness(input: ConsoleStatusInput): ConsoleFreshness {
-  if (input.lastSyncedAtUtc === null) {
+/**
+ * How current the displayed data is, given how it is being kept up to date.
+ * Shared by every view over the same transport, so «live» means the same thing
+ * in the organogram and in the inbox.
+ */
+export function deriveFreshness(
+  channel: UpdateChannel,
+  lastSyncedAtUtc: string | null,
+  pollIntervalMs: number,
+  nowMs: number,
+): ConsoleFreshness {
+  if (lastSyncedAtUtc === null) {
     return { level: 'unknown', label: 'Freshness unknown', ageMs: null };
   }
 
-  const syncedAtMs = Date.parse(input.lastSyncedAtUtc);
+  const syncedAtMs = Date.parse(lastSyncedAtUtc);
   if (Number.isNaN(syncedAtMs)) {
     return { level: 'unknown', label: 'Freshness unknown', ageMs: null };
   }
 
-  const ageMs = Math.max(0, input.nowMs - syncedAtMs);
-  if (input.channel === 'live') {
+  const ageMs = Math.max(0, nowMs - syncedAtMs);
+  if (channel === 'live') {
     // An established subscription would have delivered a change, so silence is
     // evidence of an unchanged organization rather than of a stalled view.
     return { level: 'live', label: 'Up to date', ageMs };
   }
 
-  const staleAfterMs = Math.max(MIN_STALE_AFTER_MS, input.pollIntervalMs * STALE_POLL_INTERVALS);
+  const staleAfterMs = Math.max(MIN_STALE_AFTER_MS, pollIntervalMs * STALE_POLL_INTERVALS);
   return ageMs > staleAfterMs
     ? { level: 'stale', label: `Possibly out of date · ${formatAge(ageMs)} without an update`, ageMs }
     : { level: 'delayed', label: `Updated ${formatAge(ageMs)} ago`, ageMs };
@@ -278,7 +318,8 @@ function deriveNotices(
   return notices;
 }
 
-function formatAge(ageMs: number): string {
+/** Compact age of a timestamp, shared so every view says «2m» the same way. */
+export function formatAge(ageMs: number): string {
   const seconds = Math.round(ageMs / 1_000);
   if (seconds < 60) {
     return `${seconds}s`;
@@ -292,7 +333,7 @@ function formatAge(ageMs: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 }
 
-function formatSeconds(intervalMs: number): string {
+export function formatSeconds(intervalMs: number): string {
   const seconds = intervalMs / 1_000;
   return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
 }

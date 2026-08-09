@@ -122,7 +122,11 @@ function expectPropertySchema(
     return;
   }
 
-  expect(actual?.format, `${location} format changed`).toBe(expected.format);
+  // Booleans carry no format, so the mirror declares none and the document must
+  // agree rather than the check quietly skipping the comparison.
+  expect(actual?.format, `${location} format changed`).toBe(
+    'format' in expected ? expected.format : undefined,
+  );
 }
 
 function expectArrayItemSchema(

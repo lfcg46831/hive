@@ -31,15 +31,22 @@ internal sealed class InboxProjectionWorker
         var checkpoint = await _feed.ReadCheckpointAsync(
             InboxProjectionSubscription.PositionJournal,
             cancellationToken);
-        var events = await _journal.ReadBatchAsync(checkpoint, BatchSize, cancellationToken);
+        var batch = await _journal.ReadBatchAsync(checkpoint, BatchSize, cancellationToken);
         var captured = 0;
-        foreach (var item in events.OrderBy(item => item.Offset))
+        foreach (var item in batch.Events.OrderBy(item => item.Offset))
         {
             var facts = Facts(item);
             if (await _feed.CapturePositionJournalAsync(item.Offset, facts, cancellationToken))
             {
                 captured++;
             }
+        }
+
+        if (batch.LastObservedOffset > checkpoint)
+        {
+            await _feed.AdvancePositionJournalCheckpointAsync(
+                batch.LastObservedOffset,
+                cancellationToken);
         }
 
         return captured;

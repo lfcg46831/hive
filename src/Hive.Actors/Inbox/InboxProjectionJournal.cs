@@ -11,11 +11,15 @@ namespace Hive.Actors.Inbox;
 
 internal interface IInboxProjectionJournal
 {
-    Task<IReadOnlyList<InboxProjectionJournalEvent>> ReadBatchAsync(
+    Task<InboxProjectionJournalBatch> ReadBatchAsync(
         long afterOffset,
         int batchSize,
         CancellationToken cancellationToken);
 }
+
+internal sealed record InboxProjectionJournalBatch(
+    long LastObservedOffset,
+    IReadOnlyList<InboxProjectionJournalEvent> Events);
 
 internal sealed record InboxProjectionJournalEvent
 {
@@ -75,7 +79,7 @@ internal sealed class AkkaInboxProjectionJournal : IInboxProjectionJournal, IDis
         _actorSystem = actorSystem ?? throw new ArgumentNullException(nameof(actorSystem));
     }
 
-    public async Task<IReadOnlyList<InboxProjectionJournalEvent>> ReadBatchAsync(
+    public async Task<InboxProjectionJournalBatch> ReadBatchAsync(
         long afterOffset,
         int batchSize,
         CancellationToken cancellationToken)
@@ -104,7 +108,7 @@ internal sealed class AkkaInboxProjectionJournal : IInboxProjectionJournal, IDis
             .RunWith(Sink.Seq<EventEnvelope>(), _materializer!)
             .WaitAsync(cancellationToken);
 
-        return envelopes.Select(Map).ToArray();
+        return MapBatch(afterOffset, envelopes);
     }
 
     public void Dispose()
@@ -129,33 +133,44 @@ internal sealed class AkkaInboxProjectionJournal : IInboxProjectionJournal, IDis
             namePrefix: "inbox-projection");
     }
 
-    private static InboxProjectionJournalEvent Map(EventEnvelope envelope)
+    internal static InboxProjectionJournalBatch MapBatch(
+        long afterOffset,
+        IEnumerable<EventEnvelope> envelopes)
     {
-        if (envelope.Offset is not Sequence sequence || sequence.Value <= 0)
+        var lastObservedOffset = afterOffset;
+        var events = new List<InboxProjectionJournalEvent>();
+        foreach (var envelope in envelopes)
         {
-            throw new InvalidOperationException(
-                $"Inbox journal event '{envelope.PersistenceId}' has no positive sequence offset.");
+            if (envelope.Offset is not Sequence sequence || sequence.Value <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Inbox journal event '{envelope.PersistenceId}' has no positive sequence offset.");
+            }
+
+            lastObservedOffset = Math.Max(lastObservedOffset, sequence.Value);
+            if (!envelope.PersistenceId.StartsWith(
+                    PositionActor.PersistenceIdPrefix,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (envelope.Event is not PositionEvent positionEvent)
+            {
+                throw new InvalidOperationException(
+                    $"Inbox journal entry '{envelope.PersistenceId}/{envelope.SequenceNr}' is not a PositionEvent.");
+            }
+
+            var entityId = PositionEntityId.Parse(
+                envelope.PersistenceId[PositionActor.PersistenceIdPrefix.Length..]);
+            events.Add(new InboxProjectionJournalEvent(
+                sequence.Value,
+                envelope.PersistenceId,
+                envelope.SequenceNr,
+                entityId,
+                positionEvent));
         }
 
-        if (!envelope.PersistenceId.StartsWith(PositionActor.PersistenceIdPrefix, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Persistence id '{envelope.PersistenceId}' does not belong to a PositionActor.");
-        }
-
-        if (envelope.Event is not PositionEvent positionEvent)
-        {
-            throw new InvalidOperationException(
-                $"Inbox journal entry '{envelope.PersistenceId}/{envelope.SequenceNr}' is not a PositionEvent.");
-        }
-
-        var entityId = PositionEntityId.Parse(
-            envelope.PersistenceId[PositionActor.PersistenceIdPrefix.Length..]);
-        return new InboxProjectionJournalEvent(
-            sequence.Value,
-            envelope.PersistenceId,
-            envelope.SequenceNr,
-            entityId,
-            positionEvent);
+        return new InboxProjectionJournalBatch(lastObservedOffset, events);
     }
 }

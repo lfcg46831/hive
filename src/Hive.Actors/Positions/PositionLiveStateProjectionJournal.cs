@@ -10,11 +10,15 @@ namespace Hive.Actors.Positions;
 
 internal interface IPositionLiveStateProjectionJournal
 {
-    Task<IReadOnlyList<PositionLiveStateProjectionJournalEvent>> ReadBatchAsync(
+    Task<PositionLiveStateProjectionJournalBatch> ReadBatchAsync(
         long afterOffset,
         int batchSize,
         CancellationToken cancellationToken);
 }
+
+internal sealed record PositionLiveStateProjectionJournalBatch(
+    long LastObservedOffset,
+    IReadOnlyList<PositionLiveStateProjectionJournalEvent> Events);
 
 internal sealed record PositionLiveStateProjectionJournalEvent
 {
@@ -76,7 +80,7 @@ internal sealed class AkkaPositionLiveStateProjectionJournal :
         _actorSystem = actorSystem ?? throw new ArgumentNullException(nameof(actorSystem));
     }
 
-    public async Task<IReadOnlyList<PositionLiveStateProjectionJournalEvent>> ReadBatchAsync(
+    public async Task<PositionLiveStateProjectionJournalBatch> ReadBatchAsync(
         long afterOffset,
         int batchSize,
         CancellationToken cancellationToken)
@@ -105,7 +109,7 @@ internal sealed class AkkaPositionLiveStateProjectionJournal :
             .RunWith(Sink.Seq<EventEnvelope>(), _materializer!)
             .WaitAsync(cancellationToken);
 
-        return envelopes.Select(Map).ToArray();
+        return MapBatch(afterOffset, envelopes);
     }
 
     public void Dispose()
@@ -130,33 +134,44 @@ internal sealed class AkkaPositionLiveStateProjectionJournal :
             namePrefix: "position-live-state-projection");
     }
 
-    private static PositionLiveStateProjectionJournalEvent Map(EventEnvelope envelope)
+    internal static PositionLiveStateProjectionJournalBatch MapBatch(
+        long afterOffset,
+        IEnumerable<EventEnvelope> envelopes)
     {
-        if (envelope.Offset is not Sequence sequence || sequence.Value <= 0)
+        var lastObservedOffset = afterOffset;
+        var events = new List<PositionLiveStateProjectionJournalEvent>();
+        foreach (var envelope in envelopes)
         {
-            throw new InvalidOperationException(
-                $"Position journal event '{envelope.PersistenceId}' has no positive sequence offset.");
+            if (envelope.Offset is not Sequence sequence || sequence.Value <= 0)
+            {
+                throw new InvalidOperationException(
+                    $"Position journal event '{envelope.PersistenceId}' has no positive sequence offset.");
+            }
+
+            lastObservedOffset = Math.Max(lastObservedOffset, sequence.Value);
+            if (!envelope.PersistenceId.StartsWith(
+                    PositionActor.PersistenceIdPrefix,
+                    StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (envelope.Event is not PositionEvent positionEvent)
+            {
+                throw new InvalidOperationException(
+                    $"Position journal entry '{envelope.PersistenceId}/{envelope.SequenceNr}' is not a PositionEvent.");
+            }
+
+            var entityId = PositionEntityId.Parse(
+                envelope.PersistenceId[PositionActor.PersistenceIdPrefix.Length..]);
+            events.Add(new PositionLiveStateProjectionJournalEvent(
+                sequence.Value,
+                envelope.PersistenceId,
+                envelope.SequenceNr,
+                entityId,
+                positionEvent));
         }
 
-        if (!envelope.PersistenceId.StartsWith(PositionActor.PersistenceIdPrefix, StringComparison.Ordinal))
-        {
-            throw new InvalidOperationException(
-                $"Persistence id '{envelope.PersistenceId}' does not belong to a PositionActor.");
-        }
-
-        if (envelope.Event is not PositionEvent positionEvent)
-        {
-            throw new InvalidOperationException(
-                $"Position journal entry '{envelope.PersistenceId}/{envelope.SequenceNr}' is not a PositionEvent.");
-        }
-
-        var entityId = PositionEntityId.Parse(
-            envelope.PersistenceId[PositionActor.PersistenceIdPrefix.Length..]);
-        return new PositionLiveStateProjectionJournalEvent(
-            sequence.Value,
-            envelope.PersistenceId,
-            envelope.SequenceNr,
-            entityId,
-            positionEvent);
+        return new PositionLiveStateProjectionJournalBatch(lastObservedOffset, events);
     }
 }

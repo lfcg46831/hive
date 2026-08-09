@@ -43,6 +43,7 @@ export interface ConsoleNotice {
     | 'polling'
     | 'registry-updating'
     | 'stale'
+    | 'projection-not-started'
     | 'update-failed'
     | 'inbox-pending-update'
     | 'inbox-missed-notifications';

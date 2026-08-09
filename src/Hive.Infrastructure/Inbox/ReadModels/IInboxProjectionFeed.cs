@@ -13,6 +13,10 @@ public interface IInboxProjectionFeed
         IReadOnlyCollection<InboxProjectionFact> facts,
         CancellationToken cancellationToken = default);
 
+    ValueTask<bool> AdvancePositionJournalCheckpointAsync(
+        long sourceOffset,
+        CancellationToken cancellationToken = default);
+
     ValueTask<int> CaptureAuditLogBatchAsync(
         int batchSize,
         CancellationToken cancellationToken = default);

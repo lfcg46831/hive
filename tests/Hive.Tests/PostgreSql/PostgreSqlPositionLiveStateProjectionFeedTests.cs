@@ -43,6 +43,34 @@ public sealed class PostgreSqlPositionLiveStateProjectionFeedTests(PostgreSqlFix
     }
 
     [Fact]
+    public async Task Ignored_position_journal_offsets_advance_idempotently_without_facts()
+    {
+        await ResetAndMigrateAsync();
+        await using (var feed = new PostgreSqlPositionLiveStateProjectionFeed(fixture.ConnectionString))
+        {
+            Assert.True(await feed.AdvancePositionJournalCheckpointAsync(5));
+            Assert.False(await feed.AdvancePositionJournalCheckpointAsync(5));
+            await Assert.ThrowsAsync<ArgumentException>(async () =>
+                await feed.CapturePositionJournalAsync(6, []));
+            Assert.True(await feed.CapturePositionJournalAsync(8, PositionFacts(offset: 8)));
+            Assert.True(await feed.AdvancePositionJournalCheckpointAsync(10));
+        }
+
+        await using var restarted = new PostgreSqlPositionLiveStateProjectionFeed(
+            fixture.ConnectionString);
+        Assert.Equal(
+            10,
+            await restarted.ReadCheckpointAsync(
+                PositionLiveStateProjectionSubscription.PositionJournal));
+        Assert.Equal(
+            [
+                ("OrganizationalMessage", 8L, "memo"),
+                ("PositionEvent", 8L, "message-received"),
+            ],
+            await ReadCapturedFactsAsync());
+    }
+
+    [Fact]
     public async Task Failed_fact_insert_rolls_back_the_position_checkpoint()
     {
         await ResetAndMigrateAsync();

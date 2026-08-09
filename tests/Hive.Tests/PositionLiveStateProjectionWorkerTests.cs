@@ -38,28 +38,60 @@ public sealed class PositionLiveStateProjectionWorkerTests
     [Fact]
     public async Task Durable_checkpoint_resumes_after_the_last_captured_journal_offset()
     {
+        var taskId = PositionTaskId.From(
+            Guid.Parse("d6f3218a-b8a0-42b5-9208-a949e94f03db"));
         var events = new[]
         {
             JournalEvent(3, MessageReceived()),
-            JournalEvent(5, new PositionPassivated(OccurredAt.AddMinutes(1), "idle")),
-            JournalEvent(8, new PositionPassivated(OccurredAt.AddMinutes(2), "idle")),
+            JournalEvent(5, new TaskCreated(
+                taskId,
+                ThreadIdValue,
+                "Triage regression",
+                Priority.High,
+                OccurredAt.AddMinutes(1))),
+            JournalEvent(8, new TaskCompleted(
+                taskId,
+                OccurredAt.AddMinutes(2),
+                "Resolved")),
         };
         var feed = new RecordingFeed();
-        var firstJournal = new RecordingJournal(events[..2]);
+        var firstJournal = new RecordingJournal(events[..2], [1, 4, 6]);
         var firstWorker = new PositionLiveStateProjectionWorker(firstJournal, feed);
 
         var firstCaptured = await firstWorker.CapturePositionJournalBatchAsync(CancellationToken.None);
-        var restartedJournal = new RecordingJournal(events);
+        var restartedJournal = new RecordingJournal(events, [1, 4, 6, 9]);
         var restartedWorker = new PositionLiveStateProjectionWorker(restartedJournal, feed);
         var restartedCaptured = await restartedWorker.CapturePositionJournalBatchAsync(
             CancellationToken.None);
+        var applied = await restartedWorker.ApplyProjectionBatchAsync(CancellationToken.None);
 
         Assert.Equal(2, firstCaptured);
         Assert.Equal(1, restartedCaptured);
         Assert.Equal([0], firstJournal.RequestedAfterOffsets);
-        Assert.Equal([5], restartedJournal.RequestedAfterOffsets);
-        Assert.Equal(8, feed.PositionCheckpoint);
+        Assert.Equal([6], restartedJournal.RequestedAfterOffsets);
+        Assert.Equal(9, feed.PositionCheckpoint);
         Assert.Equal([3L, 5L, 8L], feed.CapturedOffsets);
+        Assert.Equal([6L, 9L], feed.AdvancedOffsets);
+        Assert.True(applied > 0);
+        Assert.NotEmpty(feed.ProjectionUpdates);
+        Assert.Equal(OccurredAt.AddMinutes(2), feed.LastEventAppliedAtUtc);
+    }
+
+    [Fact]
+    public async Task Journal_batch_with_only_ignored_events_advances_checkpoint_once()
+    {
+        var feed = new RecordingFeed();
+        var journal = new RecordingJournal([], [1, 2, 3]);
+        var worker = new PositionLiveStateProjectionWorker(journal, feed);
+
+        Assert.Equal(0, await worker.CapturePositionJournalBatchAsync(CancellationToken.None));
+        Assert.Equal(3, feed.PositionCheckpoint);
+        Assert.Equal([3L], feed.AdvancedOffsets);
+
+        var restarted = new PositionLiveStateProjectionWorker(journal, feed);
+        Assert.Equal(0, await restarted.CapturePositionJournalBatchAsync(CancellationToken.None));
+        Assert.Equal([0L, 3L], journal.RequestedAfterOffsets);
+        Assert.Equal([3L], feed.AdvancedOffsets);
     }
 
     [Fact]
@@ -161,24 +193,33 @@ public sealed class PositionLiveStateProjectionWorkerTests
         ThreadId.From(Guid.Parse("8eb80f58-d7ed-4e9e-844e-0e9a176693f8"));
 
     private sealed class RecordingJournal(
-        IReadOnlyCollection<PositionLiveStateProjectionJournalEvent> events)
+        IReadOnlyCollection<PositionLiveStateProjectionJournalEvent> events,
+        IReadOnlyCollection<long>? ignoredOffsets = null)
         : IPositionLiveStateProjectionJournal
     {
         public List<long> RequestedAfterOffsets { get; } = [];
 
-        public Task<IReadOnlyList<PositionLiveStateProjectionJournalEvent>> ReadBatchAsync(
+        public Task<PositionLiveStateProjectionJournalBatch> ReadBatchAsync(
             long afterOffset,
             int batchSize,
             CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             RequestedAfterOffsets.Add(afterOffset);
-            IReadOnlyList<PositionLiveStateProjectionJournalEvent> result = events
-                .Where(item => item.Offset > afterOffset)
-                .OrderBy(item => item.Offset)
+            var observedOffsets = events
+                .Select(item => item.Offset)
+                .Concat(ignoredOffsets ?? [])
+                .Where(offset => offset > afterOffset)
+                .Order()
                 .Take(batchSize)
                 .ToArray();
-            return Task.FromResult(result);
+            IReadOnlyList<PositionLiveStateProjectionJournalEvent> result = events
+                .Where(item => observedOffsets.Contains(item.Offset))
+                .OrderBy(item => item.Offset)
+                .ToArray();
+            return Task.FromResult(new PositionLiveStateProjectionJournalBatch(
+                observedOffsets.LastOrDefault(afterOffset),
+                result));
         }
     }
 
@@ -187,14 +228,16 @@ public sealed class PositionLiveStateProjectionWorkerTests
         IReadOnlyCollection<PositionLiveStateProjectionItem>? projectionFacts = null,
         long initialProjectionSequence = 0) : IPositionLiveStateProjectionFeed
     {
-        private readonly IReadOnlyCollection<PositionLiveStateProjectionItem> _projectionFacts =
-            projectionFacts ?? [];
+        private readonly List<PositionLiveStateProjectionItem> _projectionFacts =
+            projectionFacts?.ToList() ?? [];
 
         public bool IsConfigured => true;
 
         public long PositionCheckpoint { get; private set; }
 
         public List<long> CapturedOffsets { get; } = [];
+
+        public List<long> AdvancedOffsets { get; } = [];
 
         public long ProjectionSequence { get; private set; } = initialProjectionSequence;
 
@@ -240,6 +283,26 @@ public sealed class PositionLiveStateProjectionWorkerTests
 
             PositionCheckpoint = sourceOffset;
             CapturedOffsets.Add(sourceOffset);
+            var sequenceId = _projectionFacts.Count == 0
+                ? 0
+                : _projectionFacts.Max(item => item.SequenceId);
+            _projectionFacts.AddRange(facts.Select(fact =>
+                new PositionLiveStateProjectionItem(++sequenceId, fact)));
+            return ValueTask.FromResult(true);
+        }
+
+        public ValueTask<bool> AdvancePositionJournalCheckpointAsync(
+            long sourceOffset,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (sourceOffset <= PositionCheckpoint)
+            {
+                return ValueTask.FromResult(false);
+            }
+
+            PositionCheckpoint = sourceOffset;
+            AdvancedOffsets.Add(sourceOffset);
             return ValueTask.FromResult(true);
         }
 

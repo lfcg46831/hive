@@ -135,6 +135,44 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
         return true;
     }
 
+    public async ValueTask<bool> AdvancePositionJournalCheckpointAsync(
+        long sourceOffset,
+        CancellationToken cancellationToken = default)
+    {
+        if (sourceOffset <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(sourceOffset),
+                sourceOffset,
+                "Projection source offset must be positive.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        var dataSource = RequireDataSource();
+        await using var connection = await dataSource.OpenConnectionAsync(cancellationToken);
+        await using var transaction = await connection.BeginTransactionAsync(cancellationToken);
+        await LockFactCaptureAsync(connection, transaction, cancellationToken);
+        var current = await LockCheckpointAsync(
+            InboxProjectionSubscription.PositionJournal,
+            connection,
+            transaction,
+            cancellationToken);
+        if (sourceOffset <= current)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return false;
+        }
+
+        await AdvanceCheckpointAsync(
+            InboxProjectionSubscription.PositionJournal,
+            sourceOffset,
+            connection,
+            transaction,
+            cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
+    }
+
     public async ValueTask<int> CaptureAuditLogBatchAsync(
         int batchSize,
         CancellationToken cancellationToken = default)

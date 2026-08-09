@@ -49,7 +49,9 @@ export function InboxView({ config }: { readonly config: ConsoleConfig }) {
     nowMs,
   });
   const projectionMayBeIncomplete =
-    status.freshness.level === 'unknown' || status.freshness.level === 'stale';
+    view.projectionAppliedAtUtc === null ||
+    status.freshness.level === 'unknown' ||
+    status.freshness.level === 'stale';
 
   return (
     <section className="inbox" aria-label="Inbox" data-stage={status.stage}>
@@ -103,7 +105,7 @@ export function InboxView({ config }: { readonly config: ConsoleConfig }) {
               ? 'The projection has not reported a recent applied event, so this empty result is not treated as an organizational fact.'
               : isInboxFilterActive(filter)
               ? 'The filters are applied by the API, so this is the whole matching inbox and not an exhausted page.'
-              : 'Nothing is currently addressed to the positions you occupy. Items appear here as the organization routes them.'}
+              : 'Nothing is currently addressed to the positions you occupy as of the projection watermark shown above. Items appear here as the organization routes them.'}
           </p>
         </div>
       ) : null}

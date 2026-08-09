@@ -46,32 +46,19 @@ export interface InboxStatusInput {
 }
 
 export function deriveInboxStatus(input: InboxStatusInput): InboxStatus {
-  const transportFreshness = deriveFreshness(
+  const freshness = deriveFreshness(
     input.channel,
     input.lastSyncedAtUtc,
     input.pollIntervalMs,
     input.nowMs,
   );
-  const projectionFreshness = deriveFreshness(
-    'polling',
-    input.projectionAppliedAtUtc,
-    input.pollIntervalMs,
-    input.nowMs,
-  );
-  const freshness =
-    projectionFreshness.level === 'unknown' || projectionFreshness.level === 'stale'
-      ? projectionFreshness
-      : transportFreshness;
   const stage = deriveStage(input);
 
   return {
     stage,
     failure: stage === 'failed' ? describeFailure(input.error, 'inbox') : null,
     freshness,
-    notices:
-      stage === 'failed' || stage === 'loading'
-        ? []
-        : deriveNotices(input, freshness, projectionFreshness),
+    notices: stage === 'failed' || stage === 'loading' ? [] : deriveNotices(input, freshness),
   };
 }
 
@@ -88,7 +75,6 @@ function deriveStage(input: InboxStatusInput): InboxStage {
 function deriveNotices(
   input: InboxStatusInput,
   freshness: ConsoleFreshness,
-  projectionFreshness: ConsoleFreshness,
 ): readonly ConsoleNotice[] {
   const notices: ConsoleNotice[] = [];
 
@@ -142,7 +128,10 @@ function deriveNotices(
     });
   }
 
-  if (projectionFreshness.level === 'unknown') {
+  if (
+    input.projectionAppliedAtUtc === null ||
+    Number.isNaN(Date.parse(input.projectionAppliedAtUtc))
+  ) {
     notices.push({
       id: 'projection-not-started',
       severity: 'warning',
@@ -150,16 +139,9 @@ function deriveNotices(
         'The inbox projection has not reported an applied event. An empty result may be incomplete.',
       retryable: true,
     });
-  } else if (projectionFreshness.level === 'stale') {
-    notices.push({
-      id: 'stale',
-      severity: 'warning',
-      message: `The inbox projection has not applied an event for ${formatAge(
-        projectionFreshness.ageMs ?? 0,
-      )}. New items or decisions may not be listed.`,
-      retryable: true,
-    });
-  } else if (freshness.level === 'stale') {
+  }
+
+  if (freshness.level === 'stale') {
     notices.push({
       id: 'stale',
       severity: 'warning',

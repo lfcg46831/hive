@@ -26,19 +26,17 @@ describe('deriveInboxStatus projection staleness', () => {
     const status = deriveInboxStatus(input({ projectionAppliedAtUtc: null }));
 
     expect(status.stage).toBe('empty');
-    expect(status.freshness.level).toBe('unknown');
+    expect(status.freshness.level).toBe('live');
     expect(status.notices.map((notice) => notice.id)).toContain('projection-not-started');
   });
 
-  it('reports an old projection as stale even when the HTTP response and hub are current', () => {
+  it('does not confuse an old event watermark with a stalled projection', () => {
     const status = deriveInboxStatus(
       input({ projectionAppliedAtUtc: '2026-08-09T11:59:40Z' }),
     );
 
-    expect(status.freshness.level).toBe('stale');
-    expect(status.notices.find((notice) => notice.id === 'stale')?.message).toContain(
-      'projection',
-    );
+    expect(status.freshness.level).toBe('live');
+    expect(status.notices).toHaveLength(0);
   });
 
   it('preserves live transport freshness when the projection watermark is recent', () => {
@@ -46,5 +44,17 @@ describe('deriveInboxStatus projection staleness', () => {
 
     expect(status.freshness.level).toBe('live');
     expect(status.notices).toHaveLength(0);
+  });
+
+  it('still reports transport staleness after successful updates stop', () => {
+    const status = deriveInboxStatus(
+      input({
+        channel: 'polling',
+        lastSyncedAtUtc: '2026-08-09T11:59:30Z',
+      }),
+    );
+
+    expect(status.freshness.level).toBe('stale');
+    expect(status.notices.map((notice) => notice.id)).toContain('stale');
   });
 });

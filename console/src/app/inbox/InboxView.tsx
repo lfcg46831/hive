@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ConsoleConfig } from '../../config.js';
 import { formatUtc } from '../format.js';
 import { NoticeList } from '../status/NoticeList.js';
@@ -9,6 +9,7 @@ import { InboxItemDetail } from './InboxItemDetail.js';
 import { InboxList } from './InboxList.js';
 import type { InboxFilter } from './inboxFilter.js';
 import { EMPTY_INBOX_FILTER, isInboxFilterActive } from './inboxFilter.js';
+import { indexOfSelection, resolveInboxSelection } from './inboxSelection.js';
 import { deriveInboxStatus } from './inboxStatus.js';
 import { useInboxItemDetail } from './useInboxItemDetail.js';
 import { useInboxLiveView } from './useInboxLiveView.js';
@@ -30,6 +31,32 @@ export function InboxView({ config }: { readonly config: ConsoleConfig }) {
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const view = useInboxLiveView(config, filter);
   const nowMs = useNowMs(TICK_MS, true);
+
+  // Where the selection sat in the list the reader last saw. Once an item is
+  // gone the list can no longer answer that, and succession would collapse into
+  // "back to the top".
+  const selectedIndexRef = useRef(0);
+
+  // The selection invariant, re-applied to every list the view receives: first
+  // load, filter change, manual refresh, poll and applied realtime update all
+  // arrive here as a new `items`.
+  useEffect(() => {
+    const resolved = resolveInboxSelection({
+      items: view.items,
+      selectedItemId,
+      lastIndex: selectedIndexRef.current,
+    });
+
+    if (resolved !== selectedItemId) {
+      setSelectedItemId(resolved);
+      return;
+    }
+
+    const index = indexOfSelection(view.items, resolved);
+    if (index >= 0) {
+      selectedIndexRef.current = index;
+    }
+  }, [selectedItemId, view.items]);
 
   // A committed action changes what the list shows, so the list refetches; the
   // detail never edits the derived state it was given.

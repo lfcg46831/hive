@@ -906,10 +906,9 @@ public static class OutcomeProposalParser
             return;
         }
 
-        var requiresAuthorityRequest = requiredIntervention is
-            OutcomeRequiredIntervention.HumanApproval or
-            OutcomeRequiredIntervention.SuperiorDecision or
-            OutcomeRequiredIntervention.ExternalAction;
+        var requiresAuthorityRequest =
+            OutcomeRequiredInterventionContract.RequiresExternalIntervention(
+                requiredIntervention.Value);
         if ((requiresAuthorityRequest &&
                 authorityElement.ValueKind is JsonValueKind.Null) ||
             (!requiresAuthorityRequest &&

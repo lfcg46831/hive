@@ -145,6 +145,33 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
     }
 
     [Fact]
+    public async Task Authorized_child_directive_resolves_without_invoking_the_verifier()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var verifier = new StaticVerifier(OutcomeVerifierResult.Unavailable());
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            verifier);
+        var decision = new AiDirectiveChildDirectiveDecision(
+            FollowUpPosition,
+            "Coordinate the operational follow-up.",
+            "Use the bounded directive context.");
+        var input = Input(decision, directSubordinates: [FollowUpPosition]);
+
+        var result = await ResolveAsync(integrator, input);
+
+        Assert.IsType<OrgDirective>(result.ResultMessage!.Message);
+        Assert.Equal(OutcomeKind.Directive, result.Resolution!.Outcome);
+        Assert.Equal([OutcomeResolutionReason.DelegationRequired], result.Resolution.Reasons);
+        Assert.False(result.Resolution.ProposalOverridden);
+        Assert.False(result.Resolution.VerifierInvoked);
+        Assert.Equal(0, verifier.CallCount);
+        Assert.True(result.ActionGateResult!.IsAllowed);
+        Assert.True(result.RoutingGateResult!.IsAllowed);
+    }
+
+    [Fact]
     public async Task Enforcement_materializes_fail_safe_escalation_before_final_gates()
     {
         var actingUnder = ActingUnderDeclaration.Declared(
@@ -956,12 +983,14 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         AiDirectiveDecision decision,
         DateTimeOffset? deadline = null,
         bool withoutDeadline = false,
-        TimeSpan? executionTimeout = null)
+        TimeSpan? executionTimeout = null,
+        IEnumerable<PositionId>? directSubordinates = null)
     {
         var request = Request(
             deadline,
             withoutDeadline,
-            executionTimeout: executionTimeout);
+            executionTimeout: executionTimeout,
+            directSubordinates: directSubordinates);
         var context = AiDirectiveExecutionContext.From(request);
         var iteration = AiDirectiveIterationState.Start(context, At);
         var proposedMessage = AiDirectiveResultMessageFactory.Create(
@@ -1036,7 +1065,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         string positionName = "Coordinator",
         string objective = "Classify incoming work",
         string context = "A bounded business context.",
-        bool checkpointable = false)
+        bool checkpointable = false,
+        IEnumerable<PositionId>? directSubordinates = null)
     {
         var effectivePosition = positionId ?? Position;
         var entity = PositionEntityId.From(Organization, effectivePosition);
@@ -1068,7 +1098,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                 UnitId.From("engineering"),
                 reportsTo: Superior,
                 name: positionName,
-                timezone: "Europe/Lisbon"),
+                timezone: "Europe/Lisbon",
+                directSubordinates: directSubordinates),
             new OccupantRuntimeConfiguration(
                 OccupantType.AiAgent,
                 identityPromptRef,

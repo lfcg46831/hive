@@ -146,6 +146,12 @@ public static class OutcomeRequiredInterventionContract
     public static bool TryParseWireValue(
         string? value,
         out OutcomeRequiredIntervention result) => Contract.TryParseWireValue(value, out result);
+
+    public static bool RequiresExternalIntervention(OutcomeRequiredIntervention value) =>
+        RequireDefined(value, nameof(value)) is
+            OutcomeRequiredIntervention.HumanApproval or
+            OutcomeRequiredIntervention.SuperiorDecision or
+            OutcomeRequiredIntervention.ExternalAction;
 }
 
 public enum OutcomeBlocker

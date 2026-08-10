@@ -261,10 +261,8 @@ public sealed class ExecutionFactsMaterializer : IExecutionFactsMaterializer
 
     private static bool HasGroundedAuthorityRequest(OutcomeProposal? proposal) =>
         proposal?.AuthorityRequest is not null &&
-        proposal.RequiredIntervention is
-            OutcomeRequiredIntervention.HumanApproval or
-            OutcomeRequiredIntervention.SuperiorDecision or
-            OutcomeRequiredIntervention.ExternalAction;
+        OutcomeRequiredInterventionContract.RequiresExternalIntervention(
+            proposal.RequiredIntervention);
 
     private static OutcomeDependencyState MaterializeDependencyState(
         IEnumerable<OutcomeDependencyResultFact> dependencyResults)

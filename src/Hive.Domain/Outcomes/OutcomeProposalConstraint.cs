@@ -254,7 +254,8 @@ public static class OutcomeProposalConstraint
                     evidenceContext),
                 [InformationGapsProperty] = CreateInformationGapsSchema(),
                 [AuthorityRequestProperty] = CreateAuthorityRequestSchema(
-                    interventions.Any(IsExternalIntervention)),
+                    interventions.Any(
+                        OutcomeRequiredInterventionContract.RequiresExternalIntervention)),
             },
             ["required"] = JsonArray(ProposalRequiredFields),
             ["additionalProperties"] = false,
@@ -405,11 +406,6 @@ public static class OutcomeProposalConstraint
             ["required"] = JsonArray(AuthorityRequestRequiredFields),
             ["additionalProperties"] = false,
         };
-
-    private static bool IsExternalIntervention(OutcomeRequiredIntervention intervention) =>
-        intervention is OutcomeRequiredIntervention.HumanApproval or
-            OutcomeRequiredIntervention.SuperiorDecision or
-            OutcomeRequiredIntervention.ExternalAction;
 
     private static JsonObject CreateNonBlankStringSchema() =>
         new()

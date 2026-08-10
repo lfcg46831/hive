@@ -208,6 +208,44 @@ public sealed class OrganizationalOutcomeResolverTests
         Assert.True(resolution.ProposalOverridden);
     }
 
+    [Theory]
+    [InlineData(OutcomeRequiredIntervention.None, false)]
+    [InlineData(OutcomeRequiredIntervention.HumanApproval, true)]
+    [InlineData(OutcomeRequiredIntervention.SuperiorDecision, true)]
+    [InlineData(OutcomeRequiredIntervention.ExternalAction, true)]
+    [InlineData(OutcomeRequiredIntervention.Delegation, false)]
+    public void Closed_intervention_classification_controls_continue_delegate_and_progress(
+        OutcomeRequiredIntervention intervention,
+        bool expectedExternalIntervention)
+    {
+        var externalIntervention =
+            OutcomeRequiredInterventionContract.RequiresExternalIntervention(intervention);
+
+        var continuation = Resolve(
+            Facts(externalInterventionRequired: externalIntervention),
+            ContinueProposal());
+        var delegation = Resolve(
+            Facts(
+                autonomousActionAvailable: false,
+                delegationRequired: true,
+                externalInterventionRequired: externalIntervention),
+            DirectiveProposal());
+        var progress = Resolve(
+            ProgressFacts(externalInterventionRequired: externalIntervention),
+            ReportProgressProposal());
+
+        Assert.Equal(expectedExternalIntervention, externalIntervention);
+        Assert.Equal(
+            expectedExternalIntervention ? OutcomeKind.Undetermined : OutcomeKind.ContinueWork,
+            continuation.Outcome);
+        Assert.Equal(
+            expectedExternalIntervention ? OutcomeKind.Undetermined : OutcomeKind.Directive,
+            delegation.Outcome);
+        Assert.Equal(
+            expectedExternalIntervention ? OutcomeKind.Undetermined : OutcomeKind.ReportProgress,
+            progress.Outcome);
+    }
+
     [Fact]
     public void Report_done_requires_positive_completion_proof_and_no_pending_work()
     {
@@ -429,6 +467,15 @@ public sealed class OrganizationalOutcomeResolverTests
             OutcomeRequiredIntervention.None,
             [],
             nextAction: null,
+            Evidence());
+
+    private static OutcomeProposal DirectiveProposal() =>
+        new(
+            OutcomeProposedIntent.Directive,
+            OutcomeWorkState.InProgress,
+            OutcomeRequiredIntervention.Delegation,
+            [],
+            "Delegate the next action.",
             Evidence());
 
     private static OutcomeProposal EscalationProposal() =>

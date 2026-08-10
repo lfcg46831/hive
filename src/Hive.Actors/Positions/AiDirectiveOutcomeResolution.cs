@@ -629,7 +629,8 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                 proposedMessage.Message is Directive,
             pendingActions,
             externalInterventionRequired:
-                proposal.RequiredIntervention is not OutcomeRequiredIntervention.None ||
+                OutcomeRequiredInterventionContract.RequiresExternalIntervention(
+                    proposal.RequiredIntervention) ||
                 actionGateState is OutcomeActionGateState.HumanApprovalRequired or
                     OutcomeActionGateState.Denied,
             verifiableProgress: verifiedCheckpoint is not null,

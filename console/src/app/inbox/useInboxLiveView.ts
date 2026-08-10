@@ -78,6 +78,8 @@ export function useInboxLiveView(config: ConsoleConfig, filter: InboxFilter): In
   const etagRef = useRef<string | null>(null);
   const pagesRef = useRef(1);
   const sequenceRef = useRef<number | null>(null);
+  // A gap was seen and the snapshot that recovers from it is on its way.
+  const recoveringGapRef = useRef(false);
 
   const refresh = useCallback(() => {
     setPendingUpdate(false);
@@ -121,7 +123,17 @@ export function useInboxLiveView(config: ConsoleConfig, filter: InboxFilter): In
         setGeneratedAtUtc(result.snapshot.generated_at_utc);
         setProjectionAppliedAtUtc(result.snapshot.last_event_applied_at_utc);
         setLastSyncedAtUtc(result.snapshot.generated_at_utc);
-        setMissedNotifications(false);
+        // The snapshot fetched because of a gap *is* the recovery, so it is not
+        // evidence that nothing was missed: clearing the warning here would
+        // erase it in the same breath as the refetch it describes, and a silent
+        // gap is precisely what it exists to prevent. The next snapshot after
+        // the recovery clears it.
+        if (recoveringGapRef.current) {
+          recoveringGapRef.current = false;
+        } else {
+          setMissedNotifications(false);
+        }
+
         setLoaded(true);
         setError(null);
         setPhase('ready');
@@ -197,6 +209,7 @@ export function useInboxLiveView(config: ConsoleConfig, filter: InboxFilter): In
 
           if (hasInboxSequenceGap(sequenceRef.current, notification)) {
             setMissedNotifications(true);
+            recoveringGapRef.current = true;
           }
 
           sequenceRef.current = notification.sequence;

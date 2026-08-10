@@ -4955,6 +4955,14 @@ public interface IPositionConfigurationProvider
 <td>1</td>
 <td><code>console/src/app/styles.css</code></td>
 </tr>
+<tr>
+<td><code>BUG-015</code></td>
+<td><code>Completed</code></td>
+<td>O aviso de notificações de inbox perdidas é apagado pelo próprio snapshot que recupera do gap.</td>
+<td><code>useInboxLiveView</code> marca <code>missedNotifications</code> quando <code>hasInboxSequenceGap</code> deteta um salto de sequência e invalida logo a vista; o efeito de listagem que se segue chama <code>setMissedNotifications(false)</code> ao concluir com sucesso, pelo que o aviso existe apenas durante a janela em que o refetch está em curso e desaparece exatamente quando a lista volta a estar correta. O próprio texto do aviso — a lista foi recarregada na íntegra, pelo que o que é mostrado é atual ainda que o gap não possa ser reconstruído — descreve o estado posterior à recuperação, que é o único estado em que nunca é visível. O efeito prático é o que <code>US-F1-02-T11</code> quer evitar: uma inbox que perdeu notificações e uma inbox simplesmente silenciosa ficam indistinguíveis para o leitor. Conclui quando: (1) o snapshot pedido por causa de um gap deixa de contar como prova de que nada se perdeu e o aviso sobrevive-lhe, sendo limpo apenas por uma atualização posterior; (2) a recuperação continua a ser um refetch REST completo da primeira página, sem alterar contratos públicos, ordenação, paginação nem o protocolo do hub; (3) testes de frontend cobrem notificação sem gap, gap seguido da recuperação e reentrega fora de ordem; e (4) typecheck, testes de frontend e build verdes.</td>
+<td>1</td>
+<td><code>console/src/app/inbox/useInboxLiveView.ts</code><br><code>console/src/app/inbox/InboxFlows.test.tsx</code></td>
+</tr>
 </tbody>
 </table>
 

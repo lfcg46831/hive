@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrganizationPositionState, PositionStatesResponse } from '../api/index.js';
 import type { ConsoleConfig } from '../config.js';
 import { ConsoleApp } from './ConsoleApp.js';
+import { hubControl } from './testing/signalrFake.js';
 import {
   ORGANIZATION_ID,
   deliveryOrganization,
@@ -30,127 +31,16 @@ import {
 } from './testing/organogramFixture.js';
 
 /**
- * Fake SignalR transport. Built with `vi.hoisted` so the module mock below can
- * reach it, and shaped after the parts of the connection the client actually
- * uses, so the client's own reconnection semantics stay under test.
+ * The SignalR transport is replaced by the shared double, which is shaped after
+ * the parts of the connection the client actually uses so its own subscription
+ * and reconnection semantics stay under test.
  */
-const signalr = vi.hoisted(() => {
-  type Handler = (...args: unknown[]) => void;
-
-  class FakeHubConnection {
-    readonly handlers = new Map<string, Handler>();
-    readonly invocations: { method: string; args: unknown[] }[] = [];
-    startError: Error | null = null;
-    started = false;
-    private onReconnecting: (error?: Error) => void = () => undefined;
-    private onReconnected: (connectionId?: string) => void = () => undefined;
-    private onClosed: (error?: Error) => void = () => undefined;
-
-    async start(): Promise<void> {
-      if (this.startError !== null) {
-        throw this.startError;
-      }
-
-      this.started = true;
-    }
-
-    async stop(): Promise<void> {
-      this.started = false;
-    }
-
-    async invoke(method: string, ...args: unknown[]): Promise<unknown> {
-      this.invocations.push({ method, args });
-      return undefined;
-    }
-
-    on(method: string, handler: Handler): void {
-      this.handlers.set(method, handler);
-    }
-
-    onreconnecting(callback: (error?: Error) => void): void {
-      this.onReconnecting = callback;
-    }
-
-    onreconnected(callback: (connectionId?: string) => void): void {
-      this.onReconnected = callback;
-    }
-
-    onclose(callback: (error?: Error) => void): void {
-      this.onClosed = callback;
-    }
-
-    /** Server-pushed event, as the hub would deliver it. */
-    emit(method: string, payload: unknown): void {
-      this.handlers.get(method)?.(payload);
-    }
-
-    dropConnection(): void {
-      this.onReconnecting(new Error('transport closed'));
-    }
-
-    restoreConnection(): void {
-      this.onReconnected('connection-2');
-    }
-
-    closeConnection(): void {
-      this.onClosed(new Error('transport closed for good'));
-    }
-
-    subscriptions(): string[] {
-      return this.invocations
-        .filter((invocation) => invocation.method === 'SubscribeToOrganization')
-        .map((invocation) => String(invocation.args[0]));
-    }
-  }
-
-  const control = {
-    connections: [] as FakeHubConnection[],
-    urls: [] as string[],
-    startError: null as Error | null,
-    reset(): void {
-      control.connections.length = 0;
-      control.urls.length = 0;
-      control.startError = null;
-    },
-    connection(): FakeHubConnection {
-      const latest = control.connections[control.connections.length - 1];
-      if (latest === undefined) {
-        throw new Error('The console never opened a hub connection.');
-      }
-
-      return latest;
-    },
-  };
-
-  class FakeHubConnectionBuilder {
-    withUrl(url: string): this {
-      control.urls.push(url);
-      return this;
-    }
-
-    withAutomaticReconnect(): this {
-      return this;
-    }
-
-    configureLogging(): this {
-      return this;
-    }
-
-    build(): FakeHubConnection {
-      const connection = new FakeHubConnection();
-      connection.startError = control.startError;
-      control.connections.push(connection);
-      return connection;
-    }
-  }
-
-  return { control, FakeHubConnectionBuilder };
+vi.mock('@microsoft/signalr', async () => {
+  const fake = await import('./testing/signalrFake.js');
+  return { HubConnectionBuilder: fake.FakeHubConnectionBuilder, LogLevel: fake.LogLevel };
 });
 
-vi.mock('@microsoft/signalr', () => ({
-  HubConnectionBuilder: signalr.FakeHubConnectionBuilder,
-  LogLevel: { Warning: 3 },
-}));
+const SUBSCRIBE = 'SubscribeToOrganization';
 
 const HUB_EVENTS = {
   organogramChanged: 'OrganogramChanged',
@@ -186,7 +76,7 @@ beforeEach(() => {
   // Pinned close to the snapshot timestamp so freshness is a property of the
   // test rather than of the day it runs on.
   vi.setSystemTime(new Date('2026-08-03T10:00:05.000Z'));
-  signalr.control.reset();
+  hubControl.reset();
   warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 
   const requests: RecordedRequest[] = [];
@@ -282,8 +172,8 @@ describe('ConsoleApp over a live subscription', () => {
   it('talks only to the public versioned surface, never to /internal', async () => {
     await renderConsole();
 
-    await waitFor(() => expect(signalr.control.urls).toHaveLength(1));
-    expect(signalr.control.urls[0]).toBe('https://hive.example.com/api/v1/organization-updates');
+    await waitFor(() => expect(hubControl.urls).toHaveLength(1));
+    expect(hubControl.urls[0]).toBe('https://hive.example.com/api/v1/organization-updates');
     expect(server.requests.length).toBeGreaterThan(0);
     for (const request of server.requests) {
       expect(request.url.startsWith(`https://hive.example.com/api/v1/organizations/${ORGANIZATION_ID}`)).toBe(true);
@@ -295,7 +185,7 @@ describe('ConsoleApp over a live subscription', () => {
   it('subscribes explicitly and refetches the snapshot instead of trusting the hub', async () => {
     await renderConsole();
 
-    await waitFor(() => expect(signalr.control.connection().subscriptions()).toEqual([ORGANIZATION_ID]));
+    await waitFor(() => expect(hubControl.connection().callsTo(SUBSCRIBE)).toEqual([ORGANIZATION_ID]));
     // The subscription is not a source of truth: it sends the view back to REST.
     await waitFor(() => expect(server.organogramRequests().length).toBe(2));
   });
@@ -305,7 +195,7 @@ describe('ConsoleApp over a live subscription', () => {
     await waitFor(() => expect(channelOf(container)).toBe('live'));
 
     act(() => {
-      signalr.control.connection().emit(HUB_EVENTS.positionStateChanged, {
+      hubControl.connection().emit(HUB_EVENTS.positionStateChanged, {
         organization_id: ORGANIZATION_ID,
         state: positionState({ positionId: 'runtime-lead', state: 'Working', sequence: 12 }),
       });
@@ -323,7 +213,7 @@ describe('ConsoleApp over a live subscription', () => {
     await waitFor(() => expect(channelOf(container)).toBe('live'));
 
     act(() => {
-      signalr.control.connection().emit(HUB_EVENTS.positionStateChanged, {
+      hubControl.connection().emit(HUB_EVENTS.positionStateChanged, {
         organization_id: ORGANIZATION_ID,
         state: positionState({ positionId: 'runtime-lead', state: 'Idle', sequence: 12 }),
       });
@@ -331,7 +221,7 @@ describe('ConsoleApp over a live subscription', () => {
     await waitFor(() => expect(stateOf(container, 'runtime-lead')).toBe('Idle'));
 
     act(() => {
-      signalr.control.connection().emit(HUB_EVENTS.positionStateChanged, {
+      hubControl.connection().emit(HUB_EVENTS.positionStateChanged, {
         organization_id: ORGANIZATION_ID,
         state: positionState({ positionId: 'runtime-lead', state: 'Blocked', sequence: 4 }),
       });
@@ -366,7 +256,7 @@ describe('ConsoleApp over a live subscription', () => {
       });
 
     act(() => {
-      signalr.control.connection().emit(HUB_EVENTS.organogramChanged, {
+      hubControl.connection().emit(HUB_EVENTS.organogramChanged, {
         organization_id: ORGANIZATION_ID,
         registry: { version: 8, fingerprint: 'd4e5f6' },
         changed_at_utc: '2026-08-03T10:00:04.000Z',
@@ -395,17 +285,17 @@ describe('ConsoleApp over a live subscription', () => {
     await waitFor(() => expect(channelOf(container)).toBe('live'));
     const before = server.organogramRequests().length;
 
-    act(() => signalr.control.connection().dropConnection());
+    act(() => hubControl.connection().dropConnection());
 
     await waitFor(() => expect(channelOf(container)).toBe('reconnecting'));
     expect(notice(container, 'reconnecting')).not.toBeNull();
     // The organogram is not taken away while the transport is being restored.
     expect(screen.getByText('Head of Delivery')).toBeDefined();
 
-    act(() => signalr.control.connection().restoreConnection());
+    act(() => hubControl.connection().restoreConnection());
 
     await waitFor(() => expect(channelOf(container)).toBe('live'));
-    expect(signalr.control.connection().subscriptions()).toEqual([ORGANIZATION_ID, ORGANIZATION_ID]);
+    expect(hubControl.connection().callsTo(SUBSCRIBE)).toEqual([ORGANIZATION_ID, ORGANIZATION_ID]);
     await waitFor(() => expect(server.organogramRequests().length).toBe(before + 1));
     expect(notice(container, 'reconnecting')).toBeNull();
   });
@@ -413,7 +303,7 @@ describe('ConsoleApp over a live subscription', () => {
 
 describe('ConsoleApp on the polling fallback', () => {
   beforeEach(() => {
-    signalr.control.startError = new Error('hub unreachable');
+    hubControl.startError = new Error('hub unreachable');
   });
 
   it('keeps the view current by polling when the hub will not start, and says so', async () => {
@@ -571,7 +461,7 @@ describe('ConsoleApp read-only guarantee', () => {
     await waitFor(() => expect(channelOf(container)).toBe('live'));
 
     act(() => {
-      signalr.control.connection().emit(HUB_EVENTS.positionStateChanged, {
+      hubControl.connection().emit(HUB_EVENTS.positionStateChanged, {
         organization_id: ORGANIZATION_ID,
         state: positionState({ positionId: 'runtime-lead', state: 'Working', sequence: 30 }),
       });
@@ -583,7 +473,7 @@ describe('ConsoleApp read-only guarantee', () => {
     }
 
     // The hub is only ever asked to subscribe or unsubscribe.
-    for (const invocation of signalr.control.connection().invocations) {
+    for (const invocation of hubControl.connection().invocations) {
       expect(['SubscribeToOrganization', 'UnsubscribeFromOrganization']).toContain(invocation.method);
     }
   });

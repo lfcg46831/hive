@@ -241,8 +241,16 @@ public static class OutcomeProposalParser
             proposalElement,
             evidenceContext,
             errors);
-        var informationGaps = ReadInformationGaps(proposalElement, errors);
+        var informationGaps = ReadInformationGaps(
+            proposalElement,
+            evidenceContext,
+            errors);
         var authorityRequest = ReadAuthorityRequest(proposalElement, errors);
+
+        ValidateGroundedEvidenceIsNotMateriallyMissing(
+            evidenceReferences,
+            informationGaps,
+            errors);
 
         ValidateAuthorityRequestCombination(
             proposalElement,
@@ -613,6 +621,7 @@ public static class OutcomeProposalParser
 
     private static ImmutableArray<OutcomeInformationGap>? ReadInformationGaps(
         JsonElement proposal,
+        OutcomeProposalEvidenceContext? evidenceContext,
         ICollection<OutcomeProposalParseError> errors)
     {
         var path = ProposalPath(OutcomeProposalConstraint.InformationGapsProperty);
@@ -659,6 +668,18 @@ public static class OutcomeProposalParser
                 continue;
             }
 
+            if (evidenceContext is not null &&
+                !evidenceContext.DirectiveInputReferences.Contains(
+                    missingEvidenceReference,
+                    StringComparer.Ordinal))
+            {
+                errors.Add(Error(
+                    OutcomeProposalParseDiagnosticContract.InvalidFieldCode,
+                    InformationGapPath(
+                        OutcomeProposalConstraint.MissingEvidenceReferenceProperty)));
+                continue;
+            }
+
             if (!references.Add(missingEvidenceReference))
             {
                 errors.Add(Error(
@@ -674,6 +695,31 @@ public static class OutcomeProposalParser
         }
 
         return builder.ToImmutable();
+    }
+
+    private static void ValidateGroundedEvidenceIsNotMateriallyMissing(
+        ImmutableArray<OutcomeEvidenceReference>? evidenceReferences,
+        ImmutableArray<OutcomeInformationGap>? informationGaps,
+        ICollection<OutcomeProposalParseError> errors)
+    {
+        if (evidenceReferences is not { } evidence ||
+            informationGaps is not { } gaps)
+        {
+            return;
+        }
+
+        var groundedReferences = evidence
+            .Select(reference => reference.Reference)
+            .ToHashSet(StringComparer.Ordinal);
+        if (gaps.Any(gap =>
+            gap.Materiality == OutcomeInformationGapMateriality.Material &&
+            groundedReferences.Contains(gap.MissingEvidenceReference)))
+        {
+            errors.Add(Error(
+                OutcomeProposalParseDiagnosticContract.ContradictoryCombinationCode,
+                InformationGapPath(
+                    OutcomeProposalConstraint.MissingEvidenceReferenceProperty)));
+        }
     }
 
     private static string? ReadMissingEvidenceReference(

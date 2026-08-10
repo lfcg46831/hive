@@ -45,6 +45,15 @@ public sealed class AiDirectivePromptTests
         Assert.Contains("authority_request", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("NonMaterial", request.SystemInstruction, StringComparison.Ordinal);
         Assert.Contains("ActionDomain", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains("Use []", request.SystemInstruction, StringComparison.Ordinal);
+        Assert.Contains(
+            "does not assert that the input is complete",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Never cite the same reference as grounding evidence and as a Material information gap",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
         Assert.Equal(
             OutcomeProposalConstraint.SchemaVersion,
             request.OutputConstraint.JsonSchema.GetProperty("properties")

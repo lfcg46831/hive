@@ -310,6 +310,25 @@ public sealed class OrganizationalOutcomeContractTests
                     OutcomeInformationGapMateriality.NonMaterial,
                     materialityReason: null),
             ]));
+        Assert.Throws<ArgumentException>(() => new OutcomeProposal(
+            OutcomeProposedIntent.ReportDone,
+            OutcomeWorkState.Completed,
+            OutcomeRequiredIntervention.None,
+            [],
+            nextAction: null,
+            evidenceReferences:
+            [
+                new OutcomeEvidenceReference(
+                    OutcomeEvidenceSource.DirectiveInput,
+                    "directive.context"),
+            ],
+            informationGaps:
+            [
+                new OutcomeInformationGap(
+                    "directive.context",
+                    OutcomeInformationGapMateriality.Material,
+                    OutcomeInformationGapMaterialityReason.PreventsConclusion),
+            ]));
     }
 
     [Fact]

@@ -271,6 +271,18 @@ public sealed class OutcomeProposalParserTests
                 Assert.Equal(
                     ["directive.context", "directive.objective"],
                     Strings(evidenceProperties.GetProperty("reference").GetProperty("enum")));
+                var informationGapBranches = branch.GetProperty("properties")
+                    .GetProperty("information_gaps")
+                    .GetProperty("items")
+                    .GetProperty("anyOf")
+                    .EnumerateArray();
+                Assert.All(
+                    informationGapBranches,
+                    informationGapBranch => Assert.Equal(
+                        ["directive.context", "directive.objective"],
+                        Strings(informationGapBranch.GetProperty("properties")
+                            .GetProperty("missing_evidence_reference")
+                            .GetProperty("enum"))));
             });
     }
 
@@ -338,6 +350,96 @@ public sealed class OutcomeProposalParserTests
             result,
             "invalid-field",
             "proposal.evidence_references");
+    }
+
+    [Fact]
+    public void Contextual_parser_accepts_empty_non_material_and_material_information_gaps()
+    {
+        var evidenceContext = new OutcomeProposalEvidenceContext(
+        [
+            "directive.objective",
+            "directive.context",
+        ]);
+        var empty = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.objective\"}]",
+                "[]"),
+            evidenceContext);
+        var nonMaterial = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.objective\"}]",
+                "[{\"missing_evidence_reference\":\"directive.context\",\"materiality\":\"NonMaterial\",\"materiality_reason\":null}]"),
+            evidenceContext);
+        var material = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.objective\"}]",
+                "[{\"missing_evidence_reference\":\"directive.context\",\"materiality\":\"Material\",\"materiality_reason\":\"PreventsConclusion\"}]"),
+            evidenceContext);
+
+        AssertSuccess(empty);
+        Assert.Empty(empty.Proposal!.InformationGaps);
+        AssertSuccess(nonMaterial);
+        Assert.Equal(
+            OutcomeInformationGapMateriality.NonMaterial,
+            Assert.Single(nonMaterial.Proposal!.InformationGaps).Materiality);
+        AssertSuccess(material);
+        Assert.Equal(
+            OutcomeInformationGapMateriality.Material,
+            Assert.Single(material.Proposal!.InformationGaps).Materiality);
+    }
+
+    [Fact]
+    public void Contextual_parser_rejects_unbounded_and_grounded_material_gap_references()
+    {
+        var evidenceContext = new OutcomeProposalEvidenceContext(
+        [
+            "directive.objective",
+            "directive.context",
+        ]);
+        var unbounded = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.objective\"}]",
+                "[{\"missing_evidence_reference\":\"missing.root-cause\",\"materiality\":\"Material\",\"materiality_reason\":\"PreventsConclusion\"}]"),
+            evidenceContext);
+        var contradictory = OutcomeProposalParser.Parse(
+            Envelope(
+                "Report.Done",
+                "Completed",
+                "None",
+                "[]",
+                null,
+                "[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}]",
+                "[{\"missing_evidence_reference\":\"directive.context\",\"materiality\":\"Material\",\"materiality_reason\":\"PreventsConclusion\"}]"),
+            evidenceContext);
+
+        AssertFailure(
+            unbounded,
+            "invalid-field",
+            "proposal.information_gaps.item.missing_evidence_reference");
+        AssertFailure(
+            contradictory,
+            "contradictory-combination",
+            "proposal.information_gaps.item.missing_evidence_reference");
     }
 
     [Theory]

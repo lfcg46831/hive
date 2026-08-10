@@ -252,7 +252,7 @@ public static class OutcomeProposalConstraint
                 [EvidenceReferencesProperty] = CreateEvidenceReferencesSchema(
                     minimumEvidenceReferences,
                     evidenceContext),
-                [InformationGapsProperty] = CreateInformationGapsSchema(),
+                [InformationGapsProperty] = CreateInformationGapsSchema(evidenceContext),
                 [AuthorityRequestProperty] = CreateAuthorityRequestSchema(
                     interventions.Any(
                         OutcomeRequiredInterventionContract.RequiresExternalIntervention)),
@@ -328,7 +328,8 @@ public static class OutcomeProposalConstraint
         return schema;
     }
 
-    private static JsonObject CreateInformationGapsSchema() =>
+    private static JsonObject CreateInformationGapsSchema(
+        OutcomeProposalEvidenceContext? evidenceContext) =>
         new()
         {
             ["type"] = "array",
@@ -344,10 +345,12 @@ public static class OutcomeProposalConstraint
                             ["type"] = "string",
                             ["enum"] = JsonArray(
                                 OutcomeInformationGapMaterialityReasonContract.WireValues),
-                        }),
+                        },
+                        evidenceContext),
                     CreateInformationGapBranch(
                         OutcomeInformationGapMateriality.NonMaterial,
-                        new JsonObject { ["type"] = "null" }),
+                        new JsonObject { ["type"] = "null" },
+                        evidenceContext),
                 },
             },
             ["uniqueItems"] = true,
@@ -355,14 +358,15 @@ public static class OutcomeProposalConstraint
 
     private static JsonObject CreateInformationGapBranch(
         OutcomeInformationGapMateriality materiality,
-        JsonNode materialityReasonSchema) =>
+        JsonNode materialityReasonSchema,
+        OutcomeProposalEvidenceContext? evidenceContext) =>
         new()
         {
             ["type"] = "object",
             ["properties"] = new JsonObject
             {
                 [MissingEvidenceReferenceProperty] = CreateEvidenceReferenceSchema(
-                    evidenceContext: null),
+                    evidenceContext),
                 [MaterialityProperty] = new JsonObject
                 {
                     ["type"] = "string",

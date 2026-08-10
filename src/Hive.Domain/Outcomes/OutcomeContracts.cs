@@ -728,6 +728,10 @@ public sealed record OutcomeProposal
         InformationGaps = SnapshotInformationGaps(informationGaps);
         AuthorityRequest = authorityRequest;
 
+        RequireGroundedEvidenceIsNotMateriallyMissing(
+            EvidenceReferences,
+            InformationGaps);
+
         OutcomeProposalRules.RequireValidCombination(
             ProposedIntent,
             WorkState,
@@ -807,6 +811,23 @@ public sealed record OutcomeProposal
         }
 
         return snapshot;
+    }
+
+    private static void RequireGroundedEvidenceIsNotMateriallyMissing(
+        ImmutableArray<OutcomeEvidenceReference> evidenceReferences,
+        ImmutableArray<OutcomeInformationGap> informationGaps)
+    {
+        var groundedReferences = evidenceReferences
+            .Select(reference => reference.Reference)
+            .ToHashSet(StringComparer.Ordinal);
+        if (informationGaps.Any(gap =>
+            gap.Materiality == OutcomeInformationGapMateriality.Material &&
+            groundedReferences.Contains(gap.MissingEvidenceReference)))
+        {
+            throw new ArgumentException(
+                "Grounded evidence cannot also be declared as a material information gap.",
+                nameof(informationGaps));
+        }
     }
 }
 

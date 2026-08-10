@@ -144,11 +144,16 @@ public sealed class InboxDecisionEndpointTests
         var problem = await response.Content.ReadFromJsonAsync<JsonElement>();
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal(
+            "application/problem+json",
+            response.Content.Headers.ContentType?.MediaType);
         Assert.Equal("Inbox decision rejected", problem.GetProperty("title").GetString());
+        Assert.Equal(StatusCodes.Status400BadRequest, problem.GetProperty("status").GetInt32());
         var error = Assert.Single(problem.GetProperty("errors").EnumerateArray());
         Assert.Equal(code, error.GetProperty("code").GetString());
         Assert.Equal(path, error.GetProperty("path").GetString());
         Assert.Equal(reason, error.GetProperty("reason").GetString());
+        Assert.False(problem.TryGetProperty("message_id", out _));
         Assert.Single(sink.Requests);
     }
 

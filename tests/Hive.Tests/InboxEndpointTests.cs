@@ -266,6 +266,35 @@ public sealed class InboxEndpointTests
         Assert.Empty(readModel.ListRequests);
     }
 
+    [Theory]
+    [InlineData("/inbox")]
+    [InlineData("/positions/delivery-lead/inbox")]
+    [InlineData("/inbox/delivery-lead%2Fcf2b086f-dd04-445f-a68e-8e40a75530b9")]
+    public async Task Out_of_scope_queries_do_not_reveal_whether_an_organization_exists(
+        string suffix)
+    {
+        var readModel = RecordingInboxReadModel.Available();
+        await using var app = BuildApp(readModel);
+        await app.StartAsync();
+        using var client = CreateAuthorizedClient(app, OtherOrganizationToken);
+
+        using var existing = await client.GetAsync(
+            $"{InboxEndpointExtensions.BasePath}/acme{suffix}");
+        using var unknown = await client.GetAsync(
+            $"{InboxEndpointExtensions.BasePath}/unknown{suffix}");
+
+        Assert.Equal(HttpStatusCode.NotFound, existing.StatusCode);
+        Assert.Equal(existing.StatusCode, unknown.StatusCode);
+        Assert.Equal(
+            existing.Content.Headers.ContentType?.ToString(),
+            unknown.Content.Headers.ContentType?.ToString());
+        Assert.Equal(
+            await existing.Content.ReadAsStringAsync(),
+            await unknown.Content.ReadAsStringAsync());
+        Assert.Empty(readModel.ListRequests);
+        Assert.Empty(readModel.ItemRequests);
+    }
+
     [Fact]
     public async Task Position_scope_is_applied_before_the_inbox_read_model()
     {
@@ -392,6 +421,16 @@ public sealed class InboxEndpointTests
                     OrganizationOnlyToken,
                 [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:1:OrganizationIds:0"] =
                     "acme",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:2:Token"] =
+                    OtherOrganizationToken,
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:2:OrganizationIds:0"] =
+                    "globex",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:2:PersonId"] =
+                    "person-bob",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:2:Positions:0:OrganizationId"] =
+                    "globex",
+                [$"{OrganizationAuthorizationOptions.SectionName}:Credentials:2:Positions:0:PositionId"] =
+                    "operations-lead",
             });
         if (readModel is not null)
         {
@@ -540,6 +579,8 @@ public sealed class InboxEndpointTests
     private const string OrganizationToken = "test-token-for-acme";
 
     private const string OrganizationOnlyToken = "organization-only-token-for-acme";
+
+    private const string OtherOrganizationToken = "test-token-for-globex";
 
     private const string PersonId = "person-alice";
 }

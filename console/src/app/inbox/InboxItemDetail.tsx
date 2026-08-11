@@ -8,6 +8,7 @@ import {
   ResponseStateBadge,
 } from './InboxBadges.js';
 import { InboxApprovalPanel } from './InboxApprovalPanel.js';
+import { InboxMessageContentPanel } from './InboxMessageContentPanel.js';
 import { InboxReplyForm } from './InboxReplyForm.js';
 import { describeDeadline, describeDecision, describeReply, endpointLabel } from './inboxItemView.js';
 import type { InboxItemDetailView } from './useInboxItemDetail.js';
@@ -18,10 +19,14 @@ export interface InboxItemDetailProps {
 }
 
 /**
- * The selected item: its correlation, its deadline, and the two things a person
- * can do with it. The public detail contract now carries canonical typed content;
- * rendering that untrusted text belongs to US-F1-02-T16, so this component remains
- * metadata-only until that presentation task is implemented.
+ * The selected item: its correlation, its deadline, the message itself, and the
+ * two things a person can do with it.
+ *
+ * The order is the point. Metadata answers «what is this and by when»; the
+ * content answers «what is being asked»; the forms answer it. Anchoring both
+ * forms below the content means the response is always composed with the message
+ * in view, which is what makes a human occupant's answer equivalent to an AI
+ * occupant's — the same fields, read before answering.
  */
 export function InboxItemDetail({ detail, nowMs }: InboxItemDetailProps) {
   if (detail.phase === 'idle') {
@@ -119,10 +124,7 @@ export function InboxItemDetail({ detail, nowMs }: InboxItemDetailProps) {
         )}
       </dl>
 
-      <p className="inbox-detail__note">
-        This console build does not render canonical message content yet. Content remains available
-        only through the authorized inbox detail API until its plain-text presentation is added.
-      </p>
+      <InboxMessageContentPanel content={detail.content} type={item.type} />
 
       {item.type === 'ApprovalRequest' ? (
         <InboxApprovalPanel

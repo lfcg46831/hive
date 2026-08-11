@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   InboxDecisionResponse,
   InboxItem,
+  InboxMessageContent,
   InboxReplyResponse,
 } from '../../api/index.js';
 import { createHiveApiClient } from '../../api/index.js';
@@ -29,6 +30,11 @@ export interface InboxItemDetailView {
   readonly phase: 'idle' | 'loading' | 'ready' | 'failed';
   readonly error: Error | null;
   readonly item: InboxItem | null;
+  /**
+   * Canonical content of the message, which only the detail route carries. Null
+   * means the projection holds the item without it — never an empty message.
+   */
+  readonly content: InboxMessageContent | null;
   /** The single plain-text draft this principal holds for the item. */
   readonly draftText: string | null;
   readonly lastEventAppliedAtUtc: string | null;
@@ -58,6 +64,7 @@ export function useInboxItemDetail(
   const [phase, setPhase] = useState<'idle' | 'loading' | 'ready' | 'failed'>('idle');
   const [error, setError] = useState<Error | null>(null);
   const [item, setItem] = useState<InboxItem | null>(null);
+  const [content, setContent] = useState<InboxMessageContent | null>(null);
   const [draftText, setDraftText] = useState<string | null>(null);
   const [lastEventAppliedAtUtc, setLastEventAppliedAtUtc] = useState<string | null>(null);
   const [busy, setBusy] = useState<InboxActionKind | null>(null);
@@ -71,6 +78,7 @@ export function useInboxItemDetail(
     if (itemId === null) {
       setPhase('idle');
       setItem(null);
+      setContent(null);
       setDraftText(null);
       setOutcome(null);
       setActionError(null);
@@ -92,6 +100,9 @@ export function useInboxItemDetail(
         }
 
         setItem(result.snapshot.item);
+        // Item and content always come from the same snapshot, so the panel can
+        // never show one message's text next to another message's metadata.
+        setContent(result.snapshot.content ?? null);
         setDraftText(result.snapshot.draft_text);
         setLastEventAppliedAtUtc(result.snapshot.last_event_applied_at_utc);
         setError(null);
@@ -211,6 +222,7 @@ export function useInboxItemDetail(
     phase,
     error,
     item,
+    content,
     draftText,
     lastEventAppliedAtUtc,
     busy,

@@ -135,6 +135,45 @@ export function approvalRequest(options: {
   });
 }
 
+/**
+ * Canonical content of a message of the given type, in the closed shape the
+ * public detail contract publishes. Each field carries a value distinctive
+ * enough to be asserted on its own, so a test that finds it knows which field it
+ * found and not merely that some text was rendered.
+ */
+export function messageContent(type: InboxMessageType): InboxMessageContent {
+  switch (type) {
+    case 'Directive':
+      return {
+        type: 'Directive',
+        objective: 'Triage the crash reports from the 4.2 rollout.',
+        context: 'Support escalated 14 reports overnight; the release is still ramping.',
+      };
+    case 'Report':
+      return { type: 'Report', body: 'Nine of fourteen reports are duplicates.', kind: 'progress' };
+    case 'Escalation':
+      return {
+        type: 'Escalation',
+        issue: 'The crash signature needs a production symbol server we cannot reach.',
+        context: 'Triage is blocked until symbols resolve for build 4.2.1.',
+      };
+    case 'Memo':
+      return { type: 'Memo', body: 'Release notes for 4.2 are frozen at 17:00 UTC.' };
+    case 'PeerRequest':
+      return { type: 'PeerRequest', ask: 'Share the symbol server credentials for build 4.2.1.' };
+    case 'PeerResponse':
+      return { type: 'PeerResponse', body: 'Symbols are published; the mirror syncs hourly.' };
+    case 'ApprovalRequest':
+      return {
+        type: 'ApprovalRequest',
+        action: 'Roll back the 4.2 release to 4.1.9.',
+        justification: 'Crash rate is four times the release gate for two consecutive hours.',
+      };
+    case 'ApprovalDecision':
+      return { type: 'ApprovalDecision', reason: 'Rollback approved; crash rate is unacceptable.' };
+  }
+}
+
 export function inboxPage(
   items: readonly InboxItem[],
   overrides: Partial<InboxPage> = {},
@@ -248,6 +287,12 @@ export interface InboxServer {
   items: InboxItem[];
   /** Persisted drafts by item, the way the read model holds them per principal. */
   readonly drafts: Map<string, string | null>;
+  /**
+   * Canonical content by item. An item without an entry answers with the default
+   * content of its type; an entry set to null models the projection holding the
+   * item without content, which the contract admits as `content: null`.
+   */
+  readonly contents: Map<string, InboxMessageContent | null>;
   /** Bumped by every committed change, and carried by the list ETag. */
   version: number;
   /** Null models a projection that has not reported an applied event yet. */
@@ -272,6 +317,7 @@ export function createInboxServer(items: readonly InboxItem[] = []): InboxServer
     requests,
     items: [...items],
     drafts: new Map<string, string | null>(),
+    contents: new Map<string, InboxMessageContent | null>(),
     version: 1,
     projectionAppliedAtUtc: INBOX_PROJECTION_APPLIED_AT_UTC,
 
@@ -301,9 +347,16 @@ export function createInboxServer(items: readonly InboxItem[] = []): InboxServer
     detail(request) {
       const itemId = lastSegment(request.path);
       const item = server.find(itemId);
-      return item === undefined
-        ? problemResponse(404, 'Inbox item not found')
-        : jsonResponse(inboxItemResponse(item, server.drafts.get(itemId) ?? null));
+      if (item === undefined) {
+        return problemResponse(404, 'Inbox item not found');
+      }
+
+      const content = server.contents.has(itemId)
+        ? server.contents.get(itemId)!
+        : messageContent(item.type);
+      return jsonResponse(
+        inboxItemResponse(item, server.drafts.get(itemId) ?? null, content),
+      );
     },
 
     read(request) {

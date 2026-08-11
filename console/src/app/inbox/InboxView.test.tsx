@@ -116,6 +116,9 @@ beforeEach(() => {
             last_event_applied_at_utc: GENERATED_AT,
             item: found,
             draft_text: null,
+            // Selection is a metadata property; these items model a projection
+            // that holds no canonical content for them.
+            content: null,
           }),
         );
       }

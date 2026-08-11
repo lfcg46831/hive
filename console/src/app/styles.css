@@ -723,6 +723,44 @@ body {
   font-size: 14px;
 }
 
+.inbox-content__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 12px 0 0;
+}
+
+.inbox-content__label {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inbox-content__value {
+  margin: 4px 0 0;
+}
+
+/*
+ * Message content is untrusted text (§10): line breaks are preserved so the
+ * message reads as written, and long tokens wrap inside the panel instead of
+ * widening it, but nothing in it is ever interpreted as markup.
+ */
+.inbox-content__text {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.inbox-content__missing {
+  margin: 0;
+  color: var(--text-muted);
+}
+
 .inbox-form {
   display: flex;
   flex-direction: column;

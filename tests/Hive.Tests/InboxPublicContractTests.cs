@@ -6,6 +6,53 @@ namespace Hive.Tests;
 
 public sealed class InboxPublicContractTests
 {
+    public static TheoryData<InboxMessageContent, string, string[]> CanonicalContent
+    {
+        get
+        {
+            var data = new TheoryData<InboxMessageContent, string, string[]>();
+            data.Add(
+                new InboxDirectiveMessageContent("Fix the regression", "Production is affected"),
+                "Directive",
+                ["type", "objective", "context"]);
+            data.Add(
+                new InboxReportMessageContent("Fix is in progress", InboxReportKind.Progress),
+                "Report",
+                ["type", "body", "kind"]);
+            data.Add(
+                new InboxEscalationMessageContent("Deployment blocked", "Credential expired"),
+                "Escalation",
+                ["type", "issue", "context"]);
+            data.Add(
+                new InboxMemoMessageContent("Release window changed"),
+                "Memo",
+                ["type", "body"]);
+            data.Add(
+                new InboxPeerRequestMessageContent("Can you reproduce this?"),
+                "PeerRequest",
+                ["type", "ask"]);
+            data.Add(
+                new InboxPeerResponseMessageContent("Reproduced on iOS 17"),
+                "PeerResponse",
+                ["type", "body"]);
+            data.Add(
+                new InboxApprovalRequestMessageContent(
+                    "Deploy the hotfix",
+                    "Customer-facing outage"),
+                "ApprovalRequest",
+                ["type", "action", "justification"]);
+            data.Add(
+                new InboxApprovalDecisionMessageContent("Approved for the outage"),
+                "ApprovalDecision",
+                ["type", "reason"]);
+            data.Add(
+                new InboxApprovalDecisionMessageContent(reason: null),
+                "ApprovalDecision",
+                ["type"]);
+            return data;
+        }
+    }
+
     private static readonly Guid RequestId =
         Guid.Parse("cf2b086f-dd04-445f-a68e-8e40a75530b9");
 
@@ -315,11 +362,15 @@ public sealed class InboxPublicContractTests
     [Fact]
     public void Inbox_detail_serializes_the_item_with_projection_metadata()
     {
+        var content = new InboxApprovalRequestMessageContent(
+            "deployment.production",
+            "Production incident");
         var response = new InboxItemResponse(
             SentAt.AddMinutes(1),
             lastEventAppliedAtUtc: null,
             CreateApprovalRequest(),
-            draftText: "Pending rationale");
+            draftText: "Pending rationale",
+            content);
 
         var json = JsonSerializer.SerializeToElement(response);
 
@@ -333,6 +384,39 @@ public sealed class InboxPublicContractTests
             RequestId,
             json.GetProperty("item").GetProperty("message_id").GetGuid());
         Assert.Equal("Pending rationale", json.GetProperty("draft_text").GetString());
+        Assert.Equal(
+            "deployment.production",
+            json.GetProperty("content").GetProperty("action").GetString());
+    }
+
+    [Theory]
+    [MemberData(nameof(CanonicalContent))]
+    public void Canonical_content_serializes_as_a_closed_discriminated_shape(
+        InboxMessageContent content,
+        string expectedType,
+        string[] expectedProperties)
+    {
+        var json = JsonSerializer.SerializeToElement(content);
+
+        Assert.Equal(expectedType, json.GetProperty("type").GetString());
+        Assert.Equal(
+            expectedProperties.Order(StringComparer.Ordinal),
+            json.EnumerateObject().Select(static property => property.Name)
+                .Order(StringComparer.Ordinal));
+        if (content is InboxReportMessageContent)
+        {
+            Assert.Equal("progress", json.GetProperty("kind").GetString());
+        }
+    }
+
+    [Fact]
+    public void Inbox_detail_rejects_content_for_a_different_message_type()
+    {
+        Assert.Throws<ArgumentException>(() => new InboxItemResponse(
+            SentAt,
+            SentAt,
+            CreateApprovalRequest(),
+            content: new InboxMemoMessageContent("Not an approval request")));
     }
 
     [Fact]

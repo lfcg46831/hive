@@ -97,12 +97,11 @@ internal sealed class ProjectionInboxReadModel(
                 scopedItems.Select(static item => item.Key).ToArray(),
                 cancellationToken)
             .ConfigureAwait(false);
-        var item = scopedItems
-            .Select(candidate => MapItem(
-                candidate,
-                interactions.GetValueOrDefault(candidate.Key)))
-            .SingleOrDefault(candidate =>
-                string.Equals(candidate.ItemId, itemId, StringComparison.Ordinal));
+        var projectedItem = scopedItems.SingleOrDefault(candidate =>
+            string.Equals(PublicItemId(candidate), itemId, StringComparison.Ordinal));
+        var item = projectedItem is null
+            ? null
+            : MapItem(projectedItem, interactions.GetValueOrDefault(projectedItem.Key));
         return InboxReadResult<InboxItemResponse>.Available(
             item is null
                 ? null
@@ -111,11 +110,9 @@ internal sealed class ProjectionInboxReadModel(
                     snapshot.LastEventAppliedAtUtc,
                     item,
                     interactions
-                        .GetValueOrDefault(new InboxProjectionItemKey(
-                            scope.OrganizationId,
-                            PositionId.From(item.AssignedPositionId),
-                            MessageId.From(item.MessageId)))
-                        ?.DraftText));
+                        .GetValueOrDefault(projectedItem!.Key)
+                        ?.DraftText,
+                    MapContent(projectedItem!.Content)));
     }
 
     private static InboxItem[] AfterCursor(InboxItem[] items, string? cursor)
@@ -168,6 +165,36 @@ internal sealed class ProjectionInboxReadModel(
                 : InboxReminderState.Sent,
             item.LastReminderAtUtc,
             item.IsDelegated);
+
+    private static string PublicItemId(InboxProjectionItem item) =>
+        $"{item.Key.AssignedPositionId.Value}/{item.Key.MessageId}";
+
+    private static InboxMessageContent MapContent(InboxProjectionMessageContent content) =>
+        content switch
+        {
+            InboxProjectionDirectiveContent directive => new InboxDirectiveMessageContent(
+                directive.Objective,
+                directive.Context),
+            InboxProjectionReportContent report => new InboxReportMessageContent(
+                report.Body,
+                MapEnum<ReportKind, InboxReportKind>(report.Kind)),
+            InboxProjectionEscalationContent escalation => new InboxEscalationMessageContent(
+                escalation.Issue,
+                escalation.Context),
+            InboxProjectionMemoContent memo => new InboxMemoMessageContent(memo.Body),
+            InboxProjectionPeerRequestContent request => new InboxPeerRequestMessageContent(
+                request.Ask),
+            InboxProjectionPeerResponseContent response => new InboxPeerResponseMessageContent(
+                response.Body),
+            InboxProjectionApprovalRequestContent request =>
+                new InboxApprovalRequestMessageContent(
+                    request.Action,
+                    request.Justification),
+            InboxProjectionApprovalDecisionContent decision =>
+                new InboxApprovalDecisionMessageContent(decision.Reason),
+            _ => throw new InvalidOperationException(
+                $"Inbox projection content '{content.GetType().Name}' has no public mapping."),
+        };
 
     private static InboxResponseState MapResponseState(
         InboxProjectionResponseState derivedState,

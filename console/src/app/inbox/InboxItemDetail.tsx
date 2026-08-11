@@ -19,9 +19,9 @@ export interface InboxItemDetailProps {
 
 /**
  * The selected item: its correlation, its deadline, and the two things a person
- * can do with it. The body of the organizational message is deliberately absent
- * — the public inbox contract exposes metadata and correlation, not payloads —
- * so the detail states what it has rather than implying there is more on screen.
+ * can do with it. The public detail contract now carries canonical typed content;
+ * rendering that untrusted text belongs to US-F1-02-T16, so this component remains
+ * metadata-only until that presentation task is implemented.
  */
 export function InboxItemDetail({ detail, nowMs }: InboxItemDetailProps) {
   if (detail.phase === 'idle') {
@@ -120,8 +120,8 @@ export function InboxItemDetail({ detail, nowMs }: InboxItemDetailProps) {
       </dl>
 
       <p className="inbox-detail__note">
-        The public inbox exposes the metadata and correlation of a message, not its body. Read the
-        thread in the organization's own records for the content.
+        This console build does not render canonical message content yet. Content remains available
+        only through the authorized inbox detail API until its plain-text presentation is added.
       </p>
 
       {item.type === 'ApprovalRequest' ? (

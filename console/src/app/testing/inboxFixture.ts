@@ -22,6 +22,7 @@ import type {
   InboxInteractionResponse,
   InboxItem,
   InboxItemResponse,
+  InboxMessageContent,
   InboxMessageEndpoint,
   InboxMessageType,
   InboxPage,
@@ -151,12 +152,14 @@ export function inboxPage(
 export function inboxItemResponse(
   item: InboxItem,
   draftText: string | null = null,
+  content: InboxMessageContent | null = null,
 ): InboxItemResponse {
   return {
     generated_at_utc: INBOX_GENERATED_AT_UTC,
     last_event_applied_at_utc: INBOX_PROJECTION_APPLIED_AT_UTC,
     item,
     draft_text: draftText,
+    content,
   };
 }
 

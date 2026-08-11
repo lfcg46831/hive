@@ -56,7 +56,8 @@ public static class InboxEndpointExtensions
             .WithSummary("Get one inbox item")
             .WithDescription(
                 "Returns one principal-scoped inbox item with thread correlation, deadline, expiry, " +
-                "reminder, delegation, response state and approval metadata.")
+                "reminder, delegation, response state, approval metadata and canonical typed " +
+                "message content. Content is returned only by this detail endpoint.")
             .Produces<InboxItemResponse>(StatusCodes.Status200OK)
             .Produces(StatusCodes.Status304NotModified)
             .ProducesProblem(StatusCodes.Status400BadRequest)

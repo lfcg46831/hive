@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { PUBLIC_API_ROUTE_TEMPLATES } from './client.js';
-import { enumWireShape, objectWireShape } from './wireShape.js';
+import { enumWireShape, objectWireShape, unionWireShape } from './wireShape.js';
 import type { RuntimePropertyWireShape } from './wireShape.js';
 
 interface OpenApiSchema {
@@ -14,9 +14,14 @@ interface OpenApiSchema {
   required?: string[];
   items?: OpenApiSchema;
   allOf?: OpenApiSchema[];
+  oneOf?: OpenApiSchema[];
   $ref?: string;
   enum?: string[];
   additionalProperties?: boolean | OpenApiSchema;
+  discriminator?: {
+    propertyName?: string;
+    mapping?: Record<string, string>;
+  };
 }
 
 interface OpenApiDocument {
@@ -95,6 +100,23 @@ describe('public API parity', () => {
       expect(schema, `${schemaName} is missing from the document`).toBeDefined();
       expect(schema?.type).toBe('string');
       expect(schema?.enum).toEqual([...values]);
+    },
+  );
+
+  it.each(Object.entries(unionWireShape))(
+    '%s mirrors the documented discriminated union',
+    (schemaName, expectedSchema) => {
+      const schema = document.components.schemas[schemaName];
+      expect(schema, `${schemaName} is missing from the document`).toBeDefined();
+      expect(schema?.discriminator?.propertyName).toBe(expectedSchema.discriminator);
+      expect(schema?.oneOf?.map(referenceName).sort()).toEqual(
+        [...expectedSchema.schemas].sort(),
+      );
+      expect(Object.keys(schema?.discriminator?.mapping ?? {}).sort()).toEqual(
+        [...expectedSchema.schemas]
+          .map((name) => name.replace(/^Inbox|MessageContent$/g, ''))
+          .sort(),
+      );
     },
   );
 });

@@ -4,6 +4,7 @@ using Hive.Domain.Messaging;
 using Hive.Infrastructure.Auditing.PostgreSql;
 using Hive.Infrastructure.Inbox.ReadModels;
 using Hive.Infrastructure.Inbox.ReadModels.PostgreSql;
+using Npgsql;
 
 namespace Hive.Tests.PostgreSql;
 
@@ -62,7 +63,130 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
             }
         }
 
-        Assert.Equal([1, 2, 3, 4], appliedVersions);
+        Assert.Equal([1, 2, 3, 4, 5], appliedVersions);
+        await using var contentColumn = dataSource.CreateCommand(
+            """
+            SELECT data_type, is_nullable
+            FROM information_schema.columns
+            WHERE table_schema = 'inbox'
+              AND table_name = 'items'
+              AND column_name = 'message_content';
+            """);
+        await using var contentReader = await contentColumn.ExecuteReaderAsync();
+        Assert.True(await contentReader.ReadAsync());
+        Assert.Equal("jsonb", contentReader.GetString(0));
+        Assert.Equal("NO", contentReader.GetString(1));
+    }
+
+    [Fact]
+    public async Task Content_migration_backfills_existing_items_without_losing_human_state()
+    {
+        await fixture.ResetInboxAsync();
+        await using var dataSource = fixture.CreateDataSource();
+        await ApplyInboxMigrationsThroughAsync(dataSource, version: 4);
+        await using (var seed = dataSource.CreateCommand(
+            """
+            INSERT INTO inbox.projection_facts (
+                source,
+                source_offset,
+                persistence_id,
+                persistence_sequence,
+                organization_id,
+                position_id,
+                fact_type,
+                message_id,
+                thread_id,
+                occurred_at_utc,
+                payload)
+            VALUES (
+                'OrganizationalMessage',
+                1,
+                'position:acme/delivery-lead',
+                1,
+                'acme',
+                'delivery-lead',
+                'memo',
+                'bb8fe744-c3f7-44c6-8316-caa54ae7f71f',
+                'dce25441-c3eb-4803-a96d-3083434c2b38',
+                '2026-08-04T12:00:00Z',
+                '{"Body":"Existing status update"}'::jsonb);
+
+            INSERT INTO inbox.items (
+                organization_id,
+                assigned_position_id,
+                message_id,
+                message_type,
+                origin_type,
+                origin_position_id,
+                destination_type,
+                destination_position_id,
+                thread_id,
+                priority,
+                sent_at_utc,
+                deadline_at_utc,
+                is_expired,
+                response_state,
+                last_fact_type,
+                last_changed_at_utc,
+                is_delegated,
+                last_reminder_at_utc)
+            VALUES (
+                'acme',
+                'delivery-lead',
+                'bb8fe744-c3f7-44c6-8316-caa54ae7f71f',
+                'Memo',
+                'Position',
+                'ceo',
+                'Position',
+                'delivery-lead',
+                'dce25441-c3eb-4803-a96d-3083434c2b38',
+                'Normal',
+                '2026-08-04T11:59:00Z',
+                NULL,
+                FALSE,
+                'NotApplicable',
+                'memo',
+                '2026-08-04T12:00:00Z',
+                FALSE,
+                NULL);
+
+            INSERT INTO inbox.human_interactions (
+                organization_id,
+                assigned_position_id,
+                message_id,
+                person_id,
+                read_state,
+                reply_state,
+                draft_text,
+                updated_at_utc)
+            VALUES (
+                'acme',
+                'delivery-lead',
+                'bb8fe744-c3f7-44c6-8316-caa54ae7f71f',
+                'person-alice',
+                'Read',
+                'NotStarted',
+                NULL,
+                '2026-08-04T12:01:00Z');
+            """))
+        {
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        await new PostgreSqlInboxProjectionMigrator(dataSource).MigrateAsync();
+
+        await using var verify = dataSource.CreateCommand(
+            """
+            SELECT message_content ->> 'body',
+                   (SELECT count(*) FROM inbox.human_interactions),
+                   (SELECT max(version) FROM inbox.schema_migrations)
+            FROM inbox.items;
+            """);
+        await using var reader = await verify.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("Existing status update", reader.GetString(0));
+        Assert.Equal(1, reader.GetInt64(1));
+        Assert.Equal(5, reader.GetInt32(2));
     }
 
     [Fact]
@@ -248,6 +372,9 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         Assert.Equal(positionId, item.Key.AssignedPositionId);
         Assert.Equal(InboxProjectionMessageType.Memo, item.Type);
         Assert.Equal(InboxProjectionResponseState.NotApplicable, item.ResponseState);
+        Assert.Equal(
+            "Status update",
+            Assert.IsType<InboxProjectionMemoContent>(item.Content).Body);
         Assert.True(item.IsDelegated);
         Assert.Equal(OccurredAt, item.LastReminderAtUtc);
 
@@ -335,6 +462,49 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
         await new PostgreSqlJourneyAuditLogMigrator(dataSource).MigrateAsync();
     }
 
+    private static async Task ApplyInboxMigrationsThroughAsync(
+        NpgsqlDataSource dataSource,
+        int version)
+    {
+        await using (var bootstrap = dataSource.CreateCommand(
+            """
+            CREATE SCHEMA inbox;
+            CREATE TABLE inbox.schema_migrations (
+                version integer PRIMARY KEY,
+                name text NOT NULL,
+                applied_at timestamptz NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """))
+        {
+            await bootstrap.ExecuteNonQueryAsync();
+        }
+
+        var assembly = typeof(PostgreSqlInboxProjectionMigrator).Assembly;
+        var resources = assembly.GetManifestResourceNames()
+            .Where(name => name.Contains(
+                ".Inbox.ReadModels.PostgreSql.Migrations.",
+                StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .Take(version)
+            .ToArray();
+        Assert.Equal(version, resources.Length);
+        for (var index = 0; index < resources.Length; index++)
+        {
+            await using var stream = assembly.GetManifestResourceStream(resources[index])
+                ?? throw new Xunit.Sdk.XunitException(
+                    $"Migration resource '{resources[index]}' was not found.");
+            using var textReader = new StreamReader(stream);
+            var sql = await textReader.ReadToEndAsync();
+            await using var command = dataSource.CreateCommand(sql);
+            await command.ExecuteNonQueryAsync();
+            await using var record = dataSource.CreateCommand(
+                "INSERT INTO inbox.schema_migrations (version, name) VALUES ($1, $2);");
+            record.Parameters.AddWithValue(index + 1);
+            record.Parameters.AddWithValue(resources[index]);
+            await record.ExecuteNonQueryAsync();
+        }
+    }
+
     private async Task<IReadOnlyList<(string Source, long Offset, string FactType)>>
         ReadCapturedFactsAsync()
     {
@@ -410,6 +580,7 @@ public sealed class PostgreSqlInboxProjectionFeedTests(PostgreSqlFixture fixture
                 IsExpired: false,
                 InboxProjectionResponseState.NotApplicable,
                 Approval: null,
+                new InboxProjectionMemoContent("Status update"),
                 IsDelegated: true,
                 LastReminderAtUtc: OccurredAt),
             fact.FactType,

@@ -48,6 +48,17 @@ public sealed class InboxApiContractTests
 
         Assert.Equal(Engineer.Value, exposedItem.GetProperty("assigned_position_id").GetString());
         Assert.Equal(EngineerMessageId, exposedItem.GetProperty("message_id").GetGuid());
+        Assert.False(exposedItem.TryGetProperty("content", out _));
+
+        var authorizedItem = await client.GetFromJsonAsync<JsonElement>(
+            $"{basePath}/inbox/" +
+            Uri.EscapeDataString(PublicItemId(Engineer, EngineerMessageId)));
+        Assert.Equal(
+            "Directive",
+            authorizedItem.GetProperty("content").GetProperty("type").GetString());
+        Assert.Equal(
+            "Investigate the production regression",
+            authorizedItem.GetProperty("content").GetProperty("objective").GetString());
 
         var requestsBeforePositionChecks = snapshotReader.Requests.Count;
         using var unoccupiedPosition = await client.GetAsync(
@@ -66,6 +77,10 @@ public sealed class InboxApiContractTests
             Uri.EscapeDataString(PublicItemId(FinanceLead, unknownMessageId)));
 
         await AssertEquivalentNotFoundAsync(unoccupiedItem, unknownItem);
+        Assert.DoesNotContain(
+            "Customer impact is confirmed.",
+            await unoccupiedItem.Content.ReadAsStringAsync(),
+            StringComparison.Ordinal);
         Assert.All(snapshotReader.Requests, request =>
         {
             Assert.Equal(Organization, request.OrganizationId);
@@ -190,7 +205,10 @@ public sealed class InboxApiContractTests
         Now.AddHours(2),
         IsExpired: false,
         InboxProjectionResponseState.AwaitingResponse,
-        Approval: null);
+        Approval: null,
+        new InboxProjectionDirectiveContent(
+            "Investigate the production regression",
+            "Customer impact is confirmed."));
 
     private static string PublicItemId(PositionId positionId, Guid messageId) =>
         $"{positionId.Value}/{messageId:D}";

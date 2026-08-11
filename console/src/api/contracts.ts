@@ -126,6 +126,64 @@ export type InboxMessageType =
   | 'ApprovalRequest'
   | 'ApprovalDecision';
 
+export type InboxReportKind = 'progress' | 'done';
+
+/** Closed canonical content returned only by the principal-scoped detail route. */
+export type InboxMessageContent =
+  | InboxDirectiveMessageContent
+  | InboxReportMessageContent
+  | InboxEscalationMessageContent
+  | InboxMemoMessageContent
+  | InboxPeerRequestMessageContent
+  | InboxPeerResponseMessageContent
+  | InboxApprovalRequestMessageContent
+  | InboxApprovalDecisionMessageContent;
+
+export interface InboxDirectiveMessageContent {
+  type: 'Directive';
+  objective: string;
+  context: string;
+}
+
+export interface InboxReportMessageContent {
+  type: 'Report';
+  body: string;
+  kind: InboxReportKind;
+}
+
+export interface InboxEscalationMessageContent {
+  type: 'Escalation';
+  issue: string;
+  context: string;
+}
+
+export interface InboxMemoMessageContent {
+  type: 'Memo';
+  body: string;
+}
+
+export interface InboxPeerRequestMessageContent {
+  type: 'PeerRequest';
+  ask: string;
+}
+
+export interface InboxPeerResponseMessageContent {
+  type: 'PeerResponse';
+  body: string;
+}
+
+export interface InboxApprovalRequestMessageContent {
+  type: 'ApprovalRequest';
+  action: string;
+  justification: string;
+}
+
+export interface InboxApprovalDecisionMessageContent {
+  type: 'ApprovalDecision';
+  /** Omitted when the canonical decision carries no reason. */
+  reason?: string | null;
+}
+
 export type InboxMessageEndpointType = 'Position' | 'OrganizationOwner';
 
 export type InboxPriority = 'Low' | 'Normal' | 'High' | 'Critical';
@@ -202,6 +260,7 @@ export interface InboxItemResponse {
   last_event_applied_at_utc: UtcTimestamp | null;
   item: InboxItem;
   draft_text: string | null;
+  content: InboxMessageContent | null;
 }
 
 /** Body of `POST /inbox/{itemId}/draft`. */

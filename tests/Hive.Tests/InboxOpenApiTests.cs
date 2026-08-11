@@ -46,6 +46,7 @@ public sealed class InboxOpenApiTests
         "InboxPage.next_cursor",
         "InboxItemResponse.last_event_applied_at_utc",
         "InboxItemResponse.draft_text",
+        "InboxItemResponse.content",
         "InboxInteractionResponse.last_event_applied_at_utc",
         "InboxInteractionResponse.draft_text",
         "InboxReplyResponse.directive_id",
@@ -334,6 +335,60 @@ public sealed class InboxOpenApiTests
                 .ToArray();
             Assert.Equal(expectedValues, values);
         }
+    }
+
+    [Fact]
+    public async Task Inbox_detail_content_is_a_closed_discriminated_union()
+    {
+        using var document = await ReadDocumentAsync();
+
+        var schemas = document.RootElement
+            .GetProperty("components")
+            .GetProperty("schemas");
+        var content = schemas.GetProperty("InboxMessageContent");
+        Assert.Equal("type", content.GetProperty("discriminator").GetProperty("propertyName").GetString());
+        var expected = new Dictionary<string, string[]>
+        {
+            ["InboxDirectiveMessageContent"] = ["type", "objective", "context"],
+            ["InboxReportMessageContent"] = ["type", "body", "kind"],
+            ["InboxEscalationMessageContent"] = ["type", "issue", "context"],
+            ["InboxMemoMessageContent"] = ["type", "body"],
+            ["InboxPeerRequestMessageContent"] = ["type", "ask"],
+            ["InboxPeerResponseMessageContent"] = ["type", "body"],
+            ["InboxApprovalRequestMessageContent"] = ["type", "action", "justification"],
+            ["InboxApprovalDecisionMessageContent"] = ["type", "reason"],
+        };
+        var references = content.GetProperty("oneOf")
+            .EnumerateArray()
+            .Select(schema => schema.GetProperty("$ref").GetString()!.Split('/')[^1])
+            .ToArray();
+        Assert.Equal(expected.Keys.Order(StringComparer.Ordinal), references.Order(StringComparer.Ordinal));
+
+        foreach (var (schemaName, expectedProperties) in expected)
+        {
+            var schema = schemas.GetProperty(schemaName);
+            Assert.Equal(
+                expectedProperties.Order(StringComparer.Ordinal),
+                schema.GetProperty("properties").EnumerateObject()
+                    .Select(property => property.Name)
+                    .Order(StringComparer.Ordinal));
+            var required = schema.GetProperty("required")
+                .EnumerateArray()
+                .Select(property => property.GetString())
+                .ToArray();
+            var expectedRequired = schemaName == "InboxApprovalDecisionMessageContent"
+                ? ["type"]
+                : expectedProperties;
+            Assert.Equal(
+                expectedRequired.Order(StringComparer.Ordinal),
+                required.Order(StringComparer.Ordinal));
+            Assert.False(schema.GetProperty("additionalProperties").GetBoolean());
+        }
+
+        Assert.Equal(
+            ["progress", "done"],
+            schemas.GetProperty("InboxReportKind").GetProperty("enum")
+                .EnumerateArray().Select(value => value.GetString()));
     }
 
     private static async Task<JsonDocument> ReadDocumentAsync()

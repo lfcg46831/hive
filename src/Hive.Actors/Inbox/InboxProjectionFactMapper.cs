@@ -414,7 +414,8 @@ internal sealed class InboxProjectionFactMapper
             message.Deadline?.ToUniversalTime(),
             IsExpired(message.Deadline),
             responseState,
-            ApprovalMetadata(message));
+            ApprovalMetadata(message),
+            MessageContent(message));
 
         if (_items.TryGetValue(key, out var existing))
         {
@@ -668,6 +669,28 @@ internal sealed class InboxProjectionFactMapper
             ApprovalDecision => InboxProjectionMessageType.ApprovalDecision,
             _ => throw new InvalidOperationException(
                 $"Organizational message '{message.GetType().Name}' is not a human inbox item."),
+        };
+
+    private static InboxProjectionMessageContent MessageContent(OrgMessage message) =>
+        message switch
+        {
+            Directive directive => new InboxProjectionDirectiveContent(
+                directive.Objective,
+                directive.Context),
+            Report report => new InboxProjectionReportContent(report.Body, report.Kind),
+            Escalation escalation => new InboxProjectionEscalationContent(
+                escalation.Issue,
+                escalation.Context),
+            Memo memo => new InboxProjectionMemoContent(memo.Body),
+            PeerRequest request => new InboxProjectionPeerRequestContent(request.Ask),
+            PeerResponse response => new InboxProjectionPeerResponseContent(response.Body),
+            ApprovalRequest request => new InboxProjectionApprovalRequestContent(
+                request.Action,
+                request.Justification),
+            ApprovalDecision decision => new InboxProjectionApprovalDecisionContent(
+                decision.Reason),
+            _ => throw new InvalidOperationException(
+                $"Organizational message '{message.GetType().Name}' has no inbox content mapping."),
         };
 
     private static InboxProjectionResponseState InitialResponseState(OrgMessage message) =>

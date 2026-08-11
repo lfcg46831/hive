@@ -123,7 +123,8 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                    approval_decision_message_id,
                    approval_decided_at_utc,
                    is_delegated,
-                   last_reminder_at_utc
+                   last_reminder_at_utc,
+                   message_content
             FROM inbox.items
             WHERE organization_id = @organization_id
               AND assigned_position_id = ANY(@assigned_position_ids)
@@ -149,6 +150,7 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
         var items = new List<InboxProjectionItem>();
         while (await reader.ReadAsync(cancellationToken))
         {
+            var messageType = ParseEnum<InboxProjectionMessageType>(reader.GetString(2));
             var approval = reader.IsDBNull(13)
                 ? null
                 : new InboxProjectionApproval(
@@ -165,7 +167,7 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                     organizationId,
                     PositionId.From(reader.GetString(0)),
                     MessageId.From(reader.GetGuid(1))),
-                ParseEnum<InboxProjectionMessageType>(reader.GetString(2)),
+                messageType,
                 Endpoint(reader.GetString(3), reader.IsDBNull(4) ? null : reader.GetString(4)),
                 Endpoint(reader.GetString(5), reader.IsDBNull(6) ? null : reader.GetString(6)),
                 ThreadId.From(reader.GetGuid(7)),
@@ -177,6 +179,9 @@ public sealed class PostgreSqlInboxProjectionSnapshotReader :
                 reader.GetBoolean(11),
                 ParseEnum<InboxProjectionResponseState>(reader.GetString(12)),
                 approval,
+                PostgreSqlInboxMessageContentJson.Deserialize(
+                    messageType,
+                    reader.GetString(21)),
                 reader.GetBoolean(19),
                 reader.IsDBNull(20)
                     ? null

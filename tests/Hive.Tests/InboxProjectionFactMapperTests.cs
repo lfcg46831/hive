@@ -43,6 +43,9 @@ public sealed class InboxProjectionFactMapperTests
         Assert.False(change.Item.IsExpired);
         Assert.Null(change.Item.LastReminderAtUtc);
         Assert.Null(change.Item.Approval);
+        var directiveContent = Assert.IsType<InboxProjectionDirectiveContent>(change.Item.Content);
+        Assert.Equal(directive.Objective, directiveContent.Objective);
+        Assert.Equal(directive.Context, directiveContent.Context);
 
         var memo = new Memo(
             Message("10000000-0000-0000-0000-000000000002"),
@@ -59,6 +62,9 @@ public sealed class InboxProjectionFactMapperTests
 
         Assert.Equal(InboxProjectionMessageType.Memo, memoChange.Item.Type);
         Assert.Equal(InboxProjectionResponseState.NotApplicable, memoChange.Item.ResponseState);
+        Assert.Equal(
+            memo.Body,
+            Assert.IsType<InboxProjectionMemoContent>(memoChange.Item.Content).Body);
     }
 
     [Fact]
@@ -76,7 +82,12 @@ public sealed class InboxProjectionFactMapperTests
             Message("10000000-0000-0000-0000-000000000011"),
             directive.Thread,
             Directive("30000000-0000-0000-0000-000000000011"));
-        mapper.Apply(MessageFact(Lead, unrelatedReport));
+        var reportItem = Assert.Single(
+            mapper.Apply(MessageFact(Lead, unrelatedReport)),
+            change => change.Item.Key.MessageId == unrelatedReport.Id).Item;
+        var reportContent = Assert.IsType<InboxProjectionReportContent>(reportItem.Content);
+        Assert.Equal(unrelatedReport.Body, reportContent.Body);
+        Assert.Equal(unrelatedReport.Kind, reportContent.Kind);
         Assert.Equal(
             InboxProjectionResponseState.AwaitingResponse,
             Current(mapper, Engineer, directive.Id).ResponseState);
@@ -102,7 +113,12 @@ public sealed class InboxProjectionFactMapperTests
             At,
             deadline: null,
             "Can you review this?");
-        mapper.Apply(MessageFact(Lead, peerRequest));
+        var peerRequestItem = Assert.Single(
+            mapper.Apply(MessageFact(Lead, peerRequest)),
+            change => change.Item.Key.MessageId == peerRequest.Id).Item;
+        Assert.Equal(
+            peerRequest.Ask,
+            Assert.IsType<InboxProjectionPeerRequestContent>(peerRequestItem.Content).Ask);
         var peerResponse = new PeerResponse(
             Message("10000000-0000-0000-0000-000000000021"),
             Organization,
@@ -115,7 +131,12 @@ public sealed class InboxProjectionFactMapperTests
             deadline: null,
             peerRequest.Id,
             "Reviewed");
-        mapper.Apply(MessageFact(Engineer, peerResponse));
+        var peerResponseItem = Assert.Single(
+            mapper.Apply(MessageFact(Engineer, peerResponse)),
+            change => change.Item.Key.MessageId == peerResponse.Id).Item;
+        Assert.Equal(
+            peerResponse.Body,
+            Assert.IsType<InboxProjectionPeerResponseContent>(peerResponseItem.Content).Body);
         Assert.Equal(
             InboxProjectionResponseState.Responded,
             Current(mapper, Lead, peerRequest.Id).ResponseState);
@@ -133,7 +154,13 @@ public sealed class InboxProjectionFactMapperTests
             "Deployment blocked",
             "Missing credential",
             ["Wait", "Roll back"]);
-        mapper.Apply(MessageFact(Lead, escalation));
+        var escalationItem = Assert.Single(
+            mapper.Apply(MessageFact(Lead, escalation)),
+            change => change.Item.Key.MessageId == escalation.Id).Item;
+        var escalationContent = Assert.IsType<InboxProjectionEscalationContent>(
+            escalationItem.Content);
+        Assert.Equal(escalation.Issue, escalationContent.Issue);
+        Assert.Equal(escalation.Context, escalationContent.Context);
         var resolution = DirectiveMessage(
             Message("10000000-0000-0000-0000-000000000031"),
             escalation.Thread,
@@ -159,6 +186,10 @@ public sealed class InboxProjectionFactMapperTests
         Assert.Equal(InboxProjectionApprovalState.Pending, pending.Approval?.State);
         Assert.Equal(request.Action, pending.Approval?.Action);
         Assert.Equal(request.Policy, pending.Approval?.Policy);
+        var requestContent = Assert.IsType<InboxProjectionApprovalRequestContent>(
+            pending.Content);
+        Assert.Equal(request.Action, requestContent.Action);
+        Assert.Equal(request.Justification, requestContent.Justification);
 
         var decision = ApprovalDecisionMessage(
             Message("10000000-0000-0000-0000-000000000041"),
@@ -178,6 +209,9 @@ public sealed class InboxProjectionFactMapperTests
         Assert.Equal(request.Action, decisionItem.Approval?.Action);
         Assert.Equal(request.Policy, decisionItem.Approval?.Policy);
         Assert.Equal(InboxProjectionApprovalState.Rejected, decisionItem.Approval?.State);
+        Assert.Equal(
+            decision.Reason,
+            Assert.IsType<InboxProjectionApprovalDecisionContent>(decisionItem.Content).Reason);
         Assert.Contains(changes, change => change.Item.Key.MessageId == request.Id);
         Assert.Contains(changes, change => change.Item.Key.MessageId == decision.Id);
     }

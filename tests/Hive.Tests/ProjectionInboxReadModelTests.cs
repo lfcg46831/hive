@@ -159,6 +159,9 @@ public sealed class ProjectionInboxReadModelTests
         Assert.Equal("Work in progress", detail.DraftText);
         Assert.Equal(InboxReadState.Read, detail.Item.ReadState);
         Assert.Equal(InboxResponseState.InProgress, detail.Item.ResponseState);
+        Assert.Equal(
+            "Message 1",
+            Assert.IsType<InboxMemoMessageContent>(detail.Content).Body);
     }
 
     [Fact]
@@ -216,6 +219,7 @@ public sealed class ProjectionInboxReadModelTests
             isExpired,
             responseState,
             Approval: null,
+            new InboxProjectionMemoContent($"Message {ordinal}"),
             isDelegated,
             lastReminderAtUtc);
     }

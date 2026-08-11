@@ -528,6 +528,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 assigned_position_id,
                 message_id,
                 message_type,
+                message_content,
                 origin_type,
                 origin_position_id,
                 destination_type,
@@ -553,6 +554,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 @assigned_position_id,
                 @message_id,
                 @message_type,
+                @message_content,
                 @origin_type,
                 @origin_position_id,
                 @destination_type,
@@ -575,6 +577,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 @last_changed_at_utc)
             ON CONFLICT (organization_id, assigned_position_id, message_id) DO UPDATE SET
                 message_type = EXCLUDED.message_type,
+                message_content = EXCLUDED.message_content,
                 origin_type = EXCLUDED.origin_type,
                 origin_position_id = EXCLUDED.origin_position_id,
                 destination_type = EXCLUDED.destination_type,
@@ -597,6 +600,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                 last_changed_at_utc = EXCLUDED.last_changed_at_utc
             WHERE ROW(
                     inbox.items.message_type,
+                    inbox.items.message_content,
                     inbox.items.origin_type,
                     inbox.items.origin_position_id,
                     inbox.items.destination_type,
@@ -617,6 +621,7 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
                     inbox.items.approval_decided_at_utc)
                 IS DISTINCT FROM ROW(
                     EXCLUDED.message_type,
+                    EXCLUDED.message_content,
                     EXCLUDED.origin_type,
                     EXCLUDED.origin_position_id,
                     EXCLUDED.destination_type,
@@ -642,6 +647,8 @@ public sealed class PostgreSqlInboxProjectionFeed : IInboxProjectionFeed, IAsync
         AddText(command, "assigned_position_id", item.Key.AssignedPositionId.Value);
         command.Parameters.Add("message_id", NpgsqlDbType.Uuid).Value = item.Key.MessageId.Value;
         AddText(command, "message_type", item.Type.ToString());
+        command.Parameters.Add("message_content", NpgsqlDbType.Jsonb).Value =
+            PostgreSqlInboxMessageContentJson.Serialize(item.Type, item.Content);
         AddText(command, "origin_type", origin.Type);
         AddNullableText(command, "origin_position_id", origin.PositionId);
         AddText(command, "destination_type", destination.Type);

@@ -10,22 +10,32 @@
 
 import type {
   InboxApprovalMetadata,
+  InboxApprovalDecisionMessageContent,
+  InboxApprovalRequestMessageContent,
   InboxApprovalState,
   InboxDecisionRequest,
   InboxDecisionResponse,
   InboxDraftRequest,
   InboxInteractionResponse,
+  InboxDirectiveMessageContent,
+  InboxEscalationMessageContent,
   InboxItem,
   InboxItemResponse,
+  InboxMemoMessageContent,
+  InboxMessageContent,
   InboxMessageEndpoint,
   InboxMessageEndpointType,
   InboxMessageType,
   InboxPage,
+  InboxPeerRequestMessageContent,
+  InboxPeerResponseMessageContent,
   InboxPriority,
   InboxReadState,
   InboxReminderState,
   InboxReplyRequest,
   InboxReplyResponse,
+  InboxReportKind,
+  InboxReportMessageContent,
   InboxResponseState,
   OrganizationOccupant,
   OrganizationOccupantType,
@@ -55,15 +65,16 @@ type ReferenceSchemaName<T> = [OrganizationReferenceSchemaName<T>] extends [neve
   : OrganizationReferenceSchemaName<T>;
 
 type InboxReferenceSchemaName<T> =
-  NonNullable<T> extends InboxMessageEndpoint
+  NonNullable<T> extends InboxMessageContent
+    ? 'InboxMessageContent'
+    : NonNullable<T> extends InboxMessageEndpoint
     ? 'InboxMessageEndpoint'
     : NonNullable<T> extends InboxApprovalMetadata
       ? 'InboxApprovalMetadata'
       : NonNullable<T> extends InboxItem
-        ? 'InboxItem'
-        : NonNullable<T> extends InboxMessageType
-          ? 'InboxMessageType'
-          : NonNullable<T> extends InboxMessageEndpointType
+      ? 'InboxItem'
+        : [InboxMessageTypeReference<T>] extends [never]
+          ? NonNullable<T> extends InboxMessageEndpointType
             ? 'InboxMessageEndpointType'
             : NonNullable<T> extends InboxPriority
               ? 'InboxPriority'
@@ -75,7 +86,17 @@ type InboxReferenceSchemaName<T> =
                     ? 'InboxApprovalState'
                     : NonNullable<T> extends InboxReminderState
                       ? 'InboxReminderState'
-                      : never;
+                      : NonNullable<T> extends InboxReportKind
+                        ? 'InboxReportKind'
+                        : never
+          : InboxMessageTypeReference<T>;
+
+type InboxMessageTypeReference<T> =
+  [NonNullable<T>] extends [InboxMessageType]
+    ? [InboxMessageType] extends [NonNullable<T>]
+      ? 'InboxMessageType'
+      : never
+    : never;
 
 type OrganizationReferenceSchemaName<T> =
   NonNullable<T> extends RegistryVersion
@@ -502,7 +523,60 @@ export const objectWireShape = {
       nullable: false,
     },
     draft_text: { type: 'string', required: true, nullable: true },
+    content: {
+      type: 'reference',
+      schema: 'InboxMessageContent',
+      required: true,
+      nullable: true,
+    },
   }),
+  InboxDirectiveMessageContent:
+    defineObjectWireShape<InboxDirectiveMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      objective: { type: 'string', required: true, nullable: false },
+      context: { type: 'string', required: true, nullable: false },
+    }),
+  InboxReportMessageContent: defineObjectWireShape<InboxReportMessageContent>(false)({
+    type: { type: 'string', required: true, nullable: false },
+    body: { type: 'string', required: true, nullable: false },
+    kind: {
+      type: 'reference',
+      schema: 'InboxReportKind',
+      required: true,
+      nullable: false,
+    },
+  }),
+  InboxEscalationMessageContent:
+    defineObjectWireShape<InboxEscalationMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      issue: { type: 'string', required: true, nullable: false },
+      context: { type: 'string', required: true, nullable: false },
+    }),
+  InboxMemoMessageContent: defineObjectWireShape<InboxMemoMessageContent>(false)({
+    type: { type: 'string', required: true, nullable: false },
+    body: { type: 'string', required: true, nullable: false },
+  }),
+  InboxPeerRequestMessageContent:
+    defineObjectWireShape<InboxPeerRequestMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      ask: { type: 'string', required: true, nullable: false },
+    }),
+  InboxPeerResponseMessageContent:
+    defineObjectWireShape<InboxPeerResponseMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      body: { type: 'string', required: true, nullable: false },
+    }),
+  InboxApprovalRequestMessageContent:
+    defineObjectWireShape<InboxApprovalRequestMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      action: { type: 'string', required: true, nullable: false },
+      justification: { type: 'string', required: true, nullable: false },
+    }),
+  InboxApprovalDecisionMessageContent:
+    defineObjectWireShape<InboxApprovalDecisionMessageContent>(false)({
+      type: { type: 'string', required: true, nullable: false },
+      reason: { type: 'string', required: false, nullable: true },
+    }),
   InboxInteractionResponse: defineObjectWireShape<InboxInteractionResponse>(false)({
     generated_at_utc: {
       type: 'string',
@@ -627,6 +701,24 @@ const inboxApprovalStates: readonly InboxApprovalState[] = [
   'Expired',
 ];
 const inboxReminderStates: readonly InboxReminderState[] = ['None', 'Sent'];
+const inboxReportKinds: readonly InboxReportKind[] = ['progress', 'done'];
+
+/** Discriminated union schemas keyed by their OpenAPI component name. */
+export const unionWireShape = {
+  InboxMessageContent: {
+    discriminator: 'type',
+    schemas: [
+      'InboxDirectiveMessageContent',
+      'InboxReportMessageContent',
+      'InboxEscalationMessageContent',
+      'InboxMemoMessageContent',
+      'InboxPeerRequestMessageContent',
+      'InboxPeerResponseMessageContent',
+      'InboxApprovalRequestMessageContent',
+      'InboxApprovalDecisionMessageContent',
+    ],
+  },
+} as const;
 
 /** Enum schemas keyed by their OpenAPI component name, in declaration order. */
 export const enumWireShape = {
@@ -639,4 +731,5 @@ export const enumWireShape = {
   InboxResponseState: inboxResponseStates,
   InboxApprovalState: inboxApprovalStates,
   InboxReminderState: inboxReminderStates,
+  InboxReportKind: inboxReportKinds,
 } as const satisfies Record<string, readonly string[]>;

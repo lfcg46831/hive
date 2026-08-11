@@ -2,6 +2,7 @@ using System.Globalization;
 using Hive.Api.Authorization;
 using Hive.Contracts.Inbox;
 using Hive.Contracts.Organization;
+using Microsoft.OpenApi.Any;
 using Microsoft.OpenApi.Models;
 using Swashbuckle.AspNetCore.SwaggerGen;
 
@@ -53,6 +54,7 @@ public static class PublicApiOpenApiExtensions
                         "api/v1/",
                         StringComparison.Ordinal) == true);
             options.OperationFilter<OrganizationOpenApiOperationFilter>();
+            options.SchemaFilter<InboxMessageContentSchemaFilter>();
             options.SchemaFilter<OrganizationPublicContractSchemaFilter>();
         });
         return services;
@@ -65,6 +67,78 @@ public static class PublicApiOpenApiExtensions
 
         application.UseSwagger(options => options.RouteTemplate = RouteTemplate);
         return application;
+    }
+}
+
+internal sealed class InboxMessageContentSchemaFilter : ISchemaFilter
+{
+    private static readonly IReadOnlyDictionary<Type, string> ContentTypes =
+        new Dictionary<Type, string>
+        {
+            [typeof(InboxDirectiveMessageContent)] = nameof(InboxMessageType.Directive),
+            [typeof(InboxReportMessageContent)] = nameof(InboxMessageType.Report),
+            [typeof(InboxEscalationMessageContent)] = nameof(InboxMessageType.Escalation),
+            [typeof(InboxMemoMessageContent)] = nameof(InboxMessageType.Memo),
+            [typeof(InboxPeerRequestMessageContent)] = nameof(InboxMessageType.PeerRequest),
+            [typeof(InboxPeerResponseMessageContent)] = nameof(InboxMessageType.PeerResponse),
+            [typeof(InboxApprovalRequestMessageContent)] = nameof(InboxMessageType.ApprovalRequest),
+            [typeof(InboxApprovalDecisionMessageContent)] = nameof(InboxMessageType.ApprovalDecision),
+        };
+
+    public void Apply(OpenApiSchema schema, SchemaFilterContext context)
+    {
+        ArgumentNullException.ThrowIfNull(schema);
+        ArgumentNullException.ThrowIfNull(context);
+
+        if (context.Type == typeof(InboxReportKind))
+        {
+            schema.Type = "string";
+            schema.Format = null;
+            schema.Enum =
+            [
+                new OpenApiString("progress"),
+                new OpenApiString("done"),
+            ];
+            return;
+        }
+
+        if (ContentTypes.TryGetValue(context.Type, out var discriminatorValue))
+        {
+            schema.Properties["type"] = new OpenApiSchema
+            {
+                Type = "string",
+                Enum = [new OpenApiString(discriminatorValue)],
+            };
+            schema.Required.Add("type");
+            return;
+        }
+
+        if (context.Type != typeof(InboxMessageContent))
+        {
+            return;
+        }
+
+        schema.Type = null;
+        schema.Properties.Clear();
+        schema.Required.Clear();
+        var subtypes = ContentTypes
+            .Select(entry => new
+            {
+                entry.Value,
+                Schema = context.SchemaGenerator.GenerateSchema(
+                    entry.Key,
+                    context.SchemaRepository),
+            })
+            .ToArray();
+        schema.OneOf = subtypes.Select(static entry => entry.Schema).ToList();
+        schema.Discriminator = new OpenApiDiscriminator
+        {
+            PropertyName = "type",
+            Mapping = subtypes.ToDictionary(
+                entry => entry.Value,
+                entry => $"#/components/schemas/{entry.Schema.Reference.Id}",
+                StringComparer.Ordinal),
+        };
     }
 }
 
@@ -87,6 +161,13 @@ internal sealed class OrganizationPublicContractSchemaFilter : ISchemaFilter
         typeof(InboxApprovalMetadata),
         typeof(InboxItem),
         typeof(InboxItemResponse),
+        typeof(InboxDirectiveMessageContent),
+        typeof(InboxReportMessageContent),
+        typeof(InboxEscalationMessageContent),
+        typeof(InboxMemoMessageContent),
+        typeof(InboxPeerRequestMessageContent),
+        typeof(InboxPeerResponseMessageContent),
+        typeof(InboxApprovalRequestMessageContent),
         typeof(InboxPage),
         typeof(InboxInteractionResponse),
         typeof(InboxReplyResponse),

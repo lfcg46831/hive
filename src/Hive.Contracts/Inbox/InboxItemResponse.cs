@@ -11,7 +11,8 @@ public sealed record InboxItemResponse
         DateTimeOffset generatedAtUtc,
         DateTimeOffset? lastEventAppliedAtUtc,
         InboxItem item,
-        string? draftText = null)
+        string? draftText = null,
+        InboxMessageContent? content = null)
     {
         GeneratedAtUtc = InboxContractGuards.UtcTimestamp(
             generatedAtUtc,
@@ -21,6 +22,14 @@ public sealed record InboxItemResponse
             nameof(lastEventAppliedAtUtc));
         Item = item ?? throw new ArgumentNullException(nameof(item));
         DraftText = draftText;
+        if (content is not null && content.MessageType != Item.Type)
+        {
+            throw new ArgumentException(
+                "Inbox message content must match the item message type.",
+                nameof(content));
+        }
+
+        Content = content;
     }
 
     [JsonPropertyName("generated_at_utc")]
@@ -34,4 +43,7 @@ public sealed record InboxItemResponse
 
     [JsonPropertyName("draft_text")]
     public string? DraftText { get; }
+
+    [JsonPropertyName("content")]
+    public InboxMessageContent? Content { get; }
 }

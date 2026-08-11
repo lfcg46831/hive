@@ -195,8 +195,30 @@ public sealed class InboxUpdatesHubTests
             ChangedAt.AddHours(1),
             IsExpired: false,
             InboxProjectionResponseState.NotApplicable,
-            approval);
+            approval,
+            Content(type));
     }
+
+    private static InboxProjectionMessageContent Content(InboxProjectionMessageType type) =>
+        type switch
+        {
+            InboxProjectionMessageType.Directive =>
+                new InboxProjectionDirectiveContent("Objective", "Context"),
+            InboxProjectionMessageType.Report =>
+                new InboxProjectionReportContent("Body", ReportKind.Progress),
+            InboxProjectionMessageType.Escalation =>
+                new InboxProjectionEscalationContent("Issue", "Context"),
+            InboxProjectionMessageType.Memo => new InboxProjectionMemoContent("Body"),
+            InboxProjectionMessageType.PeerRequest =>
+                new InboxProjectionPeerRequestContent("Ask"),
+            InboxProjectionMessageType.PeerResponse =>
+                new InboxProjectionPeerResponseContent("Body"),
+            InboxProjectionMessageType.ApprovalRequest =>
+                new InboxProjectionApprovalRequestContent("Action", "Justification"),
+            InboxProjectionMessageType.ApprovalDecision =>
+                new InboxProjectionApprovalDecisionContent("Reason"),
+            _ => throw new ArgumentOutOfRangeException(nameof(type), type, null),
+        };
 
     private static InboxProjectionChange Change(
         InboxProjectionItem item,
@@ -229,6 +251,7 @@ public sealed class InboxUpdatesHubTests
             Assert.Equal(
                 changeType.ToString(),
                 payload.GetProperty("change_type").GetString());
+            Assert.False(payload.TryGetProperty("content", out _));
         }
     }
 

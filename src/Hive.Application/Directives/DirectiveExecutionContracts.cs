@@ -174,12 +174,49 @@ public abstract record DirectiveExecutionEffect;
 
 public sealed record DirectiveMessageEffect : DirectiveExecutionEffect
 {
-    public DirectiveMessageEffect(OrgMessage message)
+    public DirectiveMessageEffect(
+        MessageId sourceMessageId,
+        OccupantId occupant,
+        OrgMessage message,
+        IEnumerable<PositionCommand>? positionCommands = null)
     {
+        SourceMessageId = sourceMessageId
+            ?? throw new ArgumentNullException(nameof(sourceMessageId));
+        Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         Message = message ?? throw new ArgumentNullException(nameof(message));
+        PositionCommands = SnapshotPositionCommands(positionCommands);
     }
 
+    public MessageId SourceMessageId { get; }
+
+    public OccupantId Occupant { get; }
+
     public OrgMessage Message { get; }
+
+    /// <summary>
+    /// Canonical local effects that must become durable in the same handoff as the result message.
+    /// The actor adapter remains responsible only for dispatch; it does not interpret AI outcomes.
+    /// </summary>
+    public ImmutableArray<PositionCommand> PositionCommands { get; }
+
+    private static ImmutableArray<PositionCommand> SnapshotPositionCommands(
+        IEnumerable<PositionCommand>? commands)
+    {
+        if (commands is null)
+        {
+            return [];
+        }
+
+        var snapshot = commands.ToImmutableArray();
+        if (snapshot.Any(command => command is null))
+        {
+            throw new ArgumentException(
+                "Directive message position commands cannot contain null entries.",
+                nameof(commands));
+        }
+
+        return snapshot;
+    }
 }
 
 public sealed record DirectivePositionCommandEffect : DirectiveExecutionEffect

@@ -159,6 +159,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(PositionEnvelope);
         yield return typeof(PositionCommand);
         yield return typeof(AcceptMessage);
+        yield return typeof(AcceptMessageResult);
         yield return typeof(EmitOccupantReply);
         yield return typeof(EmitOccupantApprovalDecision);
         yield return typeof(OccupantReplyEmissionResult);
@@ -205,6 +206,7 @@ public sealed class PositionProtocolSerializerBindingTests
         var denial = SampleAuthorizationDenial(retained);
         yield return ("position-envelope", SampleEnvelope());
         yield return ("accept-message", new AcceptMessage(SampleMessage()));
+        yield return ("accept-message-result", AcceptMessageResult.Accepted(MessageId()));
         yield return ("emit-occupant-reply", new EmitOccupantReply(
             MessageId(),
             ReplyMessageId(),
@@ -258,6 +260,11 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("occupant-reply-emitted", new OccupantReplyEmitted(
             MessageId(),
             OccupantReplyAuthor.ExternalOccupant("remote-agent-7", "https-api"),
+            SampleOccupantReply(),
+            At));
+        yield return ("occupant-reply-emitted", new OccupantReplyEmitted(
+            MessageId(),
+            OccupantReplyAuthor.AiAgent(OccupantId.From("agent-7")),
             SampleOccupantReply(),
             At));
         yield return ("occupant-reply-emitted", new OccupantReplyEmitted(

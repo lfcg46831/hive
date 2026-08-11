@@ -107,6 +107,38 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
     }
 
     [Fact]
+    public void Publish_defers_ai_result_audit_until_the_confirmed_handoff_adapter()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var inner = new RecordingPositionProjectionPublisher();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit, inner);
+        var report = new Report(
+            MessageId.From(Guid.Parse("aaaaaaaa-0000-0000-0000-000000001916")),
+            Organization,
+            new PositionEndpointRef(Position),
+            new PositionEndpointRef(PositionId.From("delivery-lead")),
+            Thread,
+            Priority.High,
+            1,
+            At.AddMinutes(5),
+            deadline: null,
+            Directive,
+            ReportKind.Done,
+            "Sensitive AI-authored completion text.");
+
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new OccupantReplyEmitted(
+                Message,
+                OccupantReplyAuthor.AiAgent(OccupantId.From("agent-14a")),
+                report,
+                At.AddMinutes(5))));
+
+        Assert.Empty(audit.Records);
+        Assert.Single(inner.Events);
+    }
+
+    [Fact]
     public void Publish_audits_human_approval_decision_without_exposing_its_reason()
     {
         var audit = new RecordingJourneyAuditLog();

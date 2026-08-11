@@ -100,6 +100,14 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         PositionEventCommitted committed,
         OccupantReplyEmitted reply)
     {
+        // AI results are first persisted as a durable handoff/outbox fact. Their canonical
+        // ResultMessageCreated audit is appended by the AI adapter only after the destination
+        // PositionActor confirms MessageReceived. Human/external replies retain the legacy path.
+        if (reply.Author.Kind == OccupantReplyAuthorKind.AiAgent)
+        {
+            return;
+        }
+
         Remember(reply.Message);
         var directiveId = reply.Message switch
         {

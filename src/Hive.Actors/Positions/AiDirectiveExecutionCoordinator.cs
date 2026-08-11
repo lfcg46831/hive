@@ -460,7 +460,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                         resultMessage.IsSuccess
                             ? responseInterpreted.AdvanceTo(
                                 AiDirectiveProcessingStatus.ResultEmitted,
-                                reason: "AI directive result message materialized")
+                                reason: "AI directive result message prepared for durable handoff")
                             : responseInterpreted.AdvanceTo(
                                 AiDirectiveProcessingStatus.Escalated,
                                 reason: resultMessage.Failure!.AuditReason);
@@ -708,6 +708,14 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
 
         if (resultMessage.IsSuccess)
         {
+            yield return new DirectiveMessageEffect(
+                context.Directive.MessageId,
+                context.Occupant,
+                resultMessage.Message!,
+                positionEffects.IsSuccess
+                    ? positionEffects.Commands
+                    : []);
+
             yield return new DirectiveAuditExportResultEffect(
                 context.Directive.DirectiveId,
                 resultMessage.Message!,
@@ -720,7 +728,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 AiAgentRetainedActionFactory.Create(actionGateResult, _clock()));
         }
 
-        if (positionEffects.IsSuccess)
+        if (!resultMessage.IsSuccess && positionEffects.IsSuccess)
         {
             foreach (var command in positionEffects.Commands)
             {
@@ -780,6 +788,9 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     ["status"] = snapshot.Status.ToString(),
                     ["terminalCode"] = snapshot.TerminalCode,
                     ["resultMessageType"] = resultMessage.MessageType ?? "none",
+                    ["handoffState"] = resultMessage.FailureCode is null
+                        ? "accepted"
+                        : "not-applicable",
                     ["actingUnderState"] =
                         resultMessage.ActingUnder?.State.ToString() ?? "none",
                     ["actingUnderCode"] = resultMessage.ActingUnder?.Code ?? "none",

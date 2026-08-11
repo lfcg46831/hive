@@ -103,6 +103,12 @@ public sealed record OccupantReplyAuthor
     public static OccupantReplyAuthor ExternalOccupant(string subjectId, string channel) =>
         new(OccupantReplyAuthorKind.ExternalOccupant, subjectId, channel);
 
+    public static OccupantReplyAuthor AiAgent(OccupantId occupant) =>
+        new(
+            OccupantReplyAuthorKind.AiAgent,
+            (occupant ?? throw new ArgumentNullException(nameof(occupant))).Value,
+            "runtime");
+
     private static string RequireValue(
         string value,
         int maximumLength,
@@ -126,6 +132,7 @@ public enum OccupantReplyAuthorKind
 {
     HumanUser,
     ExternalOccupant,
+    AiAgent,
 }
 
 public static class OccupantReplyAuthorKindContract
@@ -135,6 +142,7 @@ public static class OccupantReplyAuthorKindContract
         {
             OccupantReplyAuthorKind.HumanUser => "human-user",
             OccupantReplyAuthorKind.ExternalOccupant => "external-occupant",
+            OccupantReplyAuthorKind.AiAgent => "ai-agent",
             _ => throw new ArgumentOutOfRangeException(
                 nameof(value),
                 value,
@@ -150,6 +158,9 @@ public static class OccupantReplyAuthorKindContract
                 return true;
             case "external-occupant":
                 result = OccupantReplyAuthorKind.ExternalOccupant;
+                return true;
+            case "ai-agent":
+                result = OccupantReplyAuthorKind.AiAgent;
                 return true;
             default:
                 result = default;

@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Akka.Cluster.Sharding;
+using Akka.Pattern;
 using Hive.Actors.Sharding;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
@@ -157,6 +158,14 @@ internal sealed class UnavailableOccupantReplyMessageValidator : IOccupantReplyM
 internal interface IPositionMessageEmitter
 {
     void Emit(ActorSystem system, OrgMessage message);
+
+    ValueTask<AcceptMessageResult> EmitConfirmedAsync(
+        ActorSystem system,
+        OrgMessage message)
+    {
+        Emit(system, message);
+        return ValueTask.FromResult(AcceptMessageResult.Accepted(message.Id));
+    }
 }
 
 internal sealed class ShardedPositionMessageEmitter : IPositionMessageEmitter
@@ -170,11 +179,28 @@ internal sealed class ShardedPositionMessageEmitter : IPositionMessageEmitter
         var destination = message.To as PositionEndpointRef
             ?? throw new InvalidOperationException(
                 "An occupant reply destination must be a position.");
+        ClusterSharding.Get(system)
+            .ShardRegion(PositionEntityId.EntityTypeName)
+            .Tell(PositionEnvelope.For(
+                PositionEntityId.From(message.OrganizationId, destination.PositionId),
+                new AcceptMessage(message)));
+    }
+
+    public async ValueTask<AcceptMessageResult> EmitConfirmedAsync(
+        ActorSystem system,
+        OrgMessage message)
+    {
+        ArgumentNullException.ThrowIfNull(system);
+        ArgumentNullException.ThrowIfNull(message);
+        var destination = message.To as PositionEndpointRef
+            ?? throw new InvalidOperationException(
+                "An occupant reply destination must be a position.");
         var envelope = PositionEnvelope.For(
             PositionEntityId.From(message.OrganizationId, destination.PositionId),
             new AcceptMessage(message));
-        ClusterSharding.Get(system)
+        return await ClusterSharding.Get(system)
             .ShardRegion(PositionEntityId.EntityTypeName)
-            .Tell(envelope);
+            .Ask<AcceptMessageResult>(envelope, TimeSpan.FromSeconds(30))
+            .ConfigureAwait(false);
     }
 }

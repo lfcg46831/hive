@@ -119,6 +119,13 @@ public sealed class AiDirectiveIntegrationFixtureTests
         Assert.Contains(events.OfType<TaskCompleted>(), completed =>
             completed.TaskId == initialTask.TaskId &&
             completed.Summary == "Integration report complete.");
+        var reportHandoff = Assert.Single(events.OfType<OccupantReplyEmitted>());
+        Assert.Equal(OccupantReplyAuthorKind.AiAgent, reportHandoff.Author.Kind);
+        Assert.Equal(result.Directive.Id, reportHandoff.SourceMessageId);
+        var emittedReport = Assert.IsType<Report>(reportHandoff.Message);
+        Assert.Equal(result.Directive.Thread, emittedReport.Thread);
+        Assert.Equal(result.Directive.DirectiveId, emittedReport.AboutDirectiveId);
+        Assert.Contains(fixture.EmittedMessages, message => message == emittedReport);
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.report.body");
@@ -278,6 +285,12 @@ public sealed class AiDirectiveIntegrationFixtureTests
             updated.TaskId == initialTask.TaskId &&
             updated.Note == "Escalation: Missing payment gateway logs. Cannot complete triage without callback logs." &&
             updated.Priority == Priority.Critical);
+        var escalationHandoff = Assert.Single(events.OfType<OccupantReplyEmitted>());
+        Assert.Equal(OccupantReplyAuthorKind.AiAgent, escalationHandoff.Author.Kind);
+        Assert.Equal(result.Directive.Id, escalationHandoff.SourceMessageId);
+        var emittedEscalation = Assert.IsType<Escalation>(escalationHandoff.Message);
+        Assert.Equal(result.Directive.Thread, emittedEscalation.Thread);
+        Assert.Contains(fixture.EmittedMessages, message => message == emittedEscalation);
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.escalation.issue");
@@ -323,12 +336,54 @@ public sealed class AiDirectiveIntegrationFixtureTests
         Assert.Equal(result.Directive.Priority, createdTask.Priority);
         Assert.Equal(result.Directive.Deadline, createdTask.Deadline);
         Assert.Equal(result.Directive.Id, createdTask.CausedBy);
+        var directiveHandoff = Assert.Single(events.OfType<OccupantReplyEmitted>());
+        Assert.Equal(OccupantReplyAuthorKind.AiAgent, directiveHandoff.Author.Kind);
+        Assert.Equal(result.Directive.Id, directiveHandoff.SourceMessageId);
+        var emittedDirective = Assert.IsType<Hive.Domain.Messaging.Directive>(
+            directiveHandoff.Message);
+        Assert.Equal(result.Directive.Thread, emittedDirective.Thread);
+        Assert.Equal(result.Directive.DirectiveId, emittedDirective.ParentDirectiveId);
+        Assert.Contains(fixture.EmittedMessages, message => message == emittedDirective);
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.directive.objective");
         Assert.Contains(
             result.Audit.Redactions,
             redaction => redaction.Path == "resultMessage.directive.context");
+    }
+
+    [Fact]
+    public async Task Restarted_position_reaccepts_durable_handoff_without_reapplying_local_effects()
+    {
+        var scenario = AiDirectiveIntegrationScenario.Create(configureStub: options =>
+        {
+            options.ModelId = "bug-016-redelivery";
+            options.Text = ValidReportOutput();
+        });
+        await using var fixture = await AiDirectiveIntegrationFixture.StartAsync(scenario);
+
+        await fixture.ProcessDirectiveAsync();
+        var before = await fixture.ReadPersistedEventsAsync();
+        var durable = Assert.Single(before.OfType<OccupantReplyEmitted>());
+        var emittedBefore = fixture.EmittedMessages.Count;
+
+        await fixture.RestartPositionAsync();
+        var accepted = await fixture.HandoffAsync(new PositionOccupantMessageHandoff(
+            durable.SourceMessageId,
+            durable.Author,
+            durable.Message));
+        var after = await fixture.ReadPersistedEventsAsync();
+
+        Assert.True(accepted.IsAccepted);
+        Assert.Equal(durable.Message, accepted.Message);
+        Assert.Single(after.OfType<OccupantReplyEmitted>());
+        Assert.Equal(
+            before.OfType<ShortMemoryUpdated>().Count(),
+            after.OfType<ShortMemoryUpdated>().Count());
+        Assert.Equal(
+            before.OfType<TaskCompleted>().Count(),
+            after.OfType<TaskCompleted>().Count());
+        Assert.Equal(emittedBefore + 1, fixture.EmittedMessages.Count);
     }
 
     private static void AssertSuccessfulAudit(

@@ -157,6 +157,18 @@ internal sealed class OccupantReplyAuthorKindJsonConverter :
         OccupantReplyAuthorKindContract.TryParseWireValue(value, out result);
 }
 
+internal sealed class AcceptMessageDecisionJsonConverter :
+    WireEnumJsonConverter<AcceptMessageDecision>
+{
+    protected override string ToWire(AcceptMessageDecision value) =>
+        AcceptMessageDecisionContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out AcceptMessageDecision result) =>
+        AcceptMessageDecisionContract.TryParseWireValue(value, out result);
+}
+
 internal sealed class MessageProcessingCompletionStatusJsonConverter :
     WireEnumJsonConverter<MessageProcessingCompletionStatus>
 {

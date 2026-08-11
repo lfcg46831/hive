@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Akka.Configuration;
+using Akka.Event;
 using Akka.Persistence;
 using Hive.Actors.Positions;
 using Hive.Domain.Auditing;
@@ -82,6 +83,66 @@ public sealed class PositionActorIdempotencyTests
             var persistedEvents = await probe.Ask<IReadOnlyList<PositionEvent>>(ReadEvents.Instance, Timeout());
 
             Assert.Empty(persistedEvents.OfType<MessageReceived>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Accept_message_replies_only_when_confirmation_is_requested()
+    {
+        var entity = PositionEntityId.From(
+            OrganizationId.From("acme"),
+            PositionId.From("accept-message-confirmation"));
+        var system = ActorSystem.Create(
+            $"position-accept-message-confirmation-{Guid.NewGuid():N}",
+            ConfigurationFactory.ParseString("""
+                akka.persistence.journal.plugin = "akka.persistence.journal.inmem"
+                akka.persistence.snapshot-store.plugin = "akka.persistence.snapshot-store.inmem"
+                akka.log-dead-letters = off
+                """));
+        var unexpectedDeadLetter = new TaskCompletionSource<DeadLetter>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        try
+        {
+            var subscriber = system.ActorOf(
+                Props.Create(() => new AcceptMessageResultDeadLetterRecorder(
+                    unexpectedDeadLetter)));
+            system.EventStream.Subscribe(subscriber, typeof(DeadLetter));
+
+            var actor = system.ActorOf(
+                Props.Create(() => new PositionActor(
+                    entity.Value,
+                    LoadedProvider(entity, new PositionConfigurationStamp(1, "sha256:v1")),
+                    SilentOccupantFactory.Instance,
+                    () => At)),
+                "position");
+            await WaitForReadyAsync(actor);
+
+            var tellMessage = SampleMessage(
+                MessageId("aaaaaaaa-0000-0000-0000-000000000211"),
+                ThreadId("bbbbbbbb-0000-0000-0000-000000000211"));
+            actor.Tell(new AcceptMessage(tellMessage));
+            await WaitForMessageAsync(actor, tellMessage.Id);
+            actor.Tell(new AcceptMessage(tellMessage));
+
+            var askMessage = SampleMessage(
+                MessageId("aaaaaaaa-0000-0000-0000-000000000212"),
+                ThreadId("bbbbbbbb-0000-0000-0000-000000000212"));
+            var accepted = await actor.Ask<AcceptMessageResult>(
+                new AcceptMessage(askMessage),
+                Timeout());
+            var alreadyAccepted = await actor.Ask<AcceptMessageResult>(
+                new AcceptMessage(askMessage),
+                Timeout());
+
+            Assert.Equal(AcceptMessageDecision.Accepted, accepted.Decision);
+            Assert.Equal(AcceptMessageDecision.AlreadyAccepted, alreadyAccepted.Decision);
+            await Task.Delay(100);
+            Assert.False(unexpectedDeadLetter.Task.IsCompleted);
         }
         finally
         {
@@ -303,6 +364,25 @@ public sealed class PositionActorIdempotencyTests
             $"PositionActor did not persist checkpoint revision {revision}. Latest state: {latest}.");
     }
 
+    private static async Task WaitForMessageAsync(IActorRef actor, MessageId messageId)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(
+                GetPositionState.Instance,
+                TimeSpan.FromSeconds(1));
+            if (state.ProcessedMessages.Contains(messageId))
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"PositionActor did not accept message {messageId}.");
+    }
+
     private static IPositionConfigurationProvider LoadedProvider(
         PositionEntityId entity,
         PositionConfigurationStamp stamp) =>
@@ -340,6 +420,32 @@ public sealed class PositionActorIdempotencyTests
             PositionEntityId entityId,
             CancellationToken cancellationToken) =>
             Task.FromResult(result);
+    }
+
+    private sealed class SilentOccupantFactory : IPositionOccupantFactory
+    {
+        public static SilentOccupantFactory Instance { get; } = new();
+
+        public Props Create(OccupantId occupant, OccupantType occupantType) =>
+            Props.Create<SilentOccupant>();
+    }
+
+    private sealed class SilentOccupant : ReceiveActor
+    {
+        public SilentOccupant() => ReceiveAny(_ => { });
+    }
+
+    private sealed class AcceptMessageResultDeadLetterRecorder : ReceiveActor
+    {
+        public AcceptMessageResultDeadLetterRecorder(
+            TaskCompletionSource<DeadLetter> unexpectedDeadLetter) =>
+            Receive<DeadLetter>(deadLetter =>
+            {
+                if (deadLetter.Message is AcceptMessageResult)
+                {
+                    unexpectedDeadLetter.TrySetResult(deadLetter);
+                }
+            });
     }
 
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog

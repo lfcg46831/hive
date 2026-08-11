@@ -165,8 +165,13 @@ internal sealed class PositionActor :
         Command<PositionOccupantProcessingCompleted>(completed =>
             WhenReady(() =>
                 PersistProcessingCompletion(completed)));
+        Command<PositionOccupantMessageHandoff>(handoff =>
+            WhenReady(() => BeginOccupantMessageHandoff(handoff, Sender)));
+        Command<PositionOccupantMessageDeliveryCompleted>(HandleOccupantMessageDeliveryCompleted);
+        Command<PositionOccupantMessageDeliveryFailed>(HandleOccupantMessageDeliveryFailed);
         Command<AcceptMessage>(command =>
         {
+            var replyTo = Sender;
             WhenReady(() =>
             {
                 if (_state.ProcessedMessages.Contains(command.Message.Id))
@@ -176,10 +181,17 @@ internal sealed class PositionActor :
                         command.Message.Id,
                         command.Message.Thread,
                         _clock()));
+                    ReplyToAcceptMessageIfRequested(
+                        replyTo,
+                        AcceptMessageResult.AlreadyAccepted(command.Message.Id));
                     return;
                 }
 
-                PersistAcceptedMessage(command.Message);
+                PersistAcceptedMessage(
+                    command.Message,
+                    () => ReplyToAcceptMessageIfRequested(
+                        replyTo,
+                        AcceptMessageResult.Accepted(command.Message.Id)));
             });
         });
         Command<EmitOccupantReply>(command =>
@@ -313,7 +325,7 @@ internal sealed class PositionActor :
     private void PersistAndApply(PositionEvent @event) =>
         Persist(@event, ApplyPersisted);
 
-    private void PersistAcceptedMessage(OrgMessage message)
+    private void PersistAcceptedMessage(OrgMessage message, Action? afterPersisted = null)
     {
         var events = new List<PositionEvent>
         {
@@ -330,7 +342,20 @@ internal sealed class PositionActor :
                 _clock()));
         }
 
-        PersistEvents(events);
+        PersistEvents(events, afterPersisted);
+    }
+
+    private void ReplyToAcceptMessageIfRequested(
+        IActorRef replyTo,
+        AcceptMessageResult result)
+    {
+        if (replyTo.Equals(ActorRefs.Nobody)
+            || replyTo.Equals(Context.System.DeadLetters))
+        {
+            return;
+        }
+
+        replyTo.Tell(result);
     }
 
     private void BeginOccupantReplyEmission(EmitOccupantReply command, IActorRef replyTo)
@@ -413,6 +438,219 @@ internal sealed class PositionActor :
                     command.ReplyMessageId,
                     replyTo,
                     exception));
+    }
+
+    private void BeginOccupantMessageHandoff(
+        PositionOccupantMessageHandoff handoff,
+        IActorRef replyTo)
+    {
+        var existing = _state.OccupantReplies.FirstOrDefault(
+            reply => reply.Message.Id == handoff.Message.Id);
+        if (existing is not null)
+        {
+            if (Matches(existing, handoff))
+            {
+                if (!_pendingOccupantReplyIds.Add(handoff.Message.Id))
+                {
+                    replyTo.Tell(Rejected(
+                        handoff.SourceMessageId,
+                        "result-message-handoff-in-progress",
+                        "message.id",
+                        RejectionReason.Duplicate));
+                    return;
+                }
+
+                BeginConfirmedHandoffDelivery(existing, replyTo);
+            }
+            else
+            {
+                replyTo.Tell(Rejected(
+                    handoff.SourceMessageId,
+                    "result-message-id-conflict",
+                    "message.id",
+                    RejectionReason.Duplicate));
+            }
+
+            return;
+        }
+
+        var source = _state.Inbox
+            .Concat(_state.MaterializedHistory)
+            .FirstOrDefault(message => message.Id == handoff.SourceMessageId);
+        if (source is null)
+        {
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "source-message-not-found",
+                "sourceMessageId",
+                RejectionReason.InvalidContract));
+            return;
+        }
+
+        if (source.OrganizationId != EntityId.Organization
+            || source.To is not PositionEndpointRef sourceDestination
+            || sourceDestination.PositionId != EntityId.Position)
+        {
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "source-message-not-owned",
+                "sourceMessageId",
+                RejectionReason.Unauthorized));
+            return;
+        }
+
+        if (handoff.Message.OrganizationId != EntityId.Organization
+            || handoff.Message.Thread != source.Thread
+            || handoff.Message.From is not PositionEndpointRef messageSource
+            || messageSource.PositionId != EntityId.Position)
+        {
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "result-message-correlation-invalid",
+                "message",
+                RejectionReason.InvalidContract));
+            return;
+        }
+
+        if (handoff.Author.Kind == OccupantReplyAuthorKind.AiAgent
+            && (_state.Occupant is null
+                || !string.Equals(
+                    handoff.Author.SubjectId,
+                    _state.Occupant.Value,
+                    StringComparison.Ordinal)))
+        {
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "result-message-author-not-current",
+                "author.subjectId",
+                RejectionReason.Unauthorized));
+            return;
+        }
+
+        if (!_pendingOccupantReplyIds.Add(handoff.Message.Id))
+        {
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "result-message-handoff-in-progress",
+                "message.id",
+                RejectionReason.Duplicate));
+            return;
+        }
+
+        OccupantReplyEmitted accepted;
+        IReadOnlyList<PositionEvent> events;
+        try
+        {
+            accepted = new OccupantReplyEmitted(
+                handoff.SourceMessageId,
+                handoff.Author,
+                handoff.Message,
+                _clock());
+            events = CreateHandoffEvents(accepted, handoff.PositionCommands);
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            _pendingOccupantReplyIds.Remove(handoff.Message.Id);
+            replyTo.Tell(Rejected(
+                handoff.SourceMessageId,
+                "result-message-effects-invalid",
+                "positionCommands",
+                RejectionReason.InvalidContract));
+            return;
+        }
+
+        PersistEvents(events, () =>
+        {
+            BeginConfirmedHandoffDelivery(accepted, replyTo);
+        });
+    }
+
+    private void BeginConfirmedHandoffDelivery(
+        OccupantReplyEmitted handoff,
+        IActorRef replyTo)
+    {
+        _messageEmitter
+            .EmitConfirmedAsync(Context.System, handoff.Message)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: result => new PositionOccupantMessageDeliveryCompleted(
+                    handoff,
+                    replyTo,
+                    result),
+                failure: exception => new PositionOccupantMessageDeliveryFailed(
+                    handoff,
+                    replyTo,
+                    exception));
+    }
+
+    private void HandleOccupantMessageDeliveryCompleted(
+        PositionOccupantMessageDeliveryCompleted completed)
+    {
+        _pendingOccupantReplyIds.Remove(completed.Handoff.Message.Id);
+        if (!completed.Result.IsAccepted
+            || completed.Result.MessageId != completed.Handoff.Message.Id)
+        {
+            completed.ReplyTo.Tell(new Status.Failure(new InvalidOperationException(
+                $"Destination did not confirm result message '{completed.Handoff.Message.Id}' acceptance.")));
+            return;
+        }
+
+        completed.ReplyTo.Tell(OccupantReplyEmissionResult.Accepted(
+            completed.Handoff.SourceMessageId,
+            completed.Handoff.Message));
+    }
+
+    private void HandleOccupantMessageDeliveryFailed(
+        PositionOccupantMessageDeliveryFailed failed)
+    {
+        _pendingOccupantReplyIds.Remove(failed.Handoff.Message.Id);
+        failed.ReplyTo.Tell(new Status.Failure(failed.Cause));
+    }
+
+    private IReadOnlyList<PositionEvent> CreateHandoffEvents(
+        OccupantReplyEmitted accepted,
+        IReadOnlyList<PositionCommand> commands)
+    {
+        var occurredAt = accepted.OccurredAt;
+        var events = new List<PositionEvent>(commands.Count + 1)
+        {
+            accepted,
+        };
+
+        foreach (var command in commands)
+        {
+            events.Add(command switch
+            {
+                OpenTask open => new TaskCreated(
+                    open.TaskId,
+                    open.Thread,
+                    open.Title,
+                    open.Priority,
+                    occurredAt,
+                    open.Deadline,
+                    open.CausedBy),
+                UpdateTask update => new TaskUpdated(
+                    update.TaskId,
+                    update.Note,
+                    occurredAt,
+                    update.Priority,
+                    update.Deadline),
+                CompleteTask complete => new TaskCompleted(
+                    complete.TaskId,
+                    occurredAt,
+                    complete.Summary),
+                UpdateShortMemory memory => new ShortMemoryUpdated(
+                    memory.Key,
+                    memory.Value,
+                    occurredAt,
+                    memory.ContextScope),
+                _ => throw new InvalidOperationException(
+                    $"Position command '{command.GetType().Name}' is not supported by the durable result handoff."),
+            });
+        }
+
+        return events;
     }
 
     private void HandleOccupantReplyValidationCompleted(OccupantReplyValidationCompleted completed)
@@ -756,6 +994,13 @@ internal sealed class PositionActor :
         && (emitted.Message is Report report ? report.Kind : null) == command.ReportKind
         && (emitted.Message is OrgDirective directive ? directive.DirectiveId : null)
             == command.ReplyDirectiveId;
+
+    private static bool Matches(
+        OccupantReplyEmitted emitted,
+        PositionOccupantMessageHandoff handoff) =>
+        emitted.SourceMessageId == handoff.SourceMessageId
+        && emitted.Author == handoff.Author
+        && emitted.Message == handoff.Message;
 
     private static bool Matches(
         OccupantReplyEmitted emitted,

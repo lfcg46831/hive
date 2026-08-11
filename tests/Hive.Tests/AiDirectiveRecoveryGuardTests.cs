@@ -20,7 +20,7 @@ public sealed class AiDirectiveRecoveryGuardTests
     [Trait(
         DirectiveExecutionCharacterization.ResponsibilityTrait,
         DirectiveExecutionCharacterization.Idempotency)]
-    public async Task Terminal_journey_result_suppresses_gateway_and_returns_completion()
+    public async Task Successful_materialization_without_durable_handoff_does_not_suppress_gateway()
     {
         var scenario = AiDirectiveIntegrationScenario.Create();
         var auditLog = new RecordingJourneyAuditLog();
@@ -59,22 +59,14 @@ public sealed class AiDirectiveRecoveryGuardTests
             Assert.Equal(PositionOccupantProcessingStatus.Completed, completed.Status);
             Assert.Equal(request.CorrelationId, completed.CorrelationId);
             Assert.Equal(request.MessageId, completed.MessageId);
-            Assert.Equal(0, invoker.InvocationCount);
+            Assert.Equal(1, invoker.InvocationCount);
             Assert.False(command.Task.IsCompleted);
-            var suppression = Assert.Single(
-                auditLog.Records.Where(record => record.Stage.ToString() == "DuplicateSuppressed"));
-            Assert.Equal(JourneyAuditOutcome.Rejected, suppression.Outcome);
-            Assert.Equal("terminal-result-already-materialized", suppression.ReasonCode);
-            Assert.Equal(scenario.Entity.Organization, suppression.OrganizationId);
-            Assert.Equal(scenario.Directive.Thread, suppression.ThreadId);
-            Assert.Equal(scenario.Directive.DirectiveId, suppression.DirectiveId);
-            Assert.Equal(scenario.Directive.Id, suppression.MessageId);
-            Assert.Equal(scenario.Entity.Position, suppression.PositionId);
-            Assert.Equal("ResultMessageCreated", suppression.Payload["suppressedStage"]);
-            Assert.DoesNotContain(
-                "Recovered report should not be recomputed",
-                string.Join(" ", suppression.Payload.Values),
-                StringComparison.Ordinal);
+            Assert.Empty(
+                auditLog.Records.Where(record => record.Stage == JourneyAuditStage.DuplicateSuppressed));
+            Assert.Contains(auditLog.Records, record =>
+                record.Stage == JourneyAuditStage.ResultMessageCreated
+                && record.Payload.TryGetValue("handoffState", out var state)
+                && state == "accepted");
         }
         finally
         {
@@ -283,9 +275,35 @@ public sealed class AiDirectiveRecoveryGuardTests
             firstParent.Tell(request);
 
             var first = await firstCompletion.Task.WaitAsync(Timeout());
-            await firstCommand.Task.WaitAsync(Timeout());
             await WaitForTerminalAuditAsync(auditLog, request);
+            Assert.False(firstCommand.Task.IsCompleted);
             Assert.True(await firstParent.GracefulStop(Timeout()));
+
+            var recoveredMessage = new Report(
+                MessageId.From(Guid.Parse("dddddddd-0000-0000-0000-000000001416")),
+                scenario.Entity.Organization,
+                new PositionEndpointRef(scenario.Entity.Position),
+                new PositionEndpointRef(PositionId.From("delivery-lead")),
+                scenario.Directive.Thread,
+                scenario.Directive.Priority,
+                schemaVersion: 1,
+                sentAt: scenario.Directive.SentAt.AddMinutes(1),
+                deadline: scenario.Directive.Deadline,
+                scenario.Directive.DirectiveId,
+                ReportKind.Done,
+                "Durably handed-off report.");
+            var recoveredState = PositionState.Restore(scenario.InitialSnapshot()).Apply(
+                new OccupantReplyEmitted(
+                    scenario.Directive.Id,
+                    OccupantReplyAuthor.AiAgent(scenario.Occupant),
+                    recoveredMessage,
+                    scenario.Directive.SentAt.AddMinutes(1)));
+            var recoveredRequest = AiDirectiveProcessingRequest.Create(
+                scenario.Entity,
+                scenario.RuntimeConfiguration(new AiProviderMetadata("stub", "guard")),
+                recoveredState,
+                scenario.Occupant,
+                scenario.Directive);
 
             var recreatedParent = system.ActorOf(
                 Props.Create(() => new AgentParentProbe(
@@ -296,7 +314,7 @@ public sealed class AiDirectiveRecoveryGuardTests
                     resultSink)),
                 "first-parent");
 
-            recreatedParent.Tell(request);
+            recreatedParent.Tell(recoveredRequest);
 
             var redelivered = await secondCompletion.Task.WaitAsync(Timeout());
 
@@ -386,6 +404,17 @@ public sealed class AiDirectiveRecoveryGuardTests
             Receive<AiDirectiveProcessingRequest>(request => _agent!.Tell(request, Sender));
             Receive<PositionOccupantProcessingCompleted>(message => _completion.TrySetResult(message));
             Receive<PositionCommand>(message => _command.TrySetResult(message));
+            Receive<PositionOccupantMessageHandoff>(handoff =>
+            {
+                if (!handoff.PositionCommands.IsEmpty)
+                {
+                    _command.TrySetResult(handoff.PositionCommands[0]);
+                }
+
+                Sender.Tell(OccupantReplyEmissionResult.Accepted(
+                    handoff.SourceMessageId,
+                    handoff.Message));
+            });
         }
 
         protected override void PreStart()

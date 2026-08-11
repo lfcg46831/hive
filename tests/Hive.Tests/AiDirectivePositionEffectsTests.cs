@@ -161,7 +161,7 @@ public sealed class AiDirectivePositionEffectsTests
     }
 
     [Fact]
-    public async Task AiAgentActor_stores_position_effects_and_sends_commands_to_parent()
+    public async Task AiAgentActor_stores_position_effects_before_returning_completion()
     {
         var taskId = PositionTaskId.From(Guid.Parse("dddddddd-0000-0000-0000-000000001111"));
         var request = Request(openTasks:
@@ -175,22 +175,19 @@ public sealed class AiDirectivePositionEffectsTests
                 causedBy: IncomingMessage),
         ]);
         var system = ActorSystem.Create($"ai-agent-position-effects-{Guid.NewGuid():N}");
-        var commands = new TaskCompletionSource<IReadOnlyList<PositionCommand>>(
+        var completion = new TaskCompletionSource<PositionOccupantProcessingCompleted>(
             TaskCreationOptions.RunContinuationsAsynchronously);
 
         try
         {
             var parent = system.ActorOf(
-                Props.Create(() => new CapturingCommandParentActor(request, commands)),
+                Props.Create(() => new CapturingParentActor(request, completion)),
                 "parent");
 
             parent.Tell(StartProcessing.Instance);
 
-            var captured = await commands.Task.WaitAsync(Timeout());
-            Assert.Collection(
-                captured,
-                command => Assert.IsType<UpdateShortMemory>(command),
-                command => Assert.IsType<CompleteTask>(command));
+            var completed = await completion.Task.WaitAsync(Timeout());
+            Assert.Equal(PositionOccupantProcessingStatus.Completed, completed.Status);
 
             var effects = await parent.Ask<AiDirectivePositionEffectsQueryResult>(
                 new ForwardPositionEffectsQuery(request.CorrelationId),
@@ -349,7 +346,8 @@ public sealed class AiDirectivePositionEffectsTests
             _child = Context.ActorOf(
                 Props.Create(() => new AiAgentActor(
                     request.Occupant,
-                    new StaticResponseInvoker(ValidReportOutput()))),
+                    new StaticResponseInvoker(ValidReportOutput()),
+                    ConfirmedParentMessageHandoffAdapter.Instance)),
                 "agent");
 
             Receive<StartProcessing>(_ => _child.Tell(request));
@@ -360,6 +358,14 @@ public sealed class AiDirectivePositionEffectsTests
                 {
                     _capture.TrySetResult(_commands.ToArray());
                 }
+            });
+            Receive<PositionOccupantMessageHandoff>(handoff =>
+            {
+                _commands.AddRange(handoff.PositionCommands);
+                Sender.Tell(OccupantReplyEmissionResult.Accepted(
+                    handoff.SourceMessageId,
+                    handoff.Message));
+                _capture.TrySetResult(_commands.ToArray());
             });
             Receive<ForwardPositionEffectsQuery>(query => _child.Forward(
                 new GetAiDirectivePositionEffects(query.CorrelationId)));
@@ -385,6 +391,12 @@ public sealed class AiDirectivePositionEffectsTests
             Receive<PositionCommand>(_ =>
             {
             });
+            Receive<PositionOccupantMessageHandoff>(handoff =>
+                Sender.Tell(OccupantReplyEmissionResult.Accepted(
+                    handoff.SourceMessageId,
+                    handoff.Message)));
+            Receive<ForwardPositionEffectsQuery>(query => _child.Forward(
+                new GetAiDirectivePositionEffects(query.CorrelationId)));
         }
     }
 

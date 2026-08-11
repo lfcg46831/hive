@@ -41,8 +41,13 @@ public sealed class AiDirectiveCheckpointCoordinatorTests
                 Assert.Equal(1, persist.Checkpoint.Revision);
                 Assert.Equal("verify", persist.Checkpoint.NextSubtaskId);
             },
-            effect => Assert.IsType<DirectiveAuditExportResultEffect>(effect),
-            effect => Assert.IsType<DirectivePositionCommandEffect>(effect));
+            effect =>
+            {
+                var handoff = Assert.IsType<DirectiveMessageEffect>(effect);
+                Assert.IsType<Report>(handoff.Message);
+                Assert.NotEmpty(handoff.PositionCommands);
+            },
+            effect => Assert.IsType<DirectiveAuditExportResultEffect>(effect));
         Assert.IsType<Report>(execution.ResultMessage!.Message);
         Assert.Equal(ReportKind.Progress, ((Report)execution.ResultMessage.Message!).Kind);
         Assert.Equal(

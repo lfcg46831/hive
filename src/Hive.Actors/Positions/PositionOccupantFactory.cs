@@ -151,7 +151,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _auditLog,
                 _auditExportResultSink,
                 _outcomeResolutionIntegrator,
-                _executionCoordinator)),
+                _executionCoordinator,
+                ConfirmedParentMessageHandoffAdapter.Instance)),
             OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
             _ => throw new ArgumentOutOfRangeException(
                 nameof(occupantType),
@@ -199,6 +200,7 @@ internal sealed class AiAgentActor : ReceiveActor
     private readonly IJourneyAuditLog _auditLog;
     private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
     private readonly AiDirectiveExecutionCoordinator _executionCoordinator;
+    private readonly IPositionOccupantMessageHandoffAdapter _messageHandoffAdapter;
 
     public AiAgentActor(OccupantId occupant)
         : this(occupant, UnavailableAiAgentGatewayInvoker.Instance)
@@ -207,6 +209,23 @@ internal sealed class AiAgentActor : ReceiveActor
 
     public AiAgentActor(OccupantId occupant, IAiAgentGatewayInvoker gatewayInvoker)
         : this(occupant, gatewayInvoker, AiDirectiveResultMessageEmissionGate.Instance)
+    {
+    }
+
+    internal AiAgentActor(
+        OccupantId occupant,
+        IAiAgentGatewayInvoker gatewayInvoker,
+        IPositionOccupantMessageHandoffAdapter messageHandoffAdapter)
+        : this(
+            occupant,
+            gatewayInvoker,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            AllowingAiAgentActionGate.Instance,
+            NoopJourneyAuditLog.Instance,
+            NoopDirectiveAuditExportStore.Instance,
+            PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
+            executionCoordinator: null,
+            messageHandoffAdapter)
     {
     }
 
@@ -286,7 +305,8 @@ internal sealed class AiAgentActor : ReceiveActor
         IJourneyAuditLog auditLog,
         IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
-        AiDirectiveExecutionCoordinator? executionCoordinator)
+        AiDirectiveExecutionCoordinator? executionCoordinator,
+        IPositionOccupantMessageHandoffAdapter? messageHandoffAdapter = null)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
         GatewayInvoker = gatewayInvoker
@@ -305,6 +325,8 @@ internal sealed class AiAgentActor : ReceiveActor
                 ResultMessageGate,
                 ActionGate,
                 requiredOutcomeResolutionIntegrator);
+        _messageHandoffAdapter = messageHandoffAdapter
+            ?? ImmediatelyAcceptedMessageHandoffAdapter.Instance;
 
         ReceiveAsync<AiAgentGatewayInvocation>(async invocation =>
         {
@@ -450,6 +472,22 @@ internal sealed class AiAgentActor : ReceiveActor
         {
             _directiveExecutionContexts[request.CorrelationId] = context;
             _directiveProcessingSnapshots[request.CorrelationId] = recovered.Snapshot;
+
+            foreach (var effect in recovered.Result.Effects
+                .Where(effect => effect is not DirectiveJourneyAuditEffect))
+            {
+                if (!await DispatchEffectAsync(parent, request, effect).ConfigureAwait(false))
+                {
+                    return;
+                }
+            }
+
+            foreach (var auditEffect in recovered.Result.Effects
+                .OfType<DirectiveJourneyAuditEffect>())
+            {
+                _auditLog.Append(auditEffect.Record);
+            }
+
             ReturnCompletion(parent, recovered.Result);
             return;
         }
@@ -457,18 +495,17 @@ internal sealed class AiAgentActor : ReceiveActor
         var execution = await _executionCoordinator
             .ExecuteDetailedAsync(request, context, CancellationToken.None)
             .ConfigureAwait(false);
-        StoreExecutionTrace(execution);
 
         foreach (var effect in execution.Result.Effects
             .Where(effect => effect is not DirectiveJourneyAuditEffect))
         {
-            if (!await DispatchEffectAsync(parent, effect).ConfigureAwait(false))
+            if (!await DispatchEffectAsync(parent, request, effect).ConfigureAwait(false))
             {
-                break;
+                return;
             }
         }
 
-        ReturnCompletion(parent, execution.Result);
+        StoreExecutionTrace(execution);
 
         foreach (var auditEffect in execution.Result.Effects
             .OfType<DirectiveJourneyAuditEffect>())
@@ -477,6 +514,7 @@ internal sealed class AiAgentActor : ReceiveActor
         }
 
         publishAudit(execution.Audit);
+        ReturnCompletion(parent, execution.Result);
     }
 
     private void StoreExecutionTrace(AiDirectiveExecutionCoordinatorResult execution)
@@ -529,6 +567,7 @@ internal sealed class AiAgentActor : ReceiveActor
 
     private async ValueTask<bool> DispatchEffectAsync(
         IActorRef parent,
+        AiDirectiveProcessingRequest request,
         DirectiveExecutionEffect effect)
     {
         switch (effect)
@@ -578,12 +617,72 @@ internal sealed class AiAgentActor : ReceiveActor
                 parent.Tell(position.Command);
                 return true;
             case DirectiveMessageEffect message:
-                parent.Tell(message.Message);
-                return true;
+                try
+                {
+                    var handoff = await _messageHandoffAdapter
+                        .HandoffAsync(
+                            parent,
+                            new PositionOccupantMessageHandoff(
+                                message.SourceMessageId,
+                                OccupantReplyAuthor.AiAgent(message.Occupant),
+                                message.Message,
+                                message.PositionCommands))
+                        .ConfigureAwait(false);
+                    if (handoff.IsAccepted && handoff.Message == message.Message)
+                    {
+                        return true;
+                    }
+
+                    RecordHandoffFailure(
+                        request,
+                        message.Message,
+                        handoff.Errors.FirstOrDefault()?.Code
+                            ?? "result-message-handoff-rejected",
+                        "rejected");
+                    return false;
+                }
+                catch (Exception)
+                {
+                    RecordHandoffFailure(
+                        request,
+                        message.Message,
+                        "result-message-handoff-failed",
+                        "failed");
+                    return false;
+                }
             default:
                 throw new InvalidOperationException(
                     $"Unsupported directive execution effect '{effect.GetType().Name}'.");
         }
+    }
+
+    private void RecordHandoffFailure(
+        AiDirectiveProcessingRequest request,
+        OrgMessage message,
+        string reasonCode,
+        string handoffState)
+    {
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.ResultMessageCreated,
+            handoffState == "rejected"
+                ? JourneyAuditOutcome.Rejected
+                : JourneyAuditOutcome.Failed,
+            request.OrganizationId,
+            request.ThreadId,
+            request.MessageId,
+            request.DirectiveId,
+            request.PositionId,
+            reasonCode,
+            message.GetType().Name,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["status"] = AiDirectiveProcessingStatus.ResponseInterpreted.ToString(),
+                ["terminalCode"] = reasonCode,
+                ["resultMessageType"] = message.GetType().Name,
+                ["handoffState"] = handoffState,
+                ["redactions"] = "resultMessage.content",
+            },
+            idempotencyDiscriminator: $"handoff-{handoffState}:{reasonCode}"));
     }
 
     private static string SerializeExportMessage(OrgMessage message) =>
@@ -602,8 +701,72 @@ internal sealed class AiAgentActor : ReceiveActor
                 && record.PositionId == request.PositionId)
             .ToArray();
 
+        var durableHandoff = request.ExecutionRequest.RecoveredState.OccupantReplies
+            .LastOrDefault(reply =>
+                reply.SourceMessageId == request.MessageId
+                && reply.Author.Kind == OccupantReplyAuthorKind.AiAgent
+                && string.Equals(
+                    reply.Author.SubjectId,
+                    request.Occupant.Value,
+                    StringComparison.Ordinal)
+                && reply.Message.OrganizationId == request.OrganizationId
+                && reply.Message.Thread == request.ThreadId
+                && reply.Message.From is PositionEndpointRef source
+                && source.PositionId == request.PositionId);
+        if (durableHandoff is not null)
+        {
+            var acceptedAudit = records.LastOrDefault(record =>
+                record.Stage == JourneyAuditStage.ResultMessageCreated
+                && record.Outcome == JourneyAuditOutcome.Succeeded
+                && record.Payload.TryGetValue("handoffState", out var handoffState)
+                && string.Equals(handoffState, "accepted", StringComparison.Ordinal));
+            if (acceptedAudit is not null)
+            {
+                RecordDuplicateSuppression(
+                    request,
+                    acceptedAudit,
+                    TerminalResultAlreadyMaterializedReason);
+            }
+
+            var interpreted = RecoveredGatewayRequested(received)
+                .AdvanceTo(
+                    AiDirectiveProcessingStatus.ResponseInterpreted,
+                    reason: "recovered durably accepted result message");
+            var snapshot = interpreted.AdvanceTo(
+                AiDirectiveProcessingStatus.ResultEmitted,
+                reason: "durable result-message handoff was already accepted");
+            var effects = new List<DirectiveExecutionEffect>
+            {
+                new DirectiveMessageEffect(
+                    request.MessageId,
+                    request.Occupant,
+                    durableHandoff.Message),
+            };
+            if (acceptedAudit is null)
+            {
+                effects.Add(new DirectiveAuditExportResultEffect(
+                    request.DirectiveId,
+                    durableHandoff.Message));
+                effects.Add(new DirectiveJourneyAuditEffect(
+                    CreateRecoveredHandoffAudit(request, durableHandoff.Message)));
+            }
+
+            return new AiDirectiveRecoveryDecision(
+                snapshot,
+                DirectiveExecutionResult.Completed(
+                    request.ExecutionRequest,
+                    effects));
+        }
+
         var resultMessage = records
-            .LastOrDefault(record => record.Stage == JourneyAuditStage.ResultMessageCreated);
+            .LastOrDefault(record =>
+                record.Stage == JourneyAuditStage.ResultMessageCreated
+                && record.Outcome == JourneyAuditOutcome.Rejected
+                && (!record.Payload.TryGetValue("handoffState", out var handoffState)
+                    || string.Equals(
+                        handoffState,
+                        "not-applicable",
+                        StringComparison.Ordinal)));
         if (resultMessage is not null)
         {
             RecordDuplicateSuppression(
@@ -616,19 +779,13 @@ internal sealed class AiAgentActor : ReceiveActor
                     AiDirectiveProcessingStatus.ResponseInterpreted,
                     reason: "recovered terminal journey result");
 
-            var snapshot = resultMessage.Outcome == JourneyAuditOutcome.Succeeded
-                ? interpreted.AdvanceTo(
-                    AiDirectiveProcessingStatus.ResultEmitted,
-                    reason: "AI directive result message was already recorded.")
-                : interpreted.AdvanceTo(
-                    AiDirectiveProcessingStatus.Escalated,
-                    reason: resultMessage.ReasonCode ?? "AI directive result message was already rejected.");
+            var snapshot = interpreted.AdvanceTo(
+                AiDirectiveProcessingStatus.Escalated,
+                reason: resultMessage.ReasonCode ?? "AI directive result message was already rejected.");
 
-            var result = resultMessage.Outcome == JourneyAuditOutcome.Succeeded
-                ? DirectiveExecutionResult.Completed(request.ExecutionRequest)
-                : DirectiveExecutionResult.Escalated(
-                    request.ExecutionRequest,
-                    RecoveredRejectedResultCode);
+            var result = DirectiveExecutionResult.Escalated(
+                request.ExecutionRequest,
+                RecoveredRejectedResultCode);
 
             return new AiDirectiveRecoveryDecision(snapshot, result);
         }
@@ -681,6 +838,32 @@ internal sealed class AiAgentActor : ReceiveActor
 
         return null;
     }
+
+    private static JourneyAuditRecord CreateRecoveredHandoffAudit(
+        AiDirectiveProcessingRequest request,
+        OrgMessage message) =>
+        JourneyAuditRecord.Create(
+            JourneyAuditStage.ResultMessageCreated,
+            JourneyAuditOutcome.Succeeded,
+            request.OrganizationId,
+            request.ThreadId,
+            request.MessageId,
+            request.DirectiveId,
+            request.PositionId,
+            reasonCode: null,
+            messageType: message.GetType().Name,
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["status"] = AiDirectiveProcessingStatus.ResultEmitted.ToString(),
+                ["terminalCode"] = "result-emitted",
+                ["resultMessageType"] = message.GetType().Name,
+                ["handoffState"] = "accepted",
+                ["actingUnderState"] = "recovered",
+                ["actingUnderCode"] = "none",
+                ["actingUnderKey"] = "none",
+                ["redactions"] = "resultMessage.content",
+            },
+            idempotencyDiscriminator: "durable-handoff-recovered");
 
     private static string TerminalCode(JourneyAuditRecord terminalDecision) =>
         terminalDecision.Payload.TryGetValue("terminalCode", out var terminalCode)

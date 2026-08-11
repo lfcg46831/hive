@@ -195,6 +195,10 @@ public sealed class AiDirectiveTimeoutIntegrationTests
             Receive<StartProcessing>(_ => _agent.Tell(request));
             Receive<PositionOccupantProcessingCompleted>(completions.Record);
             Receive<PositionCommand>(_ => { });
+            Receive<PositionOccupantMessageHandoff>(handoff =>
+                Sender.Tell(OccupantReplyEmissionResult.Accepted(
+                    handoff.SourceMessageId,
+                    handoff.Message)));
         }
     }
 

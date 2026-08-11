@@ -37,10 +37,19 @@ public sealed class AiDirectiveExecutionCoordinatorTests
         Assert.Equal(TimeSpan.FromSeconds(30), invoker.Invocation!.Request.Timeout);
         Assert.Collection(
             execution.Result.Effects,
+            effect =>
+            {
+                var handoff = Assert.IsType<DirectiveMessageEffect>(effect);
+                Assert.Equal(request.MessageId, handoff.SourceMessageId);
+                Assert.Equal(request.Occupant, handoff.Occupant);
+                Assert.IsType<Report>(handoff.Message);
+                Assert.Collection(
+                    handoff.PositionCommands,
+                    command => Assert.IsType<UpdateShortMemory>(command));
+            },
             effect => Assert.Null(
                 Assert.IsType<DirectiveAuditExportResultEffect>(effect)
                     .SupersededResultMessage),
-            effect => Assert.IsType<DirectivePositionCommandEffect>(effect),
             effect => Assert.IsType<DirectiveJourneyAuditEffect>(effect),
             effect => Assert.IsType<DirectiveJourneyAuditEffect>(effect));
         Assert.Equal(

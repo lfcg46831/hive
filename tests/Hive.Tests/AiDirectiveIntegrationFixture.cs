@@ -29,6 +29,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private readonly IPositionConfigurationProvider _configurationProvider;
     private readonly IJourneyAuditLog _auditLog;
     private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
+    private readonly RecordingPositionMessageEmitter _messageEmitter;
     private IActorRef _position;
     private int _positionGeneration;
 
@@ -41,6 +42,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
         IDirectiveAuditExportResultSink auditExportResultSink,
+        RecordingPositionMessageEmitter messageEmitter,
         IActorRef position)
     {
         _services = services;
@@ -51,12 +53,15 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         _configurationProvider = configurationProvider;
         _auditLog = auditLog;
         _auditExportResultSink = auditExportResultSink;
+        _messageEmitter = messageEmitter;
         _position = position;
     }
 
     public OrgDirective Directive => _scenario.Directive;
 
     public string CorrelationId => _scenario.CorrelationId;
+
+    public IReadOnlyList<OrgMessage> EmittedMessages => _messageEmitter.Messages;
 
     public static async Task<AiDirectiveIntegrationFixture> StartAsync(
         AiDirectiveIntegrationScenario? scenario = null,
@@ -89,6 +94,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             var resolvedConfigurationProvider = configurationProvider
                 ?? new StaticConfigurationProvider(
                     PositionRuntimeConfigurationLoadResult.Loaded(runtimeConfiguration));
+            var messageEmitter = new RecordingPositionMessageEmitter();
             var position = CreatePositionActor(
                 system,
                 resolvedScenario,
@@ -96,6 +102,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 resolvedConfigurationProvider,
                 resolvedAuditLog,
                 resolvedAuditExportResultSink,
+                messageEmitter,
                 generation: 0);
 
             var readyFixture = new AiDirectiveIntegrationFixture(
@@ -107,6 +114,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                 resolvedConfigurationProvider,
                 resolvedAuditLog,
                 resolvedAuditExportResultSink,
+                messageEmitter,
                 position);
             await readyFixture.WaitForReadyAsync().ConfigureAwait(false);
 
@@ -208,6 +216,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
             _configurationProvider,
             _auditLog,
             _auditExportResultSink,
+            _messageEmitter,
             _positionGeneration);
 
         await WaitForReadyAsync().ConfigureAwait(false);
@@ -235,6 +244,10 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
 
     public Task<PositionState> GetPositionStateAsync() =>
         _position.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+    public Task<OccupantReplyEmissionResult> HandoffAsync(
+        PositionOccupantMessageHandoff handoff) =>
+        _position.Ask<OccupantReplyEmissionResult>(handoff, Timeout());
 
     public async ValueTask DisposeAsync()
     {
@@ -330,6 +343,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
         IPositionConfigurationProvider configurationProvider,
         IJourneyAuditLog auditLog,
         IDirectiveAuditExportResultSink auditExportResultSink,
+        IPositionMessageEmitter messageEmitter,
         int generation) =>
         system.ActorOf(
             Props.Create(() => new PositionActor(
@@ -342,8 +356,38 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
                     auditLog,
                     auditExportResultSink),
                 new JourneyAuditPositionProjectionPublisher(auditLog, null),
-                scenario.Clock)),
+                scenario.Clock,
+                null,
+                null,
+                messageEmitter)),
             $"position-{generation}");
+
+    private sealed class RecordingPositionMessageEmitter : IPositionMessageEmitter
+    {
+        private readonly object _sync = new();
+        private readonly List<OrgMessage> _messages = [];
+
+        public IReadOnlyList<OrgMessage> Messages
+        {
+            get
+            {
+                lock (_sync)
+                {
+                    return _messages.ToArray();
+                }
+            }
+        }
+
+        public void Emit(ActorSystem system, OrgMessage message)
+        {
+            ArgumentNullException.ThrowIfNull(system);
+            ArgumentNullException.ThrowIfNull(message);
+            lock (_sync)
+            {
+                _messages.Add(message);
+            }
+        }
+    }
 
     private static ActorSystem CreateActorSystem(string namePrefix) =>
         ActorSystem.Create(

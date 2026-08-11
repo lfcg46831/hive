@@ -250,6 +250,10 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 context.RequiresStructuredOutcomeProposal
                     ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
                     : null;
+            var outcomeProposalAuthorityContext =
+                context.RequiresStructuredOutcomeProposal
+                    ? AiDirectiveOutcomeAuthorityContext.CreateProposalContext(context)
+                    : null;
             var outcomeProposalCorrectionAttempted = false;
             DirectiveCheckpoint? workingCheckpoint = null;
 
@@ -261,7 +265,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                     context.Authority.CanDecide,
                     requireOutcomeProposal: context.RequiresStructuredOutcomeProposal,
                     outcomeProposalEvidenceContext: outcomeProposalEvidenceContext,
-                    allowProgressReports: context.ExecutionPolicy.AllowsProgressReports);
+                    allowProgressReports: context.ExecutionPolicy.AllowsProgressReports,
+                    outcomeProposalAuthorityContext: outcomeProposalAuthorityContext);
 
                 if (interpretation.IsDecision)
                 {
@@ -518,7 +523,9 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 {
                     if (!outcomeProposalCorrectionAttempted &&
                         context.RequiresStructuredOutcomeProposal &&
-                        AiDirectiveOutcomeProposalCorrection.IsEligible(interpretation))
+                        AiDirectiveOutcomeProposalCorrection.IsEligible(
+                            interpretation,
+                            outcomeProposalAuthorityContext!))
                     {
                         outcomeProposalCorrectionAttempted = true;
                         var correctionObservedAt = _clock();

@@ -215,7 +215,8 @@ internal sealed class AiDirectiveOutcomeResolutionIntegrator
                     proposedRoutingGate,
                     verifiedCheckpoint),
                 directive,
-                proposal);
+                proposal,
+                AiDirectiveOutcomeAuthorityContext.CreateProposalContext(context));
         }
         catch (Exception) when (!cancellationToken.IsCancellationRequested)
         {

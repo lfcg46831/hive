@@ -1,5 +1,7 @@
 using System.Text.Json;
 using Hive.Domain.Ai;
+using Hive.Domain.Governance;
+using Hive.Domain.Identity;
 using Hive.Domain.Outcomes;
 
 namespace Hive.Tests;
@@ -543,6 +545,83 @@ public sealed class OutcomeProposalParserTests
         Assert.Equal("requires-human-approval", authority.AuthorityReference);
     }
 
+    [Fact]
+    public void Contextual_parser_accepts_only_the_exact_reference_for_the_matching_authority_kind()
+    {
+        var context = new OutcomeProposalAuthorityContext(
+            [AuthorityKey.From("delivery.release-prod")],
+            [ApprovalPolicyRef.From("policies/release-approval")]);
+        var allowed = OutcomeProposalParser.Parse(
+            EscalationWithAuthority("ActionDomain", "delivery.release-prod"),
+            authorityContext: context);
+        var allowedPolicy = OutcomeProposalParser.Parse(
+            EscalationWithAuthority(
+                "ApprovalPolicy",
+                "policies/release-approval"),
+            authorityContext: context);
+        var unknown = OutcomeProposalParser.Parse(
+            EscalationWithAuthority("ActionDomain", "delivery.fabricated"),
+            authorityContext: context);
+        var wrongKind = OutcomeProposalParser.Parse(
+            EscalationWithAuthority("ApprovalPolicy", "delivery.release-prod"),
+            authorityContext: context);
+
+        AssertSuccess(allowed);
+        AssertSuccess(allowedPolicy);
+        AssertFailure(
+            unknown,
+            "invalid-field",
+            "proposal.authority_request.authority_reference");
+        AssertFailure(
+            wrongKind,
+            "invalid-field",
+            "proposal.authority_request.authority_reference");
+    }
+
+    [Fact]
+    public void Empty_context_rejects_authority_while_contextless_history_remains_readable()
+    {
+        var output = EscalationWithAuthority(
+            "ActionDomain",
+            "delivery.release-prod");
+
+        var historical = OutcomeProposalParser.Parse(output);
+        var contextual = OutcomeProposalParser.Parse(
+            output,
+            authorityContext: new OutcomeProposalAuthorityContext());
+
+        AssertSuccess(historical);
+        AssertFailure(
+            contextual,
+            "invalid-field",
+            "proposal.authority_request.authority_reference");
+    }
+
+    [Fact]
+    public void Authority_context_is_typed_canonical_immutable_and_bounded()
+    {
+        var context = new OutcomeProposalAuthorityContext(
+            [
+                AuthorityKey.From("zeta.release"),
+                AuthorityKey.From("alpha.release"),
+                AuthorityKey.From("zeta.release"),
+            ],
+            [ApprovalPolicyRef.From("policies/release")]);
+
+        Assert.Equal(
+            ["alpha.release", "zeta.release"],
+            context.ActionDomainReferences.Select(reference => reference.Value));
+        Assert.Equal(
+            ["policies/release"],
+            context.ApprovalPolicyReferences.Select(reference => reference.Value));
+        Assert.Throws<NotSupportedException>(() =>
+            ((IList<AuthorityKey>)context.ActionDomainReferences).Add(
+                AuthorityKey.From("other.release")));
+        Assert.Throws<ArgumentException>(() => new OutcomeProposalAuthorityContext(
+            Enumerable.Range(0, OutcomeProposalAuthorityContext.MaximumReferences + 1)
+                .Select(index => AuthorityKey.From($"domain.key-{index}"))));
+    }
+
     [Theory]
     [InlineData(
         "[{\"missing_evidence_reference\":\"input.environment\",\"materiality_reason\":\"ChangesSeverity\"}]",
@@ -781,6 +860,62 @@ public sealed class OutcomeProposalParserTests
             term => Assert.DoesNotContain(term, schema, StringComparison.OrdinalIgnoreCase));
     }
 
+    [Fact]
+    public void Contextual_constraint_uses_kind_specific_authority_enums_and_omits_external_branches_when_empty()
+    {
+        var evidence = new OutcomeProposalEvidenceContext(["directive.context"]);
+        var authority = new OutcomeProposalAuthorityContext(
+            [AuthorityKey.From("delivery.release-prod")],
+            [ApprovalPolicyRef.From("policies/release-approval")]);
+        var constrained = OutcomeProposalConstraint.CreateOutputConstraint(
+            evidence,
+            authority);
+        var proposalBranches = constrained.JsonSchema
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .ToArray();
+        var escalation = Assert.Single(proposalBranches, branch =>
+            branch.GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposedIntentProperty)
+                .GetProperty("const")
+                .GetString() == "Escalation");
+        var authorityBranches = escalation
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.AuthorityRequestProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .ToArray();
+
+        Assert.Collection(
+            authorityBranches,
+            actionDomain => AssertAuthorityBranch(
+                actionDomain,
+                "ActionDomain",
+                ["delivery.release-prod"]),
+            approvalPolicy => AssertAuthorityBranch(
+                approvalPolicy,
+                "ApprovalPolicy",
+                ["policies/release-approval"]));
+
+        var empty = OutcomeProposalConstraint.CreateOutputConstraint(
+            evidence,
+            new OutcomeProposalAuthorityContext());
+        var emptyIntents = empty.JsonSchema
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray()
+            .Select(branch => branch.GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposedIntentProperty)
+                .GetProperty("const")
+                .GetString())
+            .ToArray();
+        Assert.DoesNotContain("Escalation", emptyIntents);
+        Assert.DoesNotContain("ApprovalRequired", emptyIntents);
+    }
+
     private static string Envelope(
         string intent,
         string workState,
@@ -812,8 +947,37 @@ public sealed class OutcomeProposalParserTests
             """;
     }
 
+    private static string EscalationWithAuthority(string kind, string reference) =>
+        Envelope(
+            "Escalation",
+            "Blocked",
+            "SuperiorDecision",
+            "[\"SuperiorDecision\"]",
+            nextAction: null,
+            evidence: "[]",
+            authorityRequest:
+                $$"""{"decision":"Choose the release disposition.","authority_kind":"{{kind}}","authority_reference":"{{reference}}","position_limit_reason":"This position cannot authorize production release."}""");
+
     private static string[] Strings(JsonElement array) =>
         array.EnumerateArray().Select(value => value.GetString()!).ToArray();
+
+    private static void AssertAuthorityBranch(
+        JsonElement branch,
+        string kind,
+        string[] references)
+    {
+        var properties = branch.GetProperty("properties");
+        Assert.Equal(
+            kind,
+            properties.GetProperty(OutcomeProposalConstraint.AuthorityKindProperty)
+                .GetProperty("const")
+                .GetString());
+        Assert.Equal(
+            references,
+            Strings(properties
+                .GetProperty(OutcomeProposalConstraint.AuthorityReferenceProperty)
+                .GetProperty("enum")));
+    }
 
     private static void AssertSuccess(OutcomeProposalParseResult result)
     {

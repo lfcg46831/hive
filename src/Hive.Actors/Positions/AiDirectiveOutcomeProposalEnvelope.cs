@@ -18,16 +18,25 @@ internal static class AiDirectiveOutcomeProposalEnvelope
     public static AiOutputConstraint ComposeOutputConstraint(
         AiOutputConstraint baseConstraint,
         OutcomeProposalEvidenceContext? evidenceContext = null,
+        OutcomeProposalAuthorityContext? authorityContext = null,
         bool allowProgressReports = false)
     {
         ArgumentNullException.ThrowIfNull(baseConstraint);
 
         var root = JsonNode.Parse(baseConstraint.JsonSchema.GetRawText())!.AsObject();
-        var proposalConstraint = evidenceContext is null
-            ? OutcomeProposalConstraint.CreateOutputConstraint(allowProgressReports)
-            : OutcomeProposalConstraint.CreateOutputConstraint(
-                evidenceContext,
-                allowProgressReports);
+        var proposalConstraint = (evidenceContext, authorityContext) switch
+        {
+            (null, _) => OutcomeProposalConstraint.CreateOutputConstraint(
+                allowProgressReports),
+            ({ } evidence, null) => OutcomeProposalConstraint.CreateOutputConstraint(
+                evidence,
+                allowProgressReports),
+            ({ } evidence, { } authority) =>
+                OutcomeProposalConstraint.CreateOutputConstraint(
+                    evidence,
+                    authority,
+                    allowProgressReports),
+        };
         root["properties"]!.AsObject()[PropertyName] =
             JsonNode.Parse(proposalConstraint.JsonSchema.GetRawText());
         root["required"]!.AsArray().Add(PropertyName);

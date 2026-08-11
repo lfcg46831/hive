@@ -65,9 +65,11 @@ public static class OutcomeProposalConstraint
 
     private static readonly JsonElement CanonicalJsonSchema = CreateJsonSchema(
         evidenceContext: null,
+        authorityContext: null,
         allowProgressReports: false);
     private static readonly JsonElement CheckpointableJsonSchema = CreateJsonSchema(
         evidenceContext: null,
+        authorityContext: null,
         allowProgressReports: true);
 
     public static AiOutputConstraint OutputConstraint { get; } = new(
@@ -94,12 +96,28 @@ public static class OutcomeProposalConstraint
         return new AiOutputConstraint(
             SchemaName,
             SchemaVersion,
-            CreateJsonSchema(evidenceContext, allowProgressReports),
+            CreateJsonSchema(evidenceContext, authorityContext: null, allowProgressReports),
+            [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
+    }
+
+    public static AiOutputConstraint CreateOutputConstraint(
+        OutcomeProposalEvidenceContext evidenceContext,
+        OutcomeProposalAuthorityContext authorityContext,
+        bool allowProgressReports = false)
+    {
+        ArgumentNullException.ThrowIfNull(evidenceContext);
+        ArgumentNullException.ThrowIfNull(authorityContext);
+
+        return new AiOutputConstraint(
+            SchemaName,
+            SchemaVersion,
+            CreateJsonSchema(evidenceContext, authorityContext, allowProgressReports),
             [AiOutputConstraintMode.JsonObject, AiOutputConstraintMode.Text]);
     }
 
     private static JsonElement CreateJsonSchema(
         OutcomeProposalEvidenceContext? evidenceContext,
+        OutcomeProposalAuthorityContext? authorityContext,
         bool allowProgressReports)
     {
         var proposalBranches = new JsonArray
@@ -111,7 +129,8 @@ public static class OutcomeProposalConstraint
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 0,
-                evidenceContext: evidenceContext),
+                evidenceContext: evidenceContext,
+                authorityContext: authorityContext),
         };
         if (allowProgressReports)
         {
@@ -122,7 +141,8 @@ public static class OutcomeProposalConstraint
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 1,
-                evidenceContext: evidenceContext));
+                evidenceContext: evidenceContext,
+                authorityContext: authorityContext));
         }
 
         proposalBranches.Add(CreateProposalBranch(
@@ -132,8 +152,11 @@ public static class OutcomeProposalConstraint
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Forbidden,
                 minimumEvidenceReferences: 1,
-                evidenceContext: evidenceContext));
-        proposalBranches.Add(CreateProposalBranch(
+                evidenceContext: evidenceContext,
+                authorityContext: authorityContext));
+        if (authorityContext?.HasReferences != false)
+        {
+            proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.Escalation,
                 [OutcomeWorkState.Blocked, OutcomeWorkState.Failed],
                 [
@@ -145,7 +168,9 @@ public static class OutcomeProposalConstraint
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
                 evidenceContext: evidenceContext,
+                authorityContext: authorityContext,
                 minimumBlockers: 1));
+        }
         proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.Directive,
                 [OutcomeWorkState.NotStarted, OutcomeWorkState.InProgress],
@@ -153,8 +178,11 @@ public static class OutcomeProposalConstraint
                 blockersAllowed: [],
                 nextActionMode: NextActionMode.Required,
                 minimumEvidenceReferences: 0,
-                evidenceContext: evidenceContext));
-        proposalBranches.Add(CreateProposalBranch(
+                evidenceContext: evidenceContext,
+                authorityContext: authorityContext));
+        if (authorityContext?.HasReferences != false)
+        {
+            proposalBranches.Add(CreateProposalBranch(
                 OutcomeProposedIntent.ApprovalRequired,
                 [OutcomeWorkState.Blocked],
                 [OutcomeRequiredIntervention.HumanApproval],
@@ -162,7 +190,9 @@ public static class OutcomeProposalConstraint
                 nextActionMode: NextActionMode.Optional,
                 minimumEvidenceReferences: 0,
                 evidenceContext: evidenceContext,
+                authorityContext: authorityContext,
                 minimumBlockers: 1));
+        }
 
         var root = new JsonObject
         {
@@ -194,6 +224,7 @@ public static class OutcomeProposalConstraint
         NextActionMode nextActionMode,
         int minimumEvidenceReferences,
         OutcomeProposalEvidenceContext? evidenceContext,
+        OutcomeProposalAuthorityContext? authorityContext,
         int minimumBlockers = 0)
     {
         var blockerWireValues = blockersAllowed
@@ -255,7 +286,8 @@ public static class OutcomeProposalConstraint
                 [InformationGapsProperty] = CreateInformationGapsSchema(evidenceContext),
                 [AuthorityRequestProperty] = CreateAuthorityRequestSchema(
                     interventions.Any(
-                        OutcomeRequiredInterventionContract.RequiresExternalIntervention)),
+                        OutcomeRequiredInterventionContract.RequiresExternalIntervention),
+                    authorityContext),
             },
             ["required"] = JsonArray(ProposalRequiredFields),
             ["additionalProperties"] = false,
@@ -379,19 +411,37 @@ public static class OutcomeProposalConstraint
             ["additionalProperties"] = false,
         };
 
-    private static JsonNode CreateAuthorityRequestSchema(bool required) =>
+    private static JsonNode CreateAuthorityRequestSchema(
+        bool required,
+        OutcomeProposalAuthorityContext? authorityContext) =>
         required
             ? new JsonObject
             {
-                ["anyOf"] = new JsonArray
-                {
-                    CreateAuthorityRequestBranch(OutcomeAuthorityKind.ActionDomain),
-                    CreateAuthorityRequestBranch(OutcomeAuthorityKind.ApprovalPolicy),
-                },
+                ["anyOf"] = CreateAuthorityRequestBranches(authorityContext),
             }
             : new JsonObject { ["type"] = "null" };
 
-    private static JsonObject CreateAuthorityRequestBranch(OutcomeAuthorityKind authorityKind) =>
+    private static JsonArray CreateAuthorityRequestBranches(
+        OutcomeProposalAuthorityContext? authorityContext)
+    {
+        var branches = new JsonArray();
+        foreach (var kind in Enum.GetValues<OutcomeAuthorityKind>())
+        {
+            var references = authorityContext?.ReferencesFor(kind);
+            if (references is { IsEmpty: true })
+            {
+                continue;
+            }
+
+            branches.Add(CreateAuthorityRequestBranch(kind, references));
+        }
+
+        return branches;
+    }
+
+    private static JsonObject CreateAuthorityRequestBranch(
+        OutcomeAuthorityKind authorityKind,
+        ImmutableArray<string>? references) =>
         new()
         {
             ["type"] = "object",
@@ -403,13 +453,24 @@ public static class OutcomeProposalConstraint
                     ["type"] = "string",
                     ["const"] = OutcomeAuthorityKindContract.ToWireValue(authorityKind),
                 },
-                [AuthorityReferenceProperty] = CreateEvidenceReferenceSchema(
-                    evidenceContext: null),
+                [AuthorityReferenceProperty] = CreateAuthorityReferenceSchema(references),
                 [PositionLimitReasonProperty] = CreateNonBlankStringSchema(),
             },
             ["required"] = JsonArray(AuthorityRequestRequiredFields),
             ["additionalProperties"] = false,
         };
+
+    private static JsonObject CreateAuthorityReferenceSchema(
+        ImmutableArray<string>? references)
+    {
+        var schema = CreateEvidenceReferenceSchema(evidenceContext: null);
+        if (references is { } allowed)
+        {
+            schema["enum"] = JsonArray(allowed);
+        }
+
+        return schema;
+    }
 
     private static JsonObject CreateNonBlankStringSchema() =>
         new()

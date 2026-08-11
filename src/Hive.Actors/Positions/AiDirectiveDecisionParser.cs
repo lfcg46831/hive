@@ -334,7 +334,8 @@ internal static class AiDirectiveDecisionParser
         IEnumerable<AuthorityKey>? canDecide = null,
         bool requireOutcomeProposal = false,
         OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null,
-        bool allowProgressReports = false)
+        bool allowProgressReports = false,
+        OutcomeProposalAuthorityContext? outcomeProposalAuthorityContext = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -364,6 +365,7 @@ internal static class AiDirectiveDecisionParser
             root,
             requireOutcomeProposal,
             outcomeProposalEvidenceContext,
+            outcomeProposalAuthorityContext,
             errors);
         AddUnknownFields(
             root,
@@ -455,6 +457,7 @@ internal static class AiDirectiveDecisionParser
         JsonElement root,
         bool requireOutcomeProposal,
         OutcomeProposalEvidenceContext? evidenceContext,
+        OutcomeProposalAuthorityContext? authorityContext,
         ICollection<AiDirectiveDecisionParseError> errors)
     {
         if (!requireOutcomeProposal)
@@ -480,7 +483,8 @@ internal static class AiDirectiveDecisionParser
 
         var parsed = OutcomeProposalParser.Parse(
             JsonSerializer.Serialize(value),
-            evidenceContext);
+            evidenceContext,
+            authorityContext);
         if (parsed.IsSuccess)
         {
             return parsed.Proposal;

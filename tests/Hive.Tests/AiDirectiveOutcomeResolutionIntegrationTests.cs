@@ -943,6 +943,193 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         }
     }
 
+    [Fact]
+    public async Task Invalid_authority_reference_is_corrected_once_handed_off_and_recovered_idempotently()
+    {
+        var request = Request(
+            maxIterations: 2,
+            canDecide: ["delivery.bug-triage"]);
+        var audit = new RecordingJourneyAuditLog();
+        var invoker = new AuthorityCorrectionInvoker(correctionSucceeds: true);
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            new StaticVerifier(OutcomeVerifierResult.Unavailable()),
+            clockAt: DateTimeOffset.UtcNow);
+        var handoffCapture = new TaskCompletionSource<PositionOccupantMessageHandoff>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var system = ActorSystem.Create($"outcome-authority-correction-{Guid.NewGuid():N}");
+        try
+        {
+            var actor = system.ActorOf(Props.Create(() => new AuthorityCorrectionParent(
+                request,
+                invoker,
+                audit,
+                integrator,
+                handoffCapture,
+                null)), "parent");
+
+            actor.Tell(StartAuthorityCorrection.Instance);
+
+            var handoff = await handoffCapture.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            var message = await actor.Ask<AiDirectiveResultMessageQueryResult>(
+                new ForwardAuthorityResult(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new ForwardAuthoritySnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(2, invoker.Requests.Count);
+            Assert.True(message.Found);
+            var escalation = Assert.IsType<Escalation>(message.Result!.Message);
+            Assert.Equal(new PositionEndpointRef(Superior), escalation.To);
+            Assert.Same(escalation, handoff.Message);
+            Assert.Equal(request.Directive.Id, handoff.SourceMessageId);
+            Assert.Equal(AiDirectiveProcessingStatus.ResultEmitted, snapshot.Snapshot!.Status);
+
+            var correction = invoker.Requests[1];
+            Assert.Equal(
+                "outcome-proposal-authority",
+                correction.Metadata["hive.correction"]);
+            Assert.Contains(
+                "outcome_proposal.proposal.authority_request.authority_reference:invalid-field",
+                correction.Content,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Allowed exact ActionDomain references: \"delivery.bug-triage\".",
+                correction.Content,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "Allowed exact ApprovalPolicy references: <empty>.",
+                correction.Content,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                AuthorityCorrectionInvoker.RejectedReference,
+                correction.Content,
+                StringComparison.Ordinal);
+            var escalationBranch = correction.OutputConstraint!.JsonSchema
+                .GetProperty("properties")
+                .GetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName)
+                .GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+                .GetProperty("anyOf")
+                .EnumerateArray()
+                .Single(branch => branch.GetProperty("properties")
+                    .GetProperty(OutcomeProposalConstraint.ProposedIntentProperty)
+                    .GetProperty("const")
+                    .GetString() == "Escalation");
+            var authorityBranch = Assert.Single(escalationBranch
+                .GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.AuthorityRequestProperty)
+                .GetProperty("anyOf")
+                .EnumerateArray());
+            Assert.Equal(
+                ["delivery.bug-triage"],
+                authorityBranch.GetProperty("properties")
+                    .GetProperty(OutcomeProposalConstraint.AuthorityReferenceProperty)
+                    .GetProperty("enum")
+                    .EnumerateArray()
+                    .Select(item => item.GetString()));
+
+            var recoveredState = request.ExecutionRequest.RecoveredState.Apply(
+                new OccupantReplyEmitted(
+                    request.MessageId,
+                    OccupantReplyAuthor.AiAgent(request.Occupant),
+                    handoff.Message,
+                    At.AddMinutes(1)));
+            var recoveredRequest = AiDirectiveProcessingRequest.Create(
+                request.ExecutionRequest.PositionEntityId,
+                request.ExecutionRequest.RuntimeConfiguration,
+                recoveredState,
+                request.Occupant,
+                request.Directive);
+            var recoveredHandoffCapture =
+                new TaskCompletionSource<PositionOccupantMessageHandoff>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            var recoveredCompletionCapture =
+                new TaskCompletionSource<PositionOccupantProcessingCompleted>(
+                    TaskCreationOptions.RunContinuationsAsynchronously);
+            var recoveredActor = system.ActorOf(Props.Create(() => new AuthorityCorrectionParent(
+                recoveredRequest,
+                invoker,
+                audit,
+                integrator,
+                recoveredHandoffCapture,
+                recoveredCompletionCapture)), "recovered-parent");
+
+            recoveredActor.Tell(StartAuthorityCorrection.Instance);
+
+            var recoveredHandoff = await recoveredHandoffCapture.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+            var recoveredCompletion = await recoveredCompletionCapture.Task.WaitAsync(
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(2, invoker.Requests.Count);
+            Assert.Equal(PositionOccupantProcessingStatus.Completed, recoveredCompletion.Status);
+            Assert.Equal(request.CorrelationId, recoveredCompletion.CorrelationId);
+            Assert.Equal(handoff.SourceMessageId, recoveredHandoff.SourceMessageId);
+            Assert.Equal(handoff.Message.Id, recoveredHandoff.Message.Id);
+            Assert.Contains(audit.Records, record =>
+                record.Stage == JourneyAuditStage.DuplicateSuppressed
+                && record.ReasonCode == "terminal-result-already-materialized");
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Theory]
+    [InlineData(false, 2)]
+    [InlineData(true, 1)]
+    public async Task Authority_correction_fails_closed_after_one_invalid_replacement_or_empty_allowlist(
+        bool emptyAllowlist,
+        int expectedCalls)
+    {
+        var request = Request(
+            maxIterations: 2,
+            canDecide: emptyAllowlist ? [] : ["delivery.bug-triage"]);
+        var invoker = new AuthorityCorrectionInvoker(correctionSucceeds: false);
+        var audit = new RecordingJourneyAuditLog();
+        var integrator = CreateIntegrator(
+            OutcomeResolutionMode.Enforcement,
+            audit,
+            new StaticVerifier(OutcomeVerifierResult.Unavailable()),
+            clockAt: DateTimeOffset.UtcNow);
+        var system = ActorSystem.Create($"outcome-authority-failure-{Guid.NewGuid():N}");
+        try
+        {
+            var actor = system.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    invoker,
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    AllowingAiAgentActionGate.Instance,
+                    audit,
+                    NoopDirectiveAuditExportStore.Instance,
+                    integrator)),
+                "agent");
+
+            actor.Tell(request);
+
+            var snapshot = await actor.Ask<AiDirectiveProcessingSnapshotQueryResult>(
+                new GetAiDirectiveProcessingSnapshot(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+            var message = await actor.Ask<AiDirectiveResultMessageQueryResult>(
+                new GetAiDirectiveResultMessage(request.CorrelationId),
+                TimeSpan.FromSeconds(10));
+
+            Assert.Equal(expectedCalls, invoker.Requests.Count);
+            Assert.Equal(AiDirectiveProcessingStatus.Escalated, snapshot.Snapshot!.Status);
+            Assert.Contains("ai-output-invalid", snapshot.Snapshot.TerminalReason);
+            Assert.False(message.Found);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
     private static AiDirectiveOutcomeResolutionIntegrator CreateIntegrator(
         OutcomeResolutionMode mode,
         RecordingJourneyAuditLog audit,
@@ -1066,7 +1253,8 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         string objective = "Classify incoming work",
         string context = "A bounded business context.",
         bool checkpointable = false,
-        IEnumerable<PositionId>? directSubordinates = null)
+        IEnumerable<PositionId>? directSubordinates = null,
+        IEnumerable<string>? canDecide = null)
     {
         var effectivePosition = positionId ?? Position;
         var entity = PositionEntityId.From(Organization, effectivePosition);
@@ -1124,7 +1312,7 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
                     identityPromptRef,
                     $"prompts/{identityPromptRef}.md",
                     identityPrompt)),
-            new PositionAuthorityRuntimeConfiguration());
+            new PositionAuthorityRuntimeConfiguration(canDecide));
         return AiDirectiveProcessingRequest.Create(
             entity,
             configuration,
@@ -1285,6 +1473,115 @@ public sealed class AiDirectiveOutcomeResolutionIntegrationTests
         private static string GroundedEvidenceResponse() =>
             "{\"schema_version\":1,\"intent\":\"Report\",\"report\":{\"kind\":\"Done\",\"body\":\"Complete.\"},\"outcome_proposal\":{\"schema_version\":3,\"proposal\":{\"proposed_intent\":\"Report.Done\",\"work_state\":\"Completed\",\"required_intervention\":\"None\",\"blockers\":[],\"next_action\":null,\"evidence_references\":[{\"source\":\"DirectiveInput\",\"reference\":\"directive.context\"}],\"information_gaps\":[],\"authority_request\":null}}}";
     }
+
+    private sealed class AuthorityCorrectionInvoker(bool correctionSucceeds)
+        : IAiAgentGatewayInvoker
+    {
+        public const string RejectedReference =
+            "position:delivery-lead/access-to-artifacts";
+
+        public List<AiGatewayRequest> Requests { get; } = [];
+
+        public Task<AiAgentGatewayInvocationResult> InvokeAsync(
+            AiAgentGatewayInvocation invocation,
+            CancellationToken cancellationToken = default)
+        {
+            Requests.Add(invocation.Request);
+            var reference = Requests.Count == 1 || !correctionSucceeds
+                ? RejectedReference
+                : "delivery.bug-triage";
+            var text = $$"""
+                {
+                  "schema_version": 1,
+                  "intent": "Escalation",
+                  "escalation": {
+                    "issue": "Artifact access decision required",
+                    "context": "The current position cannot access the required artifacts.",
+                    "options_considered": ["Ask the superior to provide access."]
+                  },
+                  "outcome_proposal": {
+                    "schema_version": 3,
+                    "proposal": {
+                      "proposed_intent": "Escalation",
+                      "work_state": "Blocked",
+                      "required_intervention": "SuperiorDecision",
+                      "blockers": ["SuperiorDecision"],
+                      "next_action": null,
+                      "evidence_references": [],
+                      "information_gaps": [],
+                      "authority_request": {
+                        "decision": "Provide access to the required artifacts.",
+                        "authority_kind": "ActionDomain",
+                        "authority_reference": "{{reference}}",
+                        "position_limit_reason": "The current position lacks the required access."
+                      }
+                    }
+                  }
+                }
+                """;
+            return Task.FromResult(AiAgentGatewayInvocationResult.FromResponse(
+                invocation.CorrelationId,
+                AiGatewayResponse.Succeeded(
+                    invocation.Request.OrganizationId,
+                    invocation.Request.PositionId,
+                    invocation.Request.ThreadId,
+                    invocation.Request.MessageId,
+                    text,
+                    AiFinishReason.Stop,
+                    new AiProviderMetadata("stub", "model-v1"))));
+        }
+    }
+
+    private sealed class AuthorityCorrectionParent : ReceiveActor
+    {
+        private readonly IActorRef _agent;
+
+        public AuthorityCorrectionParent(
+            AiDirectiveProcessingRequest request,
+            IAiAgentGatewayInvoker invoker,
+            IJourneyAuditLog audit,
+            IAiDirectiveOutcomeResolutionIntegrator integrator,
+            TaskCompletionSource<PositionOccupantMessageHandoff> handoffCapture,
+            TaskCompletionSource<PositionOccupantProcessingCompleted>? completionCapture = null)
+        {
+            _agent = Context.ActorOf(
+                Props.Create(() => new AiAgentActor(
+                    request.Occupant,
+                    invoker,
+                    AiDirectiveResultMessageEmissionGate.Instance,
+                    AllowingAiAgentActionGate.Instance,
+                    audit,
+                    NoopDirectiveAuditExportStore.Instance,
+                    integrator,
+                    null,
+                    ConfirmedParentMessageHandoffAdapter.Instance)),
+                "agent");
+
+            Receive<StartAuthorityCorrection>(_ => _agent.Tell(request));
+            Receive<PositionOccupantMessageHandoff>(handoff =>
+            {
+                Sender.Tell(OccupantReplyEmissionResult.Accepted(
+                    handoff.SourceMessageId,
+                    handoff.Message));
+                handoffCapture.TrySetResult(handoff);
+            });
+            Receive<PositionOccupantProcessingCompleted>(completed =>
+                completionCapture?.TrySetResult(completed));
+            Receive<ForwardAuthorityResult>(query => _agent.Forward(
+                new GetAiDirectiveResultMessage(query.CorrelationId)));
+            Receive<ForwardAuthoritySnapshot>(query => _agent.Forward(
+                new GetAiDirectiveProcessingSnapshot(query.CorrelationId)));
+        }
+    }
+
+    private sealed record StartAuthorityCorrection
+    {
+        public static StartAuthorityCorrection Instance { get; } = new();
+    }
+
+    private sealed record ForwardAuthorityResult(string CorrelationId);
+
+    private sealed record ForwardAuthoritySnapshot(string CorrelationId);
 
     private sealed class RecordingJourneyAuditLog : IJourneyAuditLog
     {

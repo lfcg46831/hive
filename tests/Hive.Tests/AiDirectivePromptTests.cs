@@ -65,6 +65,54 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
+    public void CreateInitialRequest_exposes_only_the_typed_effective_authority_vocabulary()
+    {
+        var context = AiDirectiveExecutionContext.From(
+            Request(includeOptionalContext: true),
+            requiresStructuredOutcomeProposal: true);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        Assert.Contains(
+            "Allowed ActionDomain references: \"bug.triage\", \"comms.external-official\".",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "Allowed ApprovalPolicy references: <empty>.",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "position:delivery-lead/access-to-artifacts",
+            request.SystemInstruction,
+            StringComparison.Ordinal);
+
+        var proposalBranches = request.OutputConstraint!.JsonSchema
+            .GetProperty("properties")
+            .GetProperty(AiDirectiveOutcomeProposalEnvelope.PropertyName)
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.ProposalProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray();
+        var escalation = proposalBranches.Single(branch =>
+            branch.GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.ProposedIntentProperty)
+                .GetProperty("const")
+                .GetString() == "Escalation");
+        var authorityBranch = Assert.Single(escalation
+            .GetProperty("properties")
+            .GetProperty(OutcomeProposalConstraint.AuthorityRequestProperty)
+            .GetProperty("anyOf")
+            .EnumerateArray());
+        Assert.Equal(
+            ["bug.triage", "comms.external-official"],
+            authorityBranch.GetProperty("properties")
+                .GetProperty(OutcomeProposalConstraint.AuthorityReferenceProperty)
+                .GetProperty("enum")
+                .EnumerateArray()
+                .Select(item => item.GetString()));
+    }
+
+    [Fact]
     public void CreateInitialRequest_defaults_to_single_shot_and_omits_progress_from_both_schemas()
     {
         var context = AiDirectiveExecutionContext.From(

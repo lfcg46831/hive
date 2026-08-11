@@ -217,6 +217,14 @@ public interface IExecutionFactsMaterializer
         OutcomeRuntimeSnapshot runtime,
         DirectiveExecutionContract directive,
         OutcomeProposal? proposal = null);
+
+    ExecutionFacts Materialize(
+        OutcomeRuntimeSnapshot runtime,
+        DirectiveExecutionContract directive,
+        OutcomeProposal proposal,
+        OutcomeProposalAuthorityContext authorityContext) =>
+        throw new NotSupportedException(
+            "The execution facts materializer does not support contextual authority grounding.");
 }
 
 /// <summary>Projects authoritative runtime state into the closed execution-facts contract.</summary>
@@ -225,7 +233,25 @@ public sealed class ExecutionFactsMaterializer : IExecutionFactsMaterializer
     public ExecutionFacts Materialize(
         OutcomeRuntimeSnapshot runtime,
         DirectiveExecutionContract directive,
-        OutcomeProposal? proposal = null)
+        OutcomeProposal? proposal = null) =>
+        MaterializeCore(runtime, directive, proposal, authorityContext: null);
+
+    public ExecutionFacts Materialize(
+        OutcomeRuntimeSnapshot runtime,
+        DirectiveExecutionContract directive,
+        OutcomeProposal proposal,
+        OutcomeProposalAuthorityContext authorityContext)
+    {
+        ArgumentNullException.ThrowIfNull(proposal);
+        ArgumentNullException.ThrowIfNull(authorityContext);
+        return MaterializeCore(runtime, directive, proposal, authorityContext);
+    }
+
+    private static ExecutionFacts MaterializeCore(
+        OutcomeRuntimeSnapshot runtime,
+        DirectiveExecutionContract directive,
+        OutcomeProposal? proposal,
+        OutcomeProposalAuthorityContext? authorityContext)
     {
         ArgumentNullException.ThrowIfNull(runtime);
         ArgumentNullException.ThrowIfNull(directive);
@@ -252,15 +278,20 @@ public sealed class ExecutionFactsMaterializer : IExecutionFactsMaterializer
             completionState: MaterializeCompletionState(directive, evidence),
             runtime.ObservedPolicyTriggers,
             materialInformationGapPresent: HasMaterialInformationGap(proposal),
-            groundedAuthorityRequestPresent: HasGroundedAuthorityRequest(proposal));
+            groundedAuthorityRequestPresent: HasGroundedAuthorityRequest(
+                proposal,
+                authorityContext));
     }
 
     private static bool HasMaterialInformationGap(OutcomeProposal? proposal) =>
         proposal?.InformationGaps.Any(gap =>
             gap.Materiality == OutcomeInformationGapMateriality.Material) == true;
 
-    private static bool HasGroundedAuthorityRequest(OutcomeProposal? proposal) =>
-        proposal?.AuthorityRequest is not null &&
+    private static bool HasGroundedAuthorityRequest(
+        OutcomeProposal? proposal,
+        OutcomeProposalAuthorityContext? authorityContext) =>
+        proposal?.AuthorityRequest is { } authorityRequest &&
+        authorityContext?.Allows(authorityRequest) == true &&
         OutcomeRequiredInterventionContract.RequiresExternalIntervention(
             proposal.RequiredIntervention);
 

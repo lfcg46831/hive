@@ -183,7 +183,8 @@ public static class OutcomeProposalParser
 
     public static OutcomeProposalParseResult Parse(
         string? output,
-        OutcomeProposalEvidenceContext? evidenceContext = null)
+        OutcomeProposalEvidenceContext? evidenceContext = null,
+        OutcomeProposalAuthorityContext? authorityContext = null)
     {
         if (string.IsNullOrWhiteSpace(output))
         {
@@ -245,7 +246,10 @@ public static class OutcomeProposalParser
             proposalElement,
             evidenceContext,
             errors);
-        var authorityRequest = ReadAuthorityRequest(proposalElement, errors);
+        var authorityRequest = ReadAuthorityRequest(
+            proposalElement,
+            authorityContext,
+            errors);
 
         ValidateGroundedEvidenceIsNotMateriallyMissing(
             evidenceReferences,
@@ -823,6 +827,7 @@ public static class OutcomeProposalParser
 
     private static OutcomeAuthorityRequest? ReadAuthorityRequest(
         JsonElement proposal,
+        OutcomeProposalAuthorityContext? authorityContext,
         ICollection<OutcomeProposalParseError> errors)
     {
         var path = ProposalPath(OutcomeProposalConstraint.AuthorityRequestProperty);
@@ -875,11 +880,21 @@ public static class OutcomeProposalParser
 
         try
         {
-            return new OutcomeAuthorityRequest(
+            var parsed = new OutcomeAuthorityRequest(
                 decision,
                 authorityKind.Value,
                 authorityReference,
                 positionLimitReason);
+            if (authorityContext is not null && !authorityContext.Allows(parsed))
+            {
+                errors.Add(Error(
+                    OutcomeProposalParseDiagnosticContract.InvalidFieldCode,
+                    AuthorityRequestPath(
+                        OutcomeProposalConstraint.AuthorityReferenceProperty)));
+                return null;
+            }
+
+            return parsed;
         }
         catch (ArgumentException)
         {

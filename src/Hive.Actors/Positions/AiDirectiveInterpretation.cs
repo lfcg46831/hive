@@ -151,7 +151,8 @@ internal static class AiDirectiveDecisionInterpreter
         IEnumerable<AuthorityKey>? canDecide = null,
         bool requireOutcomeProposal = false,
         OutcomeProposalEvidenceContext? outcomeProposalEvidenceContext = null,
-        bool allowProgressReports = false)
+        bool allowProgressReports = false,
+        OutcomeProposalAuthorityContext? outcomeProposalAuthorityContext = null)
     {
         ArgumentNullException.ThrowIfNull(invocation);
 
@@ -168,7 +169,8 @@ internal static class AiDirectiveDecisionInterpreter
             canDecide,
             requireOutcomeProposal,
             outcomeProposalEvidenceContext,
-            allowProgressReports);
+            allowProgressReports,
+            outcomeProposalAuthorityContext);
         if (parseResult.IsSuccess)
         {
             if (!allowProgressReports &&

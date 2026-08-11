@@ -16,24 +16,37 @@ internal static class AiDirectiveOutcomeProposalCorrection
         $"{OutcomeProposalConstraint.ProposalProperty}." +
         OutcomeProposalConstraint.EvidenceReferencesProperty;
 
-    public static bool IsEligible(AiDirectiveInterpretationResult interpretation)
+    private static readonly string AuthorityReferencePath =
+        $"{AiDirectiveOutcomeProposalEnvelope.PropertyName}." +
+        $"{OutcomeProposalConstraint.ProposalProperty}." +
+        $"{OutcomeProposalConstraint.AuthorityRequestProperty}." +
+        OutcomeProposalConstraint.AuthorityReferenceProperty;
+
+    public static bool IsEligible(
+        AiDirectiveInterpretationResult interpretation,
+        OutcomeProposalAuthorityContext authorityContext)
     {
         ArgumentNullException.ThrowIfNull(interpretation);
+        ArgumentNullException.ThrowIfNull(authorityContext);
 
         var errors = interpretation.Failure?.ParseErrors ?? [];
         return interpretation.RequiresEscalation &&
             errors is { IsEmpty: false, Length: <= MaximumDiagnostics } &&
-            errors.All(error =>
-                error.Path.StartsWith(EvidencePathPrefix, StringComparison.Ordinal));
+            (errors.All(IsEvidenceDiagnostic) ||
+             (authorityContext.HasReferences &&
+              errors.Length == 1 &&
+              errors.All(IsAuthorityReferenceDiagnostic)));
     }
 
     public static string CreateBoundedInstruction(
         OutcomeProposalEvidenceContext evidenceContext,
+        OutcomeProposalAuthorityContext authorityContext,
         IEnumerable<AiDirectiveDecisionParseError> parseErrors,
         AiDirectiveDecision? acceptedDecision = null,
         OutcomeProposal? acceptedProposal = null)
     {
         ArgumentNullException.ThrowIfNull(evidenceContext);
+        ArgumentNullException.ThrowIfNull(authorityContext);
         ArgumentNullException.ThrowIfNull(parseErrors);
 
         var diagnostics = parseErrors
@@ -41,13 +54,16 @@ internal static class AiDirectiveOutcomeProposalCorrection
             .OrderBy(error => error.Path, StringComparer.Ordinal)
             .ThenBy(error => error.Code, StringComparer.Ordinal)
             .ToImmutableArray();
+        var evidenceCorrection = diagnostics.All(IsEvidenceDiagnostic);
+        var authorityCorrection = diagnostics.Length == 1 &&
+            diagnostics.All(IsAuthorityReferenceDiagnostic) &&
+            authorityContext.HasReferences;
         if (diagnostics.IsEmpty ||
             diagnostics.Length > MaximumDiagnostics ||
-            diagnostics.Any(error =>
-                !error.Path.StartsWith(EvidencePathPrefix, StringComparison.Ordinal)))
+            (!evidenceCorrection && !authorityCorrection))
         {
             throw new ArgumentException(
-                "Outcome proposal correction requires only bounded evidence diagnostics.",
+                "Outcome proposal correction requires one bounded diagnostic category.",
                 nameof(parseErrors));
         }
 
@@ -61,21 +77,24 @@ internal static class AiDirectiveOutcomeProposalCorrection
             ", ",
             diagnostics.Select(error => $"{error.Path}:{error.Code}"));
 
+        var correctionLines = evidenceCorrection
+            ? EvidenceCorrectionLines(references)
+            : AuthorityCorrectionLines(authorityContext);
         var instruction = string.Join(
             Environment.NewLine,
             [
-                "OutcomeProposal evidence correction",
+                authorityCorrection
+                    ? "OutcomeProposal authority correction"
+                    : "OutcomeProposal evidence correction",
                 "PreviousOperation: structured-output-correction",
                 $"AcceptedResult: {AcceptedResult(acceptedDecision)}",
                 $"AcceptedProposal: {AcceptedProposal(acceptedProposal)}",
                 "PreviousResolution: <not-run>",
                 "The previous proposal was rejected locally before verification.",
                 $"Closed diagnostics: {diagnosticList}.",
-                $"The only allowed evidence source is \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\".",
-                $"Allowed exact evidence references: {references}.",
+                .. correctionLines,
                 "Return one complete replacement response under the enforced schema.",
-                "The runtime has not copied, substituted, or rewritten the rejected evidence and does not expose its rejected values.",
-                "Cite only allowed references that actually support the replacement. If none support the same outcome, return a different compatible organizational decision and proposal instead of fabricating evidence.",
+                "The runtime has not copied, substituted, or rewritten the rejected reference and does not expose its rejected value.",
             ]);
         var utf8Bytes = Encoding.UTF8.GetByteCount(instruction);
         if (utf8Bytes > MaximumProjectionUtf8Bytes)
@@ -87,6 +106,49 @@ internal static class AiDirectiveOutcomeProposalCorrection
 
         return instruction;
     }
+
+    public static string CorrectionKind(
+        IEnumerable<AiDirectiveDecisionParseError> parseErrors)
+    {
+        ArgumentNullException.ThrowIfNull(parseErrors);
+        return parseErrors.Any(IsAuthorityReferenceDiagnostic)
+            ? "outcome-proposal-authority"
+            : "outcome-proposal-evidence";
+    }
+
+    private static string[] EvidenceCorrectionLines(string references) =>
+    [
+        $"The only allowed evidence source is \"{OutcomeEvidenceSourceContract.ToWireValue(OutcomeEvidenceSource.DirectiveInput)}\".",
+        $"Allowed exact evidence references: {references}.",
+        "Cite only allowed references that actually support the replacement. If none support the same outcome, return a different compatible organizational decision and proposal instead of fabricating evidence.",
+    ];
+
+    private static string[] AuthorityCorrectionLines(
+        OutcomeProposalAuthorityContext authorityContext) =>
+    [
+        $"Allowed exact ActionDomain references: {AuthorityReferences(authorityContext, OutcomeAuthorityKind.ActionDomain)}.",
+        $"Allowed exact ApprovalPolicy references: {AuthorityReferences(authorityContext, OutcomeAuthorityKind.ApprovalPolicy)}.",
+        "Pair authority_kind with a reference from its matching allowlist. If no listed reference applies to the same request, return a different compatible organizational decision and proposal instead of fabricating authority.",
+    ];
+
+    private static string AuthorityReferences(
+        OutcomeProposalAuthorityContext authorityContext,
+        OutcomeAuthorityKind kind)
+    {
+        var references = authorityContext.ReferencesFor(kind);
+        return references.IsEmpty
+            ? "<empty>"
+            : string.Join(
+                ", ",
+                references.Select(reference => JsonSerializer.Serialize(reference)));
+    }
+
+    private static bool IsEvidenceDiagnostic(AiDirectiveDecisionParseError error) =>
+        error.Path.StartsWith(EvidencePathPrefix, StringComparison.Ordinal);
+
+    private static bool IsAuthorityReferenceDiagnostic(
+        AiDirectiveDecisionParseError error) =>
+        string.Equals(error.Path, AuthorityReferencePath, StringComparison.Ordinal);
 
     private static string AcceptedResult(AiDirectiveDecision? decision) =>
         decision switch

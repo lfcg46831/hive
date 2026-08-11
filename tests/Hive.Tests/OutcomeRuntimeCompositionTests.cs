@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Governance;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Organization.Configuration;
@@ -82,7 +83,9 @@ public sealed class OutcomeRuntimeCompositionTests
         var facts = _materializer.Materialize(
             Runtime(),
             new DirectiveExecutionContract(),
-            proposal);
+            proposal,
+            new OutcomeProposalAuthorityContext(
+                [AuthorityKey.From("delivery.release-prod")]));
 
         Assert.Equal(3, facts.ContractVersion);
         Assert.True(facts.MaterialInformationGapPresent);
@@ -113,6 +116,37 @@ public sealed class OutcomeRuntimeCompositionTests
         Assert.False(historicalFacts.GroundedAuthorityRequestPresent);
         Assert.False(legacyProjection.MaterialInformationGapPresent);
         Assert.False(legacyProjection.GroundedAuthorityRequestPresent);
+    }
+
+    [Fact]
+    public void Authority_request_without_matching_validation_context_never_becomes_grounded()
+    {
+        var proposal = new OutcomeProposal(
+            OutcomeProposedIntent.Escalation,
+            OutcomeWorkState.Blocked,
+            OutcomeRequiredIntervention.SuperiorDecision,
+            blockers: [OutcomeBlocker.SuperiorDecision],
+            nextAction: null,
+            evidenceReferences: [],
+            authorityRequest: new OutcomeAuthorityRequest(
+                "Choose the release disposition.",
+                OutcomeAuthorityKind.ActionDomain,
+                "delivery.release-prod",
+                "This position cannot authorize production release."));
+
+        var historical = _materializer.Materialize(
+            Runtime(),
+            new DirectiveExecutionContract(),
+            proposal);
+        var wrongContext = _materializer.Materialize(
+            Runtime(),
+            new DirectiveExecutionContract(),
+            proposal,
+            new OutcomeProposalAuthorityContext(
+                [AuthorityKey.From("delivery.bug-triage")]));
+
+        Assert.False(historical.GroundedAuthorityRequestPresent);
+        Assert.False(wrongContext.GroundedAuthorityRequestPresent);
     }
 
     [Fact]

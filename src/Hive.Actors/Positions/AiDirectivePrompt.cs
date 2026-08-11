@@ -93,8 +93,11 @@ internal static class AiDirectivePrompt
         var initial = CreateInitialRequest(context);
         var evidenceContext =
             AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context);
+        var authorityContext =
+            AiDirectiveOutcomeAuthorityContext.CreateProposalContext(context);
         var correction = AiDirectiveOutcomeProposalCorrection.CreateBoundedInstruction(
             evidenceContext,
+            authorityContext,
             parseErrors,
             acceptedDecision,
             acceptedProposal);
@@ -102,7 +105,8 @@ internal static class AiDirectivePrompt
             initial.Metadata,
             StringComparer.Ordinal)
         {
-            ["hive.correction"] = "outcome-proposal-evidence",
+            ["hive.correction"] =
+                AiDirectiveOutcomeProposalCorrection.CorrectionKind(parseErrors),
         };
 
         return new AiGatewayRequest(
@@ -131,16 +135,23 @@ internal static class AiDirectivePrompt
         var evidenceContext = context.RequiresStructuredOutcomeProposal
             ? AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context)
             : null;
+        var authorityContext = context.RequiresStructuredOutcomeProposal
+            ? AiDirectiveOutcomeAuthorityContext.CreateProposalContext(context)
+            : null;
 
         return new AiDirectiveSystemInstructionSections(
             identityPrompt.Content.Trim(),
-            BuildHiveProtocolInstruction(evidenceContext, context.ExecutionPolicy),
+            BuildHiveProtocolInstruction(
+                evidenceContext,
+                authorityContext,
+                context.ExecutionPolicy),
             BuildRuntimeAuthorityInstruction(context),
             BuildRuntimeToolsInstruction(context));
     }
 
     private static string BuildHiveProtocolInstruction(
         OutcomeProposalEvidenceContext? evidenceContext,
+        OutcomeProposalAuthorityContext? authorityContext,
         EffectiveDirectiveExecutionPolicy executionPolicy)
     {
         var reportIntent = AiDirectiveDecisionIntentContract.ToWireValue(
@@ -204,7 +215,7 @@ internal static class AiDirectivePrompt
             lines.Add(
                 $"Always include {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.InformationGapsProperty}. Non-empty items may use only the same exact bounded reference vocabulary and must classify the missing reference as Material with exactly one closed materiality reason, or NonMaterial with a null reason. Use [] when a true gap cannot be named by that vocabulary; [] is legitimate and does not assert that the input is complete. Never cite the same reference as grounding evidence and as a Material information gap. Do not infer materiality from prose outside these structured fields.");
             lines.Add(
-                $"Set {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.AuthorityRequestProperty} to null for None or Delegation. HumanApproval, SuperiorDecision, and ExternalAction require a concrete decision, an applicable ActionDomain or ApprovalPolicy reference, and the reason this position cannot resolve it; never invent an authority reference.");
+                $"Set {AiDirectiveOutcomeProposalEnvelope.PropertyName}.{OutcomeProposalConstraint.ProposalProperty}.{OutcomeProposalConstraint.AuthorityRequestProperty} to null for None or Delegation. HumanApproval, SuperiorDecision, and ExternalAction require a concrete decision, the reason this position cannot resolve it, and one exact reference paired with its matching kind from the closed authority vocabulary. Allowed ActionDomain references: {AuthorityReferenceVocabulary(authorityContext, OutcomeAuthorityKind.ActionDomain)}. Allowed ApprovalPolicy references: {AuthorityReferenceVocabulary(authorityContext, OutcomeAuthorityKind.ApprovalPolicy)}. Never invent, rewrite, or copy an authority reference from directive text.");
         }
 
         return string.Join(
@@ -220,6 +231,7 @@ internal static class AiDirectivePrompt
             ? AiDirectiveOutcomeProposalEnvelope.ComposeOutputConstraint(
                 constraint,
                 AiDirectiveOutcomeEvidenceContext.CreateProposalContext(context),
+                AiDirectiveOutcomeAuthorityContext.CreateProposalContext(context),
                 allowProgressReports)
             : constraint;
     }
@@ -232,6 +244,18 @@ internal static class AiDirectivePrompt
                 ", ",
                 evidenceContext.DirectiveInputReferences.Select(
                     reference => JsonSerializer.Serialize(reference)));
+
+    private static string AuthorityReferenceVocabulary(
+        OutcomeProposalAuthorityContext? authorityContext,
+        OutcomeAuthorityKind kind)
+    {
+        var references = authorityContext?.ReferencesFor(kind) ?? [];
+        return references.IsEmpty
+            ? "<empty>"
+            : string.Join(
+                ", ",
+                references.Select(reference => JsonSerializer.Serialize(reference)));
+    }
 
     private static string BuildRuntimeAuthorityInstruction(
         AiDirectiveExecutionContext context) =>

@@ -6,6 +6,7 @@ using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Configuration;
@@ -172,6 +173,10 @@ public sealed class AiAgentGatewayInvokerTests
             host.Services.GetRequiredService<IDirectiveExecutionCoordinator>());
         Assert.IsType<PositionOccupantFactory>(
             host.Services.GetRequiredService<IPositionOccupantFactory>());
+        Assert.IsType<UnavailableOccupantChannel>(
+            host.Services.GetRequiredService<IOccupantChannel>());
+        Assert.IsType<UnavailableOccupantChannelDeliveryRequestFactory>(
+            host.Services.GetRequiredService<IOccupantChannelDeliveryRequestFactory>());
 
         var props = host.Services.GetRequiredService<IPositionEntityProps>();
         Assert.IsType<Props>(props.Create("acme-delivery/triage-agent"));

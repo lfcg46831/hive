@@ -7,6 +7,7 @@ using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
@@ -15,7 +16,7 @@ namespace Hive.Actors.Positions;
 
 internal interface IPositionOccupantFactory
 {
-    Props Create(OccupantId occupant, OccupantType occupantType);
+    Props Create(PositionOccupantActivation activation);
 }
 
 internal sealed class PositionOccupantFactory : IPositionOccupantFactory
@@ -29,6 +30,8 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     private readonly IDirectiveAuditExportResultSink _auditExportResultSink;
     private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
     private readonly AiDirectiveExecutionCoordinator? _executionCoordinator;
+    private readonly IOccupantChannel _occupantChannel;
+    private readonly IOccupantChannelDeliveryRequestFactory _deliveryRequestFactory;
 
     public PositionOccupantFactory()
         : this(UnavailableAiAgentGatewayInvoker.Instance)
@@ -107,7 +110,9 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         IJourneyAuditLog auditLog,
         IDirectiveAuditExportResultSink auditExportResultSink,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
-        AiDirectiveExecutionCoordinator? executionCoordinator)
+        AiDirectiveExecutionCoordinator? executionCoordinator,
+        IOccupantChannel? occupantChannel = null,
+        IOccupantChannelDeliveryRequestFactory? deliveryRequestFactory = null)
     {
         _aiGatewayInvoker = aiGatewayInvoker
             ?? throw new ArgumentNullException(nameof(aiGatewayInvoker));
@@ -120,6 +125,25 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
         _outcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
         _executionCoordinator = executionCoordinator;
+        _occupantChannel = occupantChannel ?? UnavailableOccupantChannel.Instance;
+        _deliveryRequestFactory = deliveryRequestFactory
+            ?? UnavailableOccupantChannelDeliveryRequestFactory.Instance;
+    }
+
+    internal PositionOccupantFactory(
+        IOccupantChannel occupantChannel,
+        IOccupantChannelDeliveryRequestFactory deliveryRequestFactory)
+        : this(
+            UnavailableAiAgentGatewayInvoker.Instance,
+            AiDirectiveResultMessageEmissionGate.Instance,
+            AllowingAiAgentActionGate.Instance,
+            NoopJourneyAuditLog.Instance,
+            NoopDirectiveAuditExportStore.Instance,
+            PassthroughAiDirectiveOutcomeResolutionIntegrator.Instance,
+            executionCoordinator: null,
+            occupantChannel,
+            deliveryRequestFactory)
+    {
     }
 
     public PositionOccupantFactory(
@@ -137,14 +161,14 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
     {
     }
 
-    public Props Create(OccupantId occupant, OccupantType occupantType)
+    public Props Create(PositionOccupantActivation activation)
     {
-        ArgumentNullException.ThrowIfNull(occupant);
+        ArgumentNullException.ThrowIfNull(activation);
 
-        return occupantType switch
+        return activation.OccupantType switch
         {
             OccupantType.AiAgent => Props.Create(() => new AiAgentActor(
-                occupant,
+                activation.Occupant,
                 _aiGatewayInvoker,
                 _resultMessageGate,
                 _actionGate,
@@ -153,10 +177,17 @@ internal sealed class PositionOccupantFactory : IPositionOccupantFactory
                 _outcomeResolutionIntegrator,
                 _executionCoordinator,
                 ConfirmedParentMessageHandoffAdapter.Instance)),
-            OccupantType.Human => Props.Create(() => new HumanProxyActor(occupant)),
+            OccupantType.Human when activation.UserId is { } userId =>
+                Props.Create(() => new HumanProxyActor(
+                    activation.Occupant,
+                    userId,
+                    _occupantChannel,
+                    _deliveryRequestFactory)),
+            OccupantType.Human => throw new InvalidOperationException(
+                "A human occupant child requires an active user-to-position link."),
             _ => throw new ArgumentOutOfRangeException(
-                nameof(occupantType),
-                occupantType,
+                nameof(activation),
+                activation.OccupantType,
                 "Occupant type must be AiAgent or Human."),
         };
     }
@@ -939,23 +970,119 @@ internal sealed class AiAgentActor : ReceiveActor
 
 internal sealed class HumanProxyActor : ReceiveActor
 {
-    public HumanProxyActor(OccupantId occupant)
+    private readonly IOccupantChannel _channel;
+    private readonly IOccupantChannelDeliveryRequestFactory _requestFactory;
+
+    public HumanProxyActor(
+        OccupantId occupant,
+        UserId userId,
+        IOccupantChannel channel,
+        IOccupantChannelDeliveryRequestFactory requestFactory)
     {
         Occupant = occupant ?? throw new ArgumentNullException(nameof(occupant));
+        UserId = userId ?? throw new ArgumentNullException(nameof(userId));
+        _channel = channel ?? throw new ArgumentNullException(nameof(channel));
+        _requestFactory = requestFactory ?? throw new ArgumentNullException(nameof(requestFactory));
 
-        Receive<OrgMessage>(message =>
-        {
-            GenericMessageCompletion.Return(Context.Parent, message);
-        });
+        ReceiveAsync<HumanOccupantChannelDelivery>(DeliverAsync);
     }
 
     public OccupantId Occupant { get; }
+
+    public UserId UserId { get; }
+
+    private async Task DeliverAsync(HumanOccupantChannelDelivery delivery)
+    {
+        var parent = Context.Parent;
+        var context = delivery.Context;
+        if (context.OccupantId != Occupant || context.UserId != UserId)
+        {
+            parent.Tell(ReportedFailure(
+                delivery,
+                OccupantChannelDeliveryErrorCode.DeliveryRejected,
+                isRetryable: false));
+            return;
+        }
+
+        if (context.OccupantChannelBindingId is null)
+        {
+            parent.Tell(ReportedFailure(
+                delivery,
+                OccupantChannelDeliveryErrorCode.BindingUnavailable,
+                isRetryable: false));
+            return;
+        }
+
+        OccupantChannelDeliveryResult result;
+        try
+        {
+            var request = _requestFactory.Create(context);
+            EnsureRequestMatchesContext(request, context);
+            result = await _channel
+                .DeliverAsync(request, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.Canceled,
+                isRetryable: true));
+        }
+        catch (Exception)
+        {
+            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.Unknown,
+                isRetryable: true));
+        }
+
+        parent.Tell(new PositionOccupantChannelDeliveryReported(
+            context.Message.Id,
+            context.Message.Thread,
+            Occupant,
+            UserId,
+            context.OccupantChannelBindingId,
+            result));
+    }
+
+    private PositionOccupantChannelDeliveryReported ReportedFailure(
+        HumanOccupantChannelDelivery delivery,
+        OccupantChannelDeliveryErrorCode code,
+        bool isRetryable) =>
+        new(
+            delivery.Context.Message.Id,
+            delivery.Context.Message.Thread,
+            Occupant,
+            UserId,
+            delivery.Context.OccupantChannelBindingId,
+            OccupantChannelDeliveryResult.Failed(
+                new OccupantChannelDeliveryError(code, isRetryable)));
+
+    private static void EnsureRequestMatchesContext(
+        OccupantChannelDeliveryRequest request,
+        OccupantChannelDeliveryContext context)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.OrganizationId != context.OrganizationId ||
+            request.PositionId != context.PositionId ||
+            request.OccupantId != context.OccupantId ||
+            request.UserId != context.UserId ||
+            request.OccupantChannelBindingId != context.OccupantChannelBindingId ||
+            request.MessageId != context.Message.Id ||
+            request.ThreadId != context.Message.Thread)
+        {
+            throw new InvalidOperationException(
+                "Occupant-channel request factory changed the durable delivery correlation.");
+        }
+    }
 }
 
 internal static class GenericMessageCompletion
 {
     public static void Return(IActorRef parent, OrgMessage message)
     {
+        ArgumentNullException.ThrowIfNull(parent);
+        ArgumentNullException.ThrowIfNull(message);
+
         var directiveId = message is Hive.Domain.Messaging.Directive directive
             ? directive.DirectiveId
             : DirectiveId.From(message.Id.Value);

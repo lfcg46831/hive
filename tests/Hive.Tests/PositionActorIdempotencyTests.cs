@@ -426,7 +426,7 @@ public sealed class PositionActorIdempotencyTests
     {
         public static SilentOccupantFactory Instance { get; } = new();
 
-        public Props Create(OccupantId occupant, OccupantType occupantType) =>
+        public Props Create(PositionOccupantActivation activation) =>
             Props.Create<SilentOccupant>();
     }
 

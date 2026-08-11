@@ -6,6 +6,7 @@ using Akka.Persistence;
 using Akka.Pattern;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Positions;
 using OrgDirective = Hive.Domain.Messaging.Directive;
@@ -165,6 +166,8 @@ internal sealed class PositionActor :
         Command<PositionOccupantProcessingCompleted>(completed =>
             WhenReady(() =>
                 PersistProcessingCompletion(completed)));
+        Command<PositionOccupantChannelDeliveryReported>(reported =>
+            Context.System.EventStream.Publish(reported));
         Command<PositionOccupantMessageHandoff>(handoff =>
             WhenReady(() => BeginOccupantMessageHandoff(handoff, Sender)));
         Command<PositionOccupantMessageDeliveryCompleted>(HandleOccupantMessageDeliveryCompleted);
@@ -332,13 +335,13 @@ internal sealed class PositionActor :
             new MessageReceived(message, _clock()),
         };
 
-        if (_state.Occupant is { } occupant && _state.OccupantType is { } occupantType)
+        if (TryGetCurrentOccupantActivation(out var activation))
         {
             events.Add(new MessageDispatched(
                 message.Id,
                 message.Thread,
-                occupant,
-                occupantType,
+                activation.Occupant,
+                activation.OccupantType,
                 _clock()));
         }
 
@@ -1024,6 +1027,13 @@ internal sealed class PositionActor :
 
     private void PersistOccupantChange(ChangeOccupant command)
     {
+        if (command.Type == OccupantType.Human &&
+            !TryGetConfiguredHumanActivation(command.Occupant, out _))
+        {
+            StopInactiveHumanOccupants(command.Occupant);
+            return;
+        }
+
         var events = new List<PositionEvent>
         {
             new OccupantChanged(command.Occupant, command.Type, _clock()),
@@ -1223,8 +1233,14 @@ internal sealed class PositionActor :
 
     private void PersistPendingDispatches(Action? afterDispatch = null)
     {
-        if (_state.Occupant is not { } occupant || _state.OccupantType is not { } occupantType)
+        if (!TryGetCurrentOccupantActivation(out var activation))
         {
+            if (_state.Occupant is { } inactiveOccupant &&
+                _state.OccupantType == OccupantType.Human)
+            {
+                StopInactiveHumanOccupants(inactiveOccupant);
+            }
+
             afterDispatch?.Invoke();
             return;
         }
@@ -1237,8 +1253,8 @@ internal sealed class PositionActor :
             .Select(message => (PositionEvent)new MessageDispatched(
                 message.Id,
                 message.Thread,
-                occupant,
-                occupantType,
+                activation.Occupant,
+                activation.OccupantType,
                 _clock()))
             .ToArray();
 
@@ -1246,7 +1262,14 @@ internal sealed class PositionActor :
         {
             foreach (var message in alreadyDispatched)
             {
-                DeliverToOccupant(message, occupant, occupantType);
+                DeliverToOccupant(
+                    message,
+                    new MessageDispatched(
+                        message.Id,
+                        message.Thread,
+                        activation.Occupant,
+                        activation.OccupantType,
+                        _clock()));
             }
 
             afterDispatch?.Invoke();
@@ -1275,7 +1298,6 @@ internal sealed class PositionActor :
 
     private void ApplyPersisted(PositionEvent persisted)
     {
-        var previousOccupantKey = CurrentOccupantKey();
         OrgMessage? dispatchedMessage = null;
         if (persisted is MessageDispatched dispatched)
         {
@@ -1309,17 +1331,14 @@ internal sealed class PositionActor :
 
         if (persisted is OccupantChanged changed)
         {
-            StopObsoleteOccupant(
-                previousOccupantKey,
-                new PositionOccupantKey(changed.Occupant, changed.Type));
+            StopObsoleteOccupants(changed.Occupant, changed.Type);
         }
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
             DeliverToOccupant(
                 dispatchedMessage,
-                dispatchEvent.Occupant,
-                dispatchEvent.OccupantType);
+                dispatchEvent);
         }
     }
 
@@ -1336,17 +1355,28 @@ internal sealed class PositionActor :
 
     private void DeliverToOccupant(
         OrgMessage message,
-        OccupantId occupant,
-        OccupantType occupantType) =>
-        ResolveOccupant(occupant, occupantType)
-            .Tell(CreateOccupantPayload(occupant, occupantType, message));
+        MessageDispatched dispatch)
+    {
+        if (!TryGetActivation(dispatch.Occupant, dispatch.OccupantType, out var activation))
+        {
+            if (dispatch.OccupantType == OccupantType.Human)
+            {
+                StopInactiveHumanOccupants(dispatch.Occupant);
+            }
+
+            return;
+        }
+
+        ResolveOccupant(activation)
+            .Tell(CreateOccupantPayload(activation, dispatch, message));
+    }
 
     private object CreateOccupantPayload(
-        OccupantId occupant,
-        OccupantType occupantType,
+        PositionOccupantActivation activation,
+        MessageDispatched dispatch,
         OrgMessage message)
     {
-        if (occupantType == OccupantType.AiAgent
+        if (activation.OccupantType == OccupantType.AiAgent
             && message is Hive.Domain.Messaging.Directive directive)
         {
             var runtimeConfiguration = _runtimeConfiguration
@@ -1357,8 +1387,28 @@ internal sealed class PositionActor :
                 EntityId,
                 runtimeConfiguration,
                 _state,
-                occupant,
+                activation.Occupant,
                 directive);
+        }
+
+        if (activation.OccupantType == OccupantType.Human)
+        {
+            var runtimeConfiguration = _runtimeConfiguration
+                ?? throw new InvalidOperationException(
+                    $"PositionActor '{PersistenceId}' cannot dispatch to a human before runtime configuration is loaded.");
+            var humanIdentity = runtimeConfiguration.Occupant.HumanIdentity
+                ?? throw new InvalidOperationException(
+                    $"PositionActor '{PersistenceId}' cannot dispatch to a human without an active occupation link.");
+
+            return new HumanOccupantChannelDelivery(
+                dispatch,
+                new OccupantChannelDeliveryContext(
+                    EntityId.Organization,
+                    EntityId.Position,
+                    activation.Occupant,
+                    humanIdentity.UserId,
+                    humanIdentity.ChannelBindingId,
+                    message));
         }
 
         return message;
@@ -1448,12 +1498,12 @@ internal sealed class PositionActor :
         _configurationBlockReason = null;
 
         if (_state.Occupant is null
-            && configuration.Occupant.ConfiguredIdentity is { } configuredIdentity)
+            && TryGetConfiguredOccupant(configuration, out var activation))
         {
             Persist(
                 new OccupantChanged(
-                    configuredIdentity,
-                    configuration.Occupant.Type,
+                    activation.Occupant,
+                    activation.OccupantType,
                     _clock()),
                 persisted =>
                 {
@@ -1461,6 +1511,13 @@ internal sealed class PositionActor :
                     CompleteReadyTransition();
                 });
             return;
+        }
+
+        if (_state.Occupant is { } occupant &&
+            _state.OccupantType == OccupantType.Human &&
+            !TryGetConfiguredHumanActivation(occupant, out _))
+        {
+            StopInactiveHumanOccupants(occupant);
         }
 
         CompleteReadyTransition();
@@ -1540,43 +1597,130 @@ internal sealed class PositionActor :
         Context.System.EventStream.Publish(@event);
     }
 
-    private IActorRef ResolveOccupant(OccupantId occupant, OccupantType occupantType)
+    private IActorRef ResolveOccupant(PositionOccupantActivation activation)
     {
-        var key = new PositionOccupantKey(occupant, occupantType);
+        var key = PositionOccupantKey.From(activation);
+        StopObsoleteOccupants(key);
         if (_occupantActors.TryGetValue(key, out var existing))
         {
             return existing;
         }
 
-        var actor = Context.ActorOf(_occupantFactory.Create(occupant, occupantType), ChildName(key));
+        var actor = Context.ActorOf(_occupantFactory.Create(activation), ChildName(key));
         _occupantActors.Add(key, actor);
         return actor;
     }
 
-    private PositionOccupantKey? CurrentOccupantKey() =>
-        _state.Occupant is { } occupant && _state.OccupantType is { } occupantType
-            ? new PositionOccupantKey(occupant, occupantType)
-            : null;
-
-    private void StopObsoleteOccupant(
-        PositionOccupantKey? previous,
-        PositionOccupantKey current)
+    private void StopObsoleteOccupants(OccupantId occupant, OccupantType occupantType)
     {
-        if (previous is not { } previousKey || previousKey == current)
+        var obsolete = _occupantActors.Keys
+            .Where(key => key.Occupant != occupant || key.OccupantType != occupantType)
+            .ToArray();
+        StopOccupants(obsolete);
+    }
+
+    private void StopObsoleteOccupants(PositionOccupantKey current)
+    {
+        var obsolete = _occupantActors.Keys
+            .Where(key => key != current)
+            .ToArray();
+        StopOccupants(obsolete);
+    }
+
+    private void StopInactiveHumanOccupants(OccupantId occupant)
+    {
+        var inactive = _occupantActors.Keys
+            .Where(key => key.Occupant == occupant && key.OccupantType == OccupantType.Human)
+            .ToArray();
+        StopOccupants(inactive);
+    }
+
+    private void StopOccupants(IEnumerable<PositionOccupantKey> keys)
+    {
+        foreach (var key in keys)
         {
-            return;
+            if (_occupantActors.Remove(key, out var actor))
+            {
+                Context.Stop(actor);
+            }
+        }
+    }
+
+    private bool TryGetCurrentOccupantActivation(out PositionOccupantActivation activation)
+    {
+        if (_state.Occupant is not { } occupant ||
+            _state.OccupantType is not { } occupantType)
+        {
+            activation = null!;
+            return false;
         }
 
-        if (_occupantActors.Remove(previousKey, out var actor))
+        return TryGetActivation(occupant, occupantType, out activation);
+    }
+
+    private bool TryGetActivation(
+        OccupantId occupant,
+        OccupantType occupantType,
+        out PositionOccupantActivation activation)
+    {
+        if (occupantType == OccupantType.AiAgent)
         {
-            Context.Stop(actor);
+            activation = PositionOccupantActivation.AiAgent(occupant);
+            return true;
         }
+
+        return TryGetConfiguredHumanActivation(occupant, out activation);
+    }
+
+    private bool TryGetConfiguredHumanActivation(
+        OccupantId occupant,
+        out PositionOccupantActivation activation)
+    {
+        var configured = _runtimeConfiguration?.Occupant;
+        if (configured?.Type == OccupantType.Human &&
+            configured.ConfiguredIdentity == occupant &&
+            configured.HumanIdentity is { } humanIdentity)
+        {
+            activation = PositionOccupantActivation.Human(occupant, humanIdentity.UserId);
+            return true;
+        }
+
+        activation = null!;
+        return false;
+    }
+
+    private static bool TryGetConfiguredOccupant(
+        PositionRuntimeConfiguration configuration,
+        out PositionOccupantActivation activation)
+    {
+        var occupant = configuration.Occupant;
+        if (occupant.ConfiguredIdentity is not { } configuredIdentity)
+        {
+            activation = null!;
+            return false;
+        }
+
+        if (occupant.Type == OccupantType.AiAgent)
+        {
+            activation = PositionOccupantActivation.AiAgent(configuredIdentity);
+            return true;
+        }
+
+        if (occupant.Type == OccupantType.Human && occupant.HumanIdentity is { } humanIdentity)
+        {
+            activation = PositionOccupantActivation.Human(configuredIdentity, humanIdentity.UserId);
+            return true;
+        }
+
+        activation = null!;
+        return false;
     }
 
     private static string ChildName(PositionOccupantKey key)
     {
         var hash = Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes($"{key.OccupantType}:{key.Occupant.Value}")))[..16];
+            Encoding.UTF8.GetBytes(
+                $"{key.OccupantType}:{key.Occupant.Value}:{key.UserId?.Value.ToString("N") ?? "none"}")))[..16];
 
         return $"occupant-{key.OccupantType.ToString().ToLowerInvariant()}-{hash.ToLowerInvariant()}";
     }
@@ -1592,7 +1736,12 @@ internal sealed class PositionActor :
 
     private readonly record struct PositionOccupantKey(
         OccupantId Occupant,
-        OccupantType OccupantType);
+        OccupantType OccupantType,
+        UserId? UserId)
+    {
+        public static PositionOccupantKey From(PositionOccupantActivation activation) =>
+            new(activation.Occupant, activation.OccupantType, activation.UserId);
+    }
 }
 
 internal sealed record GetPositionState

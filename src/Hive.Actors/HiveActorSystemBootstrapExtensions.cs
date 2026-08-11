@@ -10,6 +10,7 @@ using Hive.Actors.Sharding;
 using Hive.Application.Directives;
 using Hive.Domain.Auditing;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
@@ -145,6 +146,10 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
         builder.Services.TryAddSingleton<IDirectiveExecutionCoordinator>(serviceProvider =>
             serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>());
+        builder.Services.TryAddSingleton<IOccupantChannel>(
+            UnavailableOccupantChannel.Instance);
+        builder.Services.TryAddSingleton<IOccupantChannelDeliveryRequestFactory>(
+            UnavailableOccupantChannelDeliveryRequestFactory.Instance);
         builder.Services.TryAddSingleton<IPositionOccupantFactory>(serviceProvider =>
             new PositionOccupantFactory(
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
@@ -153,7 +158,9 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IJourneyAuditLog>(),
                 serviceProvider.GetRequiredService<IDirectiveAuditExportResultSink>(),
                 serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>(),
-                serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>()));
+                serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>(),
+                serviceProvider.GetRequiredService<IOccupantChannel>(),
+                serviceProvider.GetRequiredService<IOccupantChannelDeliveryRequestFactory>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
         builder.Services.TryAddSingleton<IRetainedActionExecutor>(

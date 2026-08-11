@@ -221,7 +221,7 @@ public sealed class PositionActorDispatchTests
     }
 
     [Fact]
-    public async Task Accepted_directive_for_ready_human_position_is_forwarded_as_original_org_message()
+    public async Task Accepted_directive_for_linked_human_position_is_forwarded_from_persisted_dispatch()
     {
         var entity = EntityId("acme", "bug-triage");
         var stamp = new PositionConfigurationStamp(3, "sha256:v3");
@@ -247,7 +247,7 @@ public sealed class PositionActorDispatchTests
             var actor = system.ActorOf(
                 Props.Create(() => new PositionActor(
                     entity.Value,
-                    LoadedProvider(entity, stamp, OccupantType.Human),
+                    LoadedProvider(entity, stamp, OccupantType.Human, occupant),
                     new CapturingOccupantFactory(capture),
                     () => At.AddMinutes(1))),
                 "position-dispatch-human-directive-actor");
@@ -258,8 +258,10 @@ public sealed class PositionActorDispatchTests
             var dispatched = await capture.Task.WaitAsync(Timeout());
             var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
 
-            Assert.Same(directive, dispatched.Message);
-            Assert.IsNotType<AiDirectiveProcessingRequest>(dispatched.Message);
+            var delivery = Assert.IsType<HumanOccupantChannelDelivery>(dispatched.Message);
+            Assert.Same(directive, delivery.Context.Message);
+            Assert.Equal(directive.Id, delivery.Dispatch.Message);
+            Assert.Equal(directive.Thread, delivery.Dispatch.Thread);
             Assert.Equal(occupant, dispatched.Occupant);
             Assert.Equal(OccupantType.Human, dispatched.OccupantType);
             Assert.Equal(new[] { directive.Id }, state.Inbox.Select(inboxMessage => inboxMessage.Id));
@@ -660,8 +662,9 @@ public sealed class PositionActorDispatchTests
     private static IPositionConfigurationProvider LoadedProvider(
         PositionEntityId entity,
         PositionConfigurationStamp stamp,
-        OccupantType occupantType) =>
-        LoadedProvider(entity, stamp, aiGateway: null, occupantType);
+        OccupantType occupantType,
+        OccupantId? humanOccupant = null) =>
+        LoadedProvider(entity, stamp, aiGateway: null, occupantType, humanOccupant);
 
     private static IPositionConfigurationProvider LoadedProvider(
         PositionEntityId entity,
@@ -673,19 +676,22 @@ public sealed class PositionActorDispatchTests
         PositionEntityId entity,
         PositionConfigurationStamp stamp,
         AiPositionRuntimeConfiguration? aiGateway,
-        OccupantType occupantType) =>
+        OccupantType occupantType,
+        OccupantId? humanOccupant = null) =>
         new StaticConfigurationProvider(
             PositionRuntimeConfigurationLoadResult.Loaded(RuntimeConfiguration(
                 entity,
                 stamp,
                 aiGateway,
-                occupantType)));
+                occupantType,
+                humanOccupant)));
 
     private static PositionRuntimeConfiguration RuntimeConfiguration(
         PositionEntityId entity,
         PositionConfigurationStamp stamp,
         AiPositionRuntimeConfiguration? aiGateway,
-        OccupantType occupantType) =>
+        OccupantType occupantType,
+        OccupantId? humanOccupant) =>
         new(
             stamp,
             entity.Organization,
@@ -702,7 +708,14 @@ public sealed class PositionActorDispatchTests
                 workingHours: null,
                 subscriptions: Array.Empty<SubscriptionConfiguration>(),
                 tools: Array.Empty<ToolConfiguration>(),
-                aiGateway: aiGateway),
+                aiGateway: aiGateway,
+                configuredIdentity: humanOccupant,
+                humanIdentity: occupantType == OccupantType.Human && humanOccupant is not null
+                    ? new HumanOccupantRuntimeIdentity(
+                        UserId.From(Guid.Parse("dddddddd-0000-0000-0000-000000000501")),
+                        OccupantChannelBindingId.From(
+                            Guid.Parse("eeeeeeee-0000-0000-0000-000000000501")))
+                    : null),
             new PositionAuthorityRuntimeConfiguration(
                 canDecide: Array.Empty<string>()));
 
@@ -729,8 +742,11 @@ public sealed class PositionActorDispatchTests
     private sealed class CapturingOccupantFactory(
         TaskCompletionSource<DispatchedToOccupant> capture) : IPositionOccupantFactory
     {
-        public Props Create(OccupantId occupant, OccupantType occupantType) =>
-            Props.Create(() => new CapturingOccupantActor(occupant, occupantType, capture));
+        public Props Create(PositionOccupantActivation activation) =>
+            Props.Create(() => new CapturingOccupantActor(
+                activation.Occupant,
+                activation.OccupantType,
+                capture));
     }
 
     private sealed class CapturingOccupantActor : ReceiveActor
@@ -753,8 +769,11 @@ public sealed class PositionActorDispatchTests
         private readonly Dictionary<IActorRef, TrackedChildStopped> _stopped = new();
         private readonly Dictionary<IActorRef, TaskCompletionSource<TrackedChildStopped>> _stopWaiters = new();
 
-        public Props Create(OccupantId occupant, OccupantType occupantType) =>
-            Props.Create(() => new TrackingOccupantActor(occupant, occupantType, this));
+        public Props Create(PositionOccupantActivation activation) =>
+            Props.Create(() => new TrackingOccupantActor(
+                activation.Occupant,
+                activation.OccupantType,
+                this));
 
         public Task<TrackedDelivery> NextDeliveryAsync()
         {

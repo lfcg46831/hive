@@ -369,7 +369,7 @@ public sealed class PositionActorRecoveryTests
 
     private sealed class IgnoringOccupantFactory : IPositionOccupantFactory
     {
-        public Props Create(OccupantId occupant, OccupantType occupantType) =>
+        public Props Create(PositionOccupantActivation activation) =>
             Props.Create<IgnoringOccupantActor>();
     }
 

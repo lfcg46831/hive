@@ -95,6 +95,29 @@ public sealed class PositionRuntimeConfigurationTests
     }
 
     [Fact]
+    public void Human_runtime_identity_is_opaque_optional_and_rejected_for_ai_occupants()
+    {
+        var user = UserId.From(Guid.Parse("11111111-2222-3333-4444-555555555555"));
+        var binding = OccupantChannelBindingId.From(
+            Guid.Parse("66666666-7777-8888-9999-aaaaaaaaaaaa"));
+        var identity = new HumanOccupantRuntimeIdentity(user, binding);
+
+        var human = new OccupantRuntimeConfiguration(
+            OccupantType.Human,
+            configuredIdentity: OccupantId.From("human:delivery-lead"),
+            humanIdentity: identity);
+
+        var projected = Assert.IsType<HumanOccupantRuntimeIdentity>(human.HumanIdentity);
+        Assert.Same(identity, projected);
+        Assert.Equal(user, projected.UserId);
+        Assert.Equal(binding, projected.ChannelBindingId);
+        Assert.Throws<ArgumentNullException>(() => new HumanOccupantRuntimeIdentity(null!));
+        Assert.Throws<ArgumentException>(() => new OccupantRuntimeConfiguration(
+            OccupantType.AiAgent,
+            humanIdentity: identity));
+    }
+
+    [Fact]
     public void Load_result_distinguishes_loaded_blocking_and_technical_outcomes()
     {
         var configuration = RuntimeConfiguration("acme", "bug-triage", new PositionConfigurationStamp(2, "sha256:v2"));

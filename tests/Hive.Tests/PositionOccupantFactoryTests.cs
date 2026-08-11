@@ -26,7 +26,7 @@ public sealed class PositionOccupantFactoryTests
         try
         {
             var actor = system.ActorOf(
-                factory.Create(OccupantId.From("agent-7"), OccupantType.AiAgent),
+                factory.Create(PositionOccupantActivation.AiAgent(OccupantId.From("agent-7"))),
                 "agent");
 
             var result = await actor.Ask<AiAgentGatewayInvocationResult>(
@@ -45,13 +45,11 @@ public sealed class PositionOccupantFactoryTests
     }
 
     [Fact]
-    public void Create_rejects_null_occupant_and_unknown_occupant_type()
+    public void Create_rejects_null_activation()
     {
         var factory = new PositionOccupantFactory();
 
-        Assert.Throws<ArgumentNullException>(() => factory.Create(null!, OccupantType.AiAgent));
-        Assert.Throws<ArgumentOutOfRangeException>(() =>
-            factory.Create(OccupantId.From("agent-7"), (OccupantType)42));
+        Assert.Throws<ArgumentNullException>(() => factory.Create(null!));
     }
 
     private static AiGatewayRequest Request() =>

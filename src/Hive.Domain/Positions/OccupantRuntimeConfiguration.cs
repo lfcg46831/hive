@@ -20,7 +20,8 @@ public sealed record OccupantRuntimeConfiguration
         IEnumerable<ToolConfiguration>? tools = null,
         AiPositionRuntimeConfiguration? aiGateway = null,
         IdentityPromptRuntimeConfiguration? identityPrompt = null,
-        OccupantId? configuredIdentity = null)
+        OccupantId? configuredIdentity = null,
+        HumanOccupantRuntimeIdentity? humanIdentity = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -46,6 +47,14 @@ public sealed record OccupantRuntimeConfiguration
         AiGateway = aiGateway;
         IdentityPrompt = identityPrompt;
         ConfiguredIdentity = configuredIdentity;
+        if (humanIdentity is not null && type != OccupantType.Human)
+        {
+            throw new ArgumentException(
+                "Human runtime identity can only be supplied for a human occupant.",
+                nameof(humanIdentity));
+        }
+
+        HumanIdentity = humanIdentity;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -71,6 +80,12 @@ public sealed record OccupantRuntimeConfiguration
     /// materialization. A missing value means the position must remain unoccupied.
     /// </summary>
     public OccupantId? ConfiguredIdentity { get; }
+
+    /// <summary>
+    /// Runtime-only identity projection for an active human occupation. A missing value means no
+    /// active user-to-position link exists and no human proxy may be materialized.
+    /// </summary>
+    public HumanOccupantRuntimeIdentity? HumanIdentity { get; }
 
     /// <summary>The configured working-hours window, when declared.</summary>
     public WorkingHoursConfiguration? WorkingHours { get; }

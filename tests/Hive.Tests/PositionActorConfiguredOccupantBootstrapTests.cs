@@ -377,8 +377,11 @@ public sealed class PositionActorConfiguredOccupantBootstrapTests
 
     private sealed class CapturingOccupantFactory(DeliveryCapture capture) : IPositionOccupantFactory
     {
-        public Props Create(OccupantId occupant, OccupantType occupantType) =>
-            Props.Create(() => new CapturingOccupantActor(occupant, occupantType, capture));
+        public Props Create(PositionOccupantActivation activation) =>
+            Props.Create(() => new CapturingOccupantActor(
+                activation.Occupant,
+                activation.OccupantType,
+                capture));
     }
 
     private sealed class CapturingOccupantActor : ReceiveActor

@@ -10,7 +10,9 @@ namespace Hive.Domain.Positions;
 /// processing completion (<see cref="MessageProcessingCompleted"/>) and the position passivated
 /// (<see cref="PositionPassivated"/>). Correlated occupant-authored responses are retained as
 /// <see cref="OccupantReplyEmitted"/>. The runtime-configuration gate extends this set with
-/// <see cref="PositionConfigurationApplied"/> (US-F0-06-T08c).
+/// <see cref="PositionConfigurationApplied"/> (US-F0-06-T08c). Occupant-channel notification
+/// requests, outcomes and reminder facts are also retained here so the position remains the sole
+/// owner of recoverable delivery state (US-F1-03-T03).
 /// </summary>
 /// <remarks>
 /// <para>

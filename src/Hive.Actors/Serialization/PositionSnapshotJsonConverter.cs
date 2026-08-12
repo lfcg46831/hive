@@ -37,7 +37,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.ShortMemoryContextScopes,
             dto.MaterializedHistory,
             dto.DirectiveCheckpoints,
-            dto.OccupantReplies);
+            dto.OccupantReplies,
+            dto.OccupantNotifications);
     }
 
     public override void Write(
@@ -78,6 +79,9 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             OccupantReplies = value.OccupantReplies.IsEmpty
                 ? null
                 : value.OccupantReplies.ToList(),
+            OccupantNotifications = value.OccupantNotifications.IsEmpty
+                ? null
+                : value.OccupantNotifications.ToList(),
         };
 
         JsonSerializer.Serialize(writer, dto, options);
@@ -117,5 +121,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
 
         [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
         public List<OccupantReplyEmitted>? OccupantReplies { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<PersistedOccupantNotification>? OccupantNotifications { get; set; }
     }
 }

@@ -52,4 +52,46 @@ public static class OccupantChannelDeliveryErrorCodeContract
             _ => throw new InvalidOperationException(
                 "Validated occupant-channel delivery error code is not mapped."),
         };
+
+    public static bool TryParseWireValue(
+        string? value,
+        out OccupantChannelDeliveryErrorCode result)
+    {
+        switch (value)
+        {
+            case "binding-unavailable":
+                result = OccupantChannelDeliveryErrorCode.BindingUnavailable;
+                return true;
+            case "binding-revoked":
+                result = OccupantChannelDeliveryErrorCode.BindingRevoked;
+                return true;
+            case "configuration-invalid":
+                result = OccupantChannelDeliveryErrorCode.ConfigurationInvalid;
+                return true;
+            case "authentication-failed":
+                result = OccupantChannelDeliveryErrorCode.AuthenticationFailed;
+                return true;
+            case "rate-limited":
+                result = OccupantChannelDeliveryErrorCode.RateLimited;
+                return true;
+            case "timeout":
+                result = OccupantChannelDeliveryErrorCode.Timeout;
+                return true;
+            case "canceled":
+                result = OccupantChannelDeliveryErrorCode.Canceled;
+                return true;
+            case "channel-unavailable":
+                result = OccupantChannelDeliveryErrorCode.ChannelUnavailable;
+                return true;
+            case "delivery-rejected":
+                result = OccupantChannelDeliveryErrorCode.DeliveryRejected;
+                return true;
+            case "unknown":
+                result = OccupantChannelDeliveryErrorCode.Unknown;
+                return true;
+            default:
+                result = default;
+                return false;
+        }
+    }
 }

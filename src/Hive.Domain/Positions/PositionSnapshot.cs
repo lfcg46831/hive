@@ -12,7 +12,8 @@ namespace Hive.Domain.Positions;
 /// the pending <see cref="Inbox"/>, the <see cref="OpenTasks"/>, the <see cref="ShortMemory"/>, the
 /// <see cref="RecentHistory"/>, the current occupant (<see cref="Occupant"/>/<see cref="OccupantType"/>)
 /// the <see cref="ProcessedMessages"/> idempotency keys and the latest applied runtime
-/// configuration stamp, plus the latest bounded directive checkpoints.
+/// configuration stamp, plus the latest bounded directive checkpoints and occupant-channel
+/// notification state.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -40,7 +41,8 @@ public sealed record PositionSnapshot
         IReadOnlyDictionary<string, ShortMemoryContextScope>? shortMemoryContextScopes = null,
         IEnumerable<OrgMessage>? materializedHistory = null,
         IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null,
-        IEnumerable<OccupantReplyEmitted>? occupantReplies = null)
+        IEnumerable<OccupantReplyEmitted>? occupantReplies = null,
+        IEnumerable<PersistedOccupantNotification>? occupantNotifications = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -120,6 +122,17 @@ public sealed record PositionSnapshot
                 "Occupant reply message ids must be unique.",
                 nameof(occupantReplies));
         }
+
+        OccupantNotifications = ToValidatedArray(
+            occupantNotifications,
+            nameof(occupantNotifications));
+        if (OccupantNotifications.Select(notification => notification.Message).Distinct().Count() !=
+            OccupantNotifications.Length)
+        {
+            throw new ArgumentException(
+                "Occupant notification message ids must be unique.",
+                nameof(occupantNotifications));
+        }
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -163,6 +176,9 @@ public sealed record PositionSnapshot
 
     /// <summary>Occupant-authored organizational replies emitted by this position.</summary>
     public ImmutableArray<OccupantReplyEmitted> OccupantReplies { get; }
+
+    /// <summary>Durable occupant-channel delivery and reminder state.</summary>
+    public ImmutableArray<PersistedOccupantNotification> OccupantNotifications { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

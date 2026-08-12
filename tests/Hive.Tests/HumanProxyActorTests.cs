@@ -65,11 +65,17 @@ public sealed class HumanProxyActorTests
             Assert.True(result.Result.IsSuccess);
             Assert.Equal(message.Id, result.MessageId);
             Assert.Equal([message.Id], state.Inbox.Select(item => item.Id));
+            var notification = Assert.Single(state.OccupantNotifications).Value;
+            Assert.Equal(OccupantNotificationDeliveryStatus.Confirmed, notification.Status);
+            Assert.Equal(Binding, notification.Binding);
+            Assert.Null(notification.Failure);
 
             await actor.GracefulStop(Timeout());
             var events = await ReadEventsAsync(system);
             Assert.Single(events.OfType<OccupantChanged>());
             Assert.Single(events.OfType<MessageDispatched>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryRequested>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryConfirmed>());
             Assert.Empty(events.OfType<MessageProcessingCompleted>());
         }
         finally
@@ -116,6 +122,14 @@ public sealed class HumanProxyActorTests
                 result.Result.Error!.Code);
             Assert.True(result.Result.Error.IsRetryable);
             Assert.Equal([message.Id], state.Inbox.Select(item => item.Id));
+            var notification = Assert.Single(state.OccupantNotifications).Value;
+            Assert.Equal(OccupantNotificationDeliveryStatus.Failed, notification.Status);
+            Assert.Equal(result.Result.Error, notification.Failure);
+
+            await actor.GracefulStop(Timeout());
+            var events = await ReadEventsAsync(system);
+            Assert.Single(events.OfType<OccupantChannelDeliveryRequested>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryFailed>());
         }
         finally
         {
@@ -195,6 +209,162 @@ public sealed class HumanProxyActorTests
             Assert.Equal(OccupantType.Human, state.OccupantType);
             Assert.Equal([pending.Id], state.Inbox.Select(item => item.Id));
             Assert.False(channel.WasCalled);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Confirmed_notification_is_not_delivered_again_after_actor_restart()
+    {
+        var message = Message(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "cccccccc-5555-6666-7777-888888888888");
+        var firstChannel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+        var system = CreateActorSystem("human-proxy-terminal-recovery");
+
+        try
+        {
+            var first = CreatePosition(
+                system,
+                activeLink: true,
+                firstChannel,
+                new RecordingRequestFactory());
+            await WaitForReadyAsync(first);
+            await first.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await WaitForNotificationStatusAsync(
+                first,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+            await first.GracefulStop(Timeout());
+
+            var recoveredChannel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+            var recovered = CreatePosition(
+                system,
+                activeLink: true,
+                recoveredChannel,
+                new RecordingRequestFactory());
+            await WaitForReadyAsync(recovered);
+            await Task.Delay(250);
+
+            var state = await recovered.Ask<PositionState>(GetPositionState.Instance, Timeout());
+            Assert.Equal(
+                OccupantNotificationDeliveryStatus.Confirmed,
+                state.OccupantNotifications[message.Id].Status);
+            Assert.False(recoveredChannel.WasCalled);
+
+            await recovered.GracefulStop(Timeout());
+            var events = await ReadEventsAsync(system);
+            Assert.Single(events.OfType<OccupantChannelDeliveryRequested>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryConfirmed>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Requested_notification_in_snapshot_is_redelivered_and_completed_without_new_request_event()
+    {
+        var message = Message(
+            "dddddddd-1111-2222-3333-444444444444",
+            "eeeeeeee-5555-6666-7777-888888888888");
+        var requested = new OccupantChannelDeliveryRequested(
+            message.Id,
+            message.Thread,
+            Occupant,
+            User,
+            Binding,
+            At);
+        var system = CreateActorSystem("human-proxy-requested-recovery");
+        var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+
+        try
+        {
+            await SeedSnapshotAsync(
+                system,
+                new PositionSnapshot(
+                    At,
+                    Occupant,
+                    OccupantType.Human,
+                    inbox: [message],
+                    recentHistory: [message.Id],
+                    lastConfigurationStamp: Stamp,
+                    occupantNotifications: [PersistedOccupantNotification.Requested(requested)]));
+            var actor = CreatePosition(
+                system,
+                activeLink: true,
+                channel,
+                new RecordingRequestFactory());
+
+            await WaitForReadyAsync(actor);
+            await channel.Request.WaitAsync(Timeout());
+            var state = await WaitForNotificationStatusAsync(
+                actor,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+
+            Assert.Equal(1, channel.CallCount);
+            Assert.Equal(Binding, state.OccupantNotifications[message.Id].Binding);
+
+            await actor.GracefulStop(Timeout());
+            var events = await ReadEventsAsync(system);
+            Assert.Empty(events.OfType<OccupantChannelDeliveryRequested>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryConfirmed>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Reminder_commands_persist_one_scheduled_and_sent_fact_per_message_and_reminder()
+    {
+        var message = Message(
+            "ffffffff-1111-2222-3333-444444444444",
+            "10101010-5555-6666-7777-888888888888");
+        var reminder = OccupantReminderId.From(
+            Guid.Parse("20202020-aaaa-bbbb-cccc-dddddddddddd"));
+        var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+        var system = CreateActorSystem("human-proxy-reminder-state");
+
+        try
+        {
+            var actor = CreatePosition(
+                system,
+                activeLink: true,
+                channel,
+                new RecordingRequestFactory());
+            await WaitForReadyAsync(actor);
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await WaitForNotificationStatusAsync(
+                actor,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+
+            var schedule = new ScheduleOccupantReminder(message.Id, reminder, At.AddHours(1));
+            actor.Tell(schedule);
+            actor.Tell(schedule);
+            await WaitForReminderAsync(actor, message.Id, reminder, sent: false);
+
+            var markSent = new MarkOccupantReminderSent(message.Id, reminder, Binding);
+            actor.Tell(markSent);
+            actor.Tell(markSent);
+            var state = await WaitForReminderAsync(actor, message.Id, reminder, sent: true);
+
+            var persistedReminder = Assert.Single(
+                state.OccupantNotifications[message.Id].Reminders);
+            Assert.Equal(At.AddHours(1), persistedReminder.ScheduledFor);
+            Assert.Equal(Binding, persistedReminder.SentBinding);
+
+            await actor.GracefulStop(Timeout());
+            var events = await ReadEventsAsync(system);
+            Assert.Single(events.OfType<OccupantReminderScheduled>());
+            Assert.Single(events.OfType<OccupantReminderSent>());
         }
         finally
         {
@@ -294,6 +464,50 @@ public sealed class HumanProxyActorTests
         throw new TimeoutException("PositionActor did not reach Ready.");
     }
 
+    private static async Task<PositionState> WaitForNotificationStatusAsync(
+        IActorRef actor,
+        MessageId message,
+        OccupantNotificationDeliveryStatus status)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, TimeSpan.FromSeconds(1));
+            if (state.OccupantNotifications.TryGetValue(message, out var notification) &&
+                notification.Status == status)
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Notification '{message}' did not reach '{status}'.");
+    }
+
+    private static async Task<PositionState> WaitForReminderAsync(
+        IActorRef actor,
+        MessageId message,
+        OccupantReminderId reminder,
+        bool sent)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, TimeSpan.FromSeconds(1));
+            if (state.OccupantNotifications.TryGetValue(message, out var notification) &&
+                notification.Reminders.Any(item =>
+                    item.Id == reminder && (item.SentAt is not null) == sent))
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Reminder '{reminder}' did not reach sent={sent}.");
+    }
+
     private static async Task SeedSnapshotAsync(ActorSystem system, PositionSnapshot snapshot)
     {
         var seeder = system.ActorOf(
@@ -333,10 +547,13 @@ public sealed class HumanProxyActorTests
 
         public bool WasCalled => _request.Task.IsCompleted;
 
+        public int CallCount { get; private set; }
+
         public Task<OccupantChannelDeliveryResult> DeliverAsync(
             OccupantChannelDeliveryRequest request,
             CancellationToken cancellationToken = default)
         {
+            CallCount++;
             _request.TrySetResult(request);
             return Task.FromResult(result);
         }

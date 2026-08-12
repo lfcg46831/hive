@@ -8,7 +8,8 @@ namespace Hive.Domain.Positions;
 /// (<see cref="UpdateShortMemory"/>), changing the occupant (<see cref="ChangeOccupant"/>),
 /// emitting a correlated response supplied by an occupant principal
 /// (<see cref="EmitOccupantReply"/>), emitting a correlated human approval decision
-/// (<see cref="EmitOccupantApprovalDecision"/>), and requesting passivation
+/// (<see cref="EmitOccupantApprovalDecision"/>), recording occupant-channel reminder lifecycle
+/// (<see cref="ScheduleOccupantReminder"/>/<see cref="MarkOccupantReminderSent"/>), and requesting passivation
 /// (<see cref="RequestPassivation"/>).
 /// </summary>
 /// <remarks>

@@ -36,6 +36,7 @@ internal sealed class PositionActor :
     private readonly HashSet<RetainedActionId> _resumingActions = [];
     private readonly HashSet<MessageId> _pendingOccupantReplyIds = [];
     private readonly HashSet<MessageId> _pendingApprovalRequestIds = [];
+    private readonly HashSet<MessageId> _activeOccupantChannelDeliveries = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -167,7 +168,7 @@ internal sealed class PositionActor :
             WhenReady(() =>
                 PersistProcessingCompletion(completed)));
         Command<PositionOccupantChannelDeliveryReported>(reported =>
-            Context.System.EventStream.Publish(reported));
+            WhenReady(() => PersistOccupantChannelDeliveryResult(reported)));
         Command<PositionOccupantMessageHandoff>(handoff =>
             WhenReady(() => BeginOccupantMessageHandoff(handoff, Sender)));
         Command<PositionOccupantMessageDeliveryCompleted>(HandleOccupantMessageDeliveryCompleted);
@@ -285,6 +286,10 @@ internal sealed class PositionActor :
             WhenReady(() => BeginRetainedActionResume(command)));
         Command<PersistDirectiveCheckpoint>(command =>
             WhenReady(() => PersistCheckpoint(command)));
+        Command<ScheduleOccupantReminder>(command =>
+            WhenReady(() => PersistOccupantReminderSchedule(command)));
+        Command<MarkOccupantReminderSent>(command =>
+            WhenReady(() => PersistOccupantReminderSent(command)));
         Command<RetainedActionResumeCompleted>(HandleRetainedActionResumeCompleted);
         Command<RetainedActionResumeFailed>(failed =>
             _resumingActions.Remove(failed.ActionId));
@@ -1068,6 +1073,88 @@ internal sealed class PositionActor :
             completed.FailureCode));
     }
 
+    private void PersistOccupantChannelDeliveryResult(
+        PositionOccupantChannelDeliveryReported reported)
+    {
+        if (!_state.OccupantNotifications.TryGetValue(reported.MessageId, out var notification) ||
+            notification.Status != OccupantNotificationDeliveryStatus.Requested ||
+            notification.Thread != reported.ThreadId ||
+            notification.Occupant != reported.OccupantId ||
+            notification.User != reported.UserId ||
+            notification.Binding != reported.BindingId)
+        {
+            return;
+        }
+
+        PositionEvent terminal = reported.Result.IsSuccess && reported.BindingId is { } binding
+            ? new OccupantChannelDeliveryConfirmed(
+                notification.Message,
+                notification.Thread,
+                notification.Occupant,
+                notification.User,
+                binding,
+                _clock())
+            : new OccupantChannelDeliveryFailed(
+                notification.Message,
+                notification.Thread,
+                notification.Occupant,
+                notification.User,
+                notification.Binding,
+                reported.Result.Error ?? new OccupantChannelDeliveryError(
+                    OccupantChannelDeliveryErrorCode.DeliveryRejected,
+                    isRetryable: false),
+                _clock());
+
+        Persist(terminal, persisted =>
+        {
+            ApplyPersisted(persisted);
+            _activeOccupantChannelDeliveries.Remove(reported.MessageId);
+            Context.System.EventStream.Publish(reported);
+        });
+    }
+
+    private void PersistOccupantReminderSchedule(ScheduleOccupantReminder command)
+    {
+        if (!_state.OccupantNotifications.TryGetValue(command.Message, out var notification) ||
+            notification.Reminders.Any(reminder => reminder.Id == command.Reminder))
+        {
+            return;
+        }
+
+        PersistAndApply(new OccupantReminderScheduled(
+            notification.Message,
+            notification.Thread,
+            notification.Occupant,
+            notification.User,
+            notification.Binding,
+            command.Reminder,
+            command.ScheduledFor,
+            _clock()));
+    }
+
+    private void PersistOccupantReminderSent(MarkOccupantReminderSent command)
+    {
+        if (!_state.OccupantNotifications.TryGetValue(command.Message, out var notification))
+        {
+            return;
+        }
+
+        var reminder = notification.Reminders.FirstOrDefault(item => item.Id == command.Reminder);
+        if (reminder is null || reminder.SentAt is not null)
+        {
+            return;
+        }
+
+        PersistAndApply(new OccupantReminderSent(
+            notification.Message,
+            notification.Thread,
+            notification.Occupant,
+            notification.User,
+            command.Binding,
+            command.Reminder,
+            _clock()));
+    }
+
     private void PersistRetainedAction(RetainAction command)
     {
         if (_state.RetainedActions.ContainsKey(command.Action.Id)
@@ -1262,14 +1349,20 @@ internal sealed class PositionActor :
         {
             foreach (var message in alreadyDispatched)
             {
-                DeliverToOccupant(
-                    message,
-                    new MessageDispatched(
-                        message.Id,
-                        message.Thread,
-                        activation.Occupant,
-                        activation.OccupantType,
-                        _clock()));
+                var dispatch = new MessageDispatched(
+                    message.Id,
+                    message.Thread,
+                    activation.Occupant,
+                    activation.OccupantType,
+                    _clock());
+                if (activation.OccupantType == OccupantType.Human)
+                {
+                    PersistHumanOccupantNotificationRequest(message, dispatch);
+                }
+                else
+                {
+                    DeliverToOccupant(message, dispatch);
+                }
             }
 
             afterDispatch?.Invoke();
@@ -1336,9 +1429,14 @@ internal sealed class PositionActor :
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
-            DeliverToOccupant(
-                dispatchedMessage,
-                dispatchEvent);
+            if (dispatchEvent.OccupantType == OccupantType.Human)
+            {
+                PersistHumanOccupantNotificationRequest(dispatchedMessage, dispatchEvent);
+            }
+            else
+            {
+                DeliverToOccupant(dispatchedMessage, dispatchEvent);
+            }
         }
     }
 
@@ -1369,6 +1467,70 @@ internal sealed class PositionActor :
 
         ResolveOccupant(activation)
             .Tell(CreateOccupantPayload(activation, dispatch, message));
+    }
+
+    private void PersistHumanOccupantNotificationRequest(
+        OrgMessage message,
+        MessageDispatched dispatch)
+    {
+        if (_state.OccupantNotifications.ContainsKey(dispatch.Message) ||
+            !TryGetActivation(dispatch.Occupant, OccupantType.Human, out var activation) ||
+            !_activeOccupantChannelDeliveries.Add(dispatch.Message))
+        {
+            return;
+        }
+
+        var runtimeConfiguration = _runtimeConfiguration
+            ?? throw new InvalidOperationException(
+                $"PositionActor '{PersistenceId}' cannot request human notification before runtime configuration is loaded.");
+        var identity = runtimeConfiguration.Occupant.HumanIdentity
+            ?? throw new InvalidOperationException(
+                $"PositionActor '{PersistenceId}' cannot request human notification without an active occupation link.");
+
+        Persist(
+            new OccupantChannelDeliveryRequested(
+                dispatch.Message,
+                dispatch.Thread,
+                activation.Occupant,
+                identity.UserId,
+                identity.ChannelBindingId,
+                _clock()),
+            persisted =>
+            {
+                ApplyPersisted(persisted);
+                DeliverToOccupant(message, dispatch);
+            });
+    }
+
+    private void RedeliverRequestedOccupantNotifications()
+    {
+        foreach (var notification in _state.OccupantNotifications.Values
+                     .Where(item => item.Status == OccupantNotificationDeliveryStatus.Requested)
+                     .OrderBy(item => item.RequestedAt)
+                     .ThenBy(item => item.Message.Value))
+        {
+            if (!_activeOccupantChannelDeliveries.Add(notification.Message))
+            {
+                continue;
+            }
+
+            var message = _state.Inbox.FirstOrDefault(item => item.Id == notification.Message);
+            if (message is null ||
+                !TryGetActivation(notification.Occupant, OccupantType.Human, out _))
+            {
+                _activeOccupantChannelDeliveries.Remove(notification.Message);
+                continue;
+            }
+
+            DeliverToOccupant(
+                message,
+                new MessageDispatched(
+                    notification.Message,
+                    notification.Thread,
+                    notification.Occupant,
+                    OccupantType.Human,
+                    notification.RequestedAt));
+        }
     }
 
     private object CreateOccupantPayload(
@@ -1528,6 +1690,7 @@ internal sealed class PositionActor :
         _operationalState = PositionOperationalState.Ready;
         PersistPendingDispatches(() =>
         {
+            RedeliverRequestedOccupantNotifications();
             PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));
             Stash.UnstashAll();
         });

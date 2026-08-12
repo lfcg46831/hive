@@ -6,6 +6,7 @@ using Hive.Actors.Sharding;
 using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
@@ -134,6 +135,7 @@ public sealed class PositionProtocolSerializerBindingTests
             node.Remove("MaterializedHistory");
             node.Remove("DirectiveCheckpoints");
             node.Remove("OccupantReplies");
+            node.Remove("OccupantNotifications");
             node["OpenTasks"]![0]!.AsObject().Remove("LatestProgress");
 
             var restored = Assert.IsType<PositionSnapshot>(serializer.FromBinary(
@@ -145,6 +147,7 @@ public sealed class PositionProtocolSerializerBindingTests
             Assert.Empty(restored.MaterializedHistory);
             Assert.Empty(restored.DirectiveCheckpoints);
             Assert.Empty(restored.OccupantReplies);
+            Assert.Empty(restored.OccupantNotifications);
             Assert.NotEmpty(restored.RecentHistory);
             Assert.Null(Assert.Single(restored.OpenTasks).LatestProgress);
         }
@@ -177,6 +180,8 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(ReturnRetainedAction);
         yield return typeof(ResumeRetainedAction);
         yield return typeof(PersistDirectiveCheckpoint);
+        yield return typeof(ScheduleOccupantReminder);
+        yield return typeof(MarkOccupantReminderSent);
         yield return typeof(PositionEvent);
         yield return typeof(MessageReceived);
         yield return typeof(TaskCreated);
@@ -196,6 +201,11 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(RetainedActionExpired);
         yield return typeof(RetainedActionReturned);
         yield return typeof(DirectiveCheckpointPersisted);
+        yield return typeof(OccupantChannelDeliveryRequested);
+        yield return typeof(OccupantChannelDeliveryConfirmed);
+        yield return typeof(OccupantChannelDeliveryFailed);
+        yield return typeof(OccupantReminderScheduled);
+        yield return typeof(OccupantReminderSent);
         yield return typeof(PositionSnapshot);
     }
 
@@ -245,6 +255,14 @@ public sealed class PositionProtocolSerializerBindingTests
             new Guid("fc000000-0000-0000-0000-000000000001")));
         yield return ("persist-directive-checkpoint", new PersistDirectiveCheckpoint(
             SampleCheckpoint()));
+        yield return ("schedule-occupant-reminder", new ScheduleOccupantReminder(
+            MessageId(),
+            ReminderId(),
+            At.AddHours(1)));
+        yield return ("mark-occupant-reminder-sent", new MarkOccupantReminderSent(
+            MessageId(),
+            ReminderId(),
+            BindingId()));
         yield return ("message-received", new MessageReceived(SampleMessage(), At));
         yield return ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming bug", Priority.High, At, At.AddHours(2), MessageId()));
         yield return ("task-updated", new TaskUpdated(TaskId(), "reproduced locally", At, Priority.Critical, At.AddHours(1)));
@@ -283,6 +301,36 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return ("directive-checkpoint-persisted", new DirectiveCheckpointPersisted(
             SampleCheckpoint(),
             At.AddMinutes(3)));
+        yield return ("occupant-channel-delivery-requested", DeliveryRequested());
+        yield return ("occupant-channel-delivery-confirmed", new OccupantChannelDeliveryConfirmed(
+            MessageId(), ThreadId(), OccupantId.From("person-alice"), UserId(), BindingId(), At));
+        yield return ("occupant-channel-delivery-failed", new OccupantChannelDeliveryFailed(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.ChannelUnavailable,
+                isRetryable: true),
+            At));
+        yield return ("occupant-reminder-scheduled", new OccupantReminderScheduled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            At.AddHours(1),
+            At));
+        yield return ("occupant-reminder-sent", new OccupantReminderSent(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            At.AddHours(1)));
         yield return ("position-snapshot", SampleSnapshot());
     }
 
@@ -331,8 +379,37 @@ public sealed class PositionProtocolSerializerBindingTests
                     OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
                     SampleOccupantReply(),
                     At),
+            },
+            new[]
+            {
+                PersistedOccupantNotification.Requested(DeliveryRequested())
+                    .Confirm(new OccupantChannelDeliveryConfirmed(
+                        MessageId(),
+                        ThreadId(),
+                        OccupantId.From("person-alice"),
+                        UserId(),
+                        BindingId(),
+                        At.AddMinutes(1))),
             });
     }
+
+    private static OccupantChannelDeliveryRequested DeliveryRequested() => new(
+        MessageId(),
+        ThreadId(),
+        OccupantId.From("person-alice"),
+        UserId(),
+        BindingId(),
+        At);
+
+    private static UserId UserId() => Hive.Domain.Identity.UserId.From(
+        new Guid("e1000000-0000-0000-0000-000000000001"));
+
+    private static OccupantChannelBindingId BindingId() =>
+        OccupantChannelBindingId.From(
+            new Guid("e2000000-0000-0000-0000-000000000001"));
+
+    private static OccupantReminderId ReminderId() => OccupantReminderId.From(
+        new Guid("e3000000-0000-0000-0000-000000000001"));
 
     private static DirectiveCheckpoint SampleCheckpoint() => new(
         DirectiveCheckpointContractVersions.V1,

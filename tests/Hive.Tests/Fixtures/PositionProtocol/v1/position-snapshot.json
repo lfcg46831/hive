@@ -45,5 +45,28 @@
   "ProcessedMessages": [
     "d3000000-0000-0000-0000-000000000001"
   ],
-  "LastConfigurationStamp": null
+  "LastConfigurationStamp": null,
+  "OccupantNotifications": [
+    {
+      "Message": "d3000000-0000-0000-0000-000000000001",
+      "Thread": "d3000000-0000-0000-0000-0000000000a1",
+      "Occupant": "person-alice",
+      "User": "d3000000-0000-0000-0000-0000000000b1",
+      "Binding": "d3000000-0000-0000-0000-0000000000c1",
+      "Status": "confirmed",
+      "RequestedAt": "2026-06-26T10:30:00\u002B00:00",
+      "CompletedAt": "2026-06-26T10:31:00\u002B00:00",
+      "Failure": null,
+      "Reminders": [
+        {
+          "Id": "d3000000-0000-0000-0000-0000000000e1",
+          "ScheduledFor": "2026-06-26T12:00:00\u002B00:00",
+          "ScheduledAt": "2026-06-26T10:33:00\u002B00:00",
+          "ScheduledBinding": "d3000000-0000-0000-0000-0000000000c1",
+          "SentAt": "2026-06-26T10:34:00\u002B00:00",
+          "SentBinding": "d3000000-0000-0000-0000-0000000000c1"
+        }
+      ]
+    }
+  ]
 }

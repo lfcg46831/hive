@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
@@ -204,4 +205,28 @@ internal sealed class MessageProcessingCompletionStatusJsonConverter :
                 return false;
         }
     }
+}
+
+internal sealed class OccupantChannelDeliveryErrorCodeJsonConverter :
+    WireEnumJsonConverter<OccupantChannelDeliveryErrorCode>
+{
+    protected override string ToWire(OccupantChannelDeliveryErrorCode value) =>
+        OccupantChannelDeliveryErrorCodeContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out OccupantChannelDeliveryErrorCode result) =>
+        OccupantChannelDeliveryErrorCodeContract.TryParseWireValue(value, out result);
+}
+
+internal sealed class OccupantNotificationDeliveryStatusJsonConverter :
+    WireEnumJsonConverter<OccupantNotificationDeliveryStatus>
+{
+    protected override string ToWire(OccupantNotificationDeliveryStatus value) =>
+        OccupantNotificationDeliveryStatusContract.ToWireValue(value);
+
+    protected override bool TryParseWire(
+        string? value,
+        out OccupantNotificationDeliveryStatus result) =>
+        OccupantNotificationDeliveryStatusContract.TryParseWireValue(value, out result);
 }

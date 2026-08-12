@@ -477,7 +477,7 @@ internal sealed class AiDirectiveIntegrationFixture : IAsyncDisposable
     private static string AgentChildName(OccupantId occupant)
     {
         var hash = Convert.ToHexString(SHA256.HashData(
-            Encoding.UTF8.GetBytes($"{OccupantType.AiAgent}:{occupant.Value}")))[..16];
+            Encoding.UTF8.GetBytes($"{OccupantType.AiAgent}:{occupant.Value}:none")))[..16];
 
         return $"occupant-aiagent-{hash.ToLowerInvariant()}";
     }

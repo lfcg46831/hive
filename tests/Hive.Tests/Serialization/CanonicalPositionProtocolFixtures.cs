@@ -2,6 +2,7 @@ using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Governance;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
@@ -27,6 +28,36 @@ internal static class CanonicalPositionProtocolFixtures
         ("short-memory-updated", new ShortMemoryUpdated("current-thread", "customer-impact", OccurredAt.AddMinutes(20))),
         ("occupant-changed", new OccupantChanged(OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(25))),
         ("message-dispatched", new MessageDispatched(MessageId(), ThreadId(), OccupantId.From("agent-7"), OccupantType.AiAgent, OccurredAt.AddMinutes(30))),
+        ("occupant-channel-delivery-requested", DeliveryRequested()),
+        ("occupant-channel-delivery-confirmed", new OccupantChannelDeliveryConfirmed(
+            MessageId(), ThreadId(), OccupantId.From("person-alice"), UserId(), BindingId(), OccurredAt.AddMinutes(31))),
+        ("occupant-channel-delivery-failed", new OccupantChannelDeliveryFailed(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.ChannelUnavailable,
+                isRetryable: true),
+            OccurredAt.AddMinutes(32))),
+        ("occupant-reminder-scheduled", new OccupantReminderScheduled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            OccurredAt.AddHours(2),
+            OccurredAt.AddMinutes(33))),
+        ("occupant-reminder-sent", new OccupantReminderSent(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            OccurredAt.AddMinutes(34))),
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("occupant-reply-emitted", new OccupantReplyEmitted(
             MessageId(),
@@ -64,7 +95,55 @@ internal static class CanonicalPositionProtocolFixtures
             new Dictionary<string, string> { ["current-thread"] = "customer-impact" },
             new[] { MessageId() },
             new[] { MessageId() },
-            lastConfigurationStamp: null);
+            lastConfigurationStamp: null,
+            occupantNotifications: [Notification()]);
+
+    private static PersistedOccupantNotification Notification()
+    {
+        var requested = PersistedOccupantNotification.Requested(DeliveryRequested());
+        var confirmed = requested.Confirm(new OccupantChannelDeliveryConfirmed(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            OccurredAt.AddMinutes(31)));
+        var scheduled = confirmed.Schedule(new OccupantReminderScheduled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            OccurredAt.AddHours(2),
+            OccurredAt.AddMinutes(33)));
+        return scheduled.MarkSent(new OccupantReminderSent(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            ReminderId(),
+            OccurredAt.AddMinutes(34)));
+    }
+
+    private static OccupantChannelDeliveryRequested DeliveryRequested() => new(
+        MessageId(),
+        ThreadId(),
+        OccupantId.From("person-alice"),
+        UserId(),
+        BindingId(),
+        OccurredAt.AddMinutes(30));
+
+    private static UserId UserId() => Hive.Domain.Identity.UserId.From(
+        new Guid("d3000000-0000-0000-0000-0000000000b1"));
+
+    private static OccupantChannelBindingId BindingId() =>
+        OccupantChannelBindingId.From(
+            new Guid("d3000000-0000-0000-0000-0000000000c1"));
+
+    private static OccupantReminderId ReminderId() => OccupantReminderId.From(
+        new Guid("d3000000-0000-0000-0000-0000000000e1"));
 
     private static DirectiveCheckpoint Checkpoint() => new(
         DirectiveCheckpointContractVersions.V1,

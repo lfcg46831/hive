@@ -32,6 +32,8 @@ internal static class PositionProtocolManifests
         ("return-retained-action", typeof(ReturnRetainedAction)),
         ("resume-retained-action", typeof(ResumeRetainedAction)),
         ("persist-directive-checkpoint", typeof(PersistDirectiveCheckpoint)),
+        ("schedule-occupant-reminder", typeof(ScheduleOccupantReminder)),
+        ("mark-occupant-reminder-sent", typeof(MarkOccupantReminderSent)),
         ("message-received", typeof(MessageReceived)),
         ("task-created", typeof(TaskCreated)),
         ("task-updated", typeof(TaskUpdated)),
@@ -50,6 +52,11 @@ internal static class PositionProtocolManifests
         ("retained-action-expired", typeof(RetainedActionExpired)),
         ("retained-action-returned", typeof(RetainedActionReturned)),
         ("directive-checkpoint-persisted", typeof(DirectiveCheckpointPersisted)),
+        ("occupant-channel-delivery-requested", typeof(OccupantChannelDeliveryRequested)),
+        ("occupant-channel-delivery-confirmed", typeof(OccupantChannelDeliveryConfirmed)),
+        ("occupant-channel-delivery-failed", typeof(OccupantChannelDeliveryFailed)),
+        ("occupant-reminder-scheduled", typeof(OccupantReminderScheduled)),
+        ("occupant-reminder-sent", typeof(OccupantReminderSent)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

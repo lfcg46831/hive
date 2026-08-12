@@ -16,6 +16,7 @@ using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
+using Hive.Infrastructure.OccupantChannels;
 using Hive.Infrastructure.Persistence.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -185,7 +186,11 @@ public static class HiveActorSystemBootstrapExtensions
 
         // Inbound occupant email is a cluster-wide transport and admission source on the
         // connectors role. Its actor owns sequential polling/parsing; PostgreSQL owns checkpoint,
-        // deduplication and final accepted/rejected admission state.
+        // deduplication, admission state and canonical work-reply emission state.
+        builder.Services.TryAddSingleton<IInboundOccupantEmailReplyEmitter,
+            ShardedInboundOccupantEmailReplyEmitter>();
+        builder.Services.TryAddSingleton<IInboundOccupantEmailReplyProcessor,
+            InboundOccupantEmailReplyProcessor>();
         builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());

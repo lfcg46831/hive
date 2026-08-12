@@ -137,3 +137,16 @@ internal interface IInboundOccupantEmailProcessor
     Task<InboundOccupantEmailProcessingResult> ProcessPendingAsync(
         CancellationToken cancellationToken = default);
 }
+
+internal sealed record InboundOccupantEmailReplyProcessingResult(
+    int PendingCount,
+    int EmittedCount,
+    int RejectedCount,
+    int RetryableCount,
+    int AlreadyCompletedCount);
+
+internal interface IInboundOccupantEmailReplyProcessor
+{
+    Task<InboundOccupantEmailReplyProcessingResult> ProcessAcceptedAsync(
+        CancellationToken cancellationToken = default);
+}

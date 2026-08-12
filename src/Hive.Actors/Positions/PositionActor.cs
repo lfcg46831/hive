@@ -200,6 +200,8 @@ internal sealed class PositionActor :
         });
         Command<EmitOccupantReply>(command =>
             WhenReady(() => BeginOccupantReplyEmission(command, Sender)));
+        Command<EmitCorrelatedOccupantReply>(command =>
+            WhenReady(() => BeginCorrelatedOccupantReplyEmission(command, Sender)));
         Command<EmitOccupantApprovalDecision>(command =>
             WhenReady(() => BeginOccupantApprovalDecisionEmission(command, Sender)));
         Command<OccupantReplyValidationCompleted>(HandleOccupantReplyValidationCompleted);
@@ -446,6 +448,51 @@ internal sealed class PositionActor :
                     command.ReplyMessageId,
                     replyTo,
                     exception));
+    }
+
+    private void BeginCorrelatedOccupantReplyEmission(
+        EmitCorrelatedOccupantReply command,
+        IActorRef replyTo)
+    {
+        var source = _state.Inbox
+            .Concat(_state.MaterializedHistory)
+            .FirstOrDefault(message => message.Id == command.SourceMessageId);
+        if (source is not null && source.Thread != command.SourceThreadId)
+        {
+            replyTo.Tell(Rejected(
+                command.SourceMessageId,
+                "source-message-thread-mismatch",
+                "sourceThreadId",
+                RejectionReason.InvalidContract));
+            return;
+        }
+
+        var mapped = source switch
+        {
+            OrgDirective => new EmitOccupantReply(
+                command.SourceMessageId,
+                command.ReplyMessageId,
+                command.Author,
+                command.Body,
+                command.DirectiveReportKind),
+            PeerRequest => new EmitOccupantReply(
+                command.SourceMessageId,
+                command.ReplyMessageId,
+                command.Author,
+                command.Body),
+            Escalation => new EmitOccupantReply(
+                command.SourceMessageId,
+                command.ReplyMessageId,
+                command.Author,
+                command.Body,
+                replyDirectiveId: command.ReplyDirectiveId),
+            _ => new EmitOccupantReply(
+                command.SourceMessageId,
+                command.ReplyMessageId,
+                command.Author,
+                command.Body),
+        };
+        BeginOccupantReplyEmission(mapped, replyTo);
     }
 
     private void BeginOccupantMessageHandoff(

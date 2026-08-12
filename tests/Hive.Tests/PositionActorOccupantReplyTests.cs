@@ -86,11 +86,14 @@ public sealed class PositionActorOccupantReplyTests
         var capture = await EmitAsync(
             Engineer,
             source,
-            new EmitOccupantReply(
+            new EmitCorrelatedOccupantReply(
                 source.Id,
+                source.Thread,
                 replyId,
+                DirectiveId.From(Guid.Parse("50000000-0000-0000-0000-000000000002")),
                 OccupantReplyAuthor.ExternalOccupant("remote-agent-7", "https-api"),
-                "Yes, an engineer will join."));
+                "Yes, an engineer will join.",
+                ReportKind.Progress));
 
         var response = Assert.IsType<PeerResponse>(capture.Result.Message);
         Assert.Equal(source.Id, response.InReplyTo);
@@ -103,6 +106,49 @@ public sealed class PositionActorOccupantReplyTests
         Assert.Equal(OccupantReplyAuthorKind.ExternalOccupant, persisted.Author.Kind);
         Assert.Equal("remote-agent-7", persisted.Author.SubjectId);
         Assert.Equal("https-api", persisted.Author.Channel);
+    }
+
+    [Fact]
+    public async Task Correlated_directive_reply_is_emitted_as_progress_with_email_authorship()
+    {
+        var source = new OrgDirective(
+            MessageId.From(Guid.Parse("10000000-0000-0000-0000-000000000006")),
+            Organization,
+            new PositionEndpointRef(Lead),
+            new PositionEndpointRef(Engineer),
+            ThreadId.From(Guid.Parse("20000000-0000-0000-0000-000000000006")),
+            Priority.High,
+            1,
+            At,
+            At.AddHours(2),
+            DirectiveId.From(Guid.Parse("30000000-0000-0000-0000-000000000006")),
+            parentDirectiveId: null,
+            "Investigate the checkout regression",
+            "Customer reports failed checkouts.");
+        var author = OccupantReplyAuthor.HumanUser(
+            "60000000-0000-0000-0000-000000000006",
+            "email");
+
+        var capture = await EmitAsync(
+            Engineer,
+            source,
+            new EmitCorrelatedOccupantReply(
+                source.Id,
+                source.Thread,
+                MessageId.From(Guid.Parse("40000000-0000-0000-0000-000000000006")),
+                DirectiveId.From(Guid.Parse("50000000-0000-0000-0000-000000000006")),
+                author,
+                "The investigation is under way.",
+                ReportKind.Progress));
+
+        var report = Assert.IsType<Report>(capture.Result.Message);
+        Assert.Equal(ReportKind.Progress, report.Kind);
+        Assert.Equal(source.DirectiveId, report.AboutDirectiveId);
+        Assert.Equal(source.Thread, report.Thread);
+        Assert.Equal(new PositionEndpointRef(Engineer), report.From);
+        Assert.Equal(source.From, report.To);
+        Assert.Equal(report, capture.RoutedMessage);
+        Assert.Equal(author, Assert.Single(capture.State.OccupantReplies).Author);
     }
 
     [Fact]
@@ -128,12 +174,14 @@ public sealed class PositionActorOccupantReplyTests
         var capture = await EmitAsync(
             Lead,
             source,
-            new EmitOccupantReply(
+            new EmitCorrelatedOccupantReply(
                 source.Id,
+                source.Thread,
                 replyId,
+                directiveId,
                 OccupantReplyAuthor.HumanUser("person-bob", "web-inbox"),
                 "Deploy now using the approved emergency window.",
-                replyDirectiveId: directiveId));
+                ReportKind.Progress));
 
         var directive = Assert.IsType<OrgDirective>(capture.Result.Message);
         Assert.Equal(directiveId, directive.DirectiveId);
@@ -176,10 +224,43 @@ public sealed class PositionActorOccupantReplyTests
         Assert.Empty(capture.State.OccupantReplies);
     }
 
+    [Fact]
+    public async Task Correlated_reply_with_a_different_authenticated_thread_is_rejected()
+    {
+        var source = new PeerRequest(
+            MessageId.From(Guid.Parse("10000000-0000-0000-0000-000000000005")),
+            Organization,
+            new PositionEndpointRef(Designer),
+            new PositionEndpointRef(Engineer),
+            ThreadId.From(Guid.Parse("20000000-0000-0000-0000-000000000005")),
+            Priority.Normal,
+            1,
+            At,
+            deadline: null,
+            "Can engineering support the launch review?");
+
+        var capture = await EmitAsync(
+            Engineer,
+            source,
+            new EmitCorrelatedOccupantReply(
+                source.Id,
+                ThreadId.From(Guid.Parse("20000000-0000-0000-0000-000000000099")),
+                MessageId.From(Guid.Parse("40000000-0000-0000-0000-000000000005")),
+                DirectiveId.From(Guid.Parse("50000000-0000-0000-0000-000000000005")),
+                OccupantReplyAuthor.HumanUser("person-alice", "email"),
+                "Yes.",
+                ReportKind.Progress));
+
+        Assert.False(capture.Result.IsAccepted);
+        Assert.Equal("source-message-thread-mismatch", Assert.Single(capture.Result.Errors).Code);
+        Assert.Null(capture.RoutedMessage);
+        Assert.Empty(capture.State.OccupantReplies);
+    }
+
     private static async Task<EmissionCapture> EmitAsync(
         PositionId sourcePosition,
         OrgMessage source,
-        EmitOccupantReply command)
+        PositionCommand command)
     {
         var entity = PositionEntityId.From(Organization, sourcePosition);
         var emitter = new CapturingMessageEmitter();

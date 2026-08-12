@@ -109,7 +109,7 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
             PositionId.From("delivery-lead"),
             MessageId.From(Guid.Parse("22222222-2222-2222-2222-222222222222")),
             ThreadId.From(Guid.Parse("33333333-3333-3333-3333-333333333333")),
-            MessageId.From(Guid.Parse("44444444-4444-4444-4444-444444444444")),
+            requestId: null,
             capturedAt.AddHours(-1),
             capturedAt.AddDays(1));
         var admission = new InboundOccupantEmailAdmission(
@@ -134,7 +134,7 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
             processedAt.AddSeconds(1)));
 
         Assert.Empty(await store.ReadPendingAsync("occupant-replies", "INBOX", 10));
-        var persisted = Assert.Single(await store.ReadAcceptedAsync(
+        var persisted = Assert.Single(await store.ReadAcceptedWorkRepliesAsync(
             "occupant-replies",
             "INBOX",
             10));
@@ -144,6 +144,26 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
         Assert.Equal(admission.BindingId, persisted.BindingId);
         Assert.Equal("approve", persisted.PlainTextReply);
         Assert.Equal(InboundOccupantEmailContentTrust.Untrusted, persisted.ContentTrust);
+
+        var replyMessageId = MessageId.From(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"));
+        var replyDirectiveId = DirectiveId.From(
+            Guid.Parse("88888888-8888-8888-8888-888888888888"));
+        var emittedAt = processedAt.AddMinutes(1);
+        Assert.True(await store.CompleteWorkReplyEmittedAsync(
+            persisted,
+            replyMessageId,
+            replyDirectiveId,
+            emittedAt));
+        Assert.False(await store.CompleteWorkReplyEmittedAsync(
+            persisted,
+            replyMessageId,
+            replyDirectiveId,
+            emittedAt.AddSeconds(1)));
+        Assert.Empty(await store.ReadAcceptedWorkRepliesAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
 
         await using var dataSource = fixture.CreateDataSource();
         await using var command = dataSource.CreateCommand(
@@ -170,6 +190,102 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
         Assert.True(reader.IsDBNull(4));
         Assert.True(reader.IsDBNull(5));
         Assert.True(reader.IsDBNull(6));
+
+        await reader.CloseAsync();
+        await using var emittedCommand = dataSource.CreateCommand(
+            """
+            SELECT reply_emission_state,
+                   reply_message_id,
+                   reply_directive_id,
+                   reply_emission_at,
+                   reply_emission_failure_codes
+            FROM occupant_channel.imap_inbound_emails
+            WHERE source_id = 'occupant-replies'
+              AND mailbox = 'INBOX'
+              AND uid_validity = 7
+              AND uid = 1;
+            """);
+        await using var emittedReader = await emittedCommand.ExecuteReaderAsync();
+        Assert.True(await emittedReader.ReadAsync());
+        Assert.Equal("emitted", emittedReader.GetString(0));
+        Assert.Equal(replyMessageId.Value, emittedReader.GetGuid(1));
+        Assert.Equal(replyDirectiveId.Value, emittedReader.GetGuid(2));
+        Assert.Equal(emittedAt, emittedReader.GetFieldValue<DateTimeOffset>(3));
+        Assert.True(emittedReader.IsDBNull(4));
+    }
+
+    [Fact]
+    public async Task Work_reply_structural_rejection_is_terminal_and_keeps_only_closed_codes()
+    {
+        await ResetAndMigrateAsync();
+        var capturedAt = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+        await using var store = new PostgreSqlImapInboundEmailStore(fixture.ConnectionString);
+        await store.CommitBatchAsync(
+            null,
+            Batch(7, 1, (1, "accepted-raw")),
+            capturedAt);
+        var envelope = Assert.Single(await store.ReadPendingAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        var admission = new InboundOccupantEmailAdmission(
+            envelope,
+            new OccupantChannelCorrelationTokenClaims(
+                Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                OrganizationId.From("acme"),
+                PositionId.From("delivery-lead"),
+                MessageId.From(Guid.Parse("22222222-2222-2222-2222-222222222222")),
+                ThreadId.From(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+                requestId: null,
+                capturedAt.AddHours(-1),
+                capturedAt.AddDays(1)),
+            OccupantId.From("human:delivery-lead"),
+            UserId.From(Guid.Parse("55555555-5555-5555-5555-555555555555")),
+            OccupantChannelBindingId.From(
+                Guid.Parse("66666666-6666-6666-6666-666666666666")),
+            "response",
+            InboundOccupantEmailContentTrust.Untrusted);
+        Assert.True(await store.CompleteAcceptedAsync(admission, capturedAt.AddMinutes(1)));
+        var persisted = Assert.Single(await store.ReadAcceptedWorkRepliesAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        var replyMessageId = MessageId.From(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"));
+        var replyDirectiveId = DirectiveId.From(
+            Guid.Parse("88888888-8888-8888-8888-888888888888"));
+
+        Assert.True(await store.CompleteWorkReplyRejectedAsync(
+            persisted,
+            replyMessageId,
+            replyDirectiveId,
+            ["source-message-not-found", "source-message-not-found"],
+            capturedAt.AddMinutes(2)));
+        Assert.False(await store.CompleteWorkReplyRejectedAsync(
+            persisted,
+            replyMessageId,
+            replyDirectiveId,
+            ["source-message-not-found"],
+            capturedAt.AddMinutes(3)));
+        Assert.Empty(await store.ReadAcceptedWorkRepliesAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT reply_emission_state, reply_emission_failure_codes
+            FROM occupant_channel.imap_inbound_emails
+            WHERE source_id = 'occupant-replies'
+              AND mailbox = 'INBOX'
+              AND uid_validity = 7
+              AND uid = 1;
+            """);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("rejected", reader.GetString(0));
+        Assert.Equal(["source-message-not-found"], reader.GetFieldValue<string[]>(1));
     }
 
     [Fact]
@@ -191,7 +307,7 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1, 2, 3], versions);
+        Assert.Equal([1, 2, 3, 4], versions);
     }
 
     private async Task ResetAndMigrateAsync()

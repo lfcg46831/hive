@@ -1,3 +1,5 @@
+using Hive.Domain.Identity;
+
 namespace Hive.Infrastructure.OccupantChannels;
 
 internal sealed class UnavailableImapInboundEmailStore : IImapInboundEmailStore
@@ -41,12 +43,29 @@ internal sealed class UnavailableImapInboundEmailStore : IImapInboundEmailStore
         CancellationToken cancellationToken = default) =>
         Task.FromException<bool>(Unavailable());
 
-    public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+    public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedWorkRepliesAsync(
         string sourceId,
         string mailbox,
         int limit,
         CancellationToken cancellationToken = default) =>
         Task.FromException<IReadOnlyList<InboundOccupantEmailAdmission>>(Unavailable());
+
+    public Task<bool> CompleteWorkReplyEmittedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId replyMessageId,
+        DirectiveId replyDirectiveId,
+        DateTimeOffset emittedAtUtc,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<bool>(Unavailable());
+
+    public Task<bool> CompleteWorkReplyRejectedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId replyMessageId,
+        DirectiveId replyDirectiveId,
+        IReadOnlyList<string> failureCodes,
+        DateTimeOffset rejectedAtUtc,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<bool>(Unavailable());
 
     private static InvalidOperationException Unavailable() => new(
         "The durable IMAP inbound store is unavailable because PostgreSQL is not configured.");

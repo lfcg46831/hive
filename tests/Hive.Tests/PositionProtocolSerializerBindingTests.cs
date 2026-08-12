@@ -164,6 +164,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(AcceptMessage);
         yield return typeof(AcceptMessageResult);
         yield return typeof(EmitOccupantReply);
+        yield return typeof(EmitCorrelatedOccupantReply);
         yield return typeof(EmitOccupantApprovalDecision);
         yield return typeof(OccupantReplyEmissionResult);
         yield return typeof(OpenTask);
@@ -223,6 +224,14 @@ public sealed class PositionProtocolSerializerBindingTests
             OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
             "The release window is confirmed.",
             ReportKind.Done));
+        yield return ("emit-correlated-occupant-reply", new EmitCorrelatedOccupantReply(
+            MessageId(),
+            ThreadId(),
+            ReplyMessageId(),
+            DirectiveId.From(new Guid("dddddddd-0000-0000-0000-000000000001")),
+            OccupantReplyAuthor.HumanUser("person-alice", "email"),
+            "The release window is confirmed.",
+            ReportKind.Progress));
         yield return ("emit-occupant-approval-decision", new EmitOccupantApprovalDecision(
             MessageId(),
             ReplyMessageId(),
@@ -568,6 +577,8 @@ public sealed class PositionProtocolSerializerBindingTests
             ["Hive:Cluster:Hostname"] = "127.0.0.1",
             ["Hive:Cluster:Port"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["Hive:Node:Roles:0"] = NodeRoleNames.Agents,
+            ["Hive:OccupantChannels:CorrelationTokens:SigningKey"] =
+                OccupantChannelCorrelationTokenTests.SigningKey(),
         });
 
         builder.AddHiveBootstrap();

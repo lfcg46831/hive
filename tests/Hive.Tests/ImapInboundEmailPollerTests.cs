@@ -1,3 +1,4 @@
+using Hive.Domain.Identity;
 using Hive.Infrastructure.OccupantChannels;
 using Microsoft.Extensions.Options;
 
@@ -194,12 +195,27 @@ public sealed class ImapInboundEmailPollerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
-        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedWorkRepliesAsync(
             string sourceId,
             string mailbox,
             int limit,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<bool> CompleteWorkReplyEmittedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId replyMessageId,
+            DirectiveId replyDirectiveId,
+            DateTimeOffset emittedAtUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> CompleteWorkReplyRejectedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId replyMessageId,
+            DirectiveId replyDirectiveId,
+            IReadOnlyList<string> failureCodes,
+            DateTimeOffset rejectedAtUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed record CommitCall(

@@ -132,10 +132,25 @@ public sealed class InboundOccupantEmailProcessorTests
             DateTimeOffset capturedAtUtc,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
 
-        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedWorkRepliesAsync(
             string sourceId,
             string mailbox,
             int limit,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> CompleteWorkReplyEmittedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId replyMessageId,
+            DirectiveId replyDirectiveId,
+            DateTimeOffset emittedAtUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> CompleteWorkReplyRejectedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId replyMessageId,
+            DirectiveId replyDirectiveId,
+            IReadOnlyList<string> failureCodes,
+            DateTimeOffset rejectedAtUtc,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 

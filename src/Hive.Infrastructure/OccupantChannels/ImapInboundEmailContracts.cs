@@ -1,3 +1,5 @@
+using Hive.Domain.Identity;
+
 namespace Hive.Infrastructure.OccupantChannels;
 
 internal sealed record ImapInboundEmailCheckpoint(
@@ -75,10 +77,25 @@ internal interface IImapInboundEmailStore
         DateTimeOffset processedAtUtc,
         CancellationToken cancellationToken = default);
 
-    Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+    Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedWorkRepliesAsync(
         string sourceId,
         string mailbox,
         int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteWorkReplyEmittedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId replyMessageId,
+        DirectiveId replyDirectiveId,
+        DateTimeOffset emittedAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteWorkReplyRejectedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId replyMessageId,
+        DirectiveId replyDirectiveId,
+        IReadOnlyList<string> failureCodes,
+        DateTimeOffset rejectedAtUtc,
         CancellationToken cancellationToken = default);
 }
 

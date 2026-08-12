@@ -470,16 +470,21 @@ public sealed class HumanProxyActorTests
         }
     }
 
-    [Fact]
-    public async Task Critical_terminal_timeout_records_operational_alert_and_requests_kill_switch()
+    [Theory]
+    [InlineData(Priority.High, false)]
+    [InlineData(Priority.Critical, true)]
+    public async Task Terminal_timeout_alerts_without_escalation_and_requests_kill_switch_only_for_critical(
+        Priority priority,
+        bool expectsKillSwitch)
     {
         var message = DirectiveMessage(
             "70707070-1111-2222-3333-444444444444",
             "80808080-5555-6666-7777-888888888888",
-            Priority.Critical);
+            priority);
         var scheduler = new RecordingResponseScheduler();
         var killSwitch = new RecordingKillSwitch();
-        var system = CreateActorSystem("human-response-timeout-terminal");
+        var emitter = new RecordingMessageEmitter();
+        var system = CreateActorSystem($"human-response-timeout-terminal-{priority}");
 
         try
         {
@@ -489,7 +494,7 @@ public sealed class HumanProxyActorTests
                 new RecordingRequestFactory(),
                 scheduler,
                 new StaticResponseTargetResolver(target: null),
-                new RecordingMessageEmitter(),
+                emitter,
                 killSwitch);
             await WaitForReadyAsync(actor);
             await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
@@ -498,15 +503,23 @@ public sealed class HumanProxyActorTests
                 command => command.MessageId == message.Id);
 
             actor.Tell(timeout);
-            var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
             var state = await WaitForResponseTimeoutAsync(actor, message.Id);
             var handled = state.OccupantNotifications[message.Id].ResponseTimeout!;
 
-            Assert.Equal(message.Id, requested.SourceMessageId);
             Assert.True(handled.OperationalAlert);
-            Assert.True(handled.KillSwitchRequested);
+            Assert.Equal(expectsKillSwitch, handled.KillSwitchRequested);
             Assert.Null(handled.Escalation);
             Assert.Equal([message.Id], state.Inbox.Select(item => item.Id));
+            Assert.False(emitter.Message.Task.IsCompleted);
+            if (expectsKillSwitch)
+            {
+                var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
+                Assert.Equal(message.Id, requested.SourceMessageId);
+            }
+            else
+            {
+                Assert.False(killSwitch.Completion.Task.IsCompleted);
+            }
         }
         finally
         {
@@ -595,6 +608,72 @@ public sealed class HumanProxyActorTests
             Assert.Empty(state.OccupantNotifications);
             Assert.Empty(state.OccupantAbsenceEscalations);
             Assert.Empty(scheduler.Commands);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Activated_absence_suspends_already_scheduled_reminders_and_timeout()
+    {
+        var message = DirectiveMessage(
+            "d9d9d9d9-1111-2222-3333-444444444444",
+            "dadadada-5555-6666-7777-888888888888");
+        var availableScheduler = new RecordingResponseScheduler();
+        var system = CreateActorSystem("human-absence-suspends-policy");
+
+        try
+        {
+            var available = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                availableScheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                new RecordingMessageEmitter(),
+                new RecordingKillSwitch());
+            await WaitForReadyAsync(available);
+            await available.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await WaitForNotificationStatusAsync(
+                available,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+            var reminder = await WaitForScheduledCommandAsync<TriggerOccupantResponseReminder>(
+                availableScheduler,
+                command => command.MessageId == message.Id);
+            var timeout = await WaitForScheduledCommandAsync<TriggerOccupantResponseTimeout>(
+                availableScheduler,
+                command => command.MessageId == message.Id);
+            await available.GracefulStop(Timeout());
+
+            var absentChannel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+            var absentScheduler = new RecordingResponseScheduler();
+            var emitter = new RecordingMessageEmitter();
+            var absent = CreatePolicyPosition(
+                system,
+                absentChannel,
+                new RecordingRequestFactory(),
+                absentScheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                emitter,
+                new RecordingKillSwitch(),
+                OccupantAbsenceAction.Retain);
+            await WaitForReadyAsync(absent);
+
+            absent.Tell(reminder);
+            absent.Tell(timeout);
+            await Task.Delay(100);
+            var state = await absent.Ask<PositionState>(GetPositionState.Instance, Timeout());
+            var notification = state.OccupantNotifications[message.Id];
+
+            Assert.False(absentChannel.WasCalled);
+            Assert.Empty(absentScheduler.Commands);
+            Assert.All(notification.Reminders, persisted => Assert.Null(persisted.SentAt));
+            Assert.Null(notification.ResponseTimeout);
+            Assert.False(emitter.Message.Task.IsCompleted);
+            Assert.Contains(state.Inbox, item => item.Id == message.Id);
         }
         finally
         {
@@ -722,15 +801,20 @@ public sealed class HumanProxyActorTests
         }
     }
 
-    [Fact]
-    public async Task Critical_absence_without_target_records_terminal_alert_and_requests_kill_switch()
+    [Theory]
+    [InlineData(Priority.High, false)]
+    [InlineData(Priority.Critical, true)]
+    public async Task Absence_without_target_alerts_and_requests_kill_switch_only_for_critical(
+        Priority priority,
+        bool expectsKillSwitch)
     {
         var message = DirectiveMessage(
             "d5d5d5d5-1111-2222-3333-444444444444",
             "d6d6d6d6-5555-6666-7777-888888888888",
-            Priority.Critical);
+            priority);
         var killSwitch = new RecordingKillSwitch();
-        var system = CreateActorSystem("human-absence-terminal");
+        var emitter = new RecordingMessageEmitter();
+        var system = CreateActorSystem($"human-absence-terminal-{priority}");
 
         try
         {
@@ -740,21 +824,29 @@ public sealed class HumanProxyActorTests
                 new RecordingRequestFactory(),
                 new RecordingResponseScheduler(),
                 new StaticResponseTargetResolver(target: null),
-                new RecordingMessageEmitter(),
+                emitter,
                 killSwitch,
                 OccupantAbsenceAction.Escalate);
             await WaitForReadyAsync(actor);
 
             await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
-            var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
             var state = await WaitForAbsenceEscalationAsync(actor, message.Id);
             var handled = state.OccupantAbsenceEscalations[message.Id];
 
-            Assert.Equal(message.Id, requested.SourceMessageId);
             Assert.True(handled.OperationalAlert);
-            Assert.True(handled.KillSwitchRequested);
+            Assert.Equal(expectsKillSwitch, handled.KillSwitchRequested);
             Assert.Null(handled.Escalation);
             Assert.Contains(state.Inbox, item => item.Id == message.Id);
+            Assert.False(emitter.Message.Task.IsCompleted);
+            if (expectsKillSwitch)
+            {
+                var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
+                Assert.Equal(message.Id, requested.SourceMessageId);
+            }
+            else
+            {
+                Assert.False(killSwitch.Completion.Task.IsCompleted);
+            }
         }
         finally
         {

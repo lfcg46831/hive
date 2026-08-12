@@ -1,6 +1,7 @@
 using System.Reflection;
 using Hive.Domain.Identity;
 using Hive.Domain.OccupantChannels;
+using Hive.Domain.Positions;
 
 namespace Hive.Tests;
 
@@ -44,6 +45,36 @@ public sealed class OccupantChannelContractTests
             .ToArray();
 
         Assert.Equal([nameof(OccupantChannelDeliveryRequest.RenderedMessage)], stringProperties);
+    }
+
+    public static TheoryData<Type> PersonalEndpointFreeContractTypes =>
+        new()
+        {
+            typeof(OccupantChannelDeliveryContext),
+            typeof(OccupantChannelDeliveryRequest),
+            typeof(OccupantChannelDeliveryRequested),
+            typeof(OccupantChannelDeliveryConfirmed),
+            typeof(OccupantChannelDeliveryFailed),
+            typeof(OccupantReminderScheduled),
+            typeof(OccupantReminderSent),
+        };
+
+    [Theory]
+    [MemberData(nameof(PersonalEndpointFreeContractTypes))]
+    public void Channel_boundary_and_delivery_facts_expose_no_personal_endpoint_surface(Type type)
+    {
+        var properties = type.GetProperties(BindingFlags.Instance | BindingFlags.Public);
+
+        Assert.DoesNotContain(
+            properties,
+            property => property.PropertyType == typeof(Uri)
+                || property.PropertyType.FullName == "System.Net.Mail.MailAddress");
+        Assert.DoesNotContain(
+            properties,
+            property => new[] { "email", "mailbox", "address", "endpoint", "uri" }
+                .Any(fragment => property.Name.Contains(
+                    fragment,
+                    StringComparison.OrdinalIgnoreCase)));
     }
 
     [Fact]

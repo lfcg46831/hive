@@ -93,7 +93,44 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
             case OccupantReplyEmitted reply:
                 PublishOccupantReply(committed, reply);
                 break;
+
+            case OccupantResponseTimeoutHandled timeout:
+                PublishOccupantResponseTimeout(committed, timeout);
+                break;
         }
+    }
+
+    private void PublishOccupantResponseTimeout(
+        PositionEventCommitted committed,
+        OccupantResponseTimeoutHandled timeout)
+    {
+        var escalation = timeout.Escalation;
+        var reasonCode = escalation is null
+            ? "occupant-response-timeout-no-valid-target"
+            : "occupant-response-timeout-escalated";
+        var payload = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["scheduledForUtc"] = timeout.ScheduledFor.ToString("O"),
+            ["occupantId"] = timeout.Occupant.Value,
+            ["operationalAlert"] = timeout.OperationalAlert.ToString(),
+            ["killSwitchRequested"] = timeout.KillSwitchRequested.ToString(),
+            ["escalationMessageId"] = escalation?.Id.ToString() ?? "none",
+            ["target"] = escalation is null ? "none" : EndpointValue(escalation.To),
+            ["redactions"] = "sourceMessage.payload,escalation.context",
+        };
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.OccupantResponseTimeout,
+            escalation is null ? JourneyAuditOutcome.Failed : JourneyAuditOutcome.Accepted,
+            committed.EntityId.Organization,
+            timeout.Thread,
+            timeout.Message,
+            DirectiveFor(timeout.Message),
+            committed.EntityId.Position,
+            reasonCode,
+            escalation is null ? nameof(OccupantResponseTimeoutHandled) : nameof(Escalation),
+            payload: payload,
+            occurredAtUtc: committed.OccurredAt,
+            idempotencyDiscriminator: $"{timeout.Message}:{timeout.ScheduledFor:O}:{reasonCode}"));
     }
 
     private void PublishOccupantReply(

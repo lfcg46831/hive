@@ -18,6 +18,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
     private readonly IPositionProjectionPublisher _projectionPublisher;
     private readonly RetainedActionResumeCoordinator? _resumeCoordinator;
     private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
+    private readonly IOccupantResponseEscalationTargetResolver _responseTargetResolver;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
@@ -30,8 +31,10 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             ?? throw new ArgumentNullException(nameof(configurationProvider));
         _occupantFactory = occupantFactory
             ?? throw new ArgumentNullException(nameof(occupantFactory));
-        _occupantReplyValidator = new OccupantReplyMessageValidator(
-            organizationRelations ?? throw new ArgumentNullException(nameof(organizationRelations)));
+        ArgumentNullException.ThrowIfNull(organizationRelations);
+        _occupantReplyValidator = new OccupantReplyMessageValidator(organizationRelations);
+        _responseTargetResolver = new OrganizationRelationsOccupantResponseEscalationTargetResolver(
+            organizationRelations);
         var resolvedAuditLog = auditLog ?? NoopJourneyAuditLog.Instance;
         _projectionPublisher = new JourneyAuditPositionProjectionPublisher(
             resolvedAuditLog);
@@ -47,5 +50,8 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             () => DateTimeOffset.UtcNow,
             _resumeCoordinator,
             _occupantReplyValidator,
-            ShardedPositionMessageEmitter.Instance));
+            ShardedPositionMessageEmitter.Instance,
+            null,
+            _responseTargetResolver,
+            null));
 }

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 using Hive.Domain.Identity;
 using Hive.Domain.OccupantChannels;
 
@@ -125,7 +126,8 @@ public sealed record PersistedOccupantNotification
         DateTimeOffset requestedAt,
         DateTimeOffset? completedAt = null,
         OccupantChannelDeliveryError? failure = null,
-        ImmutableArray<PersistedOccupantReminder> reminders = default)
+        ImmutableArray<PersistedOccupantReminder> reminders = default,
+        OccupantResponseTimeoutHandled? responseTimeout = null)
     {
         status = OccupantNotificationDeliveryStatusContract.RequireDefined(status, nameof(status));
         if (status == OccupantNotificationDeliveryStatus.Requested &&
@@ -173,6 +175,18 @@ public sealed record PersistedOccupantNotification
         CompletedAt = completedAt;
         Failure = failure;
         Reminders = reminderArray;
+        if (responseTimeout is not null
+            && (responseTimeout.Message != Message
+                || responseTimeout.Thread != Thread
+                || responseTimeout.Occupant != Occupant
+                || responseTimeout.User != User))
+        {
+            throw new ArgumentException(
+                "Response timeout state must match its occupant notification.",
+                nameof(responseTimeout));
+        }
+
+        ResponseTimeout = responseTimeout;
     }
 
     public MessageId Message { get; }
@@ -194,6 +208,9 @@ public sealed record PersistedOccupantNotification
     public OccupantChannelDeliveryError? Failure { get; }
 
     public ImmutableArray<PersistedOccupantReminder> Reminders { get; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public OccupantResponseTimeoutHandled? ResponseTimeout { get; }
 
     public static PersistedOccupantNotification Requested(
         OccupantChannelDeliveryRequested requested) =>
@@ -217,7 +234,8 @@ public sealed record PersistedOccupantNotification
                 OccupantNotificationDeliveryStatus.Confirmed,
                 RequestedAt,
                 confirmed.OccurredAt,
-                reminders: Reminders)
+                reminders: Reminders,
+                responseTimeout: ResponseTimeout)
             : this;
 
     public PersistedOccupantNotification Fail(OccupantChannelDeliveryFailed failed) =>
@@ -232,7 +250,8 @@ public sealed record PersistedOccupantNotification
                 RequestedAt,
                 failed.OccurredAt,
                 failed.Error,
-                Reminders)
+                Reminders,
+                ResponseTimeout)
             : this;
 
     public PersistedOccupantNotification Schedule(OccupantReminderScheduled scheduled)
@@ -269,6 +288,11 @@ public sealed record PersistedOccupantNotification
         return this;
     }
 
+    public PersistedOccupantNotification HandleTimeout(OccupantResponseTimeoutHandled handled) =>
+        ResponseTimeout is null && Matches(handled)
+            ? Copy(Reminders, handled)
+            : this;
+
     private bool Matches(OccupantChannelDeliveryConfirmed @event) =>
         @event.Message == Message && @event.Thread == Thread &&
         @event.Occupant == Occupant && @event.User == User && @event.Binding == Binding;
@@ -285,8 +309,13 @@ public sealed record PersistedOccupantNotification
         @event.Message == Message && @event.Thread == Thread &&
         @event.Occupant == Occupant && @event.User == User;
 
+    private bool Matches(OccupantResponseTimeoutHandled @event) =>
+        @event.Message == Message && @event.Thread == Thread &&
+        @event.Occupant == Occupant && @event.User == User;
+
     private PersistedOccupantNotification Copy(
-        ImmutableArray<PersistedOccupantReminder> reminders) =>
+        ImmutableArray<PersistedOccupantReminder> reminders,
+        OccupantResponseTimeoutHandled? responseTimeout = null) =>
         new(
             Message,
             Thread,
@@ -297,5 +326,6 @@ public sealed record PersistedOccupantNotification
             RequestedAt,
             CompletedAt,
             Failure,
-            reminders);
+            reminders,
+            responseTimeout ?? ResponseTimeout);
 }

@@ -64,8 +64,63 @@ public static class OrganizationConfigurationStructuralValidator
         ValidateLeadership(configuration, errors);
         ValidateUnitTree(configuration, errors);
         ValidateOutcomePolicies(configuration, errors);
+        ValidateResponsePolicies(configuration, errors);
 
         return OrganizationConfigurationValidationResult.Create(errors);
+    }
+
+    private static void ValidateResponsePolicies(
+        OrganizationConfiguration configuration,
+        List<OrganizationConfigurationValidationError> errors)
+    {
+        for (var positionIndex = 0; positionIndex < configuration.Positions.Count; positionIndex++)
+        {
+            var position = configuration.Positions[positionIndex];
+            if (position.Occupant.ResponsePolicy is null)
+            {
+                continue;
+            }
+
+            var path = $"positions[{positionIndex}].occupant.response_policy";
+            if (position.Occupant.Type != OccupantType.Human)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "response-policy-requires-human-occupant",
+                    path,
+                    "Response policy can only be declared for a human occupant."));
+            }
+
+            if (string.IsNullOrWhiteSpace(position.Timezone)
+                || !TimeZoneInfo.TryFindSystemTimeZoneById(position.Timezone, out _))
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "response-policy-timezone-invalid",
+                    $"positions[{positionIndex}].timezone",
+                    "Response policy requires a valid position timezone."));
+            }
+
+            var workingHours = position.Occupant.WorkingHours;
+            if (workingHours is null
+                || !TimeOnly.TryParseExact(
+                    workingHours.Start,
+                    "HH:mm",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var start)
+                || !TimeOnly.TryParseExact(
+                    workingHours.End,
+                    "HH:mm",
+                    CultureInfo.InvariantCulture,
+                    DateTimeStyles.None,
+                    out var end)
+                || start >= end)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "response-policy-working-hours-invalid",
+                    $"positions[{positionIndex}].occupant.working_hours",
+                    "Response policy requires working hours in HH:mm format with start before end."));
+            }
+        }
     }
 
     private static void ValidateOutcomePolicies(

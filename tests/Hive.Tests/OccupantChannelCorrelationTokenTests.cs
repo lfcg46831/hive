@@ -223,6 +223,44 @@ public sealed class OccupantChannelCorrelationTokenTests
         Assert.Equal(Thread, claims.ThreadId);
     }
 
+    [Fact]
+    public void Reminder_delivery_keeps_its_transport_id_but_correlates_reply_to_original_approval()
+    {
+        var service = Service(new MutableTimeProvider(IssuedAt));
+        var factory = new SignedOccupantChannelDeliveryRequestFactory(service);
+        var triggerId = MessageId.From(
+            Guid.Parse("66666666-6666-6666-6666-666666666666"));
+        var trigger = new EventTrigger(
+            triggerId,
+            Organization,
+            new SystemEndpointRef(SystemEndpointKind.Scheduler),
+            new PositionEndpointRef(Position),
+            Thread,
+            Priority.High,
+            1,
+            IssuedAt,
+            null,
+            "occupant-response-reminder",
+            $"source={ApprovalRequestId.Value:D};reminder=1");
+
+        var request = factory.Create(new OccupantChannelDeliveryContext(
+            Organization,
+            Position,
+            OccupantId.From("human:delivery-lead"),
+            UserId.From(Guid.Parse("44444444-4444-4444-4444-444444444444")),
+            OccupantChannelBindingId.From(
+                Guid.Parse("55555555-5555-5555-5555-555555555555")),
+            trigger,
+            ApprovalRequestId,
+            ApprovalRequestId));
+
+        var claims = service.Validate(request.CorrelationToken.Value).Claims!;
+        Assert.Equal(triggerId, request.MessageId);
+        Assert.Equal(ApprovalRequestId, claims.MessageId);
+        Assert.Equal(ApprovalRequestId, claims.RequestId);
+        Assert.Equal(Thread, claims.ThreadId);
+    }
+
     private static OccupantChannelCorrelationTokenRequest Request(MessageId? requestId = null) =>
         new(Organization, Position, Message, Thread, requestId);
 

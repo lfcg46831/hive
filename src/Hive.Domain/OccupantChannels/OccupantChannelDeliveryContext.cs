@@ -17,6 +17,27 @@ public sealed record OccupantChannelDeliveryContext
         UserId userId,
         OccupantChannelBindingId? occupantChannelBindingId,
         OrgMessage message)
+        : this(
+            organizationId,
+            positionId,
+            occupantId,
+            userId,
+            occupantChannelBindingId,
+            message,
+            correlationMessageId: null,
+            correlationRequestId: null)
+    {
+    }
+
+    public OccupantChannelDeliveryContext(
+        OrganizationId organizationId,
+        PositionId positionId,
+        OccupantId occupantId,
+        UserId userId,
+        OccupantChannelBindingId? occupantChannelBindingId,
+        OrgMessage message,
+        MessageId? correlationMessageId,
+        MessageId? correlationRequestId)
     {
         OrganizationId = organizationId ?? throw new ArgumentNullException(nameof(organizationId));
         PositionId = positionId ?? throw new ArgumentNullException(nameof(positionId));
@@ -24,6 +45,15 @@ public sealed record OccupantChannelDeliveryContext
         UserId = userId ?? throw new ArgumentNullException(nameof(userId));
         OccupantChannelBindingId = occupantChannelBindingId;
         Message = message ?? throw new ArgumentNullException(nameof(message));
+        CorrelationMessageId = correlationMessageId;
+        CorrelationRequestId = correlationRequestId;
+
+        if (CorrelationRequestId is not null && CorrelationMessageId is null)
+        {
+            throw new ArgumentException(
+                "A correlation request id requires an explicit correlation message id.",
+                nameof(correlationRequestId));
+        }
 
         if (Message.OrganizationId != OrganizationId)
         {
@@ -44,4 +74,13 @@ public sealed record OccupantChannelDeliveryContext
     public OccupantChannelBindingId? OccupantChannelBindingId { get; }
 
     public OrgMessage Message { get; }
+
+    /// <summary>
+    /// Optional original message identity used by a derived notification such as a reminder.
+    /// The delivery itself retains the distinct id of <see cref="Message"/> for transport idempotency.
+    /// </summary>
+    public MessageId? CorrelationMessageId { get; }
+
+    /// <summary>Optional original approval request identity for a derived reminder.</summary>
+    public MessageId? CorrelationRequestId { get; }
 }

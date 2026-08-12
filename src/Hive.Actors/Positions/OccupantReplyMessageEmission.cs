@@ -176,9 +176,15 @@ internal sealed class ShardedPositionMessageEmitter : IPositionMessageEmitter
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(message);
+        if (message.To is OrganizationOwnerEndpointRef)
+        {
+            system.EventStream.Publish(message);
+            return;
+        }
+
         var destination = message.To as PositionEndpointRef
             ?? throw new InvalidOperationException(
-                "An occupant reply destination must be a position.");
+                "A position-emitted message destination must be a position or the organization owner.");
         ClusterSharding.Get(system)
             .ShardRegion(PositionEntityId.EntityTypeName)
             .Tell(PositionEnvelope.For(
@@ -192,9 +198,15 @@ internal sealed class ShardedPositionMessageEmitter : IPositionMessageEmitter
     {
         ArgumentNullException.ThrowIfNull(system);
         ArgumentNullException.ThrowIfNull(message);
+        if (message.To is OrganizationOwnerEndpointRef)
+        {
+            system.EventStream.Publish(message);
+            return AcceptMessageResult.Accepted(message.Id);
+        }
+
         var destination = message.To as PositionEndpointRef
             ?? throw new InvalidOperationException(
-                "An occupant reply destination must be a position.");
+                "A position-emitted message destination must be a position or the organization owner.");
         var envelope = PositionEnvelope.For(
             PositionEntityId.From(message.OrganizationId, destination.PositionId),
             new AcceptMessage(message));

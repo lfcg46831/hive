@@ -985,6 +985,7 @@ internal sealed class HumanProxyActor : ReceiveActor
         _requestFactory = requestFactory ?? throw new ArgumentNullException(nameof(requestFactory));
 
         ReceiveAsync<HumanOccupantChannelDelivery>(DeliverAsync);
+        ReceiveAsync<HumanOccupantReminderDelivery>(DeliverReminderAsync);
     }
 
     public OccupantId Occupant { get; }
@@ -1013,27 +1014,7 @@ internal sealed class HumanProxyActor : ReceiveActor
             return;
         }
 
-        OccupantChannelDeliveryResult result;
-        try
-        {
-            var request = _requestFactory.Create(context);
-            EnsureRequestMatchesContext(request, context);
-            result = await _channel
-                .DeliverAsync(request, CancellationToken.None)
-                .ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
-                OccupantChannelDeliveryErrorCode.Canceled,
-                isRetryable: true));
-        }
-        catch (Exception)
-        {
-            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
-                OccupantChannelDeliveryErrorCode.Unknown,
-                isRetryable: true));
-        }
+        var result = await DeliverAsync(context).ConfigureAwait(false);
 
         parent.Tell(new PositionOccupantChannelDeliveryReported(
             context.Message.Id,
@@ -1042,6 +1023,61 @@ internal sealed class HumanProxyActor : ReceiveActor
             UserId,
             context.OccupantChannelBindingId,
             result));
+    }
+
+    private async Task DeliverReminderAsync(HumanOccupantReminderDelivery delivery)
+    {
+        var parent = Context.Parent;
+        var context = delivery.Context;
+        OccupantChannelDeliveryResult result;
+        if (context.OccupantId != Occupant || context.UserId != UserId)
+        {
+            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.DeliveryRejected,
+                isRetryable: false));
+        }
+        else if (context.OccupantChannelBindingId is null)
+        {
+            result = OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.BindingUnavailable,
+                isRetryable: false));
+        }
+        else
+        {
+            result = await DeliverAsync(context).ConfigureAwait(false);
+        }
+
+        parent.Tell(new PositionOccupantReminderDeliveryReported(
+            delivery.SourceMessageId,
+            delivery.ReminderId,
+            context.Message.Id,
+            context.OccupantChannelBindingId,
+            result));
+    }
+
+    private async Task<OccupantChannelDeliveryResult> DeliverAsync(
+        OccupantChannelDeliveryContext context)
+    {
+        try
+        {
+            var request = _requestFactory.Create(context);
+            EnsureRequestMatchesContext(request, context);
+            return await _channel
+                .DeliverAsync(request, CancellationToken.None)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.Canceled,
+                isRetryable: true));
+        }
+        catch (Exception)
+        {
+            return OccupantChannelDeliveryResult.Failed(new OccupantChannelDeliveryError(
+                OccupantChannelDeliveryErrorCode.Unknown,
+                isRetryable: true));
+        }
     }
 
     private PositionOccupantChannelDeliveryReported ReportedFailure(

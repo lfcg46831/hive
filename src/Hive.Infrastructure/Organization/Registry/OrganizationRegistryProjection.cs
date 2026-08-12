@@ -198,7 +198,13 @@ internal sealed class OrganizationRegistryProjection
                 .ThenBy(
                     tool => string.Join('\0', tool.Scope),
                     StringComparer.Ordinal)),
-            Clone(occupant.OutcomePolicy));
+            Clone(occupant.OutcomePolicy),
+            occupant.ResponsePolicy is null
+                ? null
+                : new OccupantResponsePolicyConfiguration(
+                    occupant.ResponsePolicy.ReminderMaxCount,
+                    occupant.ResponsePolicy.ReminderInterval,
+                    occupant.ResponsePolicy.Timeout));
     }
 
     private static RegistryAuthority ProjectAuthority(PositionConfiguration position)

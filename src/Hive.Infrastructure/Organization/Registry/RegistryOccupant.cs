@@ -12,4 +12,5 @@ public sealed record RegistryOccupant(
     WorkingHoursConfiguration? WorkingHours,
     IReadOnlyList<SubscriptionConfiguration> Subscriptions,
     IReadOnlyList<ToolConfiguration> Tools,
-    OutcomePolicyOverlay? OutcomePolicy);
+    OutcomePolicyOverlay? OutcomePolicy,
+    OccupantResponsePolicyConfiguration? ResponsePolicy = null);

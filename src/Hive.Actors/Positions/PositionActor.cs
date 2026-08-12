@@ -30,6 +30,9 @@ internal sealed class PositionActor :
     private readonly RetainedActionResumeCoordinator _resumeCoordinator;
     private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
     private readonly IPositionMessageEmitter _messageEmitter;
+    private readonly IOccupantResponseScheduler _responseScheduler;
+    private readonly IOccupantResponseEscalationTargetResolver? _responseTargetResolver;
+    private readonly IOccupantResponseKillSwitch _responseKillSwitch;
     private readonly Func<DateTimeOffset> _clock;
     private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
     private readonly HashSet<Guid> _handledResumeAttempts = [];
@@ -37,6 +40,10 @@ internal sealed class PositionActor :
     private readonly HashSet<MessageId> _pendingOccupantReplyIds = [];
     private readonly HashSet<MessageId> _pendingApprovalRequestIds = [];
     private readonly HashSet<MessageId> _activeOccupantChannelDeliveries = [];
+    private readonly HashSet<(MessageId Message, OccupantReminderId Reminder)> _scheduledResponseReminders = [];
+    private readonly HashSet<(MessageId Message, OccupantReminderId Reminder)> _activeResponseReminders = [];
+    private readonly HashSet<MessageId> _scheduledResponseTimeouts = [];
+    private readonly HashSet<MessageId> _activeResponseTimeouts = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -135,6 +142,33 @@ internal sealed class PositionActor :
         RetainedActionResumeCoordinator? resumeCoordinator,
         IOccupantReplyMessageValidator? occupantReplyValidator,
         IPositionMessageEmitter? messageEmitter)
+        : this(
+            entityId,
+            configurationProvider,
+            occupantFactory,
+            projectionPublisher,
+            clock,
+            resumeCoordinator,
+            occupantReplyValidator,
+            messageEmitter,
+            null,
+            null,
+            null)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock,
+        RetainedActionResumeCoordinator? resumeCoordinator,
+        IOccupantReplyMessageValidator? occupantReplyValidator,
+        IPositionMessageEmitter? messageEmitter,
+        IOccupantResponseScheduler? responseScheduler,
+        IOccupantResponseEscalationTargetResolver? responseTargetResolver,
+        IOccupantResponseKillSwitch? responseKillSwitch)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
@@ -150,6 +184,9 @@ internal sealed class PositionActor :
         _occupantReplyValidator = occupantReplyValidator
             ?? UnavailableOccupantReplyMessageValidator.Instance;
         _messageEmitter = messageEmitter ?? ShardedPositionMessageEmitter.Instance;
+        _responseScheduler = responseScheduler ?? AkkaOccupantResponseScheduler.Instance;
+        _responseTargetResolver = responseTargetResolver;
+        _responseKillSwitch = responseKillSwitch ?? EventStreamOccupantResponseKillSwitch.Instance;
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -292,6 +329,21 @@ internal sealed class PositionActor :
             WhenReady(() => PersistOccupantReminderSchedule(command)));
         Command<MarkOccupantReminderSent>(command =>
             WhenReady(() => PersistOccupantReminderSent(command)));
+        Command<InitializeOccupantResponsePolicy>(command =>
+            WhenReady(() => InitializeOccupantResponsePolicy(command.MessageId)));
+        Command<TriggerOccupantResponseReminder>(command =>
+            WhenReady(() => TriggerOccupantResponseReminder(command)));
+        Command<PositionOccupantReminderDeliveryReported>(reported =>
+            WhenReady(() => HandleOccupantReminderDeliveryReported(reported)));
+        Command<TriggerOccupantResponseTimeout>(command =>
+            WhenReady(() => BeginOccupantResponseTimeout(command.MessageId)));
+        Command<OccupantResponseTimeoutTargetResolved>(HandleOccupantResponseTimeoutTargetResolved);
+        Command<OccupantResponseTimeoutTargetResolutionFailed>(failed =>
+            RetryOccupantResponseTimeout(failed.MessageId));
+        Command<OccupantResponseTimeoutValidationCompleted>(
+            HandleOccupantResponseTimeoutValidationCompleted);
+        Command<OccupantResponseTimeoutValidationFailed>(failed =>
+            RetryOccupantResponseTimeout(failed.SourceMessageId));
         Command<RetainedActionResumeCompleted>(HandleRetainedActionResumeCompleted);
         Command<RetainedActionResumeFailed>(failed =>
             _resumingActions.Remove(failed.ActionId));
@@ -1202,6 +1254,427 @@ internal sealed class PositionActor :
             _clock()));
     }
 
+    private void InitializeOccupantResponsePolicy(MessageId messageId)
+    {
+        if (!TryGetOccupantResponsePolicyPlan(messageId, out var notification, out var plan)
+            || HasOccupantResponse(messageId)
+            || notification.ResponseTimeout is not null)
+        {
+            CancelOccupantResponsePolicy(messageId);
+            return;
+        }
+
+        var scheduledReminderIds = notification.Reminders
+            .Select(reminder => reminder.Id)
+            .ToHashSet();
+        var missing = plan.Reminders
+            .Where(reminder => !scheduledReminderIds.Contains(reminder.ReminderId))
+            .Select(reminder => (PositionEvent)new OccupantReminderScheduled(
+                notification.Message,
+                notification.Thread,
+                notification.Occupant,
+                notification.User,
+                notification.Binding,
+                reminder.ReminderId,
+                reminder.ScheduledForUtc,
+                _clock()))
+            .ToArray();
+
+        PersistEvents(missing, () => ArmOccupantResponsePolicy(messageId));
+    }
+
+    private void ArmOccupantResponsePolicy(MessageId messageId)
+    {
+        if (!TryGetOccupantResponsePolicyPlan(messageId, out var notification, out var plan)
+            || HasOccupantResponse(messageId)
+            || notification.ResponseTimeout is not null)
+        {
+            CancelOccupantResponsePolicy(messageId);
+            return;
+        }
+
+        foreach (var reminderPlan in plan.Reminders)
+        {
+            var reminder = notification.Reminders.FirstOrDefault(
+                candidate => candidate.Id == reminderPlan.ReminderId);
+            var key = (messageId, reminderPlan.ReminderId);
+            if (reminder is null || reminder.SentAt is not null
+                || !_scheduledResponseReminders.Add(key))
+            {
+                continue;
+            }
+
+            _responseScheduler.Schedule(
+                Context,
+                Self,
+                new TriggerOccupantResponseReminder(
+                    messageId,
+                    reminderPlan.ReminderId,
+                    reminderPlan.TriggerMessageId,
+                    reminderPlan.Index),
+                reminder.ScheduledFor - _clock());
+        }
+
+        if (_scheduledResponseTimeouts.Add(messageId))
+        {
+            _responseScheduler.Schedule(
+                Context,
+                Self,
+                new TriggerOccupantResponseTimeout(messageId),
+                plan.TimeoutAtUtc - _clock());
+        }
+    }
+
+    private void TriggerOccupantResponseReminder(TriggerOccupantResponseReminder command)
+    {
+        var key = (command.MessageId, command.ReminderId);
+        _scheduledResponseReminders.Remove(key);
+        if (HasOccupantResponse(command.MessageId)
+            || !_state.OccupantNotifications.TryGetValue(command.MessageId, out var notification)
+            || notification.ResponseTimeout is not null
+            || notification.Reminders.FirstOrDefault(item => item.Id == command.ReminderId)
+                is not { SentAt: null }
+            || !TryGetResponseSourceMessage(command.MessageId, out var source)
+            || !TryGetActivation(notification.Occupant, OccupantType.Human, out var activation)
+            || !_activeResponseReminders.Add(key))
+        {
+            return;
+        }
+
+        var trigger = new EventTrigger(
+            command.TriggerMessageId,
+            EntityId.Organization,
+            new SystemEndpointRef(SystemEndpointKind.Scheduler),
+            new PositionEndpointRef(EntityId.Position),
+            notification.Thread,
+            source.Priority,
+            schemaVersion: 1,
+            sentAt: _clock(),
+            deadline: null,
+            eventType: "occupant-response-reminder",
+            payload: $"source={source.Id.Value:D};reminder={command.Index}");
+        ResolveOccupant(activation).Tell(new HumanOccupantReminderDelivery(
+            command.MessageId,
+            command.ReminderId,
+            new OccupantChannelDeliveryContext(
+                EntityId.Organization,
+                EntityId.Position,
+                notification.Occupant,
+                notification.User,
+                notification.Binding,
+                trigger,
+                correlationMessageId: source.Id,
+                correlationRequestId: source is ApprovalRequest ? source.Id : null)));
+    }
+
+    private void HandleOccupantReminderDeliveryReported(
+        PositionOccupantReminderDeliveryReported reported)
+    {
+        var key = (reported.SourceMessageId, reported.ReminderId);
+        _activeResponseReminders.Remove(key);
+        if (!reported.Result.IsSuccess)
+        {
+            if (reported.Result.Error?.IsRetryable == true)
+            {
+                RetryOccupantResponseReminder(reported.SourceMessageId, reported.ReminderId);
+            }
+
+            return;
+        }
+
+        if (reported.BindingId is not { } binding
+            || HasOccupantResponse(reported.SourceMessageId)
+            || !_state.OccupantNotifications.TryGetValue(
+                reported.SourceMessageId,
+                out var notification)
+            || notification.ResponseTimeout is not null
+            || notification.Reminders.FirstOrDefault(item => item.Id == reported.ReminderId)
+                is not { SentAt: null })
+        {
+            return;
+        }
+
+        PersistAndApply(new OccupantReminderSent(
+            notification.Message,
+            notification.Thread,
+            notification.Occupant,
+            notification.User,
+            binding,
+            reported.ReminderId,
+            _clock()));
+    }
+
+    private void RetryOccupantResponseReminder(
+        MessageId messageId,
+        OccupantReminderId reminderId)
+    {
+        if (!TryGetOccupantResponsePolicyPlan(messageId, out var notification, out var plan)
+            || HasOccupantResponse(messageId)
+            || notification.ResponseTimeout is not null
+            || notification.Reminders.FirstOrDefault(item => item.Id == reminderId)
+                is not { SentAt: null }
+            || plan.Reminders.FirstOrDefault(item => item.ReminderId == reminderId)
+                is not { } reminderPlan)
+        {
+            return;
+        }
+
+        var key = (messageId, reminderId);
+        if (!_scheduledResponseReminders.Add(key))
+        {
+            return;
+        }
+
+        _responseScheduler.Schedule(
+            Context,
+            Self,
+            new TriggerOccupantResponseReminder(
+                messageId,
+                reminderId,
+                reminderPlan.TriggerMessageId,
+                reminderPlan.Index),
+            TimeSpan.FromMinutes(1));
+    }
+
+    private void BeginOccupantResponseTimeout(MessageId messageId)
+    {
+        _scheduledResponseTimeouts.Remove(messageId);
+        if (!TryGetOccupantResponsePolicyPlan(messageId, out var notification, out var plan)
+            || HasOccupantResponse(messageId)
+            || notification.ResponseTimeout is not null
+            || !_activeResponseTimeouts.Add(messageId))
+        {
+            return;
+        }
+
+        if (_responseTargetResolver is null)
+        {
+            var target = _runtimeConfiguration?.Position.ReportsTo is { } superior
+                ? new PositionEndpointRef(superior)
+                : (EndpointRef)new OrganizationOwnerEndpointRef();
+            Self.Tell(new OccupantResponseTimeoutTargetResolved(
+                messageId,
+                plan.TimeoutAtUtc,
+                target));
+            return;
+        }
+
+        _responseTargetResolver
+            .ResolveAsync(EntityId, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: target => new OccupantResponseTimeoutTargetResolved(
+                    messageId,
+                    plan.TimeoutAtUtc,
+                    target),
+                failure: cause => new OccupantResponseTimeoutTargetResolutionFailed(
+                    messageId,
+                    cause));
+    }
+
+    private void HandleOccupantResponseTimeoutTargetResolved(
+        OccupantResponseTimeoutTargetResolved resolved)
+    {
+        if (!IsOccupantResponseTimeoutPending(resolved.MessageId, out var notification, out var source))
+        {
+            _activeResponseTimeouts.Remove(resolved.MessageId);
+            return;
+        }
+
+        if (resolved.Target is null)
+        {
+            PersistTerminalOccupantResponseTimeout(notification, source, resolved.ScheduledForUtc);
+            return;
+        }
+
+        var escalation = new Escalation(
+            OccupantResponsePolicyPlan.TimeoutEscalationId(
+                EntityId,
+                source.Id,
+                resolved.ScheduledForUtc),
+            EntityId.Organization,
+            new PositionEndpointRef(EntityId.Position),
+            resolved.Target,
+            source.Thread,
+            source.Priority,
+            schemaVersion: 1,
+            sentAt: _clock(),
+            deadline: null,
+            issue: "Occupant response timeout",
+            context: $"No correlated occupant response was recorded for message {source.Id.Value:D} before the configured timeout.",
+            optionsConsidered: ["Escalate to the next valid vertical target"]);
+
+        _occupantReplyValidator
+            .ValidateAsync(_state, escalation, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: validation => new OccupantResponseTimeoutValidationCompleted(
+                    resolved.MessageId,
+                    resolved.ScheduledForUtc,
+                    escalation,
+                    validation),
+                failure: cause => new OccupantResponseTimeoutValidationFailed(
+                    resolved.MessageId,
+                    cause));
+    }
+
+    private void HandleOccupantResponseTimeoutValidationCompleted(
+        OccupantResponseTimeoutValidationCompleted completed)
+    {
+        if (!IsOccupantResponseTimeoutPending(
+                completed.SourceMessageId,
+                out var notification,
+                out var source))
+        {
+            _activeResponseTimeouts.Remove(completed.SourceMessageId);
+            return;
+        }
+
+        if (!completed.Validation.IsValid)
+        {
+            PersistTerminalOccupantResponseTimeout(
+                notification,
+                source,
+                completed.ScheduledForUtc);
+            return;
+        }
+
+        var handled = new OccupantResponseTimeoutHandled(
+            notification.Message,
+            notification.Thread,
+            notification.Occupant,
+            notification.User,
+            notification.Binding,
+            completed.ScheduledForUtc,
+            _clock(),
+            escalation: completed.Escalation);
+        Persist(handled, persisted =>
+        {
+            ApplyPersisted(persisted);
+            _activeResponseTimeouts.Remove(completed.SourceMessageId);
+            _messageEmitter.Emit(Context.System, completed.Escalation);
+        });
+    }
+
+    private void PersistTerminalOccupantResponseTimeout(
+        PersistedOccupantNotification notification,
+        OrgMessage source,
+        DateTimeOffset scheduledForUtc)
+    {
+        var killSwitchRequested = source.Priority == Priority.Critical;
+        var handled = new OccupantResponseTimeoutHandled(
+            notification.Message,
+            notification.Thread,
+            notification.Occupant,
+            notification.User,
+            notification.Binding,
+            scheduledForUtc,
+            _clock(),
+            operationalAlert: true,
+            killSwitchRequested: killSwitchRequested);
+        Persist(handled, persisted =>
+        {
+            ApplyPersisted(persisted);
+            _activeResponseTimeouts.Remove(notification.Message);
+            if (killSwitchRequested)
+            {
+                PublishOccupantResponseKillSwitch(handled);
+            }
+        });
+    }
+
+    private void RetryOccupantResponseTimeout(MessageId messageId)
+    {
+        _activeResponseTimeouts.Remove(messageId);
+        if (HasOccupantResponse(messageId)
+            || !_state.OccupantNotifications.TryGetValue(messageId, out var notification)
+            || notification.ResponseTimeout is not null
+            || !_scheduledResponseTimeouts.Add(messageId))
+        {
+            return;
+        }
+
+        _responseScheduler.Schedule(
+            Context,
+            Self,
+            new TriggerOccupantResponseTimeout(messageId),
+            TimeSpan.FromMinutes(1));
+    }
+
+    private bool IsOccupantResponseTimeoutPending(
+        MessageId messageId,
+        out PersistedOccupantNotification notification,
+        out OrgMessage source)
+    {
+        notification = null!;
+        source = null!;
+        if (!_activeResponseTimeouts.Contains(messageId)
+            || HasOccupantResponse(messageId)
+            || !_state.OccupantNotifications.TryGetValue(messageId, out var found)
+            || found.ResponseTimeout is not null
+            || !TryGetResponseSourceMessage(messageId, out source))
+        {
+            return false;
+        }
+
+        notification = found;
+        return true;
+    }
+
+    private bool TryGetOccupantResponsePolicyPlan(
+        MessageId messageId,
+        out PersistedOccupantNotification notification,
+        out OccupantResponsePolicyPlan plan)
+    {
+        notification = null!;
+        plan = null!;
+        var policy = _runtimeConfiguration?.Occupant.ResponsePolicy;
+        if (policy is null
+            || !_state.OccupantNotifications.TryGetValue(messageId, out var found)
+            || !TryGetResponseSourceMessage(messageId, out var source)
+            || !OccupantResponsePolicyPlan.IsEligible(source))
+        {
+            return false;
+        }
+
+        notification = found;
+        plan = OccupantResponsePolicyPlan.Create(
+            EntityId,
+            source,
+            notification.RequestedAt,
+            policy);
+        return true;
+    }
+
+    private bool TryGetResponseSourceMessage(MessageId messageId, out OrgMessage source)
+    {
+        source = _state.Inbox.FirstOrDefault(message => message.Id == messageId)
+            ?? _state.MaterializedHistory.FirstOrDefault(message => message.Id == messageId)!;
+        return source is not null;
+    }
+
+    private bool HasOccupantResponse(MessageId messageId) =>
+        _state.OccupantReplies.Any(reply => reply.SourceMessageId == messageId);
+
+    private void CancelOccupantResponsePolicy(MessageId messageId)
+    {
+        _scheduledResponseReminders.RemoveWhere(key => key.Message == messageId);
+        _activeResponseReminders.RemoveWhere(key => key.Message == messageId);
+        _scheduledResponseTimeouts.Remove(messageId);
+        _activeResponseTimeouts.Remove(messageId);
+    }
+
+    private void PublishOccupantResponseKillSwitch(OccupantResponseTimeoutHandled handled) =>
+        _responseKillSwitch.Request(
+            Context.System,
+            new OccupantResponseKillSwitchRequest(
+                EntityId,
+                handled.Message,
+                handled.Thread,
+                handled.OccurredAt));
+
     private void PersistRetainedAction(RetainAction command)
     {
         if (_state.RetainedActions.ContainsKey(command.Action.Id)
@@ -1485,6 +1958,11 @@ internal sealed class PositionActor :
                 DeliverToOccupant(dispatchedMessage, dispatchEvent);
             }
         }
+
+        if (persisted is OccupantReplyEmitted emitted)
+        {
+            CancelOccupantResponsePolicy(emitted.SourceMessageId);
+        }
     }
 
     private static RetainedActionId? RetainedActionIdFor(PositionEvent @event) =>
@@ -1541,10 +2019,11 @@ internal sealed class PositionActor :
                 activation.Occupant,
                 identity.UserId,
                 identity.ChannelBindingId,
-                _clock()),
+                dispatch.OccurredAt),
             persisted =>
             {
                 ApplyPersisted(persisted);
+                Self.Tell(new InitializeOccupantResponsePolicy(dispatch.Message));
                 DeliverToOccupant(message, dispatch);
             });
     }
@@ -1738,9 +2217,34 @@ internal sealed class PositionActor :
         PersistPendingDispatches(() =>
         {
             RedeliverRequestedOccupantNotifications();
+            ReconcileOccupantResponsePolicies();
             PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));
             Stash.UnstashAll();
         });
+    }
+
+    private void ReconcileOccupantResponsePolicies()
+    {
+        foreach (var notification in _state.OccupantNotifications.Values
+                     .OrderBy(item => item.RequestedAt)
+                     .ThenBy(item => item.Message.Value))
+        {
+            if (notification.ResponseTimeout is { } handled)
+            {
+                if (handled.Escalation is { } escalation)
+                {
+                    _messageEmitter.Emit(Context.System, escalation);
+                }
+                else if (handled.KillSwitchRequested)
+                {
+                    PublishOccupantResponseKillSwitch(handled);
+                }
+
+                continue;
+            }
+
+            Self.Tell(new InitializeOccupantResponsePolicy(notification.Message));
+        }
     }
 
     private void WhenReady(Action handler)

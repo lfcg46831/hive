@@ -311,6 +311,50 @@ public sealed class OrganizationConfigurationStructuralValidatorTests
             () => OrganizationConfigurationStructuralValidator.Validate(null!));
     }
 
+    [Fact]
+    public void Response_policy_requires_a_human_occupant_timezone_and_working_hours()
+    {
+        var responsePolicy = new OccupantResponsePolicyConfiguration(2, "PT4H", "PT16H");
+        var position = new PositionConfiguration(
+            PositionId.From("ceo"),
+            UnitId.From("raiz"),
+            new OccupantConfiguration(
+                OccupantType.AiAgent,
+                responsePolicy: responsePolicy));
+        var config = BuildConfiguration(
+            [Unit("raiz", "ceo")],
+            [position]);
+
+        var result = OrganizationConfigurationStructuralValidator.Validate(config);
+
+        Assert.Contains(result.Errors, error =>
+            error.Code == "response-policy-requires-human-occupant");
+        Assert.Contains(result.Errors, error =>
+            error.Code == "response-policy-timezone-invalid");
+        Assert.Contains(result.Errors, error =>
+            error.Code == "response-policy-working-hours-invalid");
+    }
+
+    [Fact]
+    public void Human_response_policy_with_valid_timezone_and_working_hours_is_structurally_valid()
+    {
+        var position = new PositionConfiguration(
+            PositionId.From("ceo"),
+            UnitId.From("raiz"),
+            new OccupantConfiguration(
+                OccupantType.Human,
+                workingHours: new WorkingHoursConfiguration("09:00", "18:00"),
+                responsePolicy: new OccupantResponsePolicyConfiguration(2, "PT4H", "PT16H")),
+            timezone: "Europe/Lisbon");
+        var config = BuildConfiguration(
+            [Unit("raiz", "ceo")],
+            [position]);
+
+        var result = OrganizationConfigurationStructuralValidator.Validate(config);
+
+        Assert.True(result.IsValid, string.Join("\n", result.Errors.Select(error => error.Message)));
+    }
+
     private static string Message(OrganizationConfigurationValidationResult result, string code) =>
         result.Errors.First(error => error.Code == code).Message;
 

@@ -290,10 +290,10 @@ internal static class PostgreSqlOrganizationRegistryWriter
             """
             INSERT INTO registry.occupants (
                 organization_id, position_id, occupant_type, identity_prompt_ref, ai, working_hours,
-                subscriptions, tools, outcome_policy, entry_fingerprint, updated_at)
+                subscriptions, tools, outcome_policy, response_policy, entry_fingerprint, updated_at)
             VALUES (
                 @organization_id, @position_id, @occupant_type, @identity_prompt_ref, @ai, @working_hours,
-                @subscriptions, @tools, @outcome_policy, @entry_fingerprint, @updated_at)
+                @subscriptions, @tools, @outcome_policy, @response_policy, @entry_fingerprint, @updated_at)
             ON CONFLICT (organization_id, position_id) DO UPDATE SET
                 occupant_type = EXCLUDED.occupant_type,
                 identity_prompt_ref = EXCLUDED.identity_prompt_ref,
@@ -302,6 +302,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
                 subscriptions = EXCLUDED.subscriptions,
                 tools = EXCLUDED.tools,
                 outcome_policy = EXCLUDED.outcome_policy,
+                response_policy = EXCLUDED.response_policy,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
             """,
@@ -316,6 +317,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddJson(command, "subscriptions", value.Subscriptions);
         AddJson(command, "tools", value.Tools);
         AddJson(command, "outcome_policy", value.OutcomePolicy);
+        AddJson(command, "response_policy", value.ResponsePolicy);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

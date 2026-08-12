@@ -152,6 +152,16 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
             return PositionRuntimeConfigurationLoadResult.Incomplete(identityPromptReason);
         }
 
+        if (!TryProjectResponsePolicy(
+                entityId,
+                position,
+                occupant,
+                out var responsePolicy,
+                out var responsePolicyReason))
+        {
+            return PositionRuntimeConfigurationLoadResult.Incomplete(responsePolicyReason);
+        }
+
         try
         {
             return PositionRuntimeConfigurationLoadResult.Loaded(
@@ -176,7 +186,8 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         identityPrompt,
                         configuredIdentity: occupant.Type == OccupantType.AiAgent
                             ? ConfiguredAiOccupantIdentity.For(entityId)
-                            : null),
+                            : null,
+                        responsePolicy: responsePolicy),
                     new PositionAuthorityRuntimeConfiguration(
                         authority.CanDecide,
                         authority.Overrides.Select(item =>
@@ -195,6 +206,86 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
         {
             return PositionRuntimeConfigurationLoadResult.Incomplete(
                 $"Registry snapshot for position '{entityId.Value}' is not a complete runtime configuration: {exception.Message}");
+        }
+    }
+
+    private static bool TryProjectResponsePolicy(
+        PositionEntityId entityId,
+        RegistryPosition position,
+        RegistryOccupant occupant,
+        out OccupantResponsePolicyRuntimeConfiguration? responsePolicy,
+        out string reason)
+    {
+        responsePolicy = null;
+        reason = string.Empty;
+        if (occupant.ResponsePolicy is null)
+        {
+            return true;
+        }
+
+        if (occupant.Type != OccupantType.Human)
+        {
+            reason = $"Registry snapshot for position '{entityId.Value}' declares response_policy for a non-human occupant.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(position.Timezone)
+            || !TimeZoneInfo.TryFindSystemTimeZoneById(position.Timezone, out _))
+        {
+            reason = $"Registry snapshot for position '{entityId.Value}' requires a valid timezone when response_policy is declared.";
+            return false;
+        }
+
+        if (occupant.WorkingHours is null
+            || !TimeOnly.TryParseExact(
+                occupant.WorkingHours.Start,
+                "HH:mm",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var workingStart)
+            || !TimeOnly.TryParseExact(
+                occupant.WorkingHours.End,
+                "HH:mm",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out var workingEnd)
+            || workingStart >= workingEnd)
+        {
+            reason = $"Registry snapshot for position '{entityId.Value}' requires valid working_hours with start < end when response_policy is declared.";
+            return false;
+        }
+
+        try
+        {
+            responsePolicy = new OccupantResponsePolicyRuntimeConfiguration(
+                occupant.ResponsePolicy.ReminderMaxCount,
+                ParseIsoDuration(occupant.ResponsePolicy.ReminderInterval, "reminder interval"),
+                ParseIsoDuration(occupant.ResponsePolicy.Timeout, "response timeout"),
+                position.Timezone,
+                workingStart,
+                workingEnd);
+            return true;
+        }
+        catch (Exception exception)
+            when (exception is ArgumentException or FormatException or OverflowException)
+        {
+            reason = $"Registry snapshot for position '{entityId.Value}' has invalid response_policy: {exception.Message}";
+            return false;
+        }
+    }
+
+    private static TimeSpan ParseIsoDuration(string value, string displayName)
+    {
+        try
+        {
+            return XmlConvert.ToTimeSpan(value);
+        }
+        catch (Exception exception) when (exception is FormatException or OverflowException)
+        {
+            throw new ArgumentException(
+                $"{displayName} '{value}' must be an ISO-8601 duration.",
+                nameof(value),
+                exception);
         }
     }
 

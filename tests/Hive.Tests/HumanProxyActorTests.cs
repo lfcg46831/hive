@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Akka.Actor;
 using Akka.Configuration;
 using Akka.Persistence;
@@ -373,6 +374,196 @@ public sealed class HumanProxyActorTests
     }
 
     [Fact]
+    public async Task Declared_response_policy_persists_and_delivers_deterministic_reminders()
+    {
+        var message = DirectiveMessage(
+            "30303030-1111-2222-3333-444444444444",
+            "40404040-5555-6666-7777-888888888888");
+        var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+        var requestFactory = new RecordingRequestFactory();
+        var scheduler = new RecordingResponseScheduler();
+        var system = CreateActorSystem("human-response-reminder-policy");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                channel,
+                requestFactory,
+                scheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                new RecordingMessageEmitter(),
+                new RecordingKillSwitch());
+            await WaitForReadyAsync(actor);
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await WaitForNotificationStatusAsync(
+                actor,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+
+            var trigger = await WaitForScheduledCommandAsync<TriggerOccupantResponseReminder>(
+                scheduler,
+                command => command.MessageId == message.Id);
+            actor.Tell(trigger);
+            await WaitForCallCountAsync(channel, 2);
+            var state = await WaitForReminderAsync(
+                actor,
+                message.Id,
+                trigger.ReminderId,
+                sent: true);
+
+            var notification = state.OccupantNotifications[message.Id];
+            Assert.Equal(2, notification.Reminders.Length);
+            Assert.All(notification.Reminders, reminder => Assert.NotEqual(default, reminder.ScheduledFor));
+            var reminderMessage = Assert.IsType<EventTrigger>(requestFactory.Context!.Message);
+            Assert.Equal("occupant-response-reminder", reminderMessage.EventType);
+            Assert.Equal(message.Thread, reminderMessage.Thread);
+            Assert.Equal(message.Priority, reminderMessage.Priority);
+            Assert.Equal(message.Id, requestFactory.Context.CorrelationMessageId);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Response_timeout_persists_valid_escalation_without_removing_original_inbox_item()
+    {
+        var message = DirectiveMessage(
+            "50505050-1111-2222-3333-444444444444",
+            "60606060-5555-6666-7777-888888888888");
+        var scheduler = new RecordingResponseScheduler();
+        var emitter = new RecordingMessageEmitter();
+        var system = CreateActorSystem("human-response-timeout-escalation");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                scheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                emitter,
+                new RecordingKillSwitch());
+            await WaitForReadyAsync(actor);
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            var timeout = await WaitForScheduledCommandAsync<TriggerOccupantResponseTimeout>(
+                scheduler,
+                command => command.MessageId == message.Id);
+
+            actor.Tell(timeout);
+            var emitted = Assert.IsType<Escalation>(await emitter.Message.Task.WaitAsync(Timeout()));
+            var state = await WaitForResponseTimeoutAsync(actor, message.Id);
+
+            Assert.Equal([message.Id], state.Inbox.Select(item => item.Id));
+            Assert.NotEqual(message.Id, emitted.Id);
+            Assert.Equal(message.Thread, emitted.Thread);
+            Assert.Equal(message.Priority, emitted.Priority);
+            Assert.Equal(new PositionEndpointRef(PositionId.From("owner")), emitted.To);
+            Assert.Equal(emitted, state.OccupantNotifications[message.Id].ResponseTimeout!.Escalation);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Critical_terminal_timeout_records_operational_alert_and_requests_kill_switch()
+    {
+        var message = DirectiveMessage(
+            "70707070-1111-2222-3333-444444444444",
+            "80808080-5555-6666-7777-888888888888",
+            Priority.Critical);
+        var scheduler = new RecordingResponseScheduler();
+        var killSwitch = new RecordingKillSwitch();
+        var system = CreateActorSystem("human-response-timeout-terminal");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                scheduler,
+                new StaticResponseTargetResolver(target: null),
+                new RecordingMessageEmitter(),
+                killSwitch);
+            await WaitForReadyAsync(actor);
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            var timeout = await WaitForScheduledCommandAsync<TriggerOccupantResponseTimeout>(
+                scheduler,
+                command => command.MessageId == message.Id);
+
+            actor.Tell(timeout);
+            var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
+            var state = await WaitForResponseTimeoutAsync(actor, message.Id);
+            var handled = state.OccupantNotifications[message.Id].ResponseTimeout!;
+
+            Assert.Equal(message.Id, requested.SourceMessageId);
+            Assert.True(handled.OperationalAlert);
+            Assert.True(handled.KillSwitchRequested);
+            Assert.Null(handled.Escalation);
+            Assert.Equal([message.Id], state.Inbox.Select(item => item.Id));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Correlated_occupant_response_wins_over_an_already_queued_timeout()
+    {
+        var message = DirectiveMessage(
+            "90909090-1111-2222-3333-444444444444",
+            "a0a0a0a0-5555-6666-7777-888888888888");
+        var scheduler = new RecordingResponseScheduler();
+        var emitter = new RecordingMessageEmitter();
+        var system = CreateActorSystem("human-response-wins-timeout");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                scheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                emitter,
+                new RecordingKillSwitch());
+            await WaitForReadyAsync(actor);
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            var timeout = await WaitForScheduledCommandAsync<TriggerOccupantResponseTimeout>(
+                scheduler,
+                command => command.MessageId == message.Id);
+
+            var response = await actor.Ask<OccupantReplyEmissionResult>(
+                new EmitOccupantReply(
+                    message.Id,
+                    MessageId.From(Guid.Parse("b0b0b0b0-0000-0000-0000-000000000001")),
+                    OccupantReplyAuthor.HumanUser("person-alice", "web-inbox"),
+                    "The work has been completed.",
+                    ReportKind.Done),
+                Timeout());
+            actor.Tell(timeout);
+            await Task.Delay(100);
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+            Assert.True(response.IsAccepted);
+            Assert.Single(state.OccupantReplies, reply => reply.SourceMessageId == message.Id);
+            Assert.Null(state.OccupantNotifications[message.Id].ResponseTimeout);
+            Assert.IsType<Report>(await emitter.Message.Task.WaitAsync(Timeout()));
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public void Human_proxy_has_no_recoverable_actor_state()
     {
         Assert.False(typeof(ReceivePersistentActor).IsAssignableFrom(typeof(HumanProxyActor)));
@@ -392,12 +583,37 @@ public sealed class HumanProxyActorTests
         system.ActorOf(
             Props.Create(() => new PositionActor(
                 Entity.Value,
-                new StaticConfigurationProvider(RuntimeConfiguration(activeLink)),
+                new StaticConfigurationProvider(RuntimeConfiguration(activeLink, false)),
                 new PositionOccupantFactory(channel, requestFactory),
                 () => At)),
             $"position-{Guid.NewGuid():N}");
 
-    private static PositionRuntimeConfiguration RuntimeConfiguration(bool activeLink) =>
+    private static IActorRef CreatePolicyPosition(
+        ActorSystem system,
+        IOccupantChannel channel,
+        IOccupantChannelDeliveryRequestFactory requestFactory,
+        IOccupantResponseScheduler scheduler,
+        IOccupantResponseEscalationTargetResolver targetResolver,
+        IPositionMessageEmitter emitter,
+        IOccupantResponseKillSwitch killSwitch) =>
+        system.ActorOf(
+            Props.Create(() => new PositionActor(
+                Entity.Value,
+                new StaticConfigurationProvider(RuntimeConfiguration(true, true)),
+                new PositionOccupantFactory(channel, requestFactory),
+                null,
+                () => At,
+                null,
+                AllowingReplyValidator.Instance,
+                emitter,
+                scheduler,
+                targetResolver,
+                killSwitch)),
+            $"position-{Guid.NewGuid():N}");
+
+    private static PositionRuntimeConfiguration RuntimeConfiguration(
+        bool activeLink,
+        bool withPolicy = false) =>
         new(
             Stamp,
             Entity.Organization,
@@ -412,6 +628,15 @@ public sealed class HumanProxyActorTests
                 configuredIdentity: Occupant,
                 humanIdentity: activeLink
                     ? new HumanOccupantRuntimeIdentity(User, Binding)
+                    : null,
+                responsePolicy: withPolicy
+                    ? new OccupantResponsePolicyRuntimeConfiguration(
+                        2,
+                        TimeSpan.FromHours(4),
+                        TimeSpan.FromHours(16),
+                        "Europe/Lisbon",
+                        new TimeOnly(9, 0),
+                        new TimeOnly(18, 0))
                     : null),
             new PositionAuthorityRuntimeConfiguration(Array.Empty<string>()));
 
@@ -427,6 +652,25 @@ public sealed class HumanProxyActorTests
             At,
             deadline: null,
             body: "A delivery decision needs human attention.");
+
+    private static Hive.Domain.Messaging.Directive DirectiveMessage(
+        string messageId,
+        string threadId,
+        Priority priority = Priority.High) =>
+        new(
+            Hive.Domain.Identity.MessageId.From(Guid.Parse(messageId)),
+            Entity.Organization,
+            new PositionEndpointRef(PositionId.From("owner")),
+            new PositionEndpointRef(Entity.Position),
+            Hive.Domain.Identity.ThreadId.From(Guid.Parse(threadId)),
+            priority,
+            schemaVersion: 1,
+            At,
+            deadline: null,
+            DirectiveId.New(),
+            parentDirectiveId: null,
+            objective: "Make the delivery decision.",
+            context: "The request requires a human response.");
 
     private static ActorSystem CreateActorSystem(string prefix) =>
         ActorSystem.Create(
@@ -508,6 +752,62 @@ public sealed class HumanProxyActorTests
         throw new TimeoutException($"Reminder '{reminder}' did not reach sent={sent}.");
     }
 
+    private static async Task<T> WaitForScheduledCommandAsync<T>(
+        RecordingResponseScheduler scheduler,
+        Func<T, bool> predicate)
+        where T : class
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var command = scheduler.Commands.OfType<T>().FirstOrDefault(predicate);
+            if (command is not null)
+            {
+                return command;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Scheduled command '{typeof(T).Name}' was not observed.");
+    }
+
+    private static async Task WaitForCallCountAsync(RecordingChannel channel, int expected)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            if (channel.CallCount >= expected)
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Occupant channel did not reach {expected} calls.");
+    }
+
+    private static async Task<PositionState> WaitForResponseTimeoutAsync(
+        IActorRef actor,
+        MessageId messageId)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, TimeSpan.FromSeconds(1));
+            if (state.OccupantNotifications.TryGetValue(messageId, out var notification)
+                && notification.ResponseTimeout is not null)
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Response timeout for '{messageId}' was not persisted.");
+    }
+
     private static async Task SeedSnapshotAsync(ActorSystem system, PositionSnapshot snapshot)
     {
         var seeder = system.ActorOf(
@@ -577,6 +877,51 @@ public sealed class HumanProxyActorTests
                 "A message is waiting in your HIVE inbox.",
                 OccupantChannelCorrelationToken.From("opaque.test.token"));
         }
+    }
+
+    private sealed class RecordingResponseScheduler : IOccupantResponseScheduler
+    {
+        public ConcurrentQueue<object> Commands { get; } = new();
+
+        public void Schedule(IActorContext context, IActorRef receiver, object command, TimeSpan delay) =>
+            Commands.Enqueue(command);
+    }
+
+    private sealed class StaticResponseTargetResolver(EndpointRef? target)
+        : IOccupantResponseEscalationTargetResolver
+    {
+        public ValueTask<EndpointRef?> ResolveAsync(
+            PositionEntityId entityId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(target);
+    }
+
+    private sealed class AllowingReplyValidator : IOccupantReplyMessageValidator
+    {
+        public static AllowingReplyValidator Instance { get; } = new();
+
+        public ValueTask<ValidationResult> ValidateAsync(
+            PositionState state,
+            OrgMessage message,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(ValidationResult.Valid);
+    }
+
+    private sealed class RecordingMessageEmitter : IPositionMessageEmitter
+    {
+        public TaskCompletionSource<OrgMessage> Message { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Emit(ActorSystem system, OrgMessage message) => Message.TrySetResult(message);
+    }
+
+    private sealed class RecordingKillSwitch : IOccupantResponseKillSwitch
+    {
+        public TaskCompletionSource<OccupantResponseKillSwitchRequest> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Request(ActorSystem system, OccupantResponseKillSwitchRequest request) =>
+            Completion.TrySetResult(request);
     }
 
     private sealed class DeliveryReportObserver : ReceiveActor

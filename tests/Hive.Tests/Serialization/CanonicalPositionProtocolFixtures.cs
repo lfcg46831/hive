@@ -58,6 +58,16 @@ internal static class CanonicalPositionProtocolFixtures
             BindingId(),
             ReminderId(),
             OccurredAt.AddMinutes(34))),
+        ("occupant-response-timeout-handled", new OccupantResponseTimeoutHandled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            OccurredAt.AddHours(16),
+            OccurredAt.AddHours(16),
+            operationalAlert: true,
+            killSwitchRequested: true)),
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("occupant-reply-emitted", new OccupantReplyEmitted(
             MessageId(),

@@ -321,6 +321,7 @@ public sealed class OrganizationConfigurationParser
         var subscriptions = ReadSubscriptions(occupant, occupantPath, context);
         var tools = ReadTools(occupant, occupantPath, context);
         var outcomePolicy = ReadOutcomePolicy(occupant, occupantPath, context);
+        var responsePolicy = ReadResponsePolicy(occupant, occupantPath, context);
 
         if (type is null)
         {
@@ -336,7 +337,141 @@ public sealed class OrganizationConfigurationParser
             schedule,
             subscriptions,
             tools,
-            outcomePolicy);
+            outcomePolicy,
+            responsePolicy);
+    }
+
+    private static OccupantResponsePolicyConfiguration? ReadResponsePolicy(
+        YamlMappingNode parent,
+        string path,
+        ParseContext context)
+    {
+        var policyPath = $"{path}.response_policy";
+        var node = Child(parent, "response_policy");
+        if (node is null || IsNull(node))
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode policy)
+        {
+            context.AddAt(node, policyPath, "field 'response_policy' must be a mapping.");
+            return null;
+        }
+
+        AddUnknownFields(policy, policyPath, ["reminders", "timeout"], context);
+
+        var remindersPath = $"{policyPath}.reminders";
+        var remindersNode = Child(policy, "reminders");
+        if (remindersNode is not YamlMappingNode reminders)
+        {
+            context.AddAt(
+                remindersNode ?? policy,
+                remindersPath,
+                "field 'reminders' must be a mapping with 'max_count' and 'interval'.");
+            return null;
+        }
+
+        AddUnknownFields(reminders, remindersPath, ["max_count", "interval"], context);
+
+        var maxCount = RequiredInt(reminders, "max_count", remindersPath, context);
+        var interval = RequireScalar(reminders, "interval", remindersPath, context);
+        var timeout = RequireScalar(policy, "timeout", policyPath, context);
+        if (maxCount is null || interval is null || timeout is null)
+        {
+            return null;
+        }
+
+        if (maxCount.Value < 0)
+        {
+            context.AddAt(
+                Child(reminders, "max_count")!,
+                $"{remindersPath}.max_count",
+                "field 'max_count' must be greater than or equal to zero.");
+            return null;
+        }
+
+        if (!TryParseIsoDuration(interval, out var intervalValue) || intervalValue <= TimeSpan.Zero)
+        {
+            context.AddAt(
+                Child(reminders, "interval")!,
+                $"{remindersPath}.interval",
+                "field 'interval' must be a positive ISO-8601 duration.");
+            return null;
+        }
+
+        if (!TryParseIsoDuration(timeout, out var timeoutValue) || timeoutValue <= TimeSpan.Zero)
+        {
+            context.AddAt(
+                Child(policy, "timeout")!,
+                $"{policyPath}.timeout",
+                "field 'timeout' must be a positive ISO-8601 duration.");
+            return null;
+        }
+
+        TimeSpan lastReminder;
+        try
+        {
+            lastReminder = TimeSpan.FromTicks(checked(intervalValue.Ticks * maxCount.Value));
+        }
+        catch (OverflowException)
+        {
+            context.AddAt(
+                Child(policy, "timeout")!,
+                policyPath,
+                "response policy reminder horizon exceeds the supported duration range.");
+            return null;
+        }
+
+        if (timeoutValue <= lastReminder)
+        {
+            context.AddAt(
+                Child(policy, "timeout")!,
+                $"{policyPath}.timeout",
+                "field 'timeout' must be greater than max_count multiplied by interval.");
+            return null;
+        }
+
+        return new OccupantResponsePolicyConfiguration(maxCount.Value, interval, timeout);
+    }
+
+    private static void AddUnknownFields(
+        YamlMappingNode mapping,
+        string path,
+        IEnumerable<string> allowed,
+        ParseContext context)
+    {
+        var allowedFields = allowed.ToHashSet(StringComparer.Ordinal);
+        foreach (var pair in mapping.Children)
+        {
+            if (pair.Key is YamlScalarNode { Value: { } value }
+                && allowedFields.Contains(value))
+            {
+                continue;
+            }
+
+            var renderedKey = pair.Key is YamlScalarNode scalar
+                ? scalar.Value ?? "<null>"
+                : "<non-scalar>";
+            context.AddAt(
+                pair.Key,
+                $"{path}.{renderedKey}",
+                $"unknown response-policy field '{renderedKey}'.");
+        }
+    }
+
+    private static bool TryParseIsoDuration(string value, out TimeSpan duration)
+    {
+        try
+        {
+            duration = XmlConvert.ToTimeSpan(value);
+            return true;
+        }
+        catch (Exception exception) when (exception is FormatException or OverflowException)
+        {
+            duration = default;
+            return false;
+        }
     }
 
     private static OutcomePolicyOverlay? ReadOutcomePolicy(

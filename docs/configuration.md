@@ -1084,6 +1084,30 @@ The runtime policy snapshot identifies both the system contract and registry con
 
 The deployment-level rollout switch is separate from those policy overlays. `Hive:Outcomes:Mode` defaults to `shadow`; set `HIVE__OUTCOMES__MODE=enforcement` only for a deployment intended to apply the resolver to emitted messages. `Hive:Outcomes:VerifierTimeout` defaults to 15 seconds and must be positive; the runtime caps each verifier request by that value, the position per-call timeout and the remaining end-to-end/directive deadline. In both modes the audit row is idempotent by correlation and iteration and contains only the proposed intent/state/intervention, resolved outcome, closed reasons and diagnostics, policy version/fingerprint, override/verifier flags, verifier status and exact closed classification when present, semantic-completion-candidate flag, provider/model, token/cost metadata and resolver latency. Prompt text, model output, verifier artifact/output, next-action text, chain-of-thought and rejected values are never stored. The evaluation dataset projects the same minimized record and aggregates proposal→resolution, triggered reasons, overrides, verifier use, exact `Undetermined` classifications, false negatives/positives, resolver latency and diagnostics.
 
+### Human occupant response policy
+
+A human position may opt into bounded reminders and a response timeout in its reviewed organization document. The position must also declare a valid IANA `timezone` and a daily `working_hours` window:
+
+```yaml
+positions:
+  - id: delivery-lead
+    unit: engenharia
+    reports_to: ceo
+    timezone: Europe/Lisbon
+    occupant:
+      type: human
+      working_hours:
+        start: "09:00"
+        end: "18:00"
+      response_policy:
+        reminders:
+          max_count: 2
+          interval: PT4H
+        timeout: PT16H
+```
+
+`max_count` is non-negative; `interval` and `timeout` are positive ISO-8601 durations; `timeout` must be greater than `max_count × interval`. For non-critical messages, durations count only time inside the local `[start,end)` window; critical messages use elapsed time. Omitting `response_policy` disables reminders and timeout without a default. The block is invalid on `ai-agent` occupants and has no appsetting or environment-variable override.
+
 ## Console API client
 
 The console lives in `console/` with its own npm toolchain and consumes only the public

@@ -58,6 +58,7 @@ internal static class PositionProtocolManifests
         ("occupant-channel-delivery-failed", typeof(OccupantChannelDeliveryFailed)),
         ("occupant-reminder-scheduled", typeof(OccupantReminderScheduled)),
         ("occupant-reminder-sent", typeof(OccupantReminderSent)),
+        ("occupant-response-timeout-handled", typeof(OccupantResponseTimeoutHandled)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

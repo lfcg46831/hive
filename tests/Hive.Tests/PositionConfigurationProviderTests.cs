@@ -288,6 +288,40 @@ public sealed class PositionConfigurationProviderTests
     }
 
     [Fact]
+    public async Task Provider_projects_human_response_policy_with_position_time_window()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = new RegistryEntry<RegistryOccupant>(
+            original.Value with
+            {
+                Type = OccupantType.Human,
+                IdentityPromptRef = null,
+                Ai = null,
+                ResponsePolicy = new OccupantResponsePolicyConfiguration(2, "PT4H", "PT16H"),
+            },
+            original.Fingerprint,
+            original.UpdatedAt);
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Loaded, result.Status);
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        var policy = Assert.IsType<OccupantResponsePolicyRuntimeConfiguration>(
+            configuration.Occupant.ResponsePolicy);
+        Assert.Equal(2, policy.ReminderMaxCount);
+        Assert.Equal(TimeSpan.FromHours(4), policy.ReminderInterval);
+        Assert.Equal(TimeSpan.FromHours(16), policy.Timeout);
+        Assert.Equal("Europe/Lisbon", policy.TimeZoneId);
+        Assert.Equal(new TimeOnly(9, 0), policy.WorkingHoursStart);
+        Assert.Equal(new TimeOnly(18, 0), policy.WorkingHoursEnd);
+    }
+
+    [Fact]
     public async Task Provider_rejects_ai_occupant_when_identity_prompt_ref_is_orphaned()
     {
         var snapshot = await ImportedSnapshotAsync();

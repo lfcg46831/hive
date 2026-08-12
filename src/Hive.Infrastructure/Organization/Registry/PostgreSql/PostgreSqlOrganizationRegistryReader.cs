@@ -213,6 +213,7 @@ internal static class PostgreSqlOrganizationRegistryReader
                    subscriptions::text,
                    tools::text,
                    outcome_policy::text,
+                   response_policy::text,
                    entry_fingerprint,
                    updated_at
             FROM registry.occupants
@@ -238,13 +239,16 @@ internal static class PostgreSqlOrganizationRegistryReader
                 Array.AsReadOnly(RegistryJson.Deserialize<ToolConfiguration[]>(reader.GetString(6))),
                 reader.IsDBNull(7)
                     ? null
-                    : RegistryJson.Deserialize<OutcomePolicyOverlay>(reader.GetString(7)));
+                    : RegistryJson.Deserialize<OutcomePolicyOverlay>(reader.GetString(7)),
+                reader.IsDBNull(8)
+                    ? null
+                    : RegistryJson.Deserialize<OccupantResponsePolicyConfiguration>(reader.GetString(8)));
             result.Add(
                 id,
                 new RegistryEntry<RegistryOccupant>(
                     value,
-                    reader.GetString(8),
-                    reader.GetFieldValue<DateTimeOffset>(9)));
+                    reader.GetString(9),
+                    reader.GetFieldValue<DateTimeOffset>(10)));
         }
 
         return new ReadOnlyDictionary<PositionId, RegistryEntry<RegistryOccupant>>(result);

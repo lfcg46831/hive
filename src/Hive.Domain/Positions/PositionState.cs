@@ -267,6 +267,7 @@ public sealed record PositionState
             OccupantChannelDeliveryFailed failed => Apply(failed),
             OccupantReminderScheduled scheduled => Apply(scheduled),
             OccupantReminderSent sent => Apply(sent),
+            OccupantResponseTimeoutHandled handled => Apply(handled),
             _ => this,
         };
     }
@@ -661,6 +662,9 @@ public sealed record PositionState
 
     private PositionState Apply(OccupantReminderSent @event) =>
         UpdateOccupantNotification(@event.Message, notification => notification.MarkSent(@event));
+
+    private PositionState Apply(OccupantResponseTimeoutHandled @event) =>
+        UpdateOccupantNotification(@event.Message, notification => notification.HandleTimeout(@event));
 
     private PositionState UpdateOccupantNotification(
         MessageId message,

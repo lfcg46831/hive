@@ -123,6 +123,23 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             }
         }
 
+        var responsePolicyColumns = new List<(string Table, string Column)>();
+        await using (var command = dataSource.CreateCommand(
+            """
+            SELECT table_name, column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'registry'
+              AND column_name = 'response_policy'
+            ORDER BY table_name;
+            """))
+        await using (var reader = await command.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                responsePolicyColumns.Add((reader.GetString(0), reader.GetString(1)));
+            }
+        }
+
         Assert.Equal(
             [
                 "authorities",
@@ -136,7 +153,7 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
                 "units",
             ],
             tableNames);
-        Assert.Equal([1, 2, 3, 4, 5], appliedVersions);
+        Assert.Equal([1, 2, 3, 4, 5, 6], appliedVersions);
         Assert.Equal(
             [
                 "current_snapshots",
@@ -155,6 +172,9 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
         Assert.Equal(
             [("occupants", "outcome_policy"), ("organizations", "outcome_policy")],
             outcomePolicyColumns);
+        Assert.Equal(
+            [("occupants", "response_policy")],
+            responsePolicyColumns);
         Assert.Equal(
             [
                 "organization_id",

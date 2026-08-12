@@ -2,6 +2,7 @@ using Hive.Domain.Auditing;
 using Hive.Domain.Directives;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
+using Hive.Domain.OccupantChannels;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
@@ -416,6 +417,43 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
         Assert.DoesNotContain("Private inspection objective", serializedTimeline, StringComparison.Ordinal);
         Assert.DoesNotContain("secret criterion", serializedTimeline, StringComparison.Ordinal);
         Assert.DoesNotContain("secret.evidence", serializedTimeline, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Publish_audits_terminal_occupant_timeout_without_message_content_or_personal_endpoint()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new MessageReceived(DirectiveMessage(), At)));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new OccupantResponseTimeoutHandled(
+                Message,
+                Thread,
+                OccupantId.From("person-alice"),
+                UserId.From(Guid.Parse("dddddddd-0000-0000-0000-000000001911")),
+                OccupantChannelBindingId.From(
+                    Guid.Parse("eeeeeeee-0000-0000-0000-000000001911")),
+                At.AddHours(16),
+                At.AddHours(16),
+                operationalAlert: true,
+                killSwitchRequested: true)));
+
+        var record = Assert.Single(
+            audit.Records,
+            candidate => candidate.Stage == JourneyAuditStage.OccupantResponseTimeout);
+
+        Assert.Equal(JourneyAuditOutcome.Failed, record.Outcome);
+        Assert.Equal("occupant-response-timeout-no-valid-target", record.ReasonCode);
+        Assert.Equal(Message, record.MessageId);
+        Assert.Equal(Directive, record.DirectiveId);
+        Assert.Equal("true", record.Payload["operationalAlert"], ignoreCase: true);
+        Assert.Equal("true", record.Payload["killSwitchRequested"], ignoreCase: true);
+        Assert.Equal("none", record.Payload["target"]);
+        Assert.DoesNotContain("Customer reports checkout failures", string.Join(" ", record.Payload.Values));
+        Assert.DoesNotContain("owner@", string.Join(" ", record.Payload.Values));
     }
 
     private static Directive DirectiveMessage() =>

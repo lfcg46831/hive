@@ -21,7 +21,8 @@ public sealed record OccupantRuntimeConfiguration
         AiPositionRuntimeConfiguration? aiGateway = null,
         IdentityPromptRuntimeConfiguration? identityPrompt = null,
         OccupantId? configuredIdentity = null,
-        HumanOccupantRuntimeIdentity? humanIdentity = null)
+        HumanOccupantRuntimeIdentity? humanIdentity = null,
+        OccupantResponsePolicyRuntimeConfiguration? responsePolicy = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -55,6 +56,14 @@ public sealed record OccupantRuntimeConfiguration
         }
 
         HumanIdentity = humanIdentity;
+        if (responsePolicy is not null && type != OccupantType.Human)
+        {
+            throw new ArgumentException(
+                "An occupant response policy can only be supplied for a human occupant.",
+                nameof(responsePolicy));
+        }
+
+        ResponsePolicy = responsePolicy;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -86,6 +95,9 @@ public sealed record OccupantRuntimeConfiguration
     /// active user-to-position link exists and no human proxy may be materialized.
     /// </summary>
     public HumanOccupantRuntimeIdentity? HumanIdentity { get; }
+
+    /// <summary>The validated reminder/timeout policy for this human occupant, when declared.</summary>
+    public OccupantResponsePolicyRuntimeConfiguration? ResponsePolicy { get; }
 
     /// <summary>The configured working-hours window, when declared.</summary>
     public WorkingHoursConfiguration? WorkingHours { get; }

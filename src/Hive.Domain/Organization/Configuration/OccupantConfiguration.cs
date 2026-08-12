@@ -24,7 +24,8 @@ public sealed record OccupantConfiguration
         IReadOnlyList<ScheduleEntryConfiguration>? schedule = null,
         IReadOnlyList<SubscriptionConfiguration>? subscriptions = null,
         IReadOnlyList<ToolConfiguration>? tools = null,
-        OutcomePolicyOverlay? outcomePolicy = null)
+        OutcomePolicyOverlay? outcomePolicy = null,
+        OccupantResponsePolicyConfiguration? responsePolicy = null)
     {
         Type = type;
         IdentityPromptRef = identityPromptRef;
@@ -35,6 +36,7 @@ public sealed record OccupantConfiguration
         Subscriptions = subscriptions ?? Array.Empty<SubscriptionConfiguration>();
         Tools = tools ?? Array.Empty<ToolConfiguration>();
         OutcomePolicy = outcomePolicy;
+        ResponsePolicy = responsePolicy;
     }
 
     /// <summary>Whether the occupant is an AI agent or a human.</summary>
@@ -63,4 +65,7 @@ public sealed record OccupantConfiguration
 
     /// <summary>The optional position-level tighten-only outcome-policy overlay.</summary>
     public OutcomePolicyOverlay? OutcomePolicy { get; }
+
+    /// <summary>The optional reminder and response-timeout policy for a human occupant.</summary>
+    public OccupantResponsePolicyConfiguration? ResponsePolicy { get; }
 }

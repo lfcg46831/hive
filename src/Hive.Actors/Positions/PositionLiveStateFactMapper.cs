@@ -150,7 +150,8 @@ internal sealed class PositionLiveStateFactMapper
                 or nameof(JourneyAuditStage.RetainedActionLifecycle)
                 or nameof(JourneyAuditStage.RetainedActionReEscalation)
                 or nameof(JourneyAuditStage.OutcomeResolved)
-                or nameof(JourneyAuditStage.DirectiveCheckpointTransition) => null,
+                or nameof(JourneyAuditStage.DirectiveCheckpointTransition)
+                or nameof(JourneyAuditStage.OccupantResponseTimeout) => null,
             _ => throw new InvalidOperationException(
                 $"Audit fact '{fact.FactType}' has no explicit live-state mapping."),
         };

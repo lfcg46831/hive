@@ -25,11 +25,13 @@ internal sealed class SignedOccupantChannelDeliveryRequestFactory
             throw new InvalidOperationException(
                 "An active opaque binding is required to build an occupant-channel request.");
         var message = context.Message;
-        var requestId = message is ApprovalRequest ? message.Id : null;
+        var correlationMessageId = context.CorrelationMessageId ?? message.Id;
+        var requestId = context.CorrelationRequestId
+            ?? (message is ApprovalRequest ? message.Id : null);
         var token = _correlationTokens.Issue(new OccupantChannelCorrelationTokenRequest(
             context.OrganizationId,
             context.PositionId,
-            message.Id,
+            correlationMessageId,
             message.Thread,
             requestId));
 
@@ -118,6 +120,14 @@ internal sealed class SignedOccupantChannelDeliveryRequestFactory
             $"Approval request: {decision.RequestId.Value:D}",
             $"Decision: {(decision.Approved ? "approved" : "rejected")}",
             $"Reason: {decision.Reason ?? "(none)"}",
+        ],
+        EventTrigger trigger =>
+        [
+            $"Event: {trigger.EventType}",
+            string.Empty,
+            trigger.Payload,
+            string.Empty,
+            "Open the position inbox to respond to the original message.",
         ],
         _ => throw new InvalidOperationException(
             $"Organizational message '{message.GetType().Name}' cannot be rendered for an occupant channel."),

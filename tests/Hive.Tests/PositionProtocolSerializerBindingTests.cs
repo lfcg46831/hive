@@ -207,6 +207,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(OccupantChannelDeliveryFailed);
         yield return typeof(OccupantReminderScheduled);
         yield return typeof(OccupantReminderSent);
+        yield return typeof(OccupantResponseTimeoutHandled);
         yield return typeof(PositionSnapshot);
     }
 
@@ -340,6 +341,27 @@ public sealed class PositionProtocolSerializerBindingTests
             BindingId(),
             ReminderId(),
             At.AddHours(1)));
+        yield return ("occupant-response-timeout-handled", new OccupantResponseTimeoutHandled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            UserId(),
+            BindingId(),
+            At.AddHours(16),
+            At.AddHours(16),
+            escalation: new Escalation(
+                ReplyMessageId(),
+                OrganizationId.From("acme"),
+                new PositionEndpointRef(PositionId.From("delivery-lead")),
+                new OrganizationOwnerEndpointRef(),
+                ThreadId(),
+                Priority.High,
+                1,
+                At.AddHours(16),
+                null,
+                "Occupant response timeout",
+                "No correlated occupant response was recorded before the configured timeout.",
+                ["Escalate to the next valid vertical target"])));
         yield return ("position-snapshot", SampleSnapshot());
     }
 

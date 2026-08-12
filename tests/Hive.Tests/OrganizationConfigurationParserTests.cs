@@ -361,6 +361,78 @@ public sealed class OrganizationConfigurationParserTests
     }
 
     [Fact]
+    public void Human_response_policy_parses_with_bounded_reminders_and_timeout()
+    {
+        const string yaml = """
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            positions:
+              - id: delivery-lead
+                unit: raiz
+                reports_to: null
+                timezone: Europe/Lisbon
+                occupant:
+                  type: human
+                  working_hours:
+                    start: "09:00"
+                    end: "18:00"
+                  response_policy:
+                    reminders:
+                      max_count: 2
+                      interval: PT4H
+                    timeout: PT16H
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.True(result.IsSuccess, string.Join("\n", result.Errors.Select(error => error.ToString())));
+        var policy = Assert.IsType<OccupantResponsePolicyConfiguration>(
+            result.Configuration!.Positions.Single().Occupant.ResponsePolicy);
+        Assert.Equal(2, policy.ReminderMaxCount);
+        Assert.Equal("PT4H", policy.ReminderInterval);
+        Assert.Equal("PT16H", policy.Timeout);
+    }
+
+    [Fact]
+    public void Response_policy_rejects_unknown_fields_and_timeout_before_last_reminder()
+    {
+        const string yaml = """
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            positions:
+              - id: delivery-lead
+                unit: raiz
+                reports_to: null
+                occupant:
+                  type: human
+                  response_policy:
+                    reminders:
+                      max_count: 2
+                      interval: PT4H
+                      jitter: PT5M
+                    timeout: PT8H
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, error =>
+            error.FieldPath.EndsWith(".response_policy.reminders.jitter", StringComparison.Ordinal)
+            && error.Message.Contains("unknown", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(result.Errors, error =>
+            error.FieldPath.EndsWith(".response_policy.timeout", StringComparison.Ordinal)
+            && error.Message.Contains("greater", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Malformed_yaml_reports_a_single_root_error_with_a_position()
     {
         const string yaml = "organization: [unterminated\n  id: acme\n";

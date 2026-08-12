@@ -74,6 +74,47 @@ public sealed class OrganizationConfigurationImporterTests
     }
 
     [Fact]
+    public async Task Import_materializes_human_response_policy_into_the_registry_snapshot()
+    {
+        var source = ExampleConfiguration();
+        var positions = source.Positions.Select(position =>
+            position.Id.Value == "delivery-lead"
+                ? new PositionConfiguration(
+                    position.Id,
+                    position.Unit,
+                    new OccupantConfiguration(
+                        OccupantType.Human,
+                        workingHours: position.Occupant.WorkingHours,
+                        responsePolicy: new OccupantResponsePolicyConfiguration(
+                            2,
+                            "PT4H",
+                            "PT16H")),
+                    position.ReportsTo,
+                    position.Name,
+                    position.Timezone)
+                : position).ToArray();
+        var configuration = new OrganizationConfiguration(
+            source.Organization,
+            source.Units,
+            positions,
+            source.Prompts);
+        var registry = new InMemoryOrganizationRegistry();
+
+        var result = await new OrganizationConfigurationImporter(
+                registry,
+                new ManualTimeProvider(FirstImportAt))
+            .ImportAsync(configuration);
+
+        Assert.Equal(OrganizationImportStatus.Applied, result.Status);
+        var occupant = result.Snapshot!.Occupants[PositionId.From("delivery-lead")].Value;
+        Assert.Equal(OccupantType.Human, occupant.Type);
+        var policy = Assert.IsType<OccupantResponsePolicyConfiguration>(occupant.ResponsePolicy);
+        Assert.Equal(2, policy.ReminderMaxCount);
+        Assert.Equal("PT4H", policy.ReminderInterval);
+        Assert.Equal("PT16H", policy.Timeout);
+    }
+
+    [Fact]
     public async Task Reordered_semantically_equivalent_configuration_is_a_timestamp_preserving_no_op()
     {
         var registry = new InMemoryOrganizationRegistry();

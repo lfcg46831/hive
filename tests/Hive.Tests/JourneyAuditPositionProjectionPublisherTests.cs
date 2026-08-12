@@ -456,6 +456,40 @@ public sealed class JourneyAuditPositionProjectionPublisherTests
         Assert.DoesNotContain("owner@", string.Join(" ", record.Payload.Values));
     }
 
+    [Fact]
+    public void Publish_audits_terminal_occupant_absence_without_message_content_or_personal_endpoint()
+    {
+        var audit = new RecordingJourneyAuditLog();
+        var publisher = new JourneyAuditPositionProjectionPublisher(audit);
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new MessageReceived(DirectiveMessage(), At)));
+        publisher.Publish(new PositionEventCommitted(
+            Entity,
+            new OccupantAbsenceEscalationHandled(
+                Message,
+                Thread,
+                OccupantId.From("person-alice"),
+                At.AddMinutes(1),
+                operationalAlert: true,
+                killSwitchRequested: true)));
+
+        var record = Assert.Single(
+            audit.Records,
+            candidate => candidate.Stage == JourneyAuditStage.OccupantAbsence);
+
+        Assert.Equal(JourneyAuditOutcome.Failed, record.Outcome);
+        Assert.Equal("occupant-absence-no-valid-target", record.ReasonCode);
+        Assert.Equal(Message, record.MessageId);
+        Assert.Equal(Directive, record.DirectiveId);
+        Assert.Equal("escalate", record.Payload["action"]);
+        Assert.Equal("true", record.Payload["operationalAlert"], ignoreCase: true);
+        Assert.Equal("true", record.Payload["killSwitchRequested"], ignoreCase: true);
+        Assert.Equal("none", record.Payload["target"]);
+        Assert.DoesNotContain("Customer reports checkout failures", string.Join(" ", record.Payload.Values));
+        Assert.DoesNotContain("owner@", string.Join(" ", record.Payload.Values));
+    }
+
     private static Directive DirectiveMessage() =>
         new(
             Message,

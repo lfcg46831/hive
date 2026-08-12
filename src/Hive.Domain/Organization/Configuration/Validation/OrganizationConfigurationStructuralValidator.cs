@@ -65,8 +65,26 @@ public static class OrganizationConfigurationStructuralValidator
         ValidateUnitTree(configuration, errors);
         ValidateOutcomePolicies(configuration, errors);
         ValidateResponsePolicies(configuration, errors);
+        ValidateAbsences(configuration, errors);
 
         return OrganizationConfigurationValidationResult.Create(errors);
+    }
+
+    private static void ValidateAbsences(
+        OrganizationConfiguration configuration,
+        List<OrganizationConfigurationValidationError> errors)
+    {
+        for (var positionIndex = 0; positionIndex < configuration.Positions.Count; positionIndex++)
+        {
+            var occupant = configuration.Positions[positionIndex].Occupant;
+            if (occupant.Absence is not null && occupant.Type != OccupantType.Human)
+            {
+                errors.Add(new OrganizationConfigurationValidationError(
+                    "absence-requires-human-occupant",
+                    $"positions[{positionIndex}].occupant.absence",
+                    "Basic absence can only be declared for a human occupant."));
+            }
+        }
     }
 
     private static void ValidateResponsePolicies(

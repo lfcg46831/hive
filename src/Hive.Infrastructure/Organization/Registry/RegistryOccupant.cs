@@ -13,4 +13,5 @@ public sealed record RegistryOccupant(
     IReadOnlyList<SubscriptionConfiguration> Subscriptions,
     IReadOnlyList<ToolConfiguration> Tools,
     OutcomePolicyOverlay? OutcomePolicy,
-    OccupantResponsePolicyConfiguration? ResponsePolicy = null);
+    OccupantResponsePolicyConfiguration? ResponsePolicy = null,
+    OccupantAbsenceConfiguration? Absence = null);

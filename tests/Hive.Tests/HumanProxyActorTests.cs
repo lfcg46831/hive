@@ -564,6 +564,205 @@ public sealed class HumanProxyActorTests
     }
 
     [Fact]
+    public async Task Retain_absence_keeps_the_message_without_channel_or_response_policy_effects()
+    {
+        var message = DirectiveMessage(
+            "d1d1d1d1-1111-2222-3333-444444444444",
+            "d2d2d2d2-5555-6666-7777-888888888888");
+        var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+        var scheduler = new RecordingResponseScheduler();
+        var system = CreateActorSystem("human-absence-retain");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                channel,
+                new RecordingRequestFactory(),
+                scheduler,
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                new RecordingMessageEmitter(),
+                new RecordingKillSwitch(),
+                OccupantAbsenceAction.Retain);
+            await WaitForReadyAsync(actor);
+
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await Task.Delay(100);
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, Timeout());
+
+            Assert.Contains(state.Inbox, item => item.Id == message.Id);
+            Assert.False(channel.WasCalled);
+            Assert.Empty(state.OccupantNotifications);
+            Assert.Empty(state.OccupantAbsenceEscalations);
+            Assert.Empty(scheduler.Commands);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Removing_retain_absence_resumes_channel_delivery_for_the_retained_message()
+    {
+        var message = DirectiveMessage(
+            "d7d7d7d7-1111-2222-3333-444444444444",
+            "d8d8d8d8-5555-6666-7777-888888888888");
+        var system = CreateActorSystem("human-absence-removed");
+
+        try
+        {
+            var absent = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                new RecordingResponseScheduler(),
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                new RecordingMessageEmitter(),
+                new RecordingKillSwitch(),
+                OccupantAbsenceAction.Retain);
+            await WaitForReadyAsync(absent);
+            await absent.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            await absent.GracefulStop(Timeout());
+
+            var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+            var available = CreatePolicyPosition(
+                system,
+                channel,
+                new RecordingRequestFactory(),
+                new RecordingResponseScheduler(),
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                new RecordingMessageEmitter(),
+                new RecordingKillSwitch());
+            await WaitForReadyAsync(available);
+            var request = await channel.Request.WaitAsync(Timeout());
+            var state = await WaitForNotificationStatusAsync(
+                available,
+                message.Id,
+                OccupantNotificationDeliveryStatus.Confirmed);
+
+            Assert.Equal(message.Id, request.MessageId);
+            Assert.Equal(1, channel.CallCount);
+            Assert.Contains(state.Inbox, item => item.Id == message.Id);
+            await available.GracefulStop(Timeout());
+
+            var events = await ReadEventsAsync(system);
+            Assert.Single(events.OfType<OccupantChannelDeliveryRequested>());
+            Assert.Single(events.OfType<OccupantChannelDeliveryConfirmed>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Escalate_absence_persists_one_validated_escalation_and_reemits_it_after_restart()
+    {
+        var message = DirectiveMessage(
+            "d3d3d3d3-1111-2222-3333-444444444444",
+            "d4d4d4d4-5555-6666-7777-888888888888");
+        var channel = new RecordingChannel(OccupantChannelDeliveryResult.Succeeded());
+        var emitter = new RecordingMessageEmitter();
+        var system = CreateActorSystem("human-absence-escalate");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                channel,
+                new RecordingRequestFactory(),
+                new RecordingResponseScheduler(),
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                emitter,
+                new RecordingKillSwitch(),
+                OccupantAbsenceAction.Escalate);
+            await WaitForReadyAsync(actor);
+
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            var emitted = Assert.IsType<Escalation>(await emitter.Message.Task.WaitAsync(Timeout()));
+            var state = await WaitForAbsenceEscalationAsync(actor, message.Id);
+
+            Assert.False(channel.WasCalled);
+            Assert.Empty(state.OccupantNotifications);
+            Assert.Contains(state.Inbox, item => item.Id == message.Id);
+            Assert.Equal(message.Thread, emitted.Thread);
+            Assert.Equal(message.Priority, emitted.Priority);
+            Assert.Equal(new PositionEndpointRef(PositionId.From("owner")), emitted.To);
+            Assert.Equal(
+                OccupantAbsenceEscalationIdentity.For(Entity, message.Id),
+                emitted.Id);
+            Assert.Equal(emitted, state.OccupantAbsenceEscalations[message.Id].Escalation);
+
+            actor.Tell(new InitializeOccupantAbsenceEscalation(message.Id));
+            await Task.Delay(100);
+            await actor.GracefulStop(Timeout());
+
+            var recoveredEmitter = new RecordingMessageEmitter();
+            var recovered = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                new RecordingResponseScheduler(),
+                new StaticResponseTargetResolver(new PositionEndpointRef(PositionId.From("owner"))),
+                recoveredEmitter,
+                new RecordingKillSwitch(),
+                OccupantAbsenceAction.Escalate);
+            await WaitForReadyAsync(recovered);
+            var recoveredEscalation = await recoveredEmitter.Message.Task.WaitAsync(Timeout());
+            Assert.Equal(emitted, recoveredEscalation);
+            await recovered.GracefulStop(Timeout());
+
+            var events = await ReadEventsAsync(system);
+            Assert.Single(events.OfType<OccupantAbsenceEscalationHandled>());
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
+    public async Task Critical_absence_without_target_records_terminal_alert_and_requests_kill_switch()
+    {
+        var message = DirectiveMessage(
+            "d5d5d5d5-1111-2222-3333-444444444444",
+            "d6d6d6d6-5555-6666-7777-888888888888",
+            Priority.Critical);
+        var killSwitch = new RecordingKillSwitch();
+        var system = CreateActorSystem("human-absence-terminal");
+
+        try
+        {
+            var actor = CreatePolicyPosition(
+                system,
+                new RecordingChannel(OccupantChannelDeliveryResult.Succeeded()),
+                new RecordingRequestFactory(),
+                new RecordingResponseScheduler(),
+                new StaticResponseTargetResolver(target: null),
+                new RecordingMessageEmitter(),
+                killSwitch,
+                OccupantAbsenceAction.Escalate);
+            await WaitForReadyAsync(actor);
+
+            await actor.Ask<AcceptMessageResult>(new AcceptMessage(message), Timeout());
+            var requested = await killSwitch.Completion.Task.WaitAsync(Timeout());
+            var state = await WaitForAbsenceEscalationAsync(actor, message.Id);
+            var handled = state.OccupantAbsenceEscalations[message.Id];
+
+            Assert.Equal(message.Id, requested.SourceMessageId);
+            Assert.True(handled.OperationalAlert);
+            Assert.True(handled.KillSwitchRequested);
+            Assert.Null(handled.Escalation);
+            Assert.Contains(state.Inbox, item => item.Id == message.Id);
+        }
+        finally
+        {
+            await system.Terminate();
+        }
+    }
+
+    [Fact]
     public void Human_proxy_has_no_recoverable_actor_state()
     {
         Assert.False(typeof(ReceivePersistentActor).IsAssignableFrom(typeof(HumanProxyActor)));
@@ -583,7 +782,7 @@ public sealed class HumanProxyActorTests
         system.ActorOf(
             Props.Create(() => new PositionActor(
                 Entity.Value,
-                new StaticConfigurationProvider(RuntimeConfiguration(activeLink, false)),
+                new StaticConfigurationProvider(RuntimeConfiguration(activeLink, false, null)),
                 new PositionOccupantFactory(channel, requestFactory),
                 () => At)),
             $"position-{Guid.NewGuid():N}");
@@ -595,11 +794,12 @@ public sealed class HumanProxyActorTests
         IOccupantResponseScheduler scheduler,
         IOccupantResponseEscalationTargetResolver targetResolver,
         IPositionMessageEmitter emitter,
-        IOccupantResponseKillSwitch killSwitch) =>
+        IOccupantResponseKillSwitch killSwitch,
+        OccupantAbsenceAction? absenceAction = null) =>
         system.ActorOf(
             Props.Create(() => new PositionActor(
                 Entity.Value,
-                new StaticConfigurationProvider(RuntimeConfiguration(true, true)),
+                new StaticConfigurationProvider(RuntimeConfiguration(true, true, absenceAction)),
                 new PositionOccupantFactory(channel, requestFactory),
                 null,
                 () => At,
@@ -613,7 +813,8 @@ public sealed class HumanProxyActorTests
 
     private static PositionRuntimeConfiguration RuntimeConfiguration(
         bool activeLink,
-        bool withPolicy = false) =>
+        bool withPolicy = false,
+        OccupantAbsenceAction? absenceAction = null) =>
         new(
             Stamp,
             Entity.Organization,
@@ -637,6 +838,9 @@ public sealed class HumanProxyActorTests
                         "Europe/Lisbon",
                         new TimeOnly(9, 0),
                         new TimeOnly(18, 0))
+                    : null,
+                absence: absenceAction is { } action
+                    ? new OccupantAbsenceConfiguration(action)
                     : null),
             new PositionAuthorityRuntimeConfiguration(Array.Empty<string>()));
 
@@ -806,6 +1010,25 @@ public sealed class HumanProxyActorTests
         }
 
         throw new TimeoutException($"Response timeout for '{messageId}' was not persisted.");
+    }
+
+    private static async Task<PositionState> WaitForAbsenceEscalationAsync(
+        IActorRef actor,
+        MessageId messageId)
+    {
+        var deadline = DateTimeOffset.UtcNow.Add(Timeout());
+        while (DateTimeOffset.UtcNow < deadline)
+        {
+            var state = await actor.Ask<PositionState>(GetPositionState.Instance, TimeSpan.FromSeconds(1));
+            if (state.OccupantAbsenceEscalations.ContainsKey(messageId))
+            {
+                return state;
+            }
+
+            await Task.Delay(25);
+        }
+
+        throw new TimeoutException($"Absence escalation for '{messageId}' was not persisted.");
     }
 
     private static async Task SeedSnapshotAsync(ActorSystem system, PositionSnapshot snapshot)

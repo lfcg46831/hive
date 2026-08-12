@@ -322,6 +322,33 @@ public sealed class PositionConfigurationProviderTests
     }
 
     [Fact]
+    public async Task Provider_projects_basic_human_absence()
+    {
+        var snapshot = await ImportedSnapshotAsync();
+        var deliveryLead = PositionId.From("delivery-lead");
+        var original = snapshot.Occupants[deliveryLead];
+        var occupants = snapshot.Occupants.ToDictionary(pair => pair.Key, pair => pair.Value);
+        occupants[deliveryLead] = new RegistryEntry<RegistryOccupant>(
+            original.Value with
+            {
+                Type = OccupantType.Human,
+                IdentityPromptRef = null,
+                Ai = null,
+                Absence = new OccupantAbsenceConfiguration(OccupantAbsenceAction.Retain),
+            },
+            original.Fingerprint,
+            original.UpdatedAt);
+        IPositionConfigurationProvider provider = new RegistryPositionConfigurationProvider(
+            new SnapshotReader(_ => SnapshotWith(snapshot, occupants: occupants)));
+
+        var result = await provider.LoadAsync(DeliveryLeadEntityId(), CancellationToken.None);
+
+        Assert.Equal(PositionRuntimeConfigurationLoadStatus.Loaded, result.Status);
+        var configuration = Assert.IsType<PositionRuntimeConfiguration>(result.Configuration);
+        Assert.Equal(OccupantAbsenceAction.Retain, configuration.Occupant.Absence!.Action);
+    }
+
+    [Fact]
     public async Task Provider_rejects_ai_occupant_when_identity_prompt_ref_is_orphaned()
     {
         var snapshot = await ImportedSnapshotAsync();

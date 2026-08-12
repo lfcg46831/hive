@@ -355,6 +355,26 @@ public sealed class OrganizationConfigurationStructuralValidatorTests
         Assert.True(result.IsValid, string.Join("\n", result.Errors.Select(error => error.Message)));
     }
 
+    [Fact]
+    public void Basic_absence_requires_a_human_occupant()
+    {
+        var position = new PositionConfiguration(
+            PositionId.From("ceo"),
+            UnitId.From("raiz"),
+            new OccupantConfiguration(
+                OccupantType.AiAgent,
+                absence: new OccupantAbsenceConfiguration(OccupantAbsenceAction.Retain)));
+        var config = BuildConfiguration(
+            [Unit("raiz", "ceo")],
+            [position]);
+
+        var result = OrganizationConfigurationStructuralValidator.Validate(config);
+
+        var error = Assert.Single(result.Errors, item =>
+            item.Code == "absence-requires-human-occupant");
+        Assert.Equal("positions[0].occupant.absence", error.Path);
+    }
+
     private static string Message(OrganizationConfigurationValidationResult result, string code) =>
         result.Errors.First(error => error.Code == code).Message;
 

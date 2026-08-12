@@ -59,6 +59,7 @@ internal static class PositionProtocolManifests
         ("occupant-reminder-scheduled", typeof(OccupantReminderScheduled)),
         ("occupant-reminder-sent", typeof(OccupantReminderSent)),
         ("occupant-response-timeout-handled", typeof(OccupantResponseTimeoutHandled)),
+        ("occupant-absence-escalation-handled", typeof(OccupantAbsenceEscalationHandled)),
         ("position-snapshot", typeof(PositionSnapshot)),
     ];
 

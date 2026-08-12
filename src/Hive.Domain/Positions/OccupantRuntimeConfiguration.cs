@@ -22,7 +22,8 @@ public sealed record OccupantRuntimeConfiguration
         IdentityPromptRuntimeConfiguration? identityPrompt = null,
         OccupantId? configuredIdentity = null,
         HumanOccupantRuntimeIdentity? humanIdentity = null,
-        OccupantResponsePolicyRuntimeConfiguration? responsePolicy = null)
+        OccupantResponsePolicyRuntimeConfiguration? responsePolicy = null,
+        OccupantAbsenceConfiguration? absence = null)
     {
         if (!Enum.IsDefined(type))
         {
@@ -64,6 +65,14 @@ public sealed record OccupantRuntimeConfiguration
         }
 
         ResponsePolicy = responsePolicy;
+        if (absence is not null && type != OccupantType.Human)
+        {
+            throw new ArgumentException(
+                "An occupant absence can only be supplied for a human occupant.",
+                nameof(absence));
+        }
+
+        Absence = absence;
         WorkingHours = workingHours;
         Subscriptions = ToValidatedArray(subscriptions, nameof(subscriptions));
         Tools = ToValidatedArray(tools, nameof(tools));
@@ -98,6 +107,9 @@ public sealed record OccupantRuntimeConfiguration
 
     /// <summary>The validated reminder/timeout policy for this human occupant, when declared.</summary>
     public OccupantResponsePolicyRuntimeConfiguration? ResponsePolicy { get; }
+
+    /// <summary>The basic active-absence action for this human occupant, when declared.</summary>
+    public OccupantAbsenceConfiguration? Absence { get; }
 
     /// <summary>The configured working-hours window, when declared.</summary>
     public WorkingHoursConfiguration? WorkingHours { get; }

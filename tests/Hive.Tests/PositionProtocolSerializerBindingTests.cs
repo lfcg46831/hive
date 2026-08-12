@@ -208,6 +208,7 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(OccupantReminderScheduled);
         yield return typeof(OccupantReminderSent);
         yield return typeof(OccupantResponseTimeoutHandled);
+        yield return typeof(OccupantAbsenceEscalationHandled);
         yield return typeof(PositionSnapshot);
     }
 
@@ -362,6 +363,13 @@ public sealed class PositionProtocolSerializerBindingTests
                 "Occupant response timeout",
                 "No correlated occupant response was recorded before the configured timeout.",
                 ["Escalate to the next valid vertical target"])));
+        yield return ("occupant-absence-escalation-handled", new OccupantAbsenceEscalationHandled(
+            MessageId(),
+            ThreadId(),
+            OccupantId.From("person-alice"),
+            At.AddHours(1),
+            operationalAlert: true,
+            killSwitchRequested: true));
         yield return ("position-snapshot", SampleSnapshot());
     }
 

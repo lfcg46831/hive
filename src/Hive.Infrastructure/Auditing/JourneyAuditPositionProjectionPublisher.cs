@@ -97,7 +97,43 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
             case OccupantResponseTimeoutHandled timeout:
                 PublishOccupantResponseTimeout(committed, timeout);
                 break;
+
+            case OccupantAbsenceEscalationHandled absence:
+                PublishOccupantAbsence(committed, absence);
+                break;
         }
+    }
+
+    private void PublishOccupantAbsence(
+        PositionEventCommitted committed,
+        OccupantAbsenceEscalationHandled absence)
+    {
+        var escalation = absence.Escalation;
+        var reasonCode = escalation is null
+            ? "occupant-absence-no-valid-target"
+            : "occupant-absence-escalated";
+        _auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.OccupantAbsence,
+            escalation is null ? JourneyAuditOutcome.Failed : JourneyAuditOutcome.Accepted,
+            committed.EntityId.Organization,
+            absence.Thread,
+            absence.Message,
+            DirectiveFor(absence.Message),
+            committed.EntityId.Position,
+            reasonCode,
+            escalation is null ? nameof(OccupantAbsenceEscalationHandled) : nameof(Escalation),
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["action"] = "escalate",
+                ["occupantId"] = absence.Occupant.Value,
+                ["operationalAlert"] = absence.OperationalAlert.ToString(),
+                ["killSwitchRequested"] = absence.KillSwitchRequested.ToString(),
+                ["escalationMessageId"] = escalation?.Id.ToString() ?? "none",
+                ["target"] = escalation is null ? "none" : EndpointValue(escalation.To),
+                ["redactions"] = "sourceMessage.payload,escalation.context",
+            },
+            occurredAtUtc: committed.OccurredAt,
+            idempotencyDiscriminator: $"{absence.Message}:{reasonCode}"));
     }
 
     private void PublishOccupantResponseTimeout(

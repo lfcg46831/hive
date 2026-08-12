@@ -44,6 +44,7 @@ internal sealed class PositionActor :
     private readonly HashSet<(MessageId Message, OccupantReminderId Reminder)> _activeResponseReminders = [];
     private readonly HashSet<MessageId> _scheduledResponseTimeouts = [];
     private readonly HashSet<MessageId> _activeResponseTimeouts = [];
+    private readonly Dictionary<MessageId, OccupantId> _activeOccupantAbsenceEscalations = [];
 
     private PositionState _state = PositionState.Empty;
     private PositionOperationalState _operationalState = PositionOperationalState.Recovering;
@@ -344,6 +345,16 @@ internal sealed class PositionActor :
             HandleOccupantResponseTimeoutValidationCompleted);
         Command<OccupantResponseTimeoutValidationFailed>(failed =>
             RetryOccupantResponseTimeout(failed.SourceMessageId));
+        Command<InitializeOccupantAbsenceEscalation>(command =>
+            WhenReady(() => BeginOccupantAbsenceEscalation(command.MessageId)));
+        Command<OccupantAbsenceEscalationTargetResolved>(
+            HandleOccupantAbsenceEscalationTargetResolved);
+        Command<OccupantAbsenceEscalationTargetResolutionFailed>(failed =>
+            RetryOccupantAbsenceEscalation(failed.MessageId));
+        Command<OccupantAbsenceEscalationValidationCompleted>(
+            HandleOccupantAbsenceEscalationValidationCompleted);
+        Command<OccupantAbsenceEscalationValidationFailed>(failed =>
+            RetryOccupantAbsenceEscalation(failed.SourceMessageId));
         Command<RetainedActionResumeCompleted>(HandleRetainedActionResumeCompleted);
         Command<RetainedActionResumeFailed>(failed =>
             _resumingActions.Remove(failed.ActionId));
@@ -1330,6 +1341,7 @@ internal sealed class PositionActor :
         var key = (command.MessageId, command.ReminderId);
         _scheduledResponseReminders.Remove(key);
         if (HasOccupantResponse(command.MessageId)
+            || IsOccupantAbsent()
             || !_state.OccupantNotifications.TryGetValue(command.MessageId, out var notification)
             || notification.ResponseTimeout is not null
             || notification.Reminders.FirstOrDefault(item => item.Id == command.ReminderId)
@@ -1409,6 +1421,7 @@ internal sealed class PositionActor :
         OccupantReminderId reminderId)
     {
         if (!TryGetOccupantResponsePolicyPlan(messageId, out var notification, out var plan)
+            || IsOccupantAbsent()
             || HasOccupantResponse(messageId)
             || notification.ResponseTimeout is not null
             || notification.Reminders.FirstOrDefault(item => item.Id == reminderId)
@@ -1632,6 +1645,7 @@ internal sealed class PositionActor :
         plan = null!;
         var policy = _runtimeConfiguration?.Occupant.ResponsePolicy;
         if (policy is null
+            || IsOccupantAbsent()
             || !_state.OccupantNotifications.TryGetValue(messageId, out var found)
             || !TryGetResponseSourceMessage(messageId, out var source)
             || !OccupantResponsePolicyPlan.IsEligible(source))
@@ -1667,6 +1681,200 @@ internal sealed class PositionActor :
     }
 
     private void PublishOccupantResponseKillSwitch(OccupantResponseTimeoutHandled handled) =>
+        _responseKillSwitch.Request(
+            Context.System,
+            new OccupantResponseKillSwitchRequest(
+                EntityId,
+                handled.Message,
+                handled.Thread,
+                handled.OccurredAt));
+
+    private void BeginOccupantAbsenceEscalation(MessageId messageId)
+    {
+        if (!IsOccupantAbsent(OccupantAbsenceAction.Escalate)
+            || HasOccupantResponse(messageId)
+            || _state.OccupantAbsenceEscalations.ContainsKey(messageId)
+            || !TryGetResponseSourceMessage(messageId, out _)
+            || !TryGetCurrentOccupantActivation(out var activation)
+            || activation.OccupantType != OccupantType.Human
+            || !_activeOccupantAbsenceEscalations.TryAdd(messageId, activation.Occupant))
+        {
+            return;
+        }
+
+        if (_responseTargetResolver is null)
+        {
+            var target = _runtimeConfiguration?.Position.ReportsTo is { } superior
+                ? new PositionEndpointRef(superior)
+                : (EndpointRef)new OrganizationOwnerEndpointRef();
+            Self.Tell(new OccupantAbsenceEscalationTargetResolved(messageId, target));
+            return;
+        }
+
+        _responseTargetResolver
+            .ResolveAsync(EntityId, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: target => new OccupantAbsenceEscalationTargetResolved(
+                    messageId,
+                    target),
+                failure: cause => new OccupantAbsenceEscalationTargetResolutionFailed(
+                    messageId,
+                    cause));
+    }
+
+    private void HandleOccupantAbsenceEscalationTargetResolved(
+        OccupantAbsenceEscalationTargetResolved resolved)
+    {
+        if (!IsOccupantAbsenceEscalationPending(
+                resolved.MessageId,
+                out _,
+                out var source))
+        {
+            _activeOccupantAbsenceEscalations.Remove(resolved.MessageId);
+            return;
+        }
+
+        if (resolved.Target is null)
+        {
+            PersistTerminalOccupantAbsenceEscalation(resolved.MessageId, source);
+            return;
+        }
+
+        var escalation = new Escalation(
+            OccupantAbsenceEscalationIdentity.For(EntityId, source.Id),
+            EntityId.Organization,
+            new PositionEndpointRef(EntityId.Position),
+            resolved.Target,
+            source.Thread,
+            source.Priority,
+            schemaVersion: 1,
+            sentAt: _clock(),
+            deadline: null,
+            issue: "Occupant absent",
+            context: $"The configured occupant was absent when message {source.Id.Value:D} required channel delivery.",
+            optionsConsidered: ["Retain in the position inbox", "Escalate to the next valid vertical target"]);
+
+        _occupantReplyValidator
+            .ValidateAsync(_state, escalation, CancellationToken.None)
+            .AsTask()
+            .PipeTo(
+                Self,
+                success: validation => new OccupantAbsenceEscalationValidationCompleted(
+                    resolved.MessageId,
+                    escalation,
+                    validation),
+                failure: cause => new OccupantAbsenceEscalationValidationFailed(
+                    resolved.MessageId,
+                    cause));
+    }
+
+    private void HandleOccupantAbsenceEscalationValidationCompleted(
+        OccupantAbsenceEscalationValidationCompleted completed)
+    {
+        if (!IsOccupantAbsenceEscalationPending(
+                completed.SourceMessageId,
+                out var occupant,
+                out var source))
+        {
+            _activeOccupantAbsenceEscalations.Remove(completed.SourceMessageId);
+            return;
+        }
+
+        if (!completed.Validation.IsValid)
+        {
+            PersistTerminalOccupantAbsenceEscalation(completed.SourceMessageId, source);
+            return;
+        }
+
+        var handled = new OccupantAbsenceEscalationHandled(
+            source.Id,
+            source.Thread,
+            occupant,
+            _clock(),
+            escalation: completed.Escalation);
+        Persist(handled, persisted =>
+        {
+            ApplyPersisted(persisted);
+            _activeOccupantAbsenceEscalations.Remove(completed.SourceMessageId);
+            _messageEmitter.Emit(Context.System, completed.Escalation);
+        });
+    }
+
+    private void PersistTerminalOccupantAbsenceEscalation(
+        MessageId messageId,
+        OrgMessage source)
+    {
+        if (!_activeOccupantAbsenceEscalations.TryGetValue(messageId, out var occupant))
+        {
+            return;
+        }
+
+        var killSwitchRequested = source.Priority == Priority.Critical;
+        var handled = new OccupantAbsenceEscalationHandled(
+            source.Id,
+            source.Thread,
+            occupant,
+            _clock(),
+            operationalAlert: true,
+            killSwitchRequested: killSwitchRequested);
+        Persist(handled, persisted =>
+        {
+            ApplyPersisted(persisted);
+            _activeOccupantAbsenceEscalations.Remove(messageId);
+            if (killSwitchRequested)
+            {
+                PublishOccupantResponseKillSwitch(handled);
+            }
+        });
+    }
+
+    private void RetryOccupantAbsenceEscalation(MessageId messageId)
+    {
+        _activeOccupantAbsenceEscalations.Remove(messageId);
+        if (!IsOccupantAbsent(OccupantAbsenceAction.Escalate)
+            || HasOccupantResponse(messageId)
+            || _state.OccupantAbsenceEscalations.ContainsKey(messageId))
+        {
+            return;
+        }
+
+        _responseScheduler.Schedule(
+            Context,
+            Self,
+            new InitializeOccupantAbsenceEscalation(messageId),
+            TimeSpan.FromMinutes(1));
+    }
+
+    private bool IsOccupantAbsenceEscalationPending(
+        MessageId messageId,
+        out OccupantId occupant,
+        out OrgMessage source)
+    {
+        occupant = null!;
+        source = null!;
+        if (!_activeOccupantAbsenceEscalations.TryGetValue(messageId, out var activeOccupant)
+            || !IsOccupantAbsent(OccupantAbsenceAction.Escalate)
+            || HasOccupantResponse(messageId)
+            || _state.OccupantAbsenceEscalations.ContainsKey(messageId)
+            || !TryGetActivation(activeOccupant, OccupantType.Human, out _)
+            || !TryGetResponseSourceMessage(messageId, out source))
+        {
+            return false;
+        }
+
+        occupant = activeOccupant;
+        return true;
+    }
+
+    private bool IsOccupantAbsent(OccupantAbsenceAction? action = null)
+    {
+        var absence = _runtimeConfiguration?.Occupant.Absence;
+        return absence is not null && (action is null || absence.Action == action);
+    }
+
+    private void PublishOccupantResponseKillSwitch(OccupantAbsenceEscalationHandled handled) =>
         _responseKillSwitch.Request(
             Context.System,
             new OccupantResponseKillSwitchRequest(
@@ -1998,8 +2206,24 @@ internal sealed class PositionActor :
         OrgMessage message,
         MessageDispatched dispatch)
     {
+        if (!TryGetActivation(dispatch.Occupant, OccupantType.Human, out var activation))
+        {
+            return;
+        }
+
+        if (IsOccupantAbsent())
+        {
+            _activeOccupantChannelDeliveries.Remove(dispatch.Message);
+            CancelOccupantResponsePolicy(dispatch.Message);
+            if (IsOccupantAbsent(OccupantAbsenceAction.Escalate))
+            {
+                BeginOccupantAbsenceEscalation(dispatch.Message);
+            }
+
+            return;
+        }
+
         if (_state.OccupantNotifications.ContainsKey(dispatch.Message) ||
-            !TryGetActivation(dispatch.Occupant, OccupantType.Human, out var activation) ||
             !_activeOccupantChannelDeliveries.Add(dispatch.Message))
         {
             return;
@@ -2030,6 +2254,17 @@ internal sealed class PositionActor :
 
     private void RedeliverRequestedOccupantNotifications()
     {
+        if (IsOccupantAbsent())
+        {
+            foreach (var messageId in _state.OccupantNotifications.Keys)
+            {
+                _activeOccupantChannelDeliveries.Remove(messageId);
+                CancelOccupantResponsePolicy(messageId);
+            }
+
+            return;
+        }
+
         foreach (var notification in _state.OccupantNotifications.Values
                      .Where(item => item.Status == OccupantNotificationDeliveryStatus.Requested)
                      .OrderBy(item => item.RequestedAt)
@@ -2218,6 +2453,7 @@ internal sealed class PositionActor :
         {
             RedeliverRequestedOccupantNotifications();
             ReconcileOccupantResponsePolicies();
+            ReconcileOccupantAbsenceEscalations();
             PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));
             Stash.UnstashAll();
         });
@@ -2225,6 +2461,16 @@ internal sealed class PositionActor :
 
     private void ReconcileOccupantResponsePolicies()
     {
+        if (IsOccupantAbsent())
+        {
+            foreach (var messageId in _state.OccupantNotifications.Keys)
+            {
+                CancelOccupantResponsePolicy(messageId);
+            }
+
+            return;
+        }
+
         foreach (var notification in _state.OccupantNotifications.Values
                      .OrderBy(item => item.RequestedAt)
                      .ThenBy(item => item.Message.Value))
@@ -2244,6 +2490,23 @@ internal sealed class PositionActor :
             }
 
             Self.Tell(new InitializeOccupantResponsePolicy(notification.Message));
+        }
+    }
+
+    private void ReconcileOccupantAbsenceEscalations()
+    {
+        foreach (var handled in _state.OccupantAbsenceEscalations.Values
+                     .OrderBy(item => item.OccurredAt)
+                     .ThenBy(item => item.Message.Value))
+        {
+            if (handled.Escalation is { } escalation)
+            {
+                _messageEmitter.Emit(Context.System, escalation);
+            }
+            else if (handled.KillSwitchRequested)
+            {
+                PublishOccupantResponseKillSwitch(handled);
+            }
         }
     }
 

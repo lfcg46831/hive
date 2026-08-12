@@ -19,4 +19,5 @@ public enum JourneyAuditStage
     OutcomeResolved = 15,
     DirectiveCheckpointTransition = 16,
     OccupantResponseTimeout = 17,
+    OccupantAbsence = 18,
 }

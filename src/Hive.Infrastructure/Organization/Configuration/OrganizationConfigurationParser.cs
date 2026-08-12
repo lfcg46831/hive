@@ -322,6 +322,7 @@ public sealed class OrganizationConfigurationParser
         var tools = ReadTools(occupant, occupantPath, context);
         var outcomePolicy = ReadOutcomePolicy(occupant, occupantPath, context);
         var responsePolicy = ReadResponsePolicy(occupant, occupantPath, context);
+        var absence = ReadAbsence(occupant, occupantPath, context);
 
         if (type is null)
         {
@@ -338,7 +339,46 @@ public sealed class OrganizationConfigurationParser
             subscriptions,
             tools,
             outcomePolicy,
-            responsePolicy);
+            responsePolicy,
+            absence);
+    }
+
+    private static OccupantAbsenceConfiguration? ReadAbsence(
+        YamlMappingNode parent,
+        string path,
+        ParseContext context)
+    {
+        var absencePath = $"{path}.absence";
+        var node = Child(parent, "absence");
+        if (node is null || IsNull(node))
+        {
+            return null;
+        }
+
+        if (node is not YamlMappingNode absence)
+        {
+            context.AddAt(node, absencePath, "field 'absence' must be a mapping.");
+            return null;
+        }
+
+        AddUnknownFields(absence, absencePath, ["action"], context);
+        var actionNode = Child(absence, "action");
+        var actionValue = RequireScalar(absence, "action", absencePath, context);
+        if (actionValue is null)
+        {
+            return null;
+        }
+
+        if (!OccupantAbsenceActionContract.TryParseWireValue(actionValue, out var action))
+        {
+            context.AddAt(
+                actionNode!,
+                $"{absencePath}.action",
+                "field 'action' must be 'retain' or 'escalate'.");
+            return null;
+        }
+
+        return new OccupantAbsenceConfiguration(action);
     }
 
     private static OccupantResponsePolicyConfiguration? ReadResponsePolicy(

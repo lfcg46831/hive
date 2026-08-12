@@ -13,7 +13,7 @@ namespace Hive.Domain.Positions;
 /// <see cref="RecentHistory"/>, the current occupant (<see cref="Occupant"/>/<see cref="OccupantType"/>)
 /// the <see cref="ProcessedMessages"/> idempotency keys and the latest applied runtime
 /// configuration stamp, plus the latest bounded directive checkpoints and occupant-channel
-/// notification state.
+/// notification and absence-escalation state.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -42,7 +42,8 @@ public sealed record PositionSnapshot
         IEnumerable<OrgMessage>? materializedHistory = null,
         IEnumerable<DirectiveCheckpoint>? directiveCheckpoints = null,
         IEnumerable<OccupantReplyEmitted>? occupantReplies = null,
-        IEnumerable<PersistedOccupantNotification>? occupantNotifications = null)
+        IEnumerable<PersistedOccupantNotification>? occupantNotifications = null,
+        IEnumerable<OccupantAbsenceEscalationHandled>? occupantAbsenceEscalations = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -133,6 +134,17 @@ public sealed record PositionSnapshot
                 "Occupant notification message ids must be unique.",
                 nameof(occupantNotifications));
         }
+
+        OccupantAbsenceEscalations = ToValidatedArray(
+            occupantAbsenceEscalations,
+            nameof(occupantAbsenceEscalations));
+        if (OccupantAbsenceEscalations.Select(item => item.Message).Distinct().Count() !=
+            OccupantAbsenceEscalations.Length)
+        {
+            throw new ArgumentException(
+                "Occupant absence escalation message ids must be unique.",
+                nameof(occupantAbsenceEscalations));
+        }
     }
 
     /// <summary>When the snapshot was taken.</summary>
@@ -179,6 +191,9 @@ public sealed record PositionSnapshot
 
     /// <summary>Durable occupant-channel delivery and reminder state.</summary>
     public ImmutableArray<PersistedOccupantNotification> OccupantNotifications { get; }
+
+    /// <summary>Durable immediate-escalation outcomes caused by basic occupant absence.</summary>
+    public ImmutableArray<OccupantAbsenceEscalationHandled> OccupantAbsenceEscalations { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

@@ -204,7 +204,10 @@ internal sealed class OrganizationRegistryProjection
                 : new OccupantResponsePolicyConfiguration(
                     occupant.ResponsePolicy.ReminderMaxCount,
                     occupant.ResponsePolicy.ReminderInterval,
-                    occupant.ResponsePolicy.Timeout));
+                    occupant.ResponsePolicy.Timeout),
+            occupant.Absence is null
+                ? null
+                : new OccupantAbsenceConfiguration(occupant.Absence.Action));
     }
 
     private static RegistryAuthority ProjectAuthority(PositionConfiguration position)

@@ -4,6 +4,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Organization;
 using Hive.Infrastructure.Organization.Configuration;
 using Hive.Infrastructure.Organization.Registry;
+using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Hive.Infrastructure.Organization.ReadModels;
 
 namespace Hive.Tests;
@@ -112,6 +113,46 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.Equal(2, policy.ReminderMaxCount);
         Assert.Equal("PT4H", policy.ReminderInterval);
         Assert.Equal("PT16H", policy.Timeout);
+    }
+
+    [Fact]
+    public async Task Import_materializes_basic_human_absence_into_the_registry_snapshot()
+    {
+        var source = ExampleConfiguration();
+        var positions = source.Positions.Select(position =>
+            position.Id.Value == "delivery-lead"
+                ? new PositionConfiguration(
+                    position.Id,
+                    position.Unit,
+                    new OccupantConfiguration(
+                        OccupantType.Human,
+                        workingHours: position.Occupant.WorkingHours,
+                        absence: new OccupantAbsenceConfiguration(
+                            OccupantAbsenceAction.Escalate)),
+                    position.ReportsTo,
+                    position.Name,
+                    position.Timezone)
+                : position).ToArray();
+        var configuration = new OrganizationConfiguration(
+            source.Organization,
+            source.Units,
+            positions,
+            source.Prompts);
+        var registry = new InMemoryOrganizationRegistry();
+
+        var result = await new OrganizationConfigurationImporter(
+                registry,
+                new ManualTimeProvider(FirstImportAt))
+            .ImportAsync(configuration);
+
+        Assert.Equal(OrganizationImportStatus.Applied, result.Status);
+        var occupant = result.Snapshot!.Occupants[PositionId.From("delivery-lead")].Value;
+        Assert.Equal(OccupantAbsenceAction.Escalate, occupant.Absence!.Action);
+
+        var json = RegistryJson.Serialize(occupant.Absence);
+        var restored = RegistryJson.Deserialize<OccupantAbsenceConfiguration>(json);
+        Assert.Equal("{\"action\":\"escalate\"}", json);
+        Assert.Equal(occupant.Absence, restored);
     }
 
     [Fact]

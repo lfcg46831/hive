@@ -432,6 +432,66 @@ public sealed class OrganizationConfigurationParserTests
             && error.Message.Contains("greater", StringComparison.OrdinalIgnoreCase));
     }
 
+    [Theory]
+    [InlineData("retain", OccupantAbsenceAction.Retain)]
+    [InlineData("escalate", OccupantAbsenceAction.Escalate)]
+    public void Human_absence_parses_the_closed_action(string wireValue, OccupantAbsenceAction expected)
+    {
+        var yaml = $$"""
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            positions:
+              - id: delivery-lead
+                unit: raiz
+                reports_to: null
+                occupant:
+                  type: human
+                  absence:
+                    action: {{wireValue}}
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.True(result.IsSuccess, string.Join("\n", result.Errors.Select(error => error.ToString())));
+        Assert.Equal(expected, result.Configuration!.Positions.Single().Occupant.Absence!.Action);
+    }
+
+    [Fact]
+    public void Human_absence_rejects_unknown_fields_and_actions()
+    {
+        const string yaml = """
+            organization:
+              id: acme
+              root_unit: raiz
+              owner:
+                type: human
+                ref: owner@acme.pt
+            positions:
+              - id: delivery-lead
+                unit: raiz
+                reports_to: null
+                occupant:
+                  type: human
+                  absence:
+                    action: delegate
+                    substitute: release-manager
+            """;
+
+        var result = Parser.Parse(yaml, FilePath);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains(result.Errors, error =>
+            error.FieldPath.EndsWith(".absence.action", StringComparison.Ordinal)
+            && error.Message.Contains("retain", StringComparison.Ordinal));
+        Assert.Contains(result.Errors, error =>
+            error.FieldPath.EndsWith(".absence.substitute", StringComparison.Ordinal)
+            && error.Message.Contains("unknown", StringComparison.OrdinalIgnoreCase));
+    }
+
     [Fact]
     public void Malformed_yaml_reports_a_single_root_error_with_a_position()
     {

@@ -162,6 +162,12 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
             return PositionRuntimeConfigurationLoadResult.Incomplete(responsePolicyReason);
         }
 
+        if (occupant.Absence is not null && occupant.Type != OccupantType.Human)
+        {
+            return PositionRuntimeConfigurationLoadResult.Incomplete(
+                $"Registry snapshot for position '{entityId.Value}' declares absence for a non-human occupant.");
+        }
+
         try
         {
             return PositionRuntimeConfigurationLoadResult.Loaded(
@@ -187,7 +193,8 @@ public sealed class RegistryPositionConfigurationProvider : IPositionConfigurati
                         configuredIdentity: occupant.Type == OccupantType.AiAgent
                             ? ConfiguredAiOccupantIdentity.For(entityId)
                             : null,
-                        responsePolicy: responsePolicy),
+                        responsePolicy: responsePolicy,
+                        absence: occupant.Absence),
                     new PositionAuthorityRuntimeConfiguration(
                         authority.CanDecide,
                         authority.Overrides.Select(item =>

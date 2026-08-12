@@ -68,5 +68,16 @@
         }
       ]
     }
+  ],
+  "OccupantAbsenceEscalations": [
+    {
+      "Message": "d3000000-0000-0000-0000-000000000001",
+      "Thread": "d3000000-0000-0000-0000-0000000000a1",
+      "Occupant": "person-alice",
+      "Escalation": null,
+      "OperationalAlert": true,
+      "KillSwitchRequested": true,
+      "OccurredAt": "2026-06-26T10:35:00\u002B00:00"
+    }
   ]
 }

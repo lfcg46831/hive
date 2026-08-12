@@ -1108,6 +1108,23 @@ positions:
 
 `max_count` is non-negative; `interval` and `timeout` are positive ISO-8601 durations; `timeout` must be greater than `max_count × interval`. For non-critical messages, durations count only time inside the local `[start,end)` window; critical messages use elapsed time. Omitting `response_policy` disables reminders and timeout without a default. The block is invalid on `ai-agent` occupants and has no appsetting or environment-variable override.
 
+### Basic human occupant absence
+
+A reviewed organization document may mark a human occupant as currently absent. Presence of the block is the active marker; remove it to make the occupant available again:
+
+```yaml
+positions:
+  - id: delivery-lead
+    unit: engenharia
+    reports_to: ceo
+    occupant:
+      type: human
+      absence:
+        action: retain
+```
+
+`action` is required and accepts only `retain` or `escalate`. `retain` keeps pending messages in the position inbox without channel delivery. `escalate` attempts one immediate, validated vertical escalation per unanswered message; when no valid target exists, the message remains in the inbox and the runtime emits the same terminal operational alert pattern used by the human-response timeout. While either action is active, channel delivery, reminders and response timeout effects are suspended. This basic block has no dates, timezone, calendar, substitute, appsetting or environment-variable override; time-bounded absence and substitution are later additive contracts.
+
 ## Console API client
 
 The console lives in `console/` with its own npm toolchain and consumes only the public

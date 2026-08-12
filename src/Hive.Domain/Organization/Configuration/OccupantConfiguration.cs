@@ -25,7 +25,8 @@ public sealed record OccupantConfiguration
         IReadOnlyList<SubscriptionConfiguration>? subscriptions = null,
         IReadOnlyList<ToolConfiguration>? tools = null,
         OutcomePolicyOverlay? outcomePolicy = null,
-        OccupantResponsePolicyConfiguration? responsePolicy = null)
+        OccupantResponsePolicyConfiguration? responsePolicy = null,
+        OccupantAbsenceConfiguration? absence = null)
     {
         Type = type;
         IdentityPromptRef = identityPromptRef;
@@ -37,6 +38,7 @@ public sealed record OccupantConfiguration
         Tools = tools ?? Array.Empty<ToolConfiguration>();
         OutcomePolicy = outcomePolicy;
         ResponsePolicy = responsePolicy;
+        Absence = absence;
     }
 
     /// <summary>Whether the occupant is an AI agent or a human.</summary>
@@ -68,4 +70,7 @@ public sealed record OccupantConfiguration
 
     /// <summary>The optional reminder and response-timeout policy for a human occupant.</summary>
     public OccupantResponsePolicyConfiguration? ResponsePolicy { get; }
+
+    /// <summary>The optional marker and action for a currently absent human occupant.</summary>
+    public OccupantAbsenceConfiguration? Absence { get; }
 }

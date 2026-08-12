@@ -68,6 +68,7 @@ internal static class CanonicalPositionProtocolFixtures
             OccurredAt.AddHours(16),
             operationalAlert: true,
             killSwitchRequested: true)),
+        ("occupant-absence-escalation-handled", AbsenceHandled()),
         ("message-processing-completed", new MessageProcessingCompleted("message:completed", MessageId(), ThreadId(), MessageProcessingCompletionStatus.Completed, OccurredAt.AddMinutes(35))),
         ("occupant-reply-emitted", new OccupantReplyEmitted(
             MessageId(),
@@ -106,7 +107,16 @@ internal static class CanonicalPositionProtocolFixtures
             new[] { MessageId() },
             new[] { MessageId() },
             lastConfigurationStamp: null,
-            occupantNotifications: [Notification()]);
+            occupantNotifications: [Notification()],
+            occupantAbsenceEscalations: [AbsenceHandled()]);
+
+    private static OccupantAbsenceEscalationHandled AbsenceHandled() => new(
+        MessageId(),
+        ThreadId(),
+        OccupantId.From("person-alice"),
+        OccurredAt.AddMinutes(35),
+        operationalAlert: true,
+        killSwitchRequested: true);
 
     private static PersistedOccupantNotification Notification()
     {

@@ -97,6 +97,25 @@ internal interface IImapInboundEmailStore
         IReadOnlyList<string> failureCodes,
         DateTimeOffset rejectedAtUtc,
         CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedDecisionsAsync(
+        string sourceId,
+        string mailbox,
+        int limit,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteDecisionEmittedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId decisionMessageId,
+        DateTimeOffset emittedAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteDecisionRejectedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId decisionMessageId,
+        IReadOnlyList<string> failureCodes,
+        DateTimeOffset rejectedAtUtc,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IImapInboundEmailPoller

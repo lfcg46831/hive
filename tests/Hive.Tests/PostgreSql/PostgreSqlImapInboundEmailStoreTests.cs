@@ -289,6 +289,91 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
     }
 
     [Fact]
+    public async Task Approval_decision_emission_is_durable_idempotent_and_separate_from_work_replies()
+    {
+        await ResetAndMigrateAsync();
+        var capturedAt = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+        await using var store = new PostgreSqlImapInboundEmailStore(fixture.ConnectionString);
+        await store.CommitBatchAsync(
+            null,
+            Batch(7, 1, (1, "accepted-decision-raw")),
+            capturedAt);
+        var envelope = Assert.Single(await store.ReadPendingAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        var requestId = MessageId.From(
+            Guid.Parse("22222222-2222-2222-2222-222222222222"));
+        var admission = new InboundOccupantEmailAdmission(
+            envelope,
+            new OccupantChannelCorrelationTokenClaims(
+                Guid.Parse("11111111-1111-1111-1111-111111111111"),
+                OrganizationId.From("acme"),
+                PositionId.From("ceo"),
+                requestId,
+                ThreadId.From(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+                requestId,
+                capturedAt.AddHours(-1),
+                capturedAt.AddDays(1)),
+            OccupantId.From("human:ceo"),
+            UserId.From(Guid.Parse("55555555-5555-5555-5555-555555555555")),
+            OccupantChannelBindingId.From(
+                Guid.Parse("66666666-6666-6666-6666-666666666666")),
+            "APPROVE\nRelease checks passed.",
+            InboundOccupantEmailContentTrust.Untrusted);
+        Assert.True(await store.CompleteAcceptedAsync(admission, capturedAt.AddMinutes(1)));
+
+        Assert.Empty(await store.ReadAcceptedWorkRepliesAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        var persisted = Assert.Single(await store.ReadAcceptedDecisionsAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        Assert.Equal(admission.Correlation, persisted.Correlation);
+        Assert.Equal(admission.PlainTextReply, persisted.PlainTextReply);
+
+        var decisionMessageId = MessageId.From(
+            Guid.Parse("77777777-7777-7777-7777-777777777777"));
+        var emittedAt = capturedAt.AddMinutes(2);
+        Assert.True(await store.CompleteDecisionEmittedAsync(
+            persisted,
+            decisionMessageId,
+            emittedAt));
+        Assert.False(await store.CompleteDecisionEmittedAsync(
+            persisted,
+            decisionMessageId,
+            emittedAt.AddSeconds(1)));
+        Assert.Empty(await store.ReadAcceptedDecisionsAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT decision_emission_state,
+                   decision_message_id,
+                   decision_emission_at,
+                   decision_emission_failure_codes,
+                   reply_emission_state
+            FROM occupant_channel.imap_inbound_emails
+            WHERE source_id = 'occupant-replies'
+              AND mailbox = 'INBOX'
+              AND uid_validity = 7
+              AND uid = 1;
+            """);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("emitted", reader.GetString(0));
+        Assert.Equal(decisionMessageId.Value, reader.GetGuid(1));
+        Assert.Equal(emittedAt, reader.GetFieldValue<DateTimeOffset>(2));
+        Assert.True(reader.IsDBNull(3));
+        Assert.True(reader.IsDBNull(4));
+    }
+
+    [Fact]
     public async Task Migration_is_idempotent()
     {
         await ResetAsync();
@@ -307,7 +392,7 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1, 2, 3, 4], versions);
+        Assert.Equal([1, 2, 3, 4, 5], versions);
     }
 
     private async Task ResetAndMigrateAsync()

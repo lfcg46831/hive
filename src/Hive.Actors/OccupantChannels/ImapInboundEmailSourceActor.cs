@@ -9,6 +9,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
     private readonly IImapInboundEmailPoller _poller;
     private readonly IInboundOccupantEmailProcessor _processor;
     private readonly IInboundOccupantEmailReplyProcessor _replyProcessor;
+    private readonly IInboundOccupantEmailDecisionProcessor _decisionProcessor;
     private readonly TimeSpan _pollInterval;
     private readonly string _sourceId;
     private readonly string _mailbox;
@@ -20,6 +21,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
         IImapInboundEmailPoller poller,
         IInboundOccupantEmailProcessor processor,
         IInboundOccupantEmailReplyProcessor replyProcessor,
+        IInboundOccupantEmailDecisionProcessor decisionProcessor,
         TimeSpan pollInterval,
         string sourceId,
         string mailbox,
@@ -28,6 +30,8 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
         _poller = poller ?? throw new ArgumentNullException(nameof(poller));
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
         _replyProcessor = replyProcessor ?? throw new ArgumentNullException(nameof(replyProcessor));
+        _decisionProcessor = decisionProcessor
+            ?? throw new ArgumentNullException(nameof(decisionProcessor));
         _pollInterval = pollInterval > TimeSpan.Zero
             ? pollInterval
             : throw new ArgumentOutOfRangeException(nameof(pollInterval));
@@ -46,6 +50,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
         IImapInboundEmailPoller poller,
         IInboundOccupantEmailProcessor processor,
         IInboundOccupantEmailReplyProcessor replyProcessor,
+        IInboundOccupantEmailDecisionProcessor decisionProcessor,
         TimeSpan pollInterval,
         string sourceId,
         string mailbox,
@@ -55,6 +60,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
                 poller,
                 processor,
                 replyProcessor,
+                decisionProcessor,
                 pollInterval,
                 sourceId,
                 mailbox,
@@ -142,6 +148,40 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
             {
                 _logger.LogError(
                     "Inbound occupant-email admission failed closed for source {SourceId} mailbox {Mailbox} with error type {ErrorType}; unfinished envelopes remain pending.",
+                    _sourceId,
+                    _mailbox,
+                    exception.GetType().Name);
+            }
+        }
+
+        if (!_stopping.IsCancellationRequested)
+        {
+            try
+            {
+                var decisions = await _decisionProcessor
+                    .ProcessAcceptedAsync(_stopping.Token)
+                    .ConfigureAwait(false);
+                if (decisions.PendingCount > 0)
+                {
+                    _logger.LogInformation(
+                        "Inbound occupant-email approval decisions processed {PendingCount} accepted admission(s): {EmittedCount} emitted, {RejectedCount} rejected, {RetryableCount} pending for retry and {AlreadyCompletedCount} already completed for source {SourceId} mailbox {Mailbox}.",
+                        decisions.PendingCount,
+                        decisions.EmittedCount,
+                        decisions.RejectedCount,
+                        decisions.RetryableCount,
+                        decisions.AlreadyCompletedCount,
+                        _sourceId,
+                        _mailbox);
+                }
+            }
+            catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    "Inbound occupant-email approval-decision emission failed closed for source {SourceId} mailbox {Mailbox} with error type {ErrorType}; unfinished decisions remain pending.",
                     _sourceId,
                     _mailbox,
                     exception.GetType().Name);

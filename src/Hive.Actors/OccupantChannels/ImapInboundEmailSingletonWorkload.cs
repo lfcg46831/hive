@@ -20,6 +20,7 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
     private readonly IImapInboundEmailPoller _poller;
     private readonly IInboundOccupantEmailProcessor _processor;
     private readonly IInboundOccupantEmailReplyProcessor _replyProcessor;
+    private readonly IInboundOccupantEmailDecisionProcessor _decisionProcessor;
     private readonly ImapInboundEmailOptions _options;
     private readonly ILogger<ImapInboundEmailSingletonWorkload> _logger;
     private readonly SemaphoreSlim _startGate = new(1, 1);
@@ -31,6 +32,7 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
         IImapInboundEmailPoller poller,
         IInboundOccupantEmailProcessor processor,
         IInboundOccupantEmailReplyProcessor replyProcessor,
+        IInboundOccupantEmailDecisionProcessor decisionProcessor,
         IOptions<ImapInboundEmailOptions> options,
         ILogger<ImapInboundEmailSingletonWorkload> logger)
     {
@@ -38,6 +40,8 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
         _poller = poller ?? throw new ArgumentNullException(nameof(poller));
         _processor = processor ?? throw new ArgumentNullException(nameof(processor));
         _replyProcessor = replyProcessor ?? throw new ArgumentNullException(nameof(replyProcessor));
+        _decisionProcessor = decisionProcessor
+            ?? throw new ArgumentNullException(nameof(decisionProcessor));
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -66,6 +70,7 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
                 _poller,
                 _processor,
                 _replyProcessor,
+                _decisionProcessor,
                 _options.PollInterval,
                 _options.SourceId,
                 _options.Mailbox,

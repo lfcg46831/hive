@@ -759,7 +759,7 @@ internal sealed class PositionActor :
             EntityId.Organization,
             new PositionEndpointRef(EntityId.Position),
             request?.From ?? new PositionEndpointRef(command.RequesterPositionId),
-            request?.Thread ?? command.RequestThread,
+            command.RequestThread,
             request?.Priority ?? command.RequestPriority,
             schemaVersion: 1,
             _clock(),

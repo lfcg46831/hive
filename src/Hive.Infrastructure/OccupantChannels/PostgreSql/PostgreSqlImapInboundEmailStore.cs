@@ -250,6 +250,10 @@ internal sealed class PostgreSqlImapInboundEmailStore
                 reply_emission_state = CASE
                     WHEN @request_id IS NULL THEN 'pending'
                     ELSE NULL
+                END,
+                decision_emission_state = CASE
+                    WHEN @request_id IS NOT NULL THEN 'pending'
+                    ELSE NULL
                 END
             WHERE source_id = @source_id
               AND mailbox = @mailbox
@@ -483,6 +487,172 @@ internal sealed class PostgreSqlImapInboundEmailStore
         command.Parameters.AddWithValue("reply_directive_id", replyDirectiveId.Value);
         command.Parameters.AddWithValue("reply_emission_at", completedAtUtc);
         command.Parameters.Add("reply_emission_failure_codes", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            .Value = failureCodes is null ? DBNull.Value : failureCodes;
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    public async Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedDecisionsAsync(
+        string sourceId,
+        string mailbox,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateIdentity(sourceId, mailbox);
+        if (limit is < 1 or > 500)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 500.");
+        }
+
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            SELECT uid_validity,
+                   uid,
+                   raw_message,
+                   captured_at,
+                   token_id,
+                   token_issued_at,
+                   token_expires_at,
+                   organization_id,
+                   position_id,
+                   message_id,
+                   thread_id,
+                   request_id,
+                   occupant_id,
+                   user_id,
+                   binding_id,
+                   reply_text
+            FROM {OccupantChannelTokenSchema.SchemaName}.imap_inbound_emails
+            WHERE source_id = @source_id
+              AND mailbox = @mailbox
+              AND processing_state = 'accepted'
+              AND request_id IS NOT NULL
+              AND decision_emission_state = 'pending'
+            ORDER BY processed_at, uid_validity, uid
+            LIMIT @limit;
+            """);
+        AddIdentityParameters(command, sourceId, mailbox);
+        command.Parameters.AddWithValue("limit", limit);
+        await using var reader = await command
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var result = new List<InboundOccupantEmailAdmission>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var envelope = new ImapInboundEmailEnvelope(
+                sourceId,
+                mailbox,
+                checked((uint)reader.GetInt64(0)),
+                checked((uint)reader.GetInt64(1)),
+                reader.GetFieldValue<byte[]>(2),
+                reader.GetFieldValue<DateTimeOffset>(3));
+            var claims = new OccupantChannelCorrelationTokenClaims(
+                reader.GetGuid(4),
+                OrganizationId.From(reader.GetString(7)),
+                PositionId.From(reader.GetString(8)),
+                MessageId.From(reader.GetGuid(9)),
+                ThreadId.From(reader.GetGuid(10)),
+                MessageId.From(reader.GetGuid(11)),
+                reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetFieldValue<DateTimeOffset>(6));
+            result.Add(new InboundOccupantEmailAdmission(
+                envelope,
+                claims,
+                OccupantId.From(reader.GetString(12)),
+                UserId.From(reader.GetGuid(13)),
+                OccupantChannelBindingId.From(reader.GetGuid(14)),
+                reader.GetString(15),
+                InboundOccupantEmailContentTrust.Untrusted));
+        }
+
+        return result;
+    }
+
+    public Task<bool> CompleteDecisionEmittedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId decisionMessageId,
+        DateTimeOffset emittedAtUtc,
+        CancellationToken cancellationToken = default) =>
+        CompleteDecisionEmissionAsync(
+            admission,
+            decisionMessageId,
+            "emitted",
+            failureCodes: null,
+            emittedAtUtc,
+            cancellationToken);
+
+    public Task<bool> CompleteDecisionRejectedAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId decisionMessageId,
+        IReadOnlyList<string> failureCodes,
+        DateTimeOffset rejectedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(failureCodes);
+        var closedCodes = failureCodes
+            .Select(code => string.IsNullOrWhiteSpace(code)
+                ? throw new ArgumentException(
+                    "Approval-decision emission failure codes cannot be empty.",
+                    nameof(failureCodes))
+                : code.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+        if (closedCodes.Length == 0)
+        {
+            throw new ArgumentException(
+                "A rejected approval-decision emission requires at least one failure code.",
+                nameof(failureCodes));
+        }
+
+        return CompleteDecisionEmissionAsync(
+            admission,
+            decisionMessageId,
+            "rejected",
+            closedCodes,
+            rejectedAtUtc,
+            cancellationToken);
+    }
+
+    private async Task<bool> CompleteDecisionEmissionAsync(
+        InboundOccupantEmailAdmission admission,
+        MessageId decisionMessageId,
+        string state,
+        string[]? failureCodes,
+        DateTimeOffset completedAtUtc,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentNullException.ThrowIfNull(decisionMessageId);
+        ValidateProcessedAt(completedAtUtc);
+        if (!admission.Correlation.IsDecision)
+        {
+            throw new ArgumentException(
+                "Work replies are not approval-decision emissions.",
+                nameof(admission));
+        }
+
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            UPDATE {OccupantChannelTokenSchema.SchemaName}.imap_inbound_emails
+            SET decision_emission_state = @decision_emission_state,
+                decision_message_id = @decision_message_id,
+                decision_emission_at = @decision_emission_at,
+                decision_emission_failure_codes = @decision_emission_failure_codes
+            WHERE source_id = @source_id
+              AND mailbox = @mailbox
+              AND uid_validity = @uid_validity
+              AND uid = @uid
+              AND processing_state = 'accepted'
+              AND request_id IS NOT NULL
+              AND decision_emission_state = 'pending';
+            """);
+        AddEnvelopeIdentityParameters(command, admission.Envelope);
+        command.Parameters.AddWithValue("decision_emission_state", state);
+        command.Parameters.AddWithValue("decision_message_id", decisionMessageId.Value);
+        command.Parameters.AddWithValue("decision_emission_at", completedAtUtc);
+        command.Parameters.Add(
+                "decision_emission_failure_codes",
+                NpgsqlDbType.Array | NpgsqlDbType.Text)
             .Value = failureCodes is null ? DBNull.Value : failureCodes;
         return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
     }

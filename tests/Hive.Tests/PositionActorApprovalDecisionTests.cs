@@ -130,6 +130,30 @@ public sealed class PositionActorApprovalDecisionTests
     }
 
     [Fact]
+    public async Task Authenticated_email_thread_mismatch_is_rejected_by_governance_and_audited()
+    {
+        var request = Request(to: Approver);
+        var command = new EmitOccupantApprovalDecision(
+            request.Id,
+            MessageId.From(Guid.Parse("84000000-0000-0000-0000-000000000007")),
+            ThreadId.From(Guid.Parse("82000000-0000-0000-0000-000000000099")),
+            Requester,
+            request.Priority,
+            OccupantReplyAuthor.HumanUser("person-alice", "email"),
+            approved: true);
+
+        var capture = await EmitAsync(Approver, request, command);
+
+        AssertGovernanceRejection(
+            capture,
+            ApprovalValidationCatalog.Codes.ApprovalThreadMismatch,
+            RejectionReason.InvalidRoute,
+            expectedChannel: "email");
+        Assert.Null(capture.RoutedMessage);
+        Assert.Empty(capture.State.OccupantReplies);
+    }
+
+    [Fact]
     public async Task Second_decision_for_the_same_request_is_rejected_and_audited()
     {
         var request = Request(to: Approver);
@@ -183,7 +207,8 @@ public sealed class PositionActorApprovalDecisionTests
     private static void AssertGovernanceRejection(
         EmissionCapture capture,
         string code,
-        RejectionReason reason)
+        RejectionReason reason,
+        string expectedChannel = "web-inbox")
     {
         Assert.False(capture.Result.IsAccepted);
         var resultError = Assert.Single(capture.Result.Errors);
@@ -196,7 +221,7 @@ public sealed class PositionActorApprovalDecisionTests
         Assert.Equal(reason, auditError.Reason);
         Assert.Equal(capture.Result.SourceMessageId, audit.RequestId);
         Assert.Equal("person-alice", audit.Author.SubjectId);
-        Assert.Equal("web-inbox", audit.Author.Channel);
+        Assert.Equal(expectedChannel, audit.Author.Channel);
     }
 
     private static async Task<EmissionCapture> EmitAsync(

@@ -214,6 +214,7 @@ public sealed class OccupantChannelCorrelationTokenTests
         Assert.Equal(binding, request.OccupantChannelBindingId);
         Assert.Contains("Type: ApprovalRequest", request.RenderedMessage, StringComparison.Ordinal);
         Assert.Contains("deploy release", request.RenderedMessage, StringComparison.Ordinal);
+        Assert.Contains("exactly APPROVE or REJECT", request.RenderedMessage, StringComparison.Ordinal);
         Assert.DoesNotContain(user.Value.ToString("D"), request.RenderedMessage, StringComparison.Ordinal);
         Assert.DoesNotContain(binding.Value.ToString("D"), request.RenderedMessage, StringComparison.Ordinal);
         var claims = service.Validate(request.CorrelationToken.Value).Claims!;

@@ -109,6 +109,9 @@ internal sealed class SignedOccupantChannelDeliveryRequestFactory
             string.Empty,
             "Justification:",
             request.Justification,
+            string.Empty,
+            "Reply with exactly APPROVE or REJECT on the first non-empty line.",
+            "You may add an optional reason on the following lines.",
         ],
         ApprovalDecision decision =>
         [

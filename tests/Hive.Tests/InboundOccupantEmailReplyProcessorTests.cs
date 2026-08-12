@@ -241,6 +241,25 @@ public sealed class InboundOccupantEmailReplyProcessorTests
             InboundOccupantEmailFailureCode failure,
             DateTimeOffset processedAtUtc,
             CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedDecisionsAsync(
+            string sourceId,
+            string mailbox,
+            int limit,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> CompleteDecisionEmittedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId decisionMessageId,
+            DateTimeOffset emittedAtUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
+
+        public Task<bool> CompleteDecisionRejectedAsync(
+            InboundOccupantEmailAdmission admission,
+            MessageId decisionMessageId,
+            IReadOnlyList<string> failureCodes,
+            DateTimeOffset rejectedAtUtc,
+            CancellationToken cancellationToken = default) => throw new NotSupportedException();
     }
 
     private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider

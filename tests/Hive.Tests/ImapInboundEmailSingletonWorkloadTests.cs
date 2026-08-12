@@ -19,10 +19,12 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
         var poller = new RecordingPoller();
         var processor = new RecordingProcessor();
         var replyProcessor = new RecordingReplyProcessor();
+        var decisionProcessor = new RecordingDecisionProcessor();
         system.ActorOf(ImapInboundEmailSourceActor.Props(
             poller,
             processor,
             replyProcessor,
+            decisionProcessor,
             TimeSpan.FromHours(1),
             "occupant-replies",
             "INBOX",
@@ -31,12 +33,14 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
         await WaitForAsync(
             () => poller.PollCount == 1
                 && processor.ProcessCount == 1
-                && replyProcessor.ProcessCount == 1,
+                && replyProcessor.ProcessCount == 1
+                && decisionProcessor.ProcessCount == 1,
             TimeSpan.FromSeconds(5));
 
         Assert.Equal(1, poller.PollCount);
         Assert.Equal(1, processor.ProcessCount);
         Assert.Equal(1, replyProcessor.ProcessCount);
+        Assert.Equal(1, decisionProcessor.ProcessCount);
         await system.Terminate();
     }
 
@@ -66,6 +70,7 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
                 poller,
                 NoopProcessor.Instance,
                 NoopReplyProcessor.Instance,
+                NoopDecisionProcessor.Instance,
                 Options.Create(new ImapInboundEmailOptions
                 {
                     Enabled = true,
@@ -110,6 +115,7 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
             poller,
             NoopProcessor.Instance,
             NoopReplyProcessor.Instance,
+            NoopDecisionProcessor.Instance,
             Options.Create(new ImapInboundEmailOptions
             {
                 Enabled = false,
@@ -222,6 +228,30 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
             Interlocked.Increment(ref _processCount);
             return Task.FromResult(
                 new InboundOccupantEmailReplyProcessingResult(0, 0, 0, 0, 0));
+        }
+    }
+
+    private sealed class NoopDecisionProcessor : IInboundOccupantEmailDecisionProcessor
+    {
+        public static NoopDecisionProcessor Instance { get; } = new();
+
+        public Task<InboundOccupantEmailDecisionProcessingResult> ProcessAcceptedAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new InboundOccupantEmailDecisionProcessingResult(0, 0, 0, 0, 0));
+    }
+
+    private sealed class RecordingDecisionProcessor : IInboundOccupantEmailDecisionProcessor
+    {
+        private int _processCount;
+
+        public int ProcessCount => Volatile.Read(ref _processCount);
+
+        public Task<InboundOccupantEmailDecisionProcessingResult> ProcessAcceptedAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _processCount);
+            return Task.FromResult(
+                new InboundOccupantEmailDecisionProcessingResult(0, 0, 0, 0, 0));
         }
     }
 }

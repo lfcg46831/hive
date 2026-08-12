@@ -23,8 +23,17 @@ internal interface IInboundOccupantEmailReplyEmitter
         CancellationToken cancellationToken = default);
 }
 
+internal interface IInboundOccupantEmailDecisionEmitter
+{
+    ValueTask<OccupantReplyEmissionResult> EmitAsync(
+        PositionEntityId position,
+        EmitOccupantApprovalDecision command,
+        CancellationToken cancellationToken = default);
+}
+
 internal sealed class ShardedInboundOccupantEmailReplyEmitter :
-    IInboundOccupantEmailReplyEmitter
+    IInboundOccupantEmailReplyEmitter,
+    IInboundOccupantEmailDecisionEmitter
 {
     private readonly ActorSystem _system;
     private readonly int _numberOfShards;
@@ -44,6 +53,23 @@ internal sealed class ShardedInboundOccupantEmailReplyEmitter :
     public async ValueTask<OccupantReplyEmissionResult> EmitAsync(
         PositionEntityId position,
         EmitCorrelatedOccupantReply command,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(position);
+        ArgumentNullException.ThrowIfNull(command);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return await GetOrStartShardRegion()
+            .Ask<OccupantReplyEmissionResult>(
+                PositionEnvelope.For(position, command),
+                TimeSpan.FromSeconds(30),
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    public async ValueTask<OccupantReplyEmissionResult> EmitAsync(
+        PositionEntityId position,
+        EmitOccupantApprovalDecision command,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(position);

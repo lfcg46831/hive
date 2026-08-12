@@ -4,6 +4,7 @@ using Akka.Persistence.Sql.Hosting;
 using Akka.Persistence.Hosting;
 using Akka.Remote.Hosting;
 using Hive.Actors.Positions;
+using Hive.Actors.OccupantChannels;
 using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
@@ -181,6 +182,12 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<SchedulerCoordinatorSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<SchedulerCoordinatorSingletonWorkload>());
+
+        // Inbound occupant email is a cluster-wide transport source on the connectors role. Its
+        // actor owns only sequential polling; PostgreSQL owns checkpoint and deduplication state.
+        builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
+        builder.Services.AddSingleton<IRoleWorkload>(
+            sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());
 
         return builder;
     }

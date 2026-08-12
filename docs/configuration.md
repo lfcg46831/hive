@@ -79,6 +79,7 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__OUTCOMES__MODE` | `shadow` | Hybrid outcome rollout mode (`Hive:Outcomes:Mode`). `shadow` calculates and audits proposal→resolution but preserves the proposed message; `enforcement` applies the closed resolution before the existing action/routing gates. Only these exact lowercase values are valid. |
 | `HIVE__OUTCOMES__VERIFIERTIMEOUT` | `00:00:15` | Maximum verifier call duration (`Hive:Outcomes:VerifierTimeout`) as a positive `hh:mm:ss` span. The effective request timeout is the minimum of this value, the position AI timeout and the remaining directive deadline; zero or a negative value fails startup validation. |
 | `HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__*` | operator secret store / deployment environment | Outbound occupant-email transport on `connectors` nodes. It is disabled by default; the complete setting contract and secret-handling rules are in [Outbound occupant email (SMTP)](#outbound-occupant-email-smtp). |
+| `HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__*` | operator secret store / deployment environment | Inbound occupant-email source on `connectors` nodes. It is disabled by default; the complete setting contract and checkpoint rules are in [Inbound occupant email (IMAP)](#inbound-occupant-email-imap). |
 
 ## Run with Docker Compose
 
@@ -784,6 +785,45 @@ HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__PASSWORD=<secret>
 ```
 
 Keep real SMTP credentials in the deployment platform's secret store, an ignored local `.env`, or .NET user-secrets. Never place them in `appsettings*.json`, `.env.example`, organization YAML, logs, or source control. Rotation applies to the next send after the process is restarted with the new environment-provided configuration; binding revocation is independent and is checked on every attempt.
+
+## Inbound occupant email (IMAP)
+
+IMAP is the transport-only inbound source for occupant replies. It activates only when the node declares the `connectors` role and `Hive:OccupantChannels:Email:Imap:Enabled` is `true`. The source runs as one Akka Cluster Singleton across that role, polls one batch at a time, opens the configured mailbox read-only and never changes message flags. It stages opaque RFC 822 bytes in PostgreSQL; sender/token/body parsing and admission begin in `US-F1-03-T07` and are not performed by the source.
+
+The durable cursor is `(SourceId, Mailbox, UIDVALIDITY, last UID)`. A first activation reads existing UIDs from the beginning in ascending batches. If the server changes `UIDVALIDITY`, ingestion starts a new generation from its beginning. Each batch inserts envelopes keyed by `(SourceId, Mailbox, UIDVALIDITY, UID)` and advances the checkpoint in the same transaction, so restart, singleton handover and server re-delivery converge without loss or duplicate staging rows. Changing `SourceId` or `Mailbox` deliberately creates a separate cursor and can re-ingest existing mail.
+
+| Setting | Required | Default / purpose |
+| --- | --- | --- |
+| `Hive:OccupantChannels:Email:Imap:Enabled` | no | `false`. Explicitly activates IMAP on a `connectors` node. |
+| `Hive:OccupantChannels:Email:Imap:SourceId` | no | `occupant-replies`; stable lowercase operational identity (letters/digits plus `.`, `_`, `-`, maximum 128 characters). Do not change it casually. |
+| `Hive:OccupantChannels:Email:Imap:Host` | when enabled | IMAP server hostname. |
+| `Hive:OccupantChannels:Email:Imap:Port` | when enabled | `993`; valid range 1–65535. |
+| `Hive:OccupantChannels:Email:Imap:Security` | when enabled | `ssl-on-connect`. Other accepted values are `start-tls` and `none`; use `none` only for a trusted development server. |
+| `Hive:OccupantChannels:Email:Imap:Username` / `Password` | when enabled | IMAP credentials. `Password` is a secret. |
+| `Hive:OccupantChannels:Email:Imap:Mailbox` | no | `INBOX`; trimmed mailbox path, maximum 255 characters. |
+| `Hive:OccupantChannels:Email:Imap:PollInterval` | no | `00:00:30`; at least one second. Only one poll can be in flight. |
+| `Hive:OccupantChannels:Email:Imap:BatchSize` | no | `50`; accepted range 1–500. |
+| `Hive:OccupantChannels:Email:Imap:MaxMessageBytes` | no | `10485760` (10 MiB); accepted range 1 KiB–50 MiB. An oversized envelope fails the poll without advancing the checkpoint. |
+| `Hive:OccupantChannels:Email:Imap:OperationTimeout` | no | `00:00:30`; positive timeout for connect/authenticate/fetch. |
+| `Hive:OccupantChannels:Email:Imap:ClusterUpTimeout` | no | `00:00:30`; positive maximum wait for the connector node to reach cluster *Up* before singleton materialization. |
+| `ConnectionStrings:PostgreSql` | when enabled | Shared durable staging/checkpoint store. IMAP activation fails startup when it is absent. |
+
+Example for a connector deployment:
+
+```text
+HIVE__NODE__ROLES__0=connectors
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__ENABLED=true
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__SOURCEID=occupant-replies
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__HOST=imap.example.com
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__PORT=993
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__SECURITY=ssl-on-connect
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__USERNAME=hive-replies@example.com
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__PASSWORD=<secret>
+HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__MAILBOX=INBOX
+ConnectionStrings__PostgreSql=Host=postgres;Port=5432;Database=hive;Username=hive;Password=<secret>
+```
+
+Keep IMAP credentials in the deployment secret store, an ignored local `.env`, or .NET user-secrets. Never put credentials or captured message bytes in source control, configuration documentation, logs, metrics or exception details. The staging tables contain untrusted email content and require the same database access controls and production privacy limitations as the ingress data described in `US-F1-08`.
 
 ## Logging
 

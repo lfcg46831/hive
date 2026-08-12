@@ -18,6 +18,10 @@ public sealed class SmtpOccupantChannelBootstrapTests
 
         Assert.IsType<SmtpOccupantChannel>(
             host.Services.GetRequiredService<IOccupantChannel>());
+        Assert.IsType<SignedOccupantChannelDeliveryRequestFactory>(
+            host.Services.GetRequiredService<IOccupantChannelDeliveryRequestFactory>());
+        Assert.IsType<HmacOccupantChannelCorrelationTokenService>(
+            host.Services.GetRequiredService<IOccupantChannelCorrelationTokenService>());
     }
 
     [Fact]
@@ -35,6 +39,8 @@ public sealed class SmtpOccupantChannelBootstrapTests
         var builder = CreateBuilder(new Dictionary<string, string?>
         {
             ["Hive:Node:Roles:0"] = NodeRoleNames.Connectors,
+            ["Hive:OccupantChannels:CorrelationTokens:SigningKey"] =
+                OccupantChannelCorrelationTokenTests.SigningKey(),
             ["Hive:OccupantChannels:Email:Smtp:Enabled"] = "true",
         });
         using var host = builder.Build();
@@ -48,6 +54,39 @@ public sealed class SmtpOccupantChannelBootstrapTests
         Assert.Contains(
             exception.Failures,
             failure => failure.Contains("Smtp:FromAddress", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Connector_node_rejects_missing_correlation_signing_key_at_startup()
+    {
+        var configuration = ValidConfiguration(NodeRoleNames.Connectors);
+        configuration.Remove("Hive:OccupantChannels:CorrelationTokens:SigningKey");
+        var builder = CreateBuilder(configuration);
+        using var host = builder.Build();
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync());
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("CorrelationTokens:SigningKey", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Connector_node_rejects_short_correlation_signing_key_at_startup()
+    {
+        var configuration = ValidConfiguration(NodeRoleNames.Connectors);
+        configuration["Hive:OccupantChannels:CorrelationTokens:SigningKey"] =
+            Convert.ToBase64String(new byte[16]);
+        var builder = CreateBuilder(configuration);
+        using var host = builder.Build();
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync());
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains("at least 32 bytes", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -81,6 +120,8 @@ public sealed class SmtpOccupantChannelBootstrapTests
     private static Dictionary<string, string?> ValidConfiguration(string role) => new()
     {
         ["Hive:Node:Roles:0"] = role,
+        ["Hive:OccupantChannels:CorrelationTokens:SigningKey"] =
+            OccupantChannelCorrelationTokenTests.SigningKey(),
         ["Hive:OccupantChannels:Email:Smtp:Enabled"] = "true",
         ["Hive:OccupantChannels:Email:Smtp:Host"] = "smtp.example.test",
         ["Hive:OccupantChannels:Email:Smtp:Port"] = "587",

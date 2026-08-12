@@ -26,6 +26,7 @@
     <EmbeddedResource Include="Scheduling\PostgreSql\Migrations\*.sql" />
     <EmbeddedResource Include="Auditing\PostgreSql\Migrations\*.sql" />
     <EmbeddedResource Include="Inbox\ReadModels\PostgreSql\Migrations\*.sql" />
+    <EmbeddedResource Include="OccupantChannels\PostgreSql\Migrations\*.sql" />
   </ItemGroup>
 
   <ItemGroup>

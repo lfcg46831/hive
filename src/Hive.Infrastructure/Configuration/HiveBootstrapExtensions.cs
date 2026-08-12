@@ -54,6 +54,7 @@ public static class HiveBootstrapExtensions
                     .Value));
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHiveOccupantChannelCorrelationTokens(builder.Configuration);
         builder.Services.AddHiveSmtpOccupantChannel(builder.Configuration);
         builder.Services.AddHiveActionDomainContracts();
         builder.Services.AddHiveAiGateway(builder.Configuration);

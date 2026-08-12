@@ -733,6 +733,17 @@ The default test suite does not call external AI providers. The optional real-pr
 
 When either required variable is absent, the test exits before configuring or resolving the real provider. The key must not appear in assertions, logs, snapshots, or committed configuration.
 
+## Occupant-channel correlation tokens
+
+Email notifications carry a private, versioned correlation token signed with HMAC-SHA-256. The authenticated payload contains only organizational correlation, issue/expiry times and a random token id; it does not contain a user id, channel binding, personal endpoint, message body, or signing key. Cryptographic validation never consumes a token. After the inbound path has also validated the active occupation, binding and sender, an approval-decision token is redeemed once through the shared PostgreSQL `occupant_channel.decision_token_uses` registry. A duplicate or unavailable registry fails closed.
+
+| Setting | Required | Default / purpose |
+| --- | --- | --- |
+| `Hive:OccupantChannels:CorrelationTokens:SigningKey` | when SMTP is enabled on a `connectors` node | Base64-encoded secret containing at least 32 random bytes (256 bits). |
+| `Hive:OccupantChannels:CorrelationTokens:Lifetime` | no | `7.00:00:00`; must be at least one second and no longer than 30 days. The exact expiry instant is invalid. |
+
+Use the same signing key on every node that issues or validates occupant-channel tokens and store it in the deployment secret store or .NET user-secrets. Never put the key in `appsettings*.json`, `.env.example`, organization YAML, logs, snapshots, email, or source control. Replacing the key invalidates every outstanding token immediately; schedule rotation after the current token lifetime unless emergency invalidation is intended. Production decision redemption also requires the canonical `ConnectionStrings:PostgreSql` setting so all replicas share the atomic use registry.
+
 ## Outbound occupant email (SMTP)
 
 SMTP is the first outbound occupant-channel adapter. It activates only when the node declares the `connectors` role and `Hive:OccupantChannels:Email:Smtp:Enabled` is `true`; otherwise the neutral channel remains unavailable and no SMTP connection is opened. A connector node with SMTP enabled validates its complete configuration during startup. Nodes without the `connectors` role neither activate the adapter nor require its credentials.
@@ -761,6 +772,7 @@ Example for a connector deployment:
 
 ```text
 HIVE__NODE__ROLES__0=connectors
+HIVE__OCCUPANTCHANNELS__CORRELATIONTOKENS__SIGNINGKEY=<base64-encoded-32-byte-secret>
 HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__ENABLED=true
 HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__HOST=smtp.example.com
 HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__PORT=587

@@ -14,6 +14,7 @@ using Hive.Infrastructure.Logging;
 using Hive.Infrastructure.Organization.ReadModels;
 using Hive.Infrastructure.Organization.Registry;
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
+using Hive.Infrastructure.OccupantChannels;
 using Hive.Infrastructure.Persistence.PostgreSql;
 using Hive.Infrastructure.Scheduling;
 using Hive.Infrastructure.Scheduling.PostgreSql;
@@ -53,6 +54,7 @@ public static class HiveBootstrapExtensions
                     .Value));
 
         builder.Services.AddSingleton<ActiveNodeRoles>();
+        builder.Services.AddHiveSmtpOccupantChannel(builder.Configuration);
         builder.Services.AddHiveActionDomainContracts();
         builder.Services.AddHiveAiGateway(builder.Configuration);
         builder.Services.TryAddSingleton<IJourneyAuditLog>(serviceProvider =>

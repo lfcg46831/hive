@@ -78,6 +78,7 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__AGENTS__CLUSTERUPTIMEOUT` | unset (workload default `00:00:30`) | Maximum time the `agents` workload waits for the `ActorSystem` to reach cluster *Up* before initializing Cluster Sharding for the `PositionActor` (`Hive:Agents:ClusterUpTimeout`, US-F0-06-T04d), as a `hh:mm:ss` span. Sharding only starts once the node is a full cluster member; if *Up* is not reached within this window the workload fails the node startup observably (`ClusterStartupTimeoutException`) instead of starting sharding on a node that has not joined. Must be greater than zero when set. |
 | `HIVE__OUTCOMES__MODE` | `shadow` | Hybrid outcome rollout mode (`Hive:Outcomes:Mode`). `shadow` calculates and audits proposal→resolution but preserves the proposed message; `enforcement` applies the closed resolution before the existing action/routing gates. Only these exact lowercase values are valid. |
 | `HIVE__OUTCOMES__VERIFIERTIMEOUT` | `00:00:15` | Maximum verifier call duration (`Hive:Outcomes:VerifierTimeout`) as a positive `hh:mm:ss` span. The effective request timeout is the minimum of this value, the position AI timeout and the remaining directive deadline; zero or a negative value fails startup validation. |
+| `HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__*` | operator secret store / deployment environment | Outbound occupant-email transport on `connectors` nodes. It is disabled by default; the complete setting contract and secret-handling rules are in [Outbound occupant email (SMTP)](#outbound-occupant-email-smtp). |
 
 ## Run with Docker Compose
 
@@ -731,6 +732,46 @@ The default test suite does not call external AI providers. The optional real-pr
 | `HIVE_AI_GATEWAY_REAL_TEST_ENDPOINT` | no | Optional absolute endpoint override. |
 
 When either required variable is absent, the test exits before configuring or resolving the real provider. The key must not appear in assertions, logs, snapshots, or committed configuration.
+
+## Outbound occupant email (SMTP)
+
+SMTP is the first outbound occupant-channel adapter. It activates only when the node declares the `connectors` role and `Hive:OccupantChannels:Email:Smtp:Enabled` is `true`; otherwise the neutral channel remains unavailable and no SMTP connection is opened. A connector node with SMTP enabled validates its complete configuration during startup. Nodes without the `connectors` role neither activate the adapter nor require its credentials.
+
+Immediately before every send attempt, including retries, the adapter asks the `identity` subsystem to verify the exact organization, position, occupant, `UserId`, and opaque `OccupantChannelBindingId` and return the active normalized email endpoint. It does not cache, persist, or log that endpoint. A missing or revoked binding fails closed without opening SMTP; identity-subsystem unavailability is retryable. The active binding resolver and the signed correlation-token request factory must both be present for end-to-end delivery.
+
+Each notification is text-only. It identifies the organization, position and thread, includes the already-rendered organizational message, states that the position inbox remains the source of truth, and adds plain-text reply instructions plus the opaque correlation token. Retries use a stable SMTP `Message-Id` derived from the organizational `MessageId`, but delivery remains at-least-once.
+
+| Setting | Required | Default / purpose |
+| --- | --- | --- |
+| `Hive:OccupantChannels:Email:Smtp:Enabled` | no | `false`. Explicitly activates SMTP on a `connectors` node. |
+| `Hive:OccupantChannels:Email:Smtp:Host` | when enabled | SMTP server hostname. |
+| `Hive:OccupantChannels:Email:Smtp:Port` | when enabled | `587`; valid range 1–65535. |
+| `Hive:OccupantChannels:Email:Smtp:Security` | when enabled | `start-tls` (strict STARTTLS). Other accepted values are `ssl-on-connect` and `none`; use `none` only for a trusted development relay. |
+| `Hive:OccupantChannels:Email:Smtp:FromAddress` | when enabled | One normalized mailbox address without a display name. |
+| `Hive:OccupantChannels:Email:Smtp:FromName` | no | `HIVE`; line breaks are rejected. |
+| `Hive:OccupantChannels:Email:Smtp:ReplyToAddress` | no | Normalized inbound mailbox address; defaults to `FromAddress`. |
+| `Hive:OccupantChannels:Email:Smtp:Username` / `Password` | no, but a pair | SMTP credentials. Supply both or neither (for a trusted relay). `Password` is a secret. |
+| `Hive:OccupantChannels:Email:Smtp:SubjectPrefix` | no | `[HIVE]`; line breaks are rejected. |
+| `Hive:OccupantChannels:Email:Smtp:MaxAttempts` | no | `3`; accepted range 1–10, including the initial attempt. Only retryable failures are retried. |
+| `Hive:OccupantChannels:Email:Smtp:InitialBackoff` | no | `00:00:01`; positive initial retry delay. |
+| `Hive:OccupantChannels:Email:Smtp:MaxBackoff` | no | `00:00:30`; positive cap for exponential backoff and not less than `InitialBackoff`. |
+| `Hive:OccupantChannels:Email:Smtp:AttemptTimeout` | no | `00:00:30`; positive timeout for each connect/authenticate/send attempt. |
+
+Example for a connector deployment:
+
+```text
+HIVE__NODE__ROLES__0=connectors
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__ENABLED=true
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__HOST=smtp.example.com
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__PORT=587
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__SECURITY=start-tls
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__FROMADDRESS=hive@example.com
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__REPLYTOADDRESS=hive-replies@example.com
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__USERNAME=<smtp-user>
+HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__PASSWORD=<secret>
+```
+
+Keep real SMTP credentials in the deployment platform's secret store, an ignored local `.env`, or .NET user-secrets. Never place them in `appsettings*.json`, `.env.example`, organization YAML, logs, or source control. Rotation applies to the next send after the process is restarted with the new environment-provided configuration; binding revocation is independent and is checked on every attempt.
 
 ## Logging
 

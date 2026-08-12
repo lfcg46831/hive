@@ -16,6 +16,25 @@ public interface IOccupantChannelCorrelationTokenService
     ValueTask<OccupantChannelCorrelationTokenValidation> RedeemDecisionAsync(
         string? token,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Redeems a decision token for one durable admission operation. Repeating the same non-empty
+    /// operation id is an idempotent retry; a different operation id remains a duplicate use.
+    /// </summary>
+    ValueTask<OccupantChannelCorrelationTokenValidation> RedeemDecisionAsync(
+        string? token,
+        Guid operationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (operationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Decision-token redemption operation id cannot be empty.",
+                nameof(operationId));
+        }
+
+        return RedeemDecisionAsync(token, cancellationToken);
+    }
 }
 
 /// <summary>Organizational correlation bound into one signed occupant-channel token.</summary>

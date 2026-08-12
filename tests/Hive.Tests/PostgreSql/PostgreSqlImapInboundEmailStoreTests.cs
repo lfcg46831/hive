@@ -1,4 +1,6 @@
 using System.Text;
+using Hive.Domain.Identity;
+using Hive.Domain.OccupantChannels;
 using Hive.Infrastructure.OccupantChannels;
 using Hive.Infrastructure.OccupantChannels.PostgreSql;
 
@@ -88,6 +90,89 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
     }
 
     [Fact]
+    public async Task Admission_transitions_once_and_persists_only_typed_untrusted_acceptance_metadata()
+    {
+        await ResetAndMigrateAsync();
+        var capturedAt = new DateTimeOffset(2026, 8, 12, 12, 0, 0, TimeSpan.Zero);
+        var processedAt = capturedAt.AddMinutes(1);
+        await using var store = new PostgreSqlImapInboundEmailStore(fixture.ConnectionString);
+        await store.CommitBatchAsync(
+            null,
+            Batch(7, 2, (1, "accepted-raw"), (2, "rejected-raw")),
+            capturedAt);
+        var pending = await store.ReadPendingAsync("occupant-replies", "INBOX", 10);
+        var acceptedEnvelope = Assert.Single(pending, item => item.Uid == 1);
+        var rejectedEnvelope = Assert.Single(pending, item => item.Uid == 2);
+        var claims = new OccupantChannelCorrelationTokenClaims(
+            Guid.Parse("11111111-1111-1111-1111-111111111111"),
+            OrganizationId.From("acme"),
+            PositionId.From("delivery-lead"),
+            MessageId.From(Guid.Parse("22222222-2222-2222-2222-222222222222")),
+            ThreadId.From(Guid.Parse("33333333-3333-3333-3333-333333333333")),
+            MessageId.From(Guid.Parse("44444444-4444-4444-4444-444444444444")),
+            capturedAt.AddHours(-1),
+            capturedAt.AddDays(1));
+        var admission = new InboundOccupantEmailAdmission(
+            acceptedEnvelope,
+            claims,
+            OccupantId.From("human:delivery-lead"),
+            UserId.From(Guid.Parse("55555555-5555-5555-5555-555555555555")),
+            OccupantChannelBindingId.From(
+                Guid.Parse("66666666-6666-6666-6666-666666666666")),
+            "approve",
+            InboundOccupantEmailContentTrust.Untrusted);
+
+        Assert.True(await store.CompleteAcceptedAsync(admission, processedAt));
+        Assert.False(await store.CompleteAcceptedAsync(admission, processedAt.AddSeconds(1)));
+        Assert.True(await store.CompleteRejectedAsync(
+            rejectedEnvelope,
+            InboundOccupantEmailFailureCode.SenderMismatch,
+            processedAt));
+        Assert.False(await store.CompleteRejectedAsync(
+            rejectedEnvelope,
+            InboundOccupantEmailFailureCode.TokenExpired,
+            processedAt.AddSeconds(1)));
+
+        Assert.Empty(await store.ReadPendingAsync("occupant-replies", "INBOX", 10));
+        var persisted = Assert.Single(await store.ReadAcceptedAsync(
+            "occupant-replies",
+            "INBOX",
+            10));
+        Assert.Equal(claims, persisted.Correlation);
+        Assert.Equal(admission.OccupantId, persisted.OccupantId);
+        Assert.Equal(admission.UserId, persisted.UserId);
+        Assert.Equal(admission.BindingId, persisted.BindingId);
+        Assert.Equal("approve", persisted.PlainTextReply);
+        Assert.Equal(InboundOccupantEmailContentTrust.Untrusted, persisted.ContentTrust);
+
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT processing_state,
+                   failure_code,
+                   token_id,
+                   organization_id,
+                   position_id,
+                   reply_text,
+                   content_trust
+            FROM occupant_channel.imap_inbound_emails
+            WHERE source_id = 'occupant-replies'
+              AND mailbox = 'INBOX'
+              AND uid_validity = 7
+              AND uid = 2;
+            """);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("rejected", reader.GetString(0));
+        Assert.Equal("sender-mismatch", reader.GetString(1));
+        Assert.True(reader.IsDBNull(2));
+        Assert.True(reader.IsDBNull(3));
+        Assert.True(reader.IsDBNull(4));
+        Assert.True(reader.IsDBNull(5));
+        Assert.True(reader.IsDBNull(6));
+    }
+
+    [Fact]
     public async Task Migration_is_idempotent()
     {
         await ResetAsync();
@@ -106,7 +191,7 @@ public sealed class PostgreSqlImapInboundEmailStoreTests(PostgreSqlFixture fixtu
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1, 2], versions);
+        Assert.Equal([1, 2, 3], versions);
     }
 
     private async Task ResetAndMigrateAsync()

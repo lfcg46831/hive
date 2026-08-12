@@ -63,6 +63,23 @@ internal interface IImapInboundEmailStore
         string mailbox,
         int limit,
         CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteAcceptedAsync(
+        InboundOccupantEmailAdmission admission,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<bool> CompleteRejectedAsync(
+        ImapInboundEmailEnvelope envelope,
+        InboundOccupantEmailFailureCode failure,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+        string sourceId,
+        string mailbox,
+        int limit,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IImapInboundEmailPoller

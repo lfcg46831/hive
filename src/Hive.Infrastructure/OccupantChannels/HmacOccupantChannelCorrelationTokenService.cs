@@ -170,8 +170,21 @@ internal sealed class HmacOccupantChannelCorrelationTokenService
 
     public async ValueTask<OccupantChannelCorrelationTokenValidation> RedeemDecisionAsync(
         string? token,
+        CancellationToken cancellationToken = default) =>
+        await RedeemDecisionAsync(token, Guid.NewGuid(), cancellationToken).ConfigureAwait(false);
+
+    public async ValueTask<OccupantChannelCorrelationTokenValidation> RedeemDecisionAsync(
+        string? token,
+        Guid operationId,
         CancellationToken cancellationToken = default)
     {
+        if (operationId == Guid.Empty)
+        {
+            throw new ArgumentException(
+                "Decision-token redemption operation id cannot be empty.",
+                nameof(operationId));
+        }
+
         var validation = Validate(token);
         if (!validation.IsValid)
         {
@@ -192,14 +205,16 @@ internal sealed class HmacOccupantChannelCorrelationTokenService
 
         try
         {
-            var consumed = await _useStore.TryConsumeAsync(
+            var use = await _useStore.TryConsumeAsync(
                 claims.TokenId,
+                operationId,
                 claims.ExpiresAtUtc,
                 consumedAtUtc,
                 cancellationToken).ConfigureAwait(false);
-            return consumed
-                ? validation
-                : Invalid(OccupantChannelCorrelationTokenFailure.AlreadyUsed);
+            return use is OccupantChannelDecisionTokenUseResult.Consumed
+                or OccupantChannelDecisionTokenUseResult.AlreadyConsumedByOperation
+                    ? validation
+                    : Invalid(OccupantChannelCorrelationTokenFailure.AlreadyUsed);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

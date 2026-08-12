@@ -1,5 +1,7 @@
 using Npgsql;
 using NpgsqlTypes;
+using Hive.Domain.Identity;
+using Hive.Domain.OccupantChannels;
 
 namespace Hive.Infrastructure.OccupantChannels.PostgreSql;
 
@@ -205,6 +207,184 @@ internal sealed class PostgreSqlImapInboundEmailStore
         return result;
     }
 
+    public async Task<bool> CompleteAcceptedAsync(
+        InboundOccupantEmailAdmission admission,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        ValidateProcessedAt(processedAtUtc);
+        if (admission.ContentTrust is not InboundOccupantEmailContentTrust.Untrusted)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(admission),
+                "Inbound occupant email content must remain untrusted.");
+        }
+
+        if (string.IsNullOrWhiteSpace(admission.PlainTextReply))
+        {
+            throw new ArgumentException(
+                "An accepted inbound occupant email requires plain-text reply content.",
+                nameof(admission));
+        }
+
+        var envelope = admission.Envelope;
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            UPDATE {OccupantChannelTokenSchema.SchemaName}.imap_inbound_emails
+            SET processing_state = 'accepted',
+                processed_at = @processed_at,
+                token_id = @token_id,
+                token_issued_at = @token_issued_at,
+                token_expires_at = @token_expires_at,
+                organization_id = @organization_id,
+                position_id = @position_id,
+                message_id = @message_id,
+                thread_id = @thread_id,
+                request_id = @request_id,
+                occupant_id = @occupant_id,
+                user_id = @user_id,
+                binding_id = @binding_id,
+                reply_text = @reply_text,
+                content_trust = 'untrusted'
+            WHERE source_id = @source_id
+              AND mailbox = @mailbox
+              AND uid_validity = @uid_validity
+              AND uid = @uid
+              AND processing_state = 'pending';
+            """);
+        AddEnvelopeIdentityParameters(command, envelope);
+        command.Parameters.AddWithValue("processed_at", processedAtUtc);
+        command.Parameters.AddWithValue("token_id", admission.Correlation.TokenId);
+        command.Parameters.AddWithValue("token_issued_at", admission.Correlation.IssuedAtUtc);
+        command.Parameters.AddWithValue("token_expires_at", admission.Correlation.ExpiresAtUtc);
+        command.Parameters.AddWithValue(
+            "organization_id",
+            admission.Correlation.OrganizationId.Value);
+        command.Parameters.AddWithValue("position_id", admission.Correlation.PositionId.Value);
+        command.Parameters.AddWithValue("message_id", admission.Correlation.MessageId.Value);
+        command.Parameters.AddWithValue("thread_id", admission.Correlation.ThreadId.Value);
+        command.Parameters.Add("request_id", NpgsqlDbType.Uuid).Value =
+            admission.Correlation.RequestId is { } requestId
+                ? requestId.Value
+                : DBNull.Value;
+        command.Parameters.AddWithValue("occupant_id", admission.OccupantId.Value);
+        command.Parameters.AddWithValue("user_id", admission.UserId.Value);
+        command.Parameters.AddWithValue("binding_id", admission.BindingId.Value);
+        command.Parameters.AddWithValue("reply_text", admission.PlainTextReply);
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    public async Task<bool> CompleteRejectedAsync(
+        ImapInboundEmailEnvelope envelope,
+        InboundOccupantEmailFailureCode failure,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        ValidateProcessedAt(processedAtUtc);
+        if (!Enum.IsDefined(failure)
+            || failure is InboundOccupantEmailFailureCode.IdentityUnavailable
+                or InboundOccupantEmailFailureCode.DecisionTokenStoreUnavailable)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(failure),
+                failure,
+                "Only terminal inbound email failures may be persisted as rejected.");
+        }
+
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            UPDATE {OccupantChannelTokenSchema.SchemaName}.imap_inbound_emails
+            SET processing_state = 'rejected',
+                processed_at = @processed_at,
+                failure_code = @failure_code
+            WHERE source_id = @source_id
+              AND mailbox = @mailbox
+              AND uid_validity = @uid_validity
+              AND uid = @uid
+              AND processing_state = 'pending';
+            """);
+        AddEnvelopeIdentityParameters(command, envelope);
+        command.Parameters.AddWithValue("processed_at", processedAtUtc);
+        command.Parameters.AddWithValue("failure_code", failure.ToCode());
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
+    public async Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+        string sourceId,
+        string mailbox,
+        int limit,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateIdentity(sourceId, mailbox);
+        if (limit is < 1 or > 500)
+        {
+            throw new ArgumentOutOfRangeException(nameof(limit), "Limit must be between 1 and 500.");
+        }
+
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            SELECT uid_validity,
+                   uid,
+                   raw_message,
+                   captured_at,
+                   token_id,
+                   token_issued_at,
+                   token_expires_at,
+                   organization_id,
+                   position_id,
+                   message_id,
+                   thread_id,
+                   request_id,
+                   occupant_id,
+                   user_id,
+                   binding_id,
+                   reply_text
+            FROM {OccupantChannelTokenSchema.SchemaName}.imap_inbound_emails
+            WHERE source_id = @source_id
+              AND mailbox = @mailbox
+              AND processing_state = 'accepted'
+            ORDER BY processed_at, uid_validity, uid
+            LIMIT @limit;
+            """);
+        AddIdentityParameters(command, sourceId, mailbox);
+        command.Parameters.AddWithValue("limit", limit);
+        await using var reader = await command
+            .ExecuteReaderAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var result = new List<InboundOccupantEmailAdmission>();
+        while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
+        {
+            var envelope = new ImapInboundEmailEnvelope(
+                sourceId,
+                mailbox,
+                checked((uint)reader.GetInt64(0)),
+                checked((uint)reader.GetInt64(1)),
+                reader.GetFieldValue<byte[]>(2),
+                reader.GetFieldValue<DateTimeOffset>(3));
+            var claims = new OccupantChannelCorrelationTokenClaims(
+                reader.GetGuid(4),
+                OrganizationId.From(reader.GetString(7)),
+                PositionId.From(reader.GetString(8)),
+                MessageId.From(reader.GetGuid(9)),
+                ThreadId.From(reader.GetGuid(10)),
+                reader.IsDBNull(11) ? null : MessageId.From(reader.GetGuid(11)),
+                reader.GetFieldValue<DateTimeOffset>(5),
+                reader.GetFieldValue<DateTimeOffset>(6));
+            result.Add(new InboundOccupantEmailAdmission(
+                envelope,
+                claims,
+                OccupantId.From(reader.GetString(12)),
+                UserId.From(reader.GetGuid(13)),
+                OccupantChannelBindingId.From(reader.GetGuid(14)),
+                reader.GetString(15),
+                InboundOccupantEmailContentTrust.Untrusted));
+        }
+
+        return result;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_ownsDataSource)
@@ -313,6 +493,16 @@ internal sealed class PostgreSqlImapInboundEmailStore
         }
     }
 
+    private static void ValidateProcessedAt(DateTimeOffset processedAtUtc)
+    {
+        if (processedAtUtc == default || processedAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "Inbound email processing timestamp must be a non-default UTC value.",
+                nameof(processedAtUtc));
+        }
+    }
+
     private static void AddIdentityParameters(
         NpgsqlCommand command,
         string sourceId,
@@ -320,5 +510,15 @@ internal sealed class PostgreSqlImapInboundEmailStore
     {
         command.Parameters.AddWithValue("source_id", sourceId);
         command.Parameters.AddWithValue("mailbox", mailbox);
+    }
+
+    private static void AddEnvelopeIdentityParameters(
+        NpgsqlCommand command,
+        ImapInboundEmailEnvelope envelope)
+    {
+        ValidateIdentity(envelope.SourceId, envelope.Mailbox);
+        AddIdentityParameters(command, envelope.SourceId, envelope.Mailbox);
+        command.Parameters.AddWithValue("uid_validity", (long)envelope.UidValidity);
+        command.Parameters.AddWithValue("uid", (long)envelope.Uid);
     }
 }

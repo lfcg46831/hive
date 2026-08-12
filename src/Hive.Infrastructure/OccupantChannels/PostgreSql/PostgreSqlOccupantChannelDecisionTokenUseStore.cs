@@ -24,8 +24,9 @@ internal sealed class PostgreSqlOccupantChannelDecisionTokenUseStore
     internal PostgreSqlOccupantChannelDecisionTokenUseStore(NpgsqlDataSource dataSource) =>
         _dataSource = dataSource ?? throw new ArgumentNullException(nameof(dataSource));
 
-    public async ValueTask<bool> TryConsumeAsync(
+    public async ValueTask<OccupantChannelDecisionTokenUseResult> TryConsumeAsync(
         Guid tokenId,
+        Guid operationId,
         DateTimeOffset expiresAtUtc,
         DateTimeOffset consumedAtUtc,
         CancellationToken cancellationToken = default)
@@ -35,11 +36,16 @@ internal sealed class PostgreSqlOccupantChannelDecisionTokenUseStore
             throw new ArgumentException("Decision token id cannot be empty.", nameof(tokenId));
         }
 
+        if (operationId == Guid.Empty)
+        {
+            throw new ArgumentException("Decision token operation id cannot be empty.", nameof(operationId));
+        }
+
         RequireUtc(expiresAtUtc, nameof(expiresAtUtc));
         RequireUtc(consumedAtUtc, nameof(consumedAtUtc));
         if (expiresAtUtc <= consumedAtUtc)
         {
-            return false;
+            return OccupantChannelDecisionTokenUseResult.AlreadyConsumed;
         }
 
         await using var connection = await _dataSource
@@ -63,10 +69,12 @@ internal sealed class PostgreSqlOccupantChannelDecisionTokenUseStore
             $"""
             INSERT INTO {OccupantChannelTokenSchema.SchemaName}.decision_token_uses (
                 token_id,
+                operation_id,
                 expires_at,
                 consumed_at)
             VALUES (
                 @token_id,
+                @operation_id,
                 @expires_at,
                 @consumed_at)
             ON CONFLICT (token_id) DO NOTHING;
@@ -75,13 +83,35 @@ internal sealed class PostgreSqlOccupantChannelDecisionTokenUseStore
             transaction))
         {
             consume.Parameters.AddWithValue("token_id", tokenId);
+            consume.Parameters.AddWithValue("operation_id", operationId);
             consume.Parameters.AddWithValue("expires_at", expiresAtUtc);
             consume.Parameters.AddWithValue("consumed_at", consumedAtUtc);
             inserted = await consume.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         }
 
+        if (inserted == 1)
+        {
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            return OccupantChannelDecisionTokenUseResult.Consumed;
+        }
+
+        Guid existingOperationId;
+        await using (var read = new NpgsqlCommand(
+            $"SELECT operation_id FROM {OccupantChannelTokenSchema.SchemaName}.decision_token_uses WHERE token_id = @token_id;",
+            connection,
+            transaction))
+        {
+            read.Parameters.AddWithValue("token_id", tokenId);
+            existingOperationId = (Guid)(await read
+                .ExecuteScalarAsync(cancellationToken)
+                .ConfigureAwait(false) ?? throw new InvalidOperationException(
+                    "The consumed decision token could not be read back."));
+        }
+
         await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-        return inserted == 1;
+        return existingOperationId == operationId
+            ? OccupantChannelDecisionTokenUseResult.AlreadyConsumedByOperation
+            : OccupantChannelDecisionTokenUseResult.AlreadyConsumed;
     }
 
     public async ValueTask DisposeAsync()

@@ -183,8 +183,9 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<SchedulerCoordinatorSingletonWorkload>());
 
-        // Inbound occupant email is a cluster-wide transport source on the connectors role. Its
-        // actor owns only sequential polling; PostgreSQL owns checkpoint and deduplication state.
+        // Inbound occupant email is a cluster-wide transport and admission source on the
+        // connectors role. Its actor owns sequential polling/parsing; PostgreSQL owns checkpoint,
+        // deduplication and final accepted/rejected admission state.
         builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());

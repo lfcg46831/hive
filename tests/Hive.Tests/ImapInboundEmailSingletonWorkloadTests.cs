@@ -17,16 +17,21 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
     {
         using var system = ActorSystem.Create($"hive-imap-source-{Guid.NewGuid():N}");
         var poller = new RecordingPoller();
+        var processor = new RecordingProcessor();
         system.ActorOf(ImapInboundEmailSourceActor.Props(
             poller,
+            processor,
             TimeSpan.FromHours(1),
             "occupant-replies",
             "INBOX",
             NullLogger.Instance));
 
-        await WaitForAsync(() => poller.PollCount == 1, TimeSpan.FromSeconds(5));
+        await WaitForAsync(
+            () => poller.PollCount == 1 && processor.ProcessCount == 1,
+            TimeSpan.FromSeconds(5));
 
         Assert.Equal(1, poller.PollCount);
+        Assert.Equal(1, processor.ProcessCount);
         await system.Terminate();
     }
 
@@ -54,6 +59,7 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
             var workload = new ImapInboundEmailSingletonWorkload(
                 system,
                 poller,
+                NoopProcessor.Instance,
                 Options.Create(new ImapInboundEmailOptions
                 {
                     Enabled = true,
@@ -96,6 +102,7 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
         var workload = new ImapInboundEmailSingletonWorkload(
             system,
             poller,
+            NoopProcessor.Instance,
             Options.Create(new ImapInboundEmailOptions
             {
                 Enabled = false,
@@ -161,6 +168,29 @@ public sealed class ImapInboundEmailSingletonWorkloadTests
                     "INBOX",
                     1,
                     0)));
+        }
+    }
+
+    private sealed class NoopProcessor : IInboundOccupantEmailProcessor
+    {
+        public static NoopProcessor Instance { get; } = new();
+
+        public Task<InboundOccupantEmailProcessingResult> ProcessPendingAsync(
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(new InboundOccupantEmailProcessingResult(0, 0, 0, 0, 0));
+    }
+
+    private sealed class RecordingProcessor : IInboundOccupantEmailProcessor
+    {
+        private int _processCount;
+
+        public int ProcessCount => Volatile.Read(ref _processCount);
+
+        public Task<InboundOccupantEmailProcessingResult> ProcessPendingAsync(
+            CancellationToken cancellationToken = default)
+        {
+            Interlocked.Increment(ref _processCount);
+            return Task.FromResult(new InboundOccupantEmailProcessingResult(0, 0, 0, 0, 0));
         }
     }
 }

@@ -180,6 +180,26 @@ public sealed class ImapInboundEmailPollerTests
             int limit,
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
+
+        public Task<bool> CompleteAcceptedAsync(
+            InboundOccupantEmailAdmission admission,
+            DateTimeOffset processedAtUtc,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<bool> CompleteRejectedAsync(
+            ImapInboundEmailEnvelope envelope,
+            InboundOccupantEmailFailureCode failure,
+            DateTimeOffset processedAtUtc,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+            string sourceId,
+            string mailbox,
+            int limit,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed record CommitCall(

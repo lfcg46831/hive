@@ -20,6 +20,10 @@ public sealed class ImapInboundEmailBootstrapTests
             host.Services.GetRequiredService<IImapInboundEmailClient>());
         Assert.IsType<ImapInboundEmailPoller>(
             host.Services.GetRequiredService<IImapInboundEmailPoller>());
+        Assert.IsType<InboundOccupantEmailParser>(
+            host.Services.GetRequiredService<IInboundOccupantEmailParser>());
+        Assert.IsType<InboundOccupantEmailProcessor>(
+            host.Services.GetRequiredService<IInboundOccupantEmailProcessor>());
         Assert.IsType<PostgreSqlImapInboundEmailStore>(
             host.Services.GetRequiredService<IImapInboundEmailStore>());
     }
@@ -105,5 +109,7 @@ public sealed class ImapInboundEmailBootstrapTests
         ["Hive:OccupantChannels:Email:Imap:Username"] = "hive",
         ["Hive:OccupantChannels:Email:Imap:Password"] = "test-only-secret",
         ["Hive:OccupantChannels:Email:Imap:Mailbox"] = "INBOX",
+        ["Hive:OccupantChannels:CorrelationTokens:SigningKey"] =
+            OccupantChannelCorrelationTokenTests.SigningKey(),
     };
 }

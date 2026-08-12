@@ -1,3 +1,4 @@
+using Hive.Infrastructure.OccupantChannels;
 using Hive.Infrastructure.OccupantChannels.PostgreSql;
 using Npgsql;
 
@@ -24,15 +25,38 @@ public sealed class PostgreSqlOccupantChannelDecisionTokenUseStoreTests(
         await using var firstStore =
             new PostgreSqlOccupantChannelDecisionTokenUseStore(fixture.ConnectionString);
 
-        var concurrent = await Task.WhenAll(Enumerable.Range(0, 8).Select(
-            _ => firstStore.TryConsumeAsync(tokenId, expiresAt, consumedAt).AsTask()));
+        var operations = Enumerable.Range(0, 8).Select(_ => Guid.NewGuid()).ToArray();
+        var concurrent = await Task.WhenAll(operations.Select(
+            operation => firstStore.TryConsumeAsync(
+                tokenId,
+                operation,
+                expiresAt,
+                consumedAt).AsTask()));
 
-        Assert.Single(concurrent.Where(consumed => consumed));
+        Assert.Single(concurrent.Where(
+            result => result == OccupantChannelDecisionTokenUseResult.Consumed));
+        Assert.Equal(
+            7,
+            concurrent.Count(result =>
+                result == OccupantChannelDecisionTokenUseResult.AlreadyConsumed));
+        var winningOperation = operations[Array.IndexOf(
+            concurrent,
+            OccupantChannelDecisionTokenUseResult.Consumed)];
 
         await using var restartedStore =
             new PostgreSqlOccupantChannelDecisionTokenUseStore(fixture.ConnectionString);
-        Assert.False(await restartedStore.TryConsumeAsync(
+        Assert.Equal(
+            OccupantChannelDecisionTokenUseResult.AlreadyConsumedByOperation,
+            await restartedStore.TryConsumeAsync(
+                tokenId,
+                winningOperation,
+                expiresAt,
+                consumedAt.AddMinutes(1)));
+        Assert.Equal(
+            OccupantChannelDecisionTokenUseResult.AlreadyConsumed,
+            await restartedStore.TryConsumeAsync(
             tokenId,
+            Guid.NewGuid(),
             expiresAt,
             consumedAt.AddMinutes(1)));
     }
@@ -48,15 +72,24 @@ public sealed class PostgreSqlOccupantChannelDecisionTokenUseStoreTests(
         var secondToken = Guid.Parse("cccccccc-cccc-cccc-cccc-cccccccccccc");
         var firstUse = new DateTimeOffset(2026, 8, 12, 10, 0, 0, TimeSpan.Zero);
 
-        Assert.True(await store.TryConsumeAsync(
+        Assert.Equal(
+            OccupantChannelDecisionTokenUseResult.Consumed,
+            await store.TryConsumeAsync(
             firstToken,
+            Guid.NewGuid(),
             firstUse.AddMinutes(1),
             firstUse));
-        Assert.True(await store.TryConsumeAsync(
+        Assert.Equal(
+            OccupantChannelDecisionTokenUseResult.Consumed,
+            await store.TryConsumeAsync(
             secondToken,
+            Guid.NewGuid(),
             firstUse.AddHours(2),
             firstUse.AddMinutes(2)));
-        Assert.False(await store.TryConsumeAsync(
+        Assert.Equal(
+            OccupantChannelDecisionTokenUseResult.AlreadyConsumed,
+            await store.TryConsumeAsync(
+            Guid.NewGuid(),
             Guid.NewGuid(),
             firstUse.AddMinutes(2),
             firstUse.AddMinutes(2)));

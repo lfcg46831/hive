@@ -7,6 +7,7 @@ namespace Hive.Actors.OccupantChannels;
 internal sealed class ImapInboundEmailSourceActor : ReceiveActor
 {
     private readonly IImapInboundEmailPoller _poller;
+    private readonly IInboundOccupantEmailProcessor _processor;
     private readonly TimeSpan _pollInterval;
     private readonly string _sourceId;
     private readonly string _mailbox;
@@ -16,12 +17,14 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
 
     public ImapInboundEmailSourceActor(
         IImapInboundEmailPoller poller,
+        IInboundOccupantEmailProcessor processor,
         TimeSpan pollInterval,
         string sourceId,
         string mailbox,
         ILogger logger)
     {
         _poller = poller ?? throw new ArgumentNullException(nameof(poller));
+        _processor = processor ?? throw new ArgumentNullException(nameof(processor));
         _pollInterval = pollInterval > TimeSpan.Zero
             ? pollInterval
             : throw new ArgumentOutOfRangeException(nameof(pollInterval));
@@ -38,6 +41,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
 
     public static Props Props(
         IImapInboundEmailPoller poller,
+        IInboundOccupantEmailProcessor processor,
         TimeSpan pollInterval,
         string sourceId,
         string mailbox,
@@ -45,6 +49,7 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
         Akka.Actor.Props.Create(
             () => new ImapInboundEmailSourceActor(
                 poller,
+                processor,
                 pollInterval,
                 sourceId,
                 mailbox,
@@ -102,6 +107,40 @@ internal sealed class ImapInboundEmailSourceActor : ReceiveActor
                 _sourceId,
                 _mailbox,
                 exception.GetType().Name);
+        }
+
+        if (!_stopping.IsCancellationRequested)
+        {
+            try
+            {
+                var processing = await _processor
+                    .ProcessPendingAsync(_stopping.Token)
+                    .ConfigureAwait(false);
+                if (processing.PendingCount > 0)
+                {
+                    _logger.LogInformation(
+                        "Inbound occupant-email admission processed {PendingCount} staged envelope(s): {AcceptedCount} accepted, {RejectedCount} rejected, {RetryableCount} pending for retry and {AlreadyCompletedCount} already completed for source {SourceId} mailbox {Mailbox}.",
+                        processing.PendingCount,
+                        processing.AcceptedCount,
+                        processing.RejectedCount,
+                        processing.RetryableCount,
+                        processing.AlreadyCompletedCount,
+                        _sourceId,
+                        _mailbox);
+                }
+            }
+            catch (OperationCanceledException) when (_stopping.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(
+                    "Inbound occupant-email admission failed closed for source {SourceId} mailbox {Mailbox} with error type {ErrorType}; unfinished envelopes remain pending.",
+                    _sourceId,
+                    _mailbox,
+                    exception.GetType().Name);
+            }
         }
 
         if (!_stopping.IsCancellationRequested)

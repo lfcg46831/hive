@@ -18,6 +18,7 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
 {
     private readonly ActorSystem _system;
     private readonly IImapInboundEmailPoller _poller;
+    private readonly IInboundOccupantEmailProcessor _processor;
     private readonly ImapInboundEmailOptions _options;
     private readonly ILogger<ImapInboundEmailSingletonWorkload> _logger;
     private readonly SemaphoreSlim _startGate = new(1, 1);
@@ -27,11 +28,13 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
     public ImapInboundEmailSingletonWorkload(
         ActorSystem system,
         IImapInboundEmailPoller poller,
+        IInboundOccupantEmailProcessor processor,
         IOptions<ImapInboundEmailOptions> options,
         ILogger<ImapInboundEmailSingletonWorkload> logger)
     {
         _system = system ?? throw new ArgumentNullException(nameof(system));
         _poller = poller ?? throw new ArgumentNullException(nameof(poller));
+        _processor = processor ?? throw new ArgumentNullException(nameof(processor));
         ArgumentNullException.ThrowIfNull(options);
         _options = options.Value;
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -58,6 +61,7 @@ internal sealed class ImapInboundEmailSingletonWorkload : IRoleWorkload
             await WaitForClusterUpAsync(cancellationToken).ConfigureAwait(false);
             var sourceProps = ImapInboundEmailSourceActor.Props(
                 _poller,
+                _processor,
                 _options.PollInterval,
                 _options.SourceId,
                 _options.Mailbox,

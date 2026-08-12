@@ -1,4 +1,5 @@
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Identity;
 using Hive.Infrastructure.OccupantChannels.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,6 +35,10 @@ internal static class ImapInboundEmailServiceCollectionExtensions
                 : new PostgreSqlImapInboundEmailStore(connectionString);
         });
         services.TryAddSingleton<IImapInboundEmailPoller, ImapInboundEmailPoller>();
+        services.TryAddSingleton<IInboundOccupantEmailIdentityResolver>(
+            UnavailableInboundOccupantEmailIdentityResolver.Instance);
+        services.TryAddSingleton<IInboundOccupantEmailParser, InboundOccupantEmailParser>();
+        services.TryAddSingleton<IInboundOccupantEmailProcessor, InboundOccupantEmailProcessor>();
         return services;
     }
 }

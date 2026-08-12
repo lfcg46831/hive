@@ -28,6 +28,26 @@ internal sealed class UnavailableImapInboundEmailStore : IImapInboundEmailStore
         CancellationToken cancellationToken = default) =>
         Task.FromException<IReadOnlyList<ImapInboundEmailEnvelope>>(Unavailable());
 
+    public Task<bool> CompleteAcceptedAsync(
+        InboundOccupantEmailAdmission admission,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<bool>(Unavailable());
+
+    public Task<bool> CompleteRejectedAsync(
+        ImapInboundEmailEnvelope envelope,
+        InboundOccupantEmailFailureCode failure,
+        DateTimeOffset processedAtUtc,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<bool>(Unavailable());
+
+    public Task<IReadOnlyList<InboundOccupantEmailAdmission>> ReadAcceptedAsync(
+        string sourceId,
+        string mailbox,
+        int limit,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<IReadOnlyList<InboundOccupantEmailAdmission>>(Unavailable());
+
     private static InvalidOperationException Unavailable() => new(
         "The durable IMAP inbound store is unavailable because PostgreSQL is not configured.");
 }

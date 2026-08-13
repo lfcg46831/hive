@@ -1,10 +1,12 @@
 using System.Xml;
 using Hive.Domain.Identity;
+using Hive.Infrastructure.Configuration;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
 
 namespace Hive.Connectors.GitHub;
 
-internal sealed class GitHubIssuesConnectorOptionsValidator
+internal sealed class GitHubIssuesConnectorOptionsValidator(IConfiguration configuration)
     : IValidateOptions<GitHubIssuesConnectorOptions>
 {
     private const string Prefix = GitHubIssuesConnectorOptions.SectionName;
@@ -93,6 +95,14 @@ internal sealed class GitHubIssuesConnectorOptionsValidator
                 failures.Add(
                     $"{Prefix}:Credentials contains an entry for undeclared instance '{instanceId}'.");
             }
+        }
+
+        if (instances.Length > 0
+            && string.IsNullOrWhiteSpace(
+                configuration.GetConnectionString(ConnectionStringNames.PostgreSql)))
+        {
+            failures.Add(
+                $"ConnectionStrings:{ConnectionStringNames.PostgreSql} is required when GitHub Issues polling instances are declared.");
         }
 
         return failures.Count == 0

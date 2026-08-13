@@ -744,7 +744,7 @@ The GitHub adapter is the independently built `Hive.Connectors.GitHub` plugin. I
 HIVE__CONNECTORS__PLUGINS__ASSEMBLIES__0=Hive.Connectors.GitHub
 ```
 
-`Hive:Connectors:GitHubIssues` defines the credential-free instances consumed by that plugin across `US-F1-04`. Configuration binding and fail-closed startup validation become active only when the plugin is selected; polling and HTTP calls remain inactive until `US-F1-04-T03`/`T08`. Omitting the plugin list activates no connector code. Selecting the plugin while omitting its instance section produces an empty, inert GitHub catalog.
+`Hive:Connectors:GitHubIssues` defines the credential-free instances consumed by that plugin across `US-F1-04`. Configuration binding and fail-closed startup validation become active only when the plugin is selected. From `US-F1-04-T03`, declaring at least one instance activates a cluster-singleton polling workload on the `connectors` role and therefore requires `ConnectionStrings:PostgreSql`; the concrete authenticated GitHub HTTP client is supplied by `US-F1-04-T08`. Omitting the plugin list activates no connector code. Selecting the plugin while omitting its instance section produces an empty, inert GitHub catalog and does not require PostgreSQL.
 
 Each entry in `Instances` is explicit and has no silent defaults:
 
@@ -759,6 +759,8 @@ Each entry in `Instances` is explicit and has no silent defaults:
 | `...:Polling:PageSize` | yes | Number of items requested per page, from 1 through 100. |
 
 The corresponding connector schema is version 1 and rejects unknown fields. It marks `repositories` as a bidirectional scope and `outbound_operations` as outbound-only. Tokens, credential references, endpoints and other secrets are deliberately absent from the declarative instance and its schema.
+
+Polling is sequential across the configured instances and repositories, so one singleton never overlaps requests. Each repository has a durable PostgreSQL checkpoint containing the adapter-owned opaque cursor and a `not_before` timestamp. The timestamp is the later of the configured interval and any external rate-limit window returned by the client; restart or singleton handover therefore cannot bypass it. A fetched page is stored as opaque JSON events in the plugin-owned `github_connector` schema, and event insertion plus checkpoint advancement is one transaction. Replayed external event identities are ignored idempotently. Fetch or persistence failure leaves the checkpoint unchanged. Event content is not interpreted at this layer and must not be included in logs.
 
 Supply one token per `InstanceId` only through operational host configuration:
 

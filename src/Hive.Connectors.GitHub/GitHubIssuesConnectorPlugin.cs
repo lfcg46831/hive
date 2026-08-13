@@ -1,5 +1,8 @@
 using Hive.Domain.Connectors;
+using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Connectors;
+using Hive.Infrastructure.Hosting;
+using Hive.Connectors.GitHub.PostgreSql;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -28,5 +31,21 @@ public sealed class GitHubIssuesConnectorPlugin : IConnectorPlugin
         services.TryAddSingleton(serviceProvider =>
             new GitHubIssuesConnectorConfigurationCatalog(
                 serviceProvider.GetRequiredService<IOptions<GitHubIssuesConnectorOptions>>()));
+        services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.TryAddSingleton<IGitHubIssuesInboundClient>(
+            UnavailableGitHubIssuesInboundClient.Instance);
+        services.TryAddSingleton<IGitHubIssuesInboundStore>(serviceProvider =>
+        {
+            var connectionString = serviceProvider
+                .GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? UnavailableGitHubIssuesInboundStore.Instance
+                : new PostgreSqlGitHubIssuesInboundStore(connectionString);
+        });
+        services.TryAddSingleton<IGitHubIssuesInboundPoller, GitHubIssuesInboundPoller>();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<
+            IRoleWorkload,
+            GitHubIssuesInboundSingletonWorkload>());
     }
 }

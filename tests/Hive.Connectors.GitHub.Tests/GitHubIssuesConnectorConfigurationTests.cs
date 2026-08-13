@@ -228,19 +228,52 @@ public sealed class GitHubIssuesConnectorConfigurationTests
         Assert.Empty(catalog.Instances);
     }
 
+    [Fact]
+    public async Task Declared_polling_instance_requires_postgresql_but_empty_catalog_does_not()
+    {
+        var builder = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["Hive:Connectors:GitHubIssues:Instances:0:InstanceId"] = "acme-github",
+            ["Hive:Connectors:GitHubIssues:Instances:0:OrganizationId"] = "acme-delivery",
+            ["Hive:Connectors:GitHubIssues:Instances:0:Repositories:0"] = "acme/payments",
+            ["Hive:Connectors:GitHubIssues:Instances:0:InboundDirectiveTarget"] = "bug-triage",
+            ["Hive:Connectors:GitHubIssues:Instances:0:Polling:Interval"] = "PT30S",
+            ["Hive:Connectors:GitHubIssues:Instances:0:Polling:PageSize"] = "100",
+            ["Hive:Connectors:GitHubIssues:Credentials:0:InstanceId"] = "acme-github",
+            ["Hive:Connectors:GitHubIssues:Credentials:0:Token"] = "test-token",
+        }, includePostgreSql: false);
+        using var host = builder.Build();
+
+        var exception = await Assert.ThrowsAsync<OptionsValidationException>(
+            () => host.StartAsync());
+
+        Assert.Contains(
+            "ConnectionStrings:PostgreSql is required",
+            string.Join("\n", exception.Failures),
+            StringComparison.Ordinal);
+    }
+
     private static HostApplicationBuilder CreateBuilder(
-        IReadOnlyDictionary<string, string?> configuration)
+        IReadOnlyDictionary<string, string?> configuration,
+        bool includePostgreSql = true)
     {
         var builder = new HostApplicationBuilder(new HostApplicationBuilderSettings
         {
             DisableDefaults = true,
         });
         builder.Configuration.AddInMemoryCollection(configuration);
-        builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
+        var pluginConfiguration = new Dictionary<string, string?>
         {
             [$"{ConnectorPluginServiceCollectionExtensions.AssembliesSectionName}:0"] =
                 typeof(GitHubIssuesConnectorPlugin).Assembly.GetName().Name,
-        });
+        };
+        if (includePostgreSql)
+        {
+            pluginConfiguration["ConnectionStrings:PostgreSql"] =
+                "Host=localhost;Database=hive;Username=hive;Password=test-only";
+        }
+
+        builder.Configuration.AddInMemoryCollection(pluginConfiguration);
         builder.Services.AddHiveConnectorPlugins(builder.Configuration);
         return builder;
     }

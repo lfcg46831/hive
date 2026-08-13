@@ -80,6 +80,8 @@ Per-deployment overrides are intentionally not pinned in the image and are suppl
 | `HIVE__OUTCOMES__VERIFIERTIMEOUT` | `00:00:15` | Maximum verifier call duration (`Hive:Outcomes:VerifierTimeout`) as a positive `hh:mm:ss` span. The effective request timeout is the minimum of this value, the position AI timeout and the remaining directive deadline; zero or a negative value fails startup validation. |
 | `HIVE__OCCUPANTCHANNELS__EMAIL__SMTP__*` | operator secret store / deployment environment | Outbound occupant-email transport on `connectors` nodes. It is disabled by default; the complete setting contract and secret-handling rules are in [Outbound occupant email (SMTP)](#outbound-occupant-email-smtp). |
 | `HIVE__OCCUPANTCHANNELS__EMAIL__IMAP__*` | operator secret store / deployment environment | Inbound occupant-email source on `connectors` nodes. It is disabled by default; the complete setting contract and checkpoint rules are in [Inbound occupant email (IMAP)](#inbound-occupant-email-imap). |
+| `HIVE__CONNECTORS__PLUGINS__ASSEMBLIES__<index>` | deployment configuration | Simple assembly name of an installed in-process connector plugin, for example `Hive.Connectors.GitHub`. Paths and assembly display names are rejected. Omitting the list activates no connector plugins. |
+| `HIVE__CONNECTORS__GITHUBISSUES__*` | tracked non-secret configuration plus operator secret store | Declarative GitHub Issues connector instances and their separately supplied tokens. The complete contract is in [GitHub Issues connector instances](#github-issues-connector-instances). |
 
 ## Run with Docker Compose
 
@@ -733,6 +735,39 @@ The default test suite does not call external AI providers. The optional real-pr
 | `HIVE_AI_GATEWAY_REAL_TEST_ENDPOINT` | no | Optional absolute endpoint override. |
 
 When either required variable is absent, the test exits before configuring or resolving the real provider. The key must not appear in assertions, logs, snapshots, or committed configuration.
+
+## GitHub Issues connector instances
+
+The GitHub adapter is the independently built `Hive.Connectors.GitHub` plugin. Install its assembly beside the host and opt into it by simple assembly name; the common bootstrap discovers its generic plugin entry point and has no GitHub-specific registration:
+
+```text
+HIVE__CONNECTORS__PLUGINS__ASSEMBLIES__0=Hive.Connectors.GitHub
+```
+
+`Hive:Connectors:GitHubIssues` defines the credential-free instances consumed by that plugin across `US-F1-04`. Configuration binding and fail-closed startup validation become active only when the plugin is selected; polling and HTTP calls remain inactive until `US-F1-04-T03`/`T08`. Omitting the plugin list activates no connector code. Selecting the plugin while omitting its instance section produces an empty, inert GitHub catalog.
+
+Each entry in `Instances` is explicit and has no silent defaults:
+
+| Setting | Required | Purpose |
+| --- | --- | --- |
+| `Hive:Connectors:GitHubIssues:Instances:<index>:InstanceId` | yes | Stable lowercase dot- or kebab-separated identity used to join the declarative instance to its operational credential. Instance ids are unique. |
+| `...:OrganizationId` | yes | Organization that owns the connector instance. |
+| `...:Repositories:<repositoryIndex>` | one or more | GitHub `owner/repository` scopes. Matching is case-insensitive and duplicates fail startup. These scopes apply to both inbound and outbound operations. |
+| `...:InboundDirectiveTarget` | yes | Position that receives canonical root directives created from inbound issues/comments. |
+| `...:OutboundOperations:<operationIndex>` | yes, may be an empty list | Closed allowlist: `issues.comment`, `issues.update-state`, and/or `issues.update-labels`. An explicitly empty list disables outbound operations. |
+| `...:Polling:Interval` | yes | ISO-8601 duration of at least one second, for example `PT30S`. |
+| `...:Polling:PageSize` | yes | Number of items requested per page, from 1 through 100. |
+
+The corresponding connector schema is version 1 and rejects unknown fields. It marks `repositories` as a bidirectional scope and `outbound_operations` as outbound-only. Tokens, credential references, endpoints and other secrets are deliberately absent from the declarative instance and its schema.
+
+Supply one token per `InstanceId` only through operational host configuration:
+
+```text
+HIVE__CONNECTORS__GITHUBISSUES__CREDENTIALS__0__INSTANCEID=acme-github
+HIVE__CONNECTORS__GITHUBISSUES__CREDENTIALS__0__TOKEN=<minimum-scope-github-token>
+```
+
+The token is mandatory whenever that instance is declared; missing, blank, orphaned or mismatched credentials fail startup. Store real tokens in the deployment secret store, an ignored local `.env`, or .NET user-secrets. Never place them in `appsettings*.json`, `.env.example`, organization YAML, connector schemas, logs, snapshots, prompts, or source control. Give each token access only to the configured repositories and only the GitHub permissions needed by the enabled operations. Rotation takes effect after restarting the process with the replacement secret.
 
 ## Occupant-channel correlation tokens
 

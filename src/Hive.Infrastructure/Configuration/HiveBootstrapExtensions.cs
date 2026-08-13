@@ -6,6 +6,7 @@ using Hive.Domain.Positions;
 using Hive.Domain.Organization;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Ai;
+using Hive.Infrastructure.Connectors;
 using Hive.Infrastructure.Diagnostics;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Inbox.ReadModels.PostgreSql;
@@ -57,6 +58,7 @@ public static class HiveBootstrapExtensions
         builder.Services.AddHiveOccupantChannelCorrelationTokens(builder.Configuration);
         builder.Services.AddHiveSmtpOccupantChannel(builder.Configuration);
         builder.Services.AddHiveImapInboundEmailSource(builder.Configuration);
+        builder.Services.AddHiveConnectorPlugins(builder.Configuration);
         builder.Services.AddHiveActionDomainContracts();
         builder.Services.AddHiveAiGateway(builder.Configuration);
         builder.Services.TryAddSingleton<IJourneyAuditLog>(serviceProvider =>

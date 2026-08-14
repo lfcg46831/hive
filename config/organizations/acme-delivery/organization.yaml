@@ -104,5 +104,14 @@ positions:
           proactive_max_eur_per_day: 1.00
           total_max_eur_per_day: 6.00
           max_calls_per_hour: 60
+      tools:
+        - connector: issues.comment
+          scope: ["acme/payments"]
+        - connector: issues.update-state
+          scope: ["acme/payments"]
       authority:
         can_decide: ["delivery.bug-triage"]
+        overrides:
+          - key: delivery.github-issue-state
+            gate: human-approval
+            approver: delivery-lead

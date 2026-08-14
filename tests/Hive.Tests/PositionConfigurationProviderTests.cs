@@ -155,8 +155,17 @@ public sealed class PositionConfigurationProviderTests
         Assert.Equal("gpt-5-mini", aiGateway.Primary.ModelId);
         Assert.Empty(aiGateway.Fallback);
         Assert.Equal(AiProcessingMode.Interactive, aiGateway.ProcessingMode);
+        Assert.Equal(
+            ["issues.comment", "issues.update-state"],
+            configuration.Occupant.Tools.Select(tool => tool.Connector));
+        Assert.All(
+            configuration.Occupant.Tools,
+            tool => Assert.Equal(["acme/payments"], tool.Scope));
         Assert.Equal(["delivery.bug-triage"], configuration.Authority.CanDecide.Select(key => key.Value));
-        Assert.Empty(configuration.Authority.Overrides);
+        var authorityOverride = Assert.Single(configuration.Authority.Overrides);
+        Assert.Equal("delivery.github-issue-state", authorityOverride.Key.Value);
+        Assert.Equal(ActionDomainGate.HumanApproval, authorityOverride.Gate);
+        Assert.Equal("delivery-lead", authorityOverride.Approver);
         Assert.Empty(configuration.Schedules);
     }
 

@@ -11,6 +11,30 @@ domains:
     description: Classify, prioritize and assign bugs internally
     gate: decide
 
+  - key: delivery.github-issue-comment
+    description: Publish a triage comment on the correlated GitHub issue
+    gate: decide
+    match:
+      - action: tool
+        tool: issues.comment
+        operation_type: comment
+        visibility: external
+
+  - key: delivery.github-issue-state
+    description: Change the state of the correlated GitHub issue
+    gate: human-approval
+    match:
+      - action: tool
+        tool: issues.update-state
+        operation_type: state-update
+        visibility: external
+        state: open
+      - action: tool
+        tool: issues.update-state
+        operation_type: state-update
+        visibility: external
+        state: closed
+
   - key: governance.authorize-retained-action
     description: Authorize re-execution of a retained action escalated by a direct subordinate
     gate: decide

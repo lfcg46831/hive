@@ -148,12 +148,14 @@ public sealed class ExampleOrganizationActionGateIntegrationTests
             [
                 ActionDomainActionContract.ForTool("jira"),
                 ActionDomainActionContract.ForTool("email.send", [recipientScope]),
+                .. ExampleOrganizationConnectorContractSource.Instance.ActionContracts,
             ],
             actionExtractors:
             [
                 ActionAttributeExtractorRegistration.ForTool(
                     "email.send",
                     ExternalRecipientScopeExtractor.Instance),
+                .. ExampleOrganizationConnectorContractSource.Instance.ActionExtractors,
             ]);
         var validation = ActionDomainCatalogValidator.Validate(catalog, binding);
 

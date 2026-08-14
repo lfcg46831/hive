@@ -54,7 +54,7 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var importer = new OrganizationConfigurationDirectoryImporter(
             new OrganizationConfigurationParser(),
             new OrganizationConfigurationImporter(registry),
-            ContractRegistry());
+            ContractRegistryWithConfiguredPlugin());
 
         var results = await importer.ImportAsync(
             Path.Combine(RepositoryRoot, "config", "organizations"));
@@ -188,6 +188,15 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
     {
         var services = new ServiceCollection();
         services.AddHiveActionDomainContracts();
+        return services.BuildServiceProvider().GetRequiredService<IActionDomainContractRegistry>();
+    }
+
+    private static IActionDomainContractRegistry ContractRegistryWithConfiguredPlugin()
+    {
+        var services = new ServiceCollection();
+        services.AddHiveActionDomainContracts();
+        services.AddSingleton<IActionDomainContractSource>(
+            ExampleOrganizationConnectorContractSource.Instance);
         return services.BuildServiceProvider().GetRequiredService<IActionDomainContractRegistry>();
     }
 

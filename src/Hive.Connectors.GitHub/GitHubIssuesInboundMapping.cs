@@ -19,9 +19,11 @@ internal sealed record GitHubIssuesInboundPayloadParseResult
 {
     private GitHubIssuesInboundPayloadParseResult(
         ConnectorExternalMessage? message,
+        long? issueNumber,
         ConnectorError? error)
     {
         Message = message;
+        IssueNumber = issueNumber;
         Error = error;
     }
 
@@ -29,16 +31,25 @@ internal sealed record GitHubIssuesInboundPayloadParseResult
 
     public ConnectorExternalMessage? Message { get; }
 
+    public long? IssueNumber { get; }
+
     public ConnectorError? Error { get; }
 
     public static GitHubIssuesInboundPayloadParseResult Succeeded(
-        ConnectorExternalMessage message) =>
-        new(message ?? throw new ArgumentNullException(nameof(message)), error: null);
+        ConnectorExternalMessage message,
+        long issueNumber) =>
+        new(
+            message ?? throw new ArgumentNullException(nameof(message)),
+            issueNumber > 0
+                ? issueNumber
+                : throw new ArgumentOutOfRangeException(nameof(issueNumber)),
+            error: null);
 
     public static GitHubIssuesInboundPayloadParseResult Failed(string path) =>
         new(
             message: null,
-            new ConnectorError(
+            issueNumber: null,
+            error: new ConnectorError(
                 ConnectorErrorCode.MappingFailed,
                 isRetryable: false,
                 path));
@@ -98,7 +109,8 @@ internal static class GitHubIssuesInboundPayloadParser
                 GitHubIssuesInboundEventKinds.Issue,
                 title,
                 body,
-                Attributes(repository, issueNumber, commentId: null)));
+                Attributes(repository, issueNumber, commentId: null)),
+            issueNumber);
     }
 
     private static GitHubIssuesInboundPayloadParseResult ParseComment(
@@ -126,7 +138,8 @@ internal static class GitHubIssuesInboundPayloadParser
                 GitHubIssuesInboundEventKinds.Comment,
                 subject: null,
                 body,
-                Attributes(repository, issueNumber, commentId)));
+                Attributes(repository, issueNumber, commentId)),
+            issueNumber);
     }
 
     private static IReadOnlyDictionary<string, ActionAttributeValue> Attributes(
@@ -227,6 +240,53 @@ internal static class GitHubIssuesInboundPayloadParser
     }
 }
 
+internal static class GitHubIssuesInboundCorrelationFactory
+{
+    public static GitHubIssueCorrelation Create(
+        GitHubIssuesConnectorInstanceConfiguration instance,
+        string repository,
+        long issueNumber)
+    {
+        ArgumentNullException.ThrowIfNull(instance);
+        if (!GitHubIssuesConnectorInstanceConfiguration.IsValidRepository(repository))
+        {
+            throw new ArgumentException(
+                "Repository must be a trimmed 'owner/repository' identifier.",
+                nameof(repository));
+        }
+
+        if (issueNumber <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(issueNumber));
+        }
+
+        var normalizedRepository = repository.ToLowerInvariant();
+        var threadIdentity = ThreadIdentity(
+            instance.OrganizationId,
+            normalizedRepository,
+            issueNumber);
+        return new GitHubIssueCorrelation(
+            instance.InstanceId,
+            instance.OrganizationId,
+            normalizedRepository,
+            issueNumber,
+            ThreadId.From(DeterministicGuid.FromName(threadIdentity)),
+            DirectiveId.From(DeterministicGuid.FromName(
+                "hive:github-issues:directive:v1\n" + threadIdentity + "\nissue")));
+    }
+
+    public static string ThreadIdentity(
+        OrganizationId organizationId,
+        string normalizedRepository,
+        long issueNumber) =>
+        string.Join(
+            "\n",
+            "hive:github-issues:thread:v1",
+            organizationId.Value,
+            normalizedRepository,
+            issueNumber.ToString(CultureInfo.InvariantCulture));
+}
+
 internal sealed class GitHubIssuesInboundDirectiveMapper : IConnectorInboundMessageMapper
 {
     private const string UntrustedContextPrefix =
@@ -235,12 +295,14 @@ internal sealed class GitHubIssuesInboundDirectiveMapper : IConnectorInboundMess
     private readonly string _repository;
     private readonly PositionId _source;
     private readonly DateTimeOffset _capturedAtUtc;
+    private readonly GitHubIssueCorrelation? _correlation;
 
     public GitHubIssuesInboundDirectiveMapper(
         GitHubIssuesConnectorInstanceConfiguration instance,
         string repository,
         PositionId source,
-        DateTimeOffset capturedAtUtc)
+        DateTimeOffset capturedAtUtc,
+        GitHubIssueCorrelation? correlation = null)
     {
         _instance = instance ?? throw new ArgumentNullException(nameof(instance));
         if (!GitHubIssuesConnectorInstanceConfiguration.IsValidRepository(repository))
@@ -260,6 +322,23 @@ internal sealed class GitHubIssuesInboundDirectiveMapper : IConnectorInboundMess
         }
 
         _capturedAtUtc = capturedAtUtc;
+        if (correlation is not null
+            && (!string.Equals(
+                    correlation.InstanceId,
+                    instance.InstanceId,
+                    StringComparison.Ordinal)
+                || correlation.OrganizationId != instance.OrganizationId
+                || !string.Equals(
+                    correlation.Repository,
+                    _repository,
+                    StringComparison.Ordinal)))
+        {
+            throw new ArgumentException(
+                "Existing correlation belongs to a different connector issue scope.",
+                nameof(correlation));
+        }
+
+        _correlation = correlation;
     }
 
     public ConnectorInboundMappingResult Map(ConnectorExternalMessage message)
@@ -306,30 +385,40 @@ internal sealed class GitHubIssuesInboundDirectiveMapper : IConnectorInboundMess
             return Failed("$.attributes.comment-id");
         }
 
-        var organization = _instance.OrganizationId.Value;
-        var threadIdentity = string.Join(
-            "\n",
-            "hive:github-issues:thread:v1",
-            organization,
+        if (_correlation is not null && _correlation.IssueNumber != issueNumber)
+        {
+            return Failed("$.attributes.issue-number");
+        }
+
+        var correlation = _correlation
+            ?? GitHubIssuesInboundCorrelationFactory.Create(
+                _instance,
+                _repository,
+                issueNumber);
+        var threadIdentity = GitHubIssuesInboundCorrelationFactory.ThreadIdentity(
+            _instance.OrganizationId,
             _repository,
-            issueNumber.ToString(CultureInfo.InvariantCulture));
+            issueNumber);
         var eventDiscriminator = commentId is { } value
             ? $"comment:{value.ToString(CultureInfo.InvariantCulture)}"
             : "issue";
         var eventIdentity = threadIdentity + "\n" + eventDiscriminator;
+        var directiveId = message.Kind is GitHubIssuesInboundEventKinds.Issue
+            ? correlation.RootDirectiveId
+            : DirectiveId.From(DeterministicGuid.FromName(
+                "hive:github-issues:directive:v1\n" + eventIdentity));
         var directive = new Directive(
             MessageId.From(DeterministicGuid.FromName(
                 "hive:github-issues:message:v1\n" + eventIdentity)),
             _instance.OrganizationId,
             new PositionEndpointRef(_source),
             new PositionEndpointRef(_instance.InboundDirectiveTarget),
-            ThreadId.From(DeterministicGuid.FromName(threadIdentity)),
+            correlation.ThreadId,
             Priority.Normal,
             schemaVersion: 1,
             _capturedAtUtc,
             deadline: null,
-            DirectiveId.From(DeterministicGuid.FromName(
-                "hive:github-issues:directive:v1\n" + eventIdentity)),
+            directiveId,
             parentDirectiveId: null,
             Objective(message.Kind, issueNumber),
             Context(message, issueNumber, commentId));

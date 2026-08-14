@@ -347,6 +347,28 @@ public sealed class GitHubIssuesInboundPollerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByIssueAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            string repository,
+            long issueNumber,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByThreadAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            ThreadId threadId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByDirectiveAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            DirectiveId directiveId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         private static string Key(string instanceId, string repository) =>
             $"{instanceId}/{repository}";
     }

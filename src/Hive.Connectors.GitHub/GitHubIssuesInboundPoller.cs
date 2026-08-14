@@ -1,3 +1,5 @@
+using Hive.Domain.Identity;
+
 namespace Hive.Connectors.GitHub;
 
 internal sealed class GitHubIssuesInboundPoller(
@@ -185,6 +187,28 @@ internal sealed class UnavailableGitHubIssuesInboundStore : IGitHubIssuesInbound
         GitHubIssuesInboundCompletion completion,
         CancellationToken cancellationToken = default) =>
         Task.FromException<bool>(Unavailable());
+
+    public ValueTask<GitHubIssueCorrelation?> FindCorrelationByIssueAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        string repository,
+        long issueNumber,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<GitHubIssueCorrelation?>(Unavailable());
+
+    public ValueTask<GitHubIssueCorrelation?> FindCorrelationByThreadAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        ThreadId threadId,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<GitHubIssueCorrelation?>(Unavailable());
+
+    public ValueTask<GitHubIssueCorrelation?> FindCorrelationByDirectiveAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        DirectiveId directiveId,
+        CancellationToken cancellationToken = default) =>
+        ValueTask.FromException<GitHubIssueCorrelation?>(Unavailable());
 
     private static InvalidOperationException Unavailable() =>
         new("ConnectionStrings:PostgreSql is required for durable GitHub Issues inbound polling.");

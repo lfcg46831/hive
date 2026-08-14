@@ -106,6 +106,57 @@ public sealed class GitHubIssuesInboundProcessorTests
         Assert.Empty(sink.Messages);
     }
 
+    [Fact]
+    public async Task Subsequent_comment_reuses_the_persisted_issue_thread()
+    {
+        var envelope = new GitHubIssuesInboundEnvelope(
+            "acme-github",
+            "acme/payments",
+            "comment:9001",
+            GitHubIssuesInboundEventKinds.Comment,
+            "{\"issue_number\":42,\"id\":9001,\"body\":\"Still failing.\"}",
+            CapturedAt);
+        var store = new ProcessingStore(envelope);
+        var persisted = new GitHubIssueCorrelation(
+            "acme-github",
+            OrganizationId.From("acme"),
+            "acme/payments",
+            42,
+            ThreadId.From(Guid.Parse("8a478688-5636-4fde-b67d-a889038b48b0")),
+            DirectiveId.From(Guid.Parse("049ef8c7-e301-405f-8e80-4b1ccbbf9964")));
+        store.Seed(persisted);
+        var sink = new RecordingSubmissionSink();
+
+        var result = Assert.Single((await Processor(store, sink).ProcessPendingAsync()).Events);
+
+        Assert.Equal(GitHubIssuesInboundProcessingStatus.Submitted, result.Status);
+        var directive = Assert.IsType<Directive>(Assert.Single(sink.Messages));
+        Assert.Equal(persisted.ThreadId, directive.Thread);
+        Assert.Equal(
+            persisted,
+            await store.FindCorrelationByDirectiveAsync(
+                "acme-github",
+                OrganizationId.From("acme"),
+                directive.DirectiveId));
+    }
+
+    [Fact]
+    public async Task Correlation_store_failure_leaves_the_event_pending_without_submission()
+    {
+        var envelope = IssueEnvelope();
+        var store = new ProcessingStore(envelope) { FailCorrelationReads = true };
+        var sink = new RecordingSubmissionSink();
+
+        var result = Assert.Single((await Processor(store, sink).ProcessPendingAsync()).Events);
+
+        Assert.Equal(GitHubIssuesInboundProcessingStatus.Failed, result.Status);
+        Assert.Equal(
+            GitHubIssuesInboundProcessingReasonCodes.ProcessingFailed,
+            result.ReasonCode);
+        Assert.Empty(sink.Messages);
+        Assert.Empty(store.Completions);
+    }
+
     private static GitHubIssuesInboundProcessor Processor(
         IGitHubIssuesInboundStore store,
         IConnectorMessageSubmissionSink sink)
@@ -177,8 +228,23 @@ public sealed class GitHubIssuesInboundProcessorTests
     {
         public bool ConflictNextCompletion { get; set; }
 
+        public bool FailCorrelationReads { get; set; }
+
         public Dictionary<string, GitHubIssuesInboundCompletion> Completions { get; } =
             new(StringComparer.Ordinal);
+
+        private readonly Dictionary<
+            (string InstanceId, string OrganizationId, string Repository, long IssueNumber),
+            GitHubIssueCorrelation> _issues = [];
+        private readonly Dictionary<
+            (string InstanceId, string OrganizationId, Guid ThreadId),
+            GitHubIssueCorrelation> _threads = [];
+        private readonly Dictionary<
+            (string InstanceId, string OrganizationId, Guid DirectiveId),
+            GitHubIssueCorrelation> _directives = [];
+
+        public void Seed(GitHubIssueCorrelation correlation) =>
+            Record(correlation, directiveId: null);
 
         public ValueTask<GitHubIssuesPollingCheckpoint?> ReadCheckpointAsync(
             string instanceId,
@@ -215,7 +281,78 @@ public sealed class GitHubIssuesInboundProcessorTests
                 return Task.FromResult(false);
             }
 
-            return Task.FromResult(Completions.TryAdd(envelope.ExternalEventId, completion));
+            if (!Completions.TryAdd(envelope.ExternalEventId, completion))
+            {
+                return Task.FromResult(false);
+            }
+
+            if (completion.Submission is { } submission)
+            {
+                Record(submission.Issue, submission.DirectiveId);
+            }
+
+            return Task.FromResult(true);
+        }
+
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByIssueAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            string repository,
+            long issueNumber,
+            CancellationToken cancellationToken = default)
+        {
+            if (FailCorrelationReads)
+            {
+                throw new TimeoutException("simulated correlation-store failure");
+            }
+
+            return ValueTask.FromResult(_issues.GetValueOrDefault((
+                instanceId,
+                organizationId.Value,
+                repository.ToLowerInvariant(),
+                issueNumber)));
+        }
+
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByThreadAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            ThreadId threadId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_threads.GetValueOrDefault((
+                instanceId,
+                organizationId.Value,
+                threadId.Value)));
+
+        public ValueTask<GitHubIssueCorrelation?> FindCorrelationByDirectiveAsync(
+            string instanceId,
+            OrganizationId organizationId,
+            DirectiveId directiveId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromResult(_directives.GetValueOrDefault((
+                instanceId,
+                organizationId.Value,
+                directiveId.Value)));
+
+        private void Record(
+            GitHubIssueCorrelation correlation,
+            DirectiveId? directiveId)
+        {
+            _issues[(
+                correlation.InstanceId,
+                correlation.OrganizationId.Value,
+                correlation.Repository,
+                correlation.IssueNumber)] = correlation;
+            _threads[(
+                correlation.InstanceId,
+                correlation.OrganizationId.Value,
+                correlation.ThreadId.Value)] = correlation;
+            if (directiveId is not null)
+            {
+                _directives[(
+                    correlation.InstanceId,
+                    correlation.OrganizationId.Value,
+                    directiveId.Value)] = correlation;
+            }
         }
     }
 

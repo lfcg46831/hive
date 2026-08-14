@@ -1,5 +1,7 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 
 namespace Hive.Connectors.GitHub;
 
@@ -218,6 +220,70 @@ internal sealed record GitHubIssuesInboundEnvelope(
     string PayloadJson,
     DateTimeOffset CapturedAtUtc);
 
+internal sealed record GitHubIssueCorrelation
+{
+    public GitHubIssueCorrelation(
+        string instanceId,
+        OrganizationId organizationId,
+        string repository,
+        long issueNumber,
+        ThreadId threadId,
+        DirectiveId rootDirectiveId)
+    {
+        InstanceId = GitHubIssuesConnectorInstanceConfiguration.RequireInstanceId(
+            instanceId,
+            nameof(instanceId));
+        OrganizationId = organizationId ?? throw new ArgumentNullException(nameof(organizationId));
+        if (!GitHubIssuesConnectorInstanceConfiguration.IsValidRepository(repository))
+        {
+            throw new ArgumentException(
+                "Repository must be a trimmed 'owner/repository' identifier.",
+                nameof(repository));
+        }
+
+        if (issueNumber <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(issueNumber),
+                issueNumber,
+                "GitHub issue number must be positive.");
+        }
+
+        Repository = repository.ToLowerInvariant();
+        IssueNumber = issueNumber;
+        ThreadId = threadId ?? throw new ArgumentNullException(nameof(threadId));
+        RootDirectiveId = rootDirectiveId
+            ?? throw new ArgumentNullException(nameof(rootDirectiveId));
+    }
+
+    public string InstanceId { get; }
+
+    public OrganizationId OrganizationId { get; }
+
+    public string Repository { get; }
+
+    public long IssueNumber { get; }
+
+    public ThreadId ThreadId { get; }
+
+    public DirectiveId RootDirectiveId { get; }
+}
+
+internal sealed record GitHubIssueSubmissionCorrelation
+{
+    public GitHubIssueSubmissionCorrelation(
+        GitHubIssueCorrelation issue,
+        DirectiveId directiveId)
+    {
+        Issue = issue ?? throw new ArgumentNullException(nameof(issue));
+        DirectiveId = directiveId ?? throw new ArgumentNullException(nameof(directiveId));
+    }
+
+    public GitHubIssueCorrelation Issue { get; }
+
+    public DirectiveId DirectiveId { get; }
+}
+
 internal enum GitHubIssuesInboundCompletionState
 {
     Submitted = 1,
@@ -229,7 +295,8 @@ internal sealed record GitHubIssuesInboundCompletion
     public GitHubIssuesInboundCompletion(
         GitHubIssuesInboundCompletionState state,
         DateTimeOffset completedAtUtc,
-        string? reasonCode = null)
+        string? reasonCode = null,
+        GitHubIssueSubmissionCorrelation? submission = null)
     {
         if (state is not (GitHubIssuesInboundCompletionState.Submitted
             or GitHubIssuesInboundCompletionState.Rejected))
@@ -247,26 +314,29 @@ internal sealed record GitHubIssuesInboundCompletion
                 nameof(completedAtUtc));
         }
 
-        if (state is GitHubIssuesInboundCompletionState.Submitted && reasonCode is not null)
+        if (state is GitHubIssuesInboundCompletionState.Submitted
+            && (reasonCode is not null || submission is null))
         {
             throw new ArgumentException(
-                "Submitted GitHub inbound events cannot carry a rejection reason.",
-                nameof(reasonCode));
+                "Submitted GitHub inbound events require correlation and cannot carry a rejection reason.",
+                nameof(submission));
         }
 
         if (state is GitHubIssuesInboundCompletionState.Rejected
             && (string.IsNullOrWhiteSpace(reasonCode)
                 || !string.Equals(reasonCode, reasonCode.Trim(), StringComparison.Ordinal)
-                || reasonCode.Any(char.IsWhiteSpace)))
+                || reasonCode.Any(char.IsWhiteSpace)
+                || submission is not null))
         {
             throw new ArgumentException(
-                "Rejected GitHub inbound events require a closed reason code.",
+                "Rejected GitHub inbound events require a closed reason code and cannot carry correlation.",
                 nameof(reasonCode));
         }
 
         State = state;
         CompletedAtUtc = completedAtUtc;
         ReasonCode = reasonCode;
+        Submission = submission;
     }
 
     public GitHubIssuesInboundCompletionState State { get; }
@@ -274,6 +344,8 @@ internal sealed record GitHubIssuesInboundCompletion
     public DateTimeOffset CompletedAtUtc { get; }
 
     public string? ReasonCode { get; }
+
+    public GitHubIssueSubmissionCorrelation? Submission { get; }
 }
 
 internal sealed record GitHubIssuesInboundCommitResult(
@@ -356,6 +428,25 @@ internal interface IGitHubIssuesInboundStore
     Task<bool> TryCompleteAsync(
         GitHubIssuesInboundEnvelope envelope,
         GitHubIssuesInboundCompletion completion,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<GitHubIssueCorrelation?> FindCorrelationByIssueAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        string repository,
+        long issueNumber,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<GitHubIssueCorrelation?> FindCorrelationByThreadAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        ThreadId threadId,
+        CancellationToken cancellationToken = default);
+
+    ValueTask<GitHubIssueCorrelation?> FindCorrelationByDirectiveAsync(
+        string instanceId,
+        OrganizationId organizationId,
+        DirectiveId directiveId,
         CancellationToken cancellationToken = default);
 }
 

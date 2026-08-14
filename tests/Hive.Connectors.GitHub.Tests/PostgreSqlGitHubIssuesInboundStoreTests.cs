@@ -1,4 +1,5 @@
 using Hive.Connectors.GitHub.PostgreSql;
+using Hive.Domain.Identity;
 using Npgsql;
 using Testcontainers.PostgreSql;
 
@@ -121,7 +122,156 @@ public sealed class PostgreSqlGitHubIssuesInboundStoreTests(
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1, 2], versions);
+        Assert.Equal([1, 2, 3], versions);
+    }
+
+    [Fact]
+    public async Task Submitted_issue_and_comment_correlation_survives_restart_and_resolves_both_ways()
+    {
+        await ResetAndMigrateAsync();
+        var issue = new GitHubIssuesInboundEvent(
+            "issue:42",
+            GitHubIssuesInboundEventKinds.Issue,
+            "{\"number\":42,\"title\":\"Retry failed\"}");
+        var comment = new GitHubIssuesInboundEvent(
+            "comment:9001",
+            GitHubIssuesInboundEventKinds.Comment,
+            "{\"issue_number\":42,\"id\":9001,\"body\":\"Still failing\"}");
+        var threadId = ThreadId.From(Guid.Parse("d615f47d-8c00-4df9-b493-c05537559e6a"));
+        var rootDirectiveId = DirectiveId.From(
+            Guid.Parse("18d00fd4-388f-421f-90b3-7d2484e212b3"));
+        var commentDirectiveId = DirectiveId.From(
+            Guid.Parse("6a710921-bfac-4a6f-b235-f7367c867e45"));
+        var correlation = new GitHubIssueCorrelation(
+            "acme-github",
+            OrganizationId.From("acme"),
+            "acme/payments",
+            42,
+            threadId,
+            rootDirectiveId);
+
+        await using (var first =
+                     new PostgreSqlGitHubIssuesInboundStore(fixture.ConnectionString))
+        {
+            await first.CommitBatchAsync(
+                expectedCheckpoint: null,
+                Batch("cursor-1", issue, comment),
+                CapturedAt,
+                CapturedAt.AddMinutes(1));
+            var pending = await first.ReadPendingAsync(
+                "acme-github",
+                "acme/payments",
+                10);
+            var issueEnvelope = Assert.Single(
+                pending.Where(item => item.ExternalEventId == issue.ExternalEventId));
+            var commentEnvelope = Assert.Single(
+                pending.Where(item => item.ExternalEventId == comment.ExternalEventId));
+
+            Assert.True(await first.TryCompleteAsync(
+                issueEnvelope,
+                Submitted(correlation, rootDirectiveId, CapturedAt.AddSeconds(1))));
+            Assert.False(await first.TryCompleteAsync(
+                issueEnvelope,
+                Submitted(correlation, rootDirectiveId, CapturedAt.AddSeconds(1))));
+            Assert.True(await first.TryCompleteAsync(
+                commentEnvelope,
+                Submitted(correlation, commentDirectiveId, CapturedAt.AddSeconds(2))));
+        }
+
+        await using var restarted =
+            new PostgreSqlGitHubIssuesInboundStore(fixture.ConnectionString);
+        var byIssue = await restarted.FindCorrelationByIssueAsync(
+            "acme-github",
+            OrganizationId.From("acme"),
+            "ACME/PAYMENTS",
+            42);
+        var byThread = await restarted.FindCorrelationByThreadAsync(
+            "acme-github",
+            OrganizationId.From("acme"),
+            threadId);
+        var byRootDirective = await restarted.FindCorrelationByDirectiveAsync(
+            "acme-github",
+            OrganizationId.From("acme"),
+            rootDirectiveId);
+        var byCommentDirective = await restarted.FindCorrelationByDirectiveAsync(
+            "acme-github",
+            OrganizationId.From("acme"),
+            commentDirectiveId);
+
+        Assert.Equal(correlation, byIssue);
+        Assert.Equal(correlation, byThread);
+        Assert.Equal(correlation, byRootDirective);
+        Assert.Equal(correlation, byCommentDirective);
+        Assert.Null(await restarted.FindCorrelationByThreadAsync(
+            "other-instance",
+            OrganizationId.From("acme"),
+            threadId));
+        Assert.Empty(await restarted.ReadPendingAsync(
+            "acme-github",
+            "acme/payments",
+            10));
+    }
+
+    [Fact]
+    public async Task Divergent_issue_correlation_rolls_back_and_leaves_event_pending()
+    {
+        await ResetAndMigrateAsync();
+        await using var store =
+            new PostgreSqlGitHubIssuesInboundStore(fixture.ConnectionString);
+        await store.CommitBatchAsync(
+            expectedCheckpoint: null,
+            Batch(
+                "cursor-1",
+                Event("issue:42", GitHubIssuesInboundEventKinds.Issue, 42),
+                Event("comment:9001", GitHubIssuesInboundEventKinds.Comment, 9001)),
+            CapturedAt,
+            CapturedAt.AddMinutes(1));
+        var pending = await store.ReadPendingAsync(
+            "acme-github",
+            "acme/payments",
+            10);
+        var correlation = new GitHubIssueCorrelation(
+            "acme-github",
+            OrganizationId.From("acme"),
+            "acme/payments",
+            42,
+            ThreadId.From(Guid.Parse("d615f47d-8c00-4df9-b493-c05537559e6a")),
+            DirectiveId.From(Guid.Parse("18d00fd4-388f-421f-90b3-7d2484e212b3")));
+        var issueEnvelope = Assert.Single(
+            pending.Where(item => item.ExternalEventId == "issue:42"));
+        var commentEnvelope = Assert.Single(
+            pending.Where(item => item.ExternalEventId == "comment:9001"));
+        Assert.True(await store.TryCompleteAsync(
+            issueEnvelope,
+            Submitted(correlation, correlation.RootDirectiveId, CapturedAt.AddSeconds(1))));
+        var divergent = new GitHubIssueCorrelation(
+            correlation.InstanceId,
+            correlation.OrganizationId,
+            correlation.Repository,
+            correlation.IssueNumber,
+            ThreadId.From(Guid.Parse("4340bed5-f30d-47dc-8620-4852739c63d2")),
+            correlation.RootDirectiveId);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => store.TryCompleteAsync(
+            commentEnvelope,
+            Submitted(
+                divergent,
+                DirectiveId.From(Guid.Parse("6a710921-bfac-4a6f-b235-f7367c867e45")),
+                CapturedAt.AddSeconds(2))));
+
+        Assert.Equal(
+            correlation,
+            await store.FindCorrelationByIssueAsync(
+                "acme-github",
+                OrganizationId.From("acme"),
+                "acme/payments",
+                42));
+        Assert.Equal(
+            ["comment:9001"],
+            (await store.ReadPendingAsync(
+                "acme-github",
+                "acme/payments",
+                10)).Select(item => item.ExternalEventId));
     }
 
     [Fact]
@@ -194,6 +344,15 @@ public sealed class PostgreSqlGitHubIssuesInboundStoreTests(
         string kind,
         int value) =>
         new(id, kind, $"{{\"value\":{value}}}");
+
+    private static GitHubIssuesInboundCompletion Submitted(
+        GitHubIssueCorrelation correlation,
+        DirectiveId directiveId,
+        DateTimeOffset completedAtUtc) =>
+        new(
+            GitHubIssuesInboundCompletionState.Submitted,
+            completedAtUtc,
+            submission: new GitHubIssueSubmissionCorrelation(correlation, directiveId));
 }
 
 [CollectionDefinition(Name)]

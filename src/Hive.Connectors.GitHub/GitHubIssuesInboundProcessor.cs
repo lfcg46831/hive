@@ -111,6 +111,31 @@ internal sealed class GitHubIssuesInboundProcessor(
                 .ConfigureAwait(false);
         }
 
+        GitHubIssueCorrelation correlation;
+        try
+        {
+            correlation = await store
+                .FindCorrelationByIssueAsync(
+                    instance.InstanceId,
+                    instance.OrganizationId,
+                    envelope.Repository,
+                    parsed.IssueNumber!.Value,
+                    cancellationToken)
+                .ConfigureAwait(false)
+                ?? GitHubIssuesInboundCorrelationFactory.Create(
+                    instance,
+                    envelope.Repository,
+                    parsed.IssueNumber.Value);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            return Failed(envelope);
+        }
+
         Hive.Domain.Identity.PositionId? source;
         try
         {
@@ -151,7 +176,8 @@ internal sealed class GitHubIssuesInboundProcessor(
                 instance,
                 envelope.Repository,
                 source,
-                envelope.CapturedAtUtc)
+                envelope.CapturedAtUtc,
+                correlation)
             .Map(parsed.Message!);
         if (!mapping.IsSuccess || mapping.Message is not Directive directive)
         {
@@ -183,7 +209,10 @@ internal sealed class GitHubIssuesInboundProcessor(
                     envelope,
                     new GitHubIssuesInboundCompletion(
                         GitHubIssuesInboundCompletionState.Submitted,
-                        UtcNow()),
+                        UtcNow(),
+                        submission: new GitHubIssueSubmissionCorrelation(
+                            correlation,
+                            directive.DirectiveId)),
                     GitHubIssuesInboundProcessingStatus.Submitted,
                     reasonCode: null,
                     cancellationToken)

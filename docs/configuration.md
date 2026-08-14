@@ -744,7 +744,7 @@ The GitHub adapter is the independently built `Hive.Connectors.GitHub` plugin. I
 HIVE__CONNECTORS__PLUGINS__ASSEMBLIES__0=Hive.Connectors.GitHub
 ```
 
-`Hive:Connectors:GitHubIssues` defines the credential-free instances consumed by that plugin across `US-F1-04`. Configuration binding and fail-closed startup validation become active only when the plugin is selected. From `US-F1-04-T03`, declaring at least one instance activates a cluster-singleton polling workload on the `connectors` role and therefore requires `ConnectionStrings:PostgreSql`; the concrete authenticated GitHub HTTP client is supplied by `US-F1-04-T08`. Omitting the plugin list activates no connector code. Selecting the plugin while omitting its instance section produces an empty, inert GitHub catalog and does not require PostgreSQL.
+`Hive:Connectors:GitHubIssues` defines the credential-free instances consumed by that plugin across `US-F1-04`. Configuration binding and fail-closed startup validation become active only when the plugin is selected. Declaring at least one instance activates the cluster-singleton polling workload and authenticated GitHub REST client on the `connectors` role and therefore requires `ConnectionStrings:PostgreSql`. Omitting the plugin list activates no connector code. Selecting the plugin while omitting its instance section produces an empty, inert GitHub catalog and does not require PostgreSQL.
 
 Each entry in `Instances` is explicit and has no silent defaults:
 
@@ -769,7 +769,7 @@ HIVE__CONNECTORS__GITHUBISSUES__CREDENTIALS__0__INSTANCEID=acme-github
 HIVE__CONNECTORS__GITHUBISSUES__CREDENTIALS__0__TOKEN=<minimum-scope-github-token>
 ```
 
-The token is mandatory whenever that instance is declared; missing, blank, orphaned or mismatched credentials fail startup. Store real tokens in the deployment secret store, an ignored local `.env`, or .NET user-secrets. Never place them in `appsettings*.json`, `.env.example`, organization YAML, connector schemas, logs, snapshots, prompts, or source control. Give each token access only to the configured repositories and only the GitHub permissions needed by the enabled operations. Rotation takes effect after restarting the process with the replacement secret.
+The token is mandatory whenever that instance is declared; missing, blank, orphaned or mismatched credentials fail startup. Store real tokens in the deployment secret store, an ignored local `.env`, or .NET user-secrets. Never place them in `appsettings*.json`, `.env.example`, organization YAML, connector schemas, logs, snapshots, prompts, or source control. Prefer a fine-grained token restricted to exactly the configured repositories. Grant `Issues: read` when `OutboundOperations` is empty and `Issues: write` when any outbound operation is enabled; no broader repository or account permissions are required by this adapter. Rotation takes effect after restarting the process with the replacement secret.
 
 ## Occupant-channel correlation tokens
 

@@ -135,24 +135,6 @@ internal sealed class GitHubIssuesInboundPoller(
     }
 }
 
-internal sealed class UnavailableGitHubIssuesInboundClient : IGitHubIssuesInboundClient
-{
-    public static UnavailableGitHubIssuesInboundClient Instance { get; } = new();
-
-    private UnavailableGitHubIssuesInboundClient()
-    {
-    }
-
-    public Task<GitHubIssuesInboundBatch> FetchBatchAsync(
-        GitHubIssuesConnectorInstanceConfiguration instance,
-        string repository,
-        string? cursor,
-        int pageSize,
-        CancellationToken cancellationToken = default) =>
-        Task.FromException<GitHubIssuesInboundBatch>(new InvalidOperationException(
-            "The GitHub Issues HTTP polling client is unavailable until US-F1-04-T08 is configured."));
-}
-
 internal sealed class UnavailableGitHubIssuesInboundStore : IGitHubIssuesInboundStore
 {
     public static UnavailableGitHubIssuesInboundStore Instance { get; } = new();

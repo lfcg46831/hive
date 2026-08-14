@@ -483,23 +483,3 @@ internal interface IGitHubIssuesOutboundClient
         GitHubIssuesOutboundRequest request,
         CancellationToken cancellationToken = default);
 }
-
-internal sealed class UnavailableGitHubIssuesOutboundClient : IGitHubIssuesOutboundClient
-{
-    public static UnavailableGitHubIssuesOutboundClient Instance { get; } = new();
-
-    private UnavailableGitHubIssuesOutboundClient()
-    {
-    }
-
-    public Task<GitHubIssuesOutboundClientResult> ExecuteAsync(
-        GitHubIssuesOutboundRequest request,
-        CancellationToken cancellationToken = default)
-    {
-        ArgumentNullException.ThrowIfNull(request);
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.FromResult(GitHubIssuesOutboundClientResult.Failed(
-            "github-outbound-client-unavailable",
-            retryable: true));
-    }
-}

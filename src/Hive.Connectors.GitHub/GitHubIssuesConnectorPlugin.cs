@@ -1,3 +1,4 @@
+using System.Net;
 using Hive.Domain.Connectors;
 using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
@@ -34,8 +35,25 @@ public sealed class GitHubIssuesConnectorPlugin : IConnectorPlugin
             new GitHubIssuesConnectorConfigurationCatalog(
                 serviceProvider.GetRequiredService<IOptions<GitHubIssuesConnectorOptions>>()));
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
-        services.TryAddSingleton<IGitHubIssuesInboundClient>(
-            UnavailableGitHubIssuesInboundClient.Instance);
+        services
+            .AddHttpClient(
+                GitHubIssuesRestClient.HttpClientName,
+                GitHubIssuesRestClient.ConfigureHttpClient)
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler
+            {
+                AllowAutoRedirect = false,
+                AutomaticDecompression = DecompressionMethods.GZip
+                    | DecompressionMethods.Deflate
+                    | DecompressionMethods.Brotli,
+            });
+        services.TryAddSingleton(serviceProvider => new GitHubIssuesRestClient(
+            serviceProvider
+                .GetRequiredService<IHttpClientFactory>()
+                .CreateClient(GitHubIssuesRestClient.HttpClientName),
+            serviceProvider.GetRequiredService<GitHubIssuesConnectorConfigurationCatalog>(),
+            serviceProvider.GetRequiredService<TimeProvider>()));
+        services.TryAddSingleton<IGitHubIssuesInboundClient>(serviceProvider =>
+            serviceProvider.GetRequiredService<GitHubIssuesRestClient>());
         services.TryAddSingleton<IGitHubIssuesInboundStore>(serviceProvider =>
         {
             var connectionString = serviceProvider
@@ -51,8 +69,8 @@ public sealed class GitHubIssuesConnectorPlugin : IConnectorPlugin
         services.TryAddEnumerable(ServiceDescriptor.Singleton<
             IActionDomainContractSource,
             GitHubIssuesActionDomainContractSource>());
-        services.TryAddSingleton<IGitHubIssuesOutboundClient>(
-            UnavailableGitHubIssuesOutboundClient.Instance);
+        services.TryAddSingleton<IGitHubIssuesOutboundClient>(serviceProvider =>
+            serviceProvider.GetRequiredService<GitHubIssuesRestClient>());
         services.TryAddSingleton<IGitHubIssuesOutboundStore>(serviceProvider =>
         {
             var connectionString = serviceProvider

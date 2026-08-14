@@ -20,4 +20,5 @@ public enum JourneyAuditStage
     DirectiveCheckpointTransition = 16,
     OccupantResponseTimeout = 17,
     OccupantAbsence = 18,
+    ConnectorOutbound = 19,
 }

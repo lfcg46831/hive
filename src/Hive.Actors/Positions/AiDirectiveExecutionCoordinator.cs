@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using Hive.Application.Directives;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
+using Hive.Infrastructure.Connectors;
 using Hive.Domain.Directives;
 using Hive.Domain.Messaging;
 using Hive.Domain.Outcomes;
@@ -84,6 +85,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
     private readonly IAiDirectiveResultMessageGate _resultMessageGate;
     private readonly IAiAgentActionGate _actionGate;
     private readonly IAiDirectiveOutcomeResolutionIntegrator _outcomeResolutionIntegrator;
+    private readonly IConnectorToolRegistry? _toolRegistry;
+    private readonly IAiDirectiveConnectorToolExecutor _toolExecutor;
     private readonly Func<DateTimeOffset> _clock;
 
     public AiDirectiveExecutionCoordinator(
@@ -91,7 +94,9 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         IAiDirectiveResultMessageGate resultMessageGate,
         IAiAgentActionGate actionGate,
         IAiDirectiveOutcomeResolutionIntegrator outcomeResolutionIntegrator,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        IConnectorToolRegistry? toolRegistry = null,
+        IAiDirectiveConnectorToolExecutor? toolExecutor = null)
     {
         _gatewayInvoker = gatewayInvoker
             ?? throw new ArgumentNullException(nameof(gatewayInvoker));
@@ -100,6 +105,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         _actionGate = actionGate ?? throw new ArgumentNullException(nameof(actionGate));
         _outcomeResolutionIntegrator = outcomeResolutionIntegrator
             ?? throw new ArgumentNullException(nameof(outcomeResolutionIntegrator));
+        _toolRegistry = toolRegistry;
+        _toolExecutor = toolExecutor ?? UnavailableAiDirectiveConnectorToolExecutor.Instance;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
@@ -243,7 +250,7 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
                 .ConfigureAwait(false);
             var continuationExecutor = new AiDirectiveIterationExecutor(
                 _gatewayInvoker,
-                UnavailableAiDirectiveConnectorToolExecutor.Instance,
+                _toolExecutor,
                 _actionGate,
                 _clock);
             var outcomeProposalEvidenceContext =
@@ -622,7 +629,8 @@ internal sealed class AiDirectiveExecutionCoordinator : IDirectiveExecutionCoord
         ArgumentNullException.ThrowIfNull(request);
         return AiDirectiveExecutionContext.From(
             request,
-            _outcomeResolutionIntegrator.RequiresStructuredProposal);
+            _outcomeResolutionIntegrator.RequiresStructuredProposal,
+            _toolRegistry);
     }
 
     private AiDirectiveExecutionCoordinatorResult CreateTrace(

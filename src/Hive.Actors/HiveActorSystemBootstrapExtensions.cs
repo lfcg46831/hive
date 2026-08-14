@@ -116,6 +116,8 @@ public static class HiveActorSystemBootstrapExtensions
             AiAgentActionGate.CreateRuntime(
                 serviceProvider.GetRequiredService<IOrganizationActionGateRuntimeProvider>(),
                 serviceProvider.GetRequiredService<IJourneyAuditLog>()));
+        builder.Services.TryAddSingleton<IConnectorToolRegistry, ConnectorToolRegistry>();
+        builder.Services.TryAddSingleton<ConnectorToolRuntime>();
         builder.Services.TryAddSingleton<IAiDirectiveOutcomeResolutionIntegrator>(serviceProvider =>
         {
             var configuredMode = serviceProvider
@@ -146,7 +148,10 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IAiAgentGatewayInvoker>(),
                 AiDirectiveResultMessageEmissionGate.Instance,
                 serviceProvider.GetRequiredService<IAiAgentActionGate>(),
-                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>()));
+                serviceProvider.GetRequiredService<IAiDirectiveOutcomeResolutionIntegrator>(),
+                clock: null,
+                serviceProvider.GetRequiredService<IConnectorToolRegistry>(),
+                serviceProvider.GetRequiredService<ConnectorToolRuntime>()));
         builder.Services.TryAddSingleton<IDirectiveExecutionCoordinator>(serviceProvider =>
             serviceProvider.GetRequiredService<AiDirectiveExecutionCoordinator>());
         builder.Services.TryAddSingleton<IOccupantChannel>(
@@ -166,8 +171,8 @@ public static class HiveActorSystemBootstrapExtensions
                 serviceProvider.GetRequiredService<IOccupantChannelDeliveryRequestFactory>()));
         builder.Services.TryAddSingleton<IRetainedActionPolicyEvaluator>(
             EscalatingRetainedActionPolicyEvaluator.Instance);
-        builder.Services.TryAddSingleton<IRetainedActionExecutor>(
-            UnavailableRetainedActionExecutor.Instance);
+        builder.Services.TryAddSingleton<IRetainedActionExecutor>(serviceProvider =>
+            serviceProvider.GetRequiredService<ConnectorToolRuntime>());
         builder.Services.TryAddSingleton<RetainedActionResumeCoordinator>();
         builder.Services.TryAddSingleton<IPositionEntityProps, PositionEntityProps>();
         builder.Services.TryAddSingleton<ISchedulerPulseDispatcher>(

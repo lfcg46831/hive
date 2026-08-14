@@ -122,7 +122,7 @@ public sealed class PostgreSqlGitHubIssuesInboundStoreTests(
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1, 2, 3], versions);
+        Assert.Equal([1, 2, 3, 4], versions);
     }
 
     [Fact]

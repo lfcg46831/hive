@@ -288,7 +288,8 @@ internal sealed class InboxProjectionFactMapper
                 or nameof(JourneyAuditStage.RetainedActionReEscalation)
                 or nameof(JourneyAuditStage.OutcomeResolved)
                 or nameof(JourneyAuditStage.DirectiveCheckpointTransition)
-                or nameof(JourneyAuditStage.OccupantResponseTimeout):
+                or nameof(JourneyAuditStage.OccupantResponseTimeout)
+                or nameof(JourneyAuditStage.ConnectorOutbound):
                 break;
 
             default:

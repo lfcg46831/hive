@@ -596,7 +596,7 @@ internal static class AiDirectivePrompt
 
         return context.AuthorizedTools.Select(tool =>
             AiToolActingUnderSchema.Compose(
-                new AiToolDefinition(
+                tool.Definition ?? new AiToolDefinition(
                     tool.Connector,
                     $"Authorized HIVE connector '{tool.Connector}' with scopes: {JoinOrEmpty(tool.Scope)}."),
                 context.Authority.CanDecide));

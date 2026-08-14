@@ -5,6 +5,7 @@ using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Connectors;
 
 namespace Hive.Actors.Positions;
 
@@ -115,7 +116,8 @@ internal sealed record AiDirectiveExecutionContext
 
     public static AiDirectiveExecutionContext From(
         AiDirectiveProcessingRequest request,
-        bool requiresStructuredOutcomeProposal = false)
+        bool requiresStructuredOutcomeProposal = false,
+        IConnectorToolRegistry? toolRegistry = null)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -143,7 +145,9 @@ internal sealed record AiDirectiveExecutionContext
                 request.RuntimeContext.Position.DirectSubordinates),
             AiDirectiveExecutionAuthority.From(request.RuntimeContext.Authority),
             request.RuntimeContext.OccupantConfiguration.Tools
-                .Select(AiDirectiveExecutionTool.From)
+                .Select(tool => AiDirectiveExecutionTool.From(
+                    tool,
+                    toolRegistry?.Find(tool.Connector)?.Definition))
                 .ToImmutableArray(),
             request.PersistedContext.ShortMemory
                 .OrderBy(entry => entry.Key, StringComparer.Ordinal)
@@ -424,18 +428,33 @@ internal sealed record AiDirectiveExecutionAuthorityOverride
 
 internal sealed record AiDirectiveExecutionTool
 {
-    private AiDirectiveExecutionTool(string connector, ImmutableArray<string> scope)
+    private AiDirectiveExecutionTool(
+        string connector,
+        ImmutableArray<string> scope,
+        AiToolDefinition? definition)
     {
         Connector = AiAgentGatewayText.Require(connector, nameof(connector));
         Scope = RequireScope(scope, nameof(scope));
+        if (definition is not null
+            && !string.Equals(definition.Name, Connector, StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Connector tool definition name must match the authorized connector name.",
+                nameof(definition));
+        }
+
+        Definition = definition;
     }
 
     public string Connector { get; }
 
     public ImmutableArray<string> Scope { get; }
 
+    public AiToolDefinition? Definition { get; }
+
     public static AiDirectiveExecutionTool From(
-        Hive.Domain.Organization.Configuration.ToolConfiguration tool)
+        Hive.Domain.Organization.Configuration.ToolConfiguration tool,
+        AiToolDefinition? definition = null)
     {
         ArgumentNullException.ThrowIfNull(tool);
 
@@ -444,7 +463,8 @@ internal sealed record AiDirectiveExecutionTool
             tool.Scope.Select(scope => AiAgentGatewayText.Require(
                     scope,
                     nameof(tool.Scope)))
-                .ToImmutableArray());
+                .ToImmutableArray(),
+            definition);
     }
 
     private static ImmutableArray<string> RequireScope(

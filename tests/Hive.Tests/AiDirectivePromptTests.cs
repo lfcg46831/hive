@@ -9,6 +9,7 @@ using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using Hive.Domain.Positions;
+using Hive.Infrastructure.Connectors;
 using OrgDirective = Hive.Domain.Messaging.Directive;
 
 namespace Hive.Tests;
@@ -887,6 +888,41 @@ public sealed class AiDirectivePromptTests
     }
 
     [Fact]
+    public void Initial_request_uses_plugin_tool_schema_before_adding_acting_under()
+    {
+        var definition = new AiToolDefinition(
+            "jira",
+            "Looks up a ticket.",
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                ["type"] = "object",
+                ["properties"] = new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["ticket"] = new Dictionary<string, object?>
+                    {
+                        ["type"] = "string",
+                    },
+                },
+                ["required"] = new[] { "ticket" },
+                ["additionalProperties"] = false,
+            });
+        var registry = new ConnectorToolRegistry([new SchemaOnlyConnectorTool(definition)]);
+        var context = AiDirectiveExecutionContext.From(
+            Request(includeOptionalContext: true),
+            requiresStructuredOutcomeProposal: false,
+            registry);
+
+        var request = AiDirectivePrompt.CreateInitialRequest(context);
+
+        var tool = Assert.Single(request.Tools);
+        Assert.Equal("Looks up a ticket.", tool.Description);
+        var properties = SchemaObject(tool.ParametersSchema["properties"]);
+        Assert.Contains("ticket", properties.Keys);
+        AssertActingUnderProperty(properties, "bug.triage");
+        Assert.Equal(["ticket", "acting_under"], SchemaStrings(tool.ParametersSchema["required"]));
+    }
+
+    [Fact]
     public async Task AiAgentActor_invokes_gateway_after_initial_prompt_with_policy_and_limits()
     {
         var processingRequest = Request(
@@ -1395,5 +1431,15 @@ public sealed class AiDirectivePromptTests
                     isRetryable: true,
                     invocation.Request.Provider))));
         }
+    }
+
+    private sealed class SchemaOnlyConnectorTool(AiToolDefinition definition) : IConnectorTool
+    {
+        public AiToolDefinition Definition { get; } = definition;
+
+        public ValueTask<ConnectorToolResult> ExecuteAsync(
+            ConnectorToolInvocation invocation,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
     }
 }

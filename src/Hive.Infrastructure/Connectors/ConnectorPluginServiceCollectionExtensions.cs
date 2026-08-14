@@ -3,6 +3,7 @@ using System.Runtime.Loader;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace Hive.Infrastructure.Connectors;
 
@@ -35,6 +36,8 @@ public static partial class ConnectorPluginServiceCollectionExtensions
         {
             services.AddSingleton(typeof(IConnectorPlugin), plugin.Instance);
         }
+
+        services.TryAddSingleton<IConnectorToolRegistry, ConnectorToolRegistry>();
 
         services.AddSingleton(new ConnectorPluginCatalog(plugins.Select(plugin =>
             new ConnectorPluginDescriptor(

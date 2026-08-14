@@ -1,8 +1,10 @@
 using System.Text.Json;
 using Hive.Connectors.GitHub;
 using Hive.Domain.Connectors;
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Connectors;
+using Hive.Infrastructure.Governance;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -226,6 +228,28 @@ public sealed class GitHubIssuesConnectorConfigurationTests
         await host.StopAsync();
 
         Assert.Empty(catalog.Instances);
+    }
+
+    [Fact]
+    public void Plugin_contributes_tools_and_gate_contracts_only_through_generic_registries()
+    {
+        var builder = CreateBuilder(new Dictionary<string, string?>());
+        builder.Services.AddSingleton<IJourneyAuditLog>(NoopJourneyAuditLog.Instance);
+        builder.Services.AddHiveActionDomainContracts();
+        using var host = builder.Build();
+
+        var tools = host.Services.GetRequiredService<IConnectorToolRegistry>();
+        var contracts = host.Services.GetRequiredService<IActionDomainContractRegistry>();
+
+        foreach (var operation in GitHubIssuesOutboundOperations.All)
+        {
+            var tool = Assert.IsAssignableFrom<IConnectorTool>(tools.Find(operation));
+            Assert.Equal(operation, tool.Definition.Name);
+            Assert.Contains(
+                contracts.ActionContracts,
+                contract => contract.Action == Hive.Domain.Governance.ActionDomainActionKind.Tool
+                    && contract.SelectorValue == operation);
+        }
     }
 
     [Fact]

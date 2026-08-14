@@ -21,6 +21,7 @@ internal sealed class GitHubIssuesInboundSingletonWorkload : IRoleWorkload
     private readonly ActorSystem _system;
     private readonly GitHubIssuesConnectorConfigurationCatalog _catalog;
     private readonly IGitHubIssuesInboundPoller _poller;
+    private readonly IGitHubIssuesInboundProcessor _processor;
     private readonly TimeProvider _timeProvider;
     private readonly ILogger<GitHubIssuesInboundSingletonWorkload> _logger;
     private readonly ILogger<GitHubIssuesInboundSourceActor> _sourceLogger;
@@ -35,12 +36,14 @@ internal sealed class GitHubIssuesInboundSingletonWorkload : IRoleWorkload
         IConfiguration configuration,
         GitHubIssuesConnectorConfigurationCatalog catalog,
         IGitHubIssuesInboundPoller poller,
+        IGitHubIssuesInboundProcessor processor,
         TimeProvider timeProvider,
         ILoggerFactory loggerFactory)
         : this(
             system,
             catalog,
             poller,
+            processor,
             timeProvider,
             loggerFactory,
             DefaultClusterUpTimeout,
@@ -56,10 +59,32 @@ internal sealed class GitHubIssuesInboundSingletonWorkload : IRoleWorkload
         ILoggerFactory loggerFactory,
         TimeSpan clusterUpTimeout,
         Func<CancellationToken, Task> migrate)
+        : this(
+            system,
+            catalog,
+            poller,
+            NoopGitHubIssuesInboundProcessor.Instance,
+            timeProvider,
+            loggerFactory,
+            clusterUpTimeout,
+            migrate)
+    {
+    }
+
+    internal GitHubIssuesInboundSingletonWorkload(
+        ActorSystem system,
+        GitHubIssuesConnectorConfigurationCatalog catalog,
+        IGitHubIssuesInboundPoller poller,
+        IGitHubIssuesInboundProcessor processor,
+        TimeProvider timeProvider,
+        ILoggerFactory loggerFactory,
+        TimeSpan clusterUpTimeout,
+        Func<CancellationToken, Task> migrate)
     {
         _system = system ?? throw new ArgumentNullException(nameof(system));
         _catalog = catalog ?? throw new ArgumentNullException(nameof(catalog));
         _poller = poller ?? throw new ArgumentNullException(nameof(poller));
+        _processor = processor ?? throw new ArgumentNullException(nameof(processor));
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         ArgumentNullException.ThrowIfNull(loggerFactory);
         if (clusterUpTimeout <= TimeSpan.Zero)
@@ -97,6 +122,7 @@ internal sealed class GitHubIssuesInboundSingletonWorkload : IRoleWorkload
             await WaitForClusterUpAsync(cancellationToken).ConfigureAwait(false);
             var sourceProps = GitHubIssuesInboundSourceActor.Props(
                 _poller,
+                _processor,
                 _timeProvider,
                 _sourceLogger);
             var managerSettings = ClusterSingletonManagerSettings.Create(_system)

@@ -121,7 +121,52 @@ public sealed class PostgreSqlGitHubIssuesInboundStoreTests(
             versions.Add(reader.GetInt32(0));
         }
 
-        Assert.Equal([1], versions);
+        Assert.Equal([1, 2], versions);
+    }
+
+    [Fact]
+    public async Task Pending_event_completes_once_with_closed_result_metadata()
+    {
+        await ResetAndMigrateAsync();
+        await using var store =
+            new PostgreSqlGitHubIssuesInboundStore(fixture.ConnectionString);
+        await store.CommitBatchAsync(
+            expectedCheckpoint: null,
+            Batch(
+                "cursor-1",
+                Event("comment:20", GitHubIssuesInboundEventKinds.Comment, 20)),
+            CapturedAt,
+            CapturedAt.AddMinutes(1));
+        var envelope = Assert.Single(await store.ReadPendingAsync(
+            "acme-github",
+            "acme/payments",
+            10));
+        var completion = new GitHubIssuesInboundCompletion(
+            GitHubIssuesInboundCompletionState.Rejected,
+            CapturedAt.AddSeconds(1),
+            GitHubIssuesInboundProcessingReasonCodes.PayloadInvalid);
+
+        Assert.True(await store.TryCompleteAsync(envelope, completion));
+        Assert.False(await store.TryCompleteAsync(envelope, completion));
+        Assert.Empty(await store.ReadPendingAsync("acme-github", "acme/payments", 10));
+
+        await using var dataSource = fixture.CreateDataSource();
+        await using var command = dataSource.CreateCommand(
+            """
+            SELECT processing_state, processed_at, rejection_code
+            FROM github_connector.inbound_events
+            WHERE instance_id = 'acme-github'
+              AND repository = 'acme/payments'
+              AND external_event_id = 'comment:20';
+            """);
+        await using var reader = await command.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("rejected", reader.GetString(0));
+        Assert.Equal(CapturedAt.AddSeconds(1), reader.GetFieldValue<DateTimeOffset>(1));
+        Assert.Equal(
+            GitHubIssuesInboundProcessingReasonCodes.PayloadInvalid,
+            reader.GetString(2));
+        Assert.False(await reader.ReadAsync());
     }
 
     private async Task ResetAndMigrateAsync()

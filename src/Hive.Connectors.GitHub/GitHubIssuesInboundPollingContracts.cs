@@ -218,6 +218,64 @@ internal sealed record GitHubIssuesInboundEnvelope(
     string PayloadJson,
     DateTimeOffset CapturedAtUtc);
 
+internal enum GitHubIssuesInboundCompletionState
+{
+    Submitted = 1,
+    Rejected = 2,
+}
+
+internal sealed record GitHubIssuesInboundCompletion
+{
+    public GitHubIssuesInboundCompletion(
+        GitHubIssuesInboundCompletionState state,
+        DateTimeOffset completedAtUtc,
+        string? reasonCode = null)
+    {
+        if (state is not (GitHubIssuesInboundCompletionState.Submitted
+            or GitHubIssuesInboundCompletionState.Rejected))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(state),
+                state,
+                "GitHub inbound completion state is undefined.");
+        }
+
+        if (completedAtUtc == default || completedAtUtc.Offset != TimeSpan.Zero)
+        {
+            throw new ArgumentException(
+                "Completion timestamp must be specified and use a UTC offset.",
+                nameof(completedAtUtc));
+        }
+
+        if (state is GitHubIssuesInboundCompletionState.Submitted && reasonCode is not null)
+        {
+            throw new ArgumentException(
+                "Submitted GitHub inbound events cannot carry a rejection reason.",
+                nameof(reasonCode));
+        }
+
+        if (state is GitHubIssuesInboundCompletionState.Rejected
+            && (string.IsNullOrWhiteSpace(reasonCode)
+                || !string.Equals(reasonCode, reasonCode.Trim(), StringComparison.Ordinal)
+                || reasonCode.Any(char.IsWhiteSpace)))
+        {
+            throw new ArgumentException(
+                "Rejected GitHub inbound events require a closed reason code.",
+                nameof(reasonCode));
+        }
+
+        State = state;
+        CompletedAtUtc = completedAtUtc;
+        ReasonCode = reasonCode;
+    }
+
+    public GitHubIssuesInboundCompletionState State { get; }
+
+    public DateTimeOffset CompletedAtUtc { get; }
+
+    public string? ReasonCode { get; }
+}
+
 internal sealed record GitHubIssuesInboundCommitResult(
     bool IsApplied,
     int InsertedCount,
@@ -294,10 +352,21 @@ internal interface IGitHubIssuesInboundStore
         string repository,
         int limit,
         CancellationToken cancellationToken = default);
+
+    Task<bool> TryCompleteAsync(
+        GitHubIssuesInboundEnvelope envelope,
+        GitHubIssuesInboundCompletion completion,
+        CancellationToken cancellationToken = default);
 }
 
 internal interface IGitHubIssuesInboundPoller
 {
     Task<GitHubIssuesPollingCycleResult> PollDueRepositoriesAsync(
+        CancellationToken cancellationToken = default);
+}
+
+internal interface IGitHubIssuesInboundProcessor
+{
+    Task<GitHubIssuesInboundProcessingCycleResult> ProcessPendingAsync(
         CancellationToken cancellationToken = default);
 }

@@ -32,6 +32,25 @@ public sealed class GitHubIssuesInboundSingletonWorkloadTests
     }
 
     [Fact]
+    public async Task Source_actor_processes_staged_events_after_each_polling_cycle()
+    {
+        using var system = ActorSystem.Create($"hive-github-processing-{Guid.NewGuid():N}");
+        var order = new List<string>();
+        var poller = new OrderedPoller(order);
+        var processor = new OrderedProcessor(order);
+        system.ActorOf(GitHubIssuesInboundSourceActor.Props(
+            poller,
+            processor,
+            TimeProvider.System,
+            NullLogger.Instance));
+
+        await processor.Completed.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(["poll", "process"], order);
+        await system.Terminate();
+    }
+
+    [Fact]
     public async Task Configured_workload_materializes_stable_connectors_singleton_and_polls_once()
     {
         var port = GetFreeTcpPort();
@@ -261,6 +280,32 @@ public sealed class GitHubIssuesInboundSingletonWorkloadTests
 
                 observed = previous;
             }
+        }
+    }
+
+    private sealed class OrderedPoller(List<string> order) : IGitHubIssuesInboundPoller
+    {
+        public Task<GitHubIssuesPollingCycleResult> PollDueRepositoriesAsync(
+            CancellationToken cancellationToken = default)
+        {
+            order.Add("poll");
+            return Task.FromResult(new GitHubIssuesPollingCycleResult([]));
+        }
+    }
+
+    private sealed class OrderedProcessor(List<string> order) : IGitHubIssuesInboundProcessor
+    {
+        private readonly TaskCompletionSource _completed =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Completed => _completed.Task;
+
+        public Task<GitHubIssuesInboundProcessingCycleResult> ProcessPendingAsync(
+            CancellationToken cancellationToken = default)
+        {
+            order.Add("process");
+            _completed.TrySetResult();
+            return Task.FromResult(new GitHubIssuesInboundProcessingCycleResult([]));
         }
     }
 }

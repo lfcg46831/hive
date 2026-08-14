@@ -341,6 +341,12 @@ public sealed class GitHubIssuesInboundPollerTests
             CancellationToken cancellationToken = default) =>
             throw new NotSupportedException();
 
+        public Task<bool> TryCompleteAsync(
+            GitHubIssuesInboundEnvelope envelope,
+            GitHubIssuesInboundCompletion completion,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         private static string Key(string instanceId, string repository) =>
             $"{instanceId}/{repository}";
     }

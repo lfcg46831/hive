@@ -180,6 +180,12 @@ internal sealed class UnavailableGitHubIssuesInboundStore : IGitHubIssuesInbound
         CancellationToken cancellationToken = default) =>
         Task.FromException<IReadOnlyList<GitHubIssuesInboundEnvelope>>(Unavailable());
 
+    public Task<bool> TryCompleteAsync(
+        GitHubIssuesInboundEnvelope envelope,
+        GitHubIssuesInboundCompletion completion,
+        CancellationToken cancellationToken = default) =>
+        Task.FromException<bool>(Unavailable());
+
     private static InvalidOperationException Unavailable() =>
         new("ConnectionStrings:PostgreSql is required for durable GitHub Issues inbound polling.");
 }

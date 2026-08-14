@@ -14,6 +14,7 @@ using Hive.Domain.Messaging;
 using Hive.Domain.OccupantChannels;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Connectors;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
 using Hive.Infrastructure.OccupantChannels;
@@ -173,6 +174,9 @@ public static class HiveActorSystemBootstrapExtensions
             AkkaClusterShardingSchedulerPulseDispatcher.Instance);
         builder.Services.TryAddSingleton<ISchedulerProactiveBudgetPolicy>(
             AllowingSchedulerProactiveBudgetPolicy.Instance);
+        builder.Services.TryAddSingleton<
+            IConnectorMessageSubmissionSink,
+            AkkaConnectorMessageSubmissionSink>();
         builder.Services.AddSingleton<PositionShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<PositionShardingWorkload>());

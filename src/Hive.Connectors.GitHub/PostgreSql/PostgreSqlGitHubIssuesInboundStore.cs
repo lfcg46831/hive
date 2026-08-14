@@ -206,6 +206,38 @@ internal sealed class PostgreSqlGitHubIssuesInboundStore
         return result;
     }
 
+    public async Task<bool> TryCompleteAsync(
+        GitHubIssuesInboundEnvelope envelope,
+        GitHubIssuesInboundCompletion completion,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(envelope);
+        ArgumentNullException.ThrowIfNull(completion);
+        ValidateIdentity(envelope.InstanceId, envelope.Repository);
+        await using var command = _dataSource.CreateCommand(
+            $"""
+            UPDATE {GitHubIssuesInboundSchema.SchemaName}.inbound_events
+            SET processing_state = @processing_state,
+                processed_at = @processed_at,
+                rejection_code = @rejection_code
+            WHERE instance_id = @instance_id
+              AND repository = @repository
+              AND external_event_id = @external_event_id
+              AND processing_state = 'pending';
+            """);
+        AddIdentityParameters(command, envelope.InstanceId, envelope.Repository);
+        command.Parameters.AddWithValue("external_event_id", envelope.ExternalEventId);
+        command.Parameters.AddWithValue(
+            "processing_state",
+            completion.State is GitHubIssuesInboundCompletionState.Submitted
+                ? "submitted"
+                : "rejected");
+        command.Parameters.AddWithValue("processed_at", completion.CompletedAtUtc);
+        command.Parameters.Add("rejection_code", NpgsqlDbType.Text).Value =
+            completion.ReasonCode is { } reasonCode ? reasonCode : DBNull.Value;
+        return await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     public async ValueTask DisposeAsync()
     {
         if (_ownsDataSource)

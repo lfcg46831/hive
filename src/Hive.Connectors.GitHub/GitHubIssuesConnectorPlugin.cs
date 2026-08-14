@@ -1,4 +1,5 @@
 using Hive.Domain.Connectors;
+using Hive.Domain.Messaging;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Connectors;
 using Hive.Infrastructure.Hosting;
@@ -44,6 +45,8 @@ public sealed class GitHubIssuesConnectorPlugin : IConnectorPlugin
                 : new PostgreSqlGitHubIssuesInboundStore(connectionString);
         });
         services.TryAddSingleton<IGitHubIssuesInboundPoller, GitHubIssuesInboundPoller>();
+        services.TryAddSingleton<DirectiveRoutingValidator>();
+        services.TryAddSingleton<IGitHubIssuesInboundProcessor, GitHubIssuesInboundProcessor>();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<
             IRoleWorkload,
             GitHubIssuesInboundSingletonWorkload>());

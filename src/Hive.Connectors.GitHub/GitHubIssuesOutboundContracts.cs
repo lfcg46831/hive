@@ -282,6 +282,7 @@ internal sealed record GitHubIssuesOutboundOperation
                     body,
                     state: null,
                     labels: []);
+                errorCode = null;
                 return true;
 
             case GitHubIssuesOutboundOperations.UpdateState:
@@ -297,6 +298,7 @@ internal sealed record GitHubIssuesOutboundOperation
                     body: null,
                     state,
                     labels: []);
+                errorCode = null;
                 return true;
 
             case GitHubIssuesOutboundOperations.UpdateLabels:
@@ -311,6 +313,7 @@ internal sealed record GitHubIssuesOutboundOperation
                     body: null,
                     state: null,
                     labels);
+                errorCode = null;
                 return true;
 
             default:

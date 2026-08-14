@@ -152,6 +152,57 @@ public sealed class GitHubIssuesActionAttributeExtractorTests
         Assert.Equal(GitHubIssuesActionAttributeNames.State, result.Failure.Attribute);
     }
 
+    [Fact]
+    public void Update_state_contract_requires_the_declared_direct_state_fact()
+    {
+        var source = new GitHubIssuesActionDomainContractSource();
+        var contract = Assert.Single(
+            source.ActionContracts,
+            candidate => candidate.SelectorValue == GitHubIssuesOutboundOperations.UpdateState);
+        var registration = Assert.Single(
+            source.ActionExtractors,
+            candidate => candidate.SelectorValue == GitHubIssuesOutboundOperations.UpdateState);
+
+        var result = ActionAttributeExtractorRunner.Extract(
+            contract,
+            registration,
+            new ActionAttributeExtractionRequest(
+                ActionDomainActionKind.Tool,
+                GitHubIssuesOutboundOperations.UpdateState));
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Facts);
+        Assert.Equal("direct-attribute-missing", result.Failure!.Code);
+        Assert.Equal(GitHubIssuesActionAttributeNames.State, result.Failure.Attribute);
+    }
+
+    [Fact]
+    public void Comment_contract_rejects_undeclared_direct_facts()
+    {
+        var source = new GitHubIssuesActionDomainContractSource();
+        var contract = Assert.Single(
+            source.ActionContracts,
+            candidate => candidate.SelectorValue == GitHubIssuesOutboundOperations.Comment);
+        var registration = Assert.Single(
+            source.ActionExtractors,
+            candidate => candidate.SelectorValue == GitHubIssuesOutboundOperations.Comment);
+        var request = new ActionAttributeExtractionRequest(
+            ActionDomainActionKind.Tool,
+            GitHubIssuesOutboundOperations.Comment,
+            new Dictionary<string, ActionAttributeValue>(StringComparer.Ordinal)
+            {
+                [GitHubIssuesActionAttributeNames.State] =
+                    ActionAttributeValue.FromString("closed"),
+            });
+
+        var result = ActionAttributeExtractorRunner.Extract(contract, registration, request);
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(result.Facts);
+        Assert.Equal("direct-attribute-not-declared", result.Failure!.Code);
+        Assert.Null(result.Failure.Attribute);
+    }
+
     private static ActionAttributeExtractionRequest Request(string tool) =>
         new(
             ActionDomainActionKind.Tool,

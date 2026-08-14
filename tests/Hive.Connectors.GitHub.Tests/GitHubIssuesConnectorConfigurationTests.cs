@@ -114,6 +114,68 @@ public sealed class GitHubIssuesConnectorConfigurationTests
             new GitHubIssuesPollingConfiguration(TimeSpan.FromSeconds(1), 101));
     }
 
+    [Theory]
+    [InlineData("PT1S", true)]
+    [InlineData("P1D", true)]
+    [InlineData("PT0.999S", false)]
+    [InlineData("30 seconds", false)]
+    [InlineData(" PT30S", false)]
+    [InlineData("", false)]
+    public void Polling_interval_parser_accepts_only_trimmed_iso8601_values_of_at_least_one_second(
+        string value,
+        bool expected)
+    {
+        var parsed = GitHubIssuesConnectorOptionsValidator.TryParseInterval(
+            value,
+            out var interval);
+
+        Assert.Equal(expected, parsed);
+        if (expected)
+        {
+            Assert.True(interval >= TimeSpan.FromSeconds(1));
+        }
+    }
+
+    [Fact]
+    public void Options_validator_rejects_duplicate_instances_and_credentials_without_secret_values()
+    {
+        const string token = "duplicate-test-secret";
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["ConnectionStrings:PostgreSql"] = "configured",
+            })
+            .Build();
+        var validator = new GitHubIssuesConnectorOptionsValidator(configuration);
+        var instance = ValidInstanceOptions();
+        var options = new GitHubIssuesConnectorOptions
+        {
+            Instances = [instance, ValidInstanceOptions()],
+            Credentials =
+            [
+                new GitHubIssuesConnectorCredentialOptions
+                {
+                    InstanceId = "acme-github",
+                    Token = token,
+                },
+                new GitHubIssuesConnectorCredentialOptions
+                {
+                    InstanceId = "acme-github",
+                    Token = token,
+                },
+            ],
+        };
+
+        var result = validator.Validate(name: null, options);
+        var failures = Assert.IsAssignableFrom<IEnumerable<string>>(result.Failures);
+        var diagnostic = string.Join("\n", failures);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("Credentials:1:InstanceId is declared more than once", diagnostic);
+        Assert.Contains("Instances:1:InstanceId is declared more than once", diagnostic);
+        Assert.DoesNotContain(token, diagnostic, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void Public_schema_declares_all_instance_fields_and_directional_scopes_without_credentials()
     {
@@ -313,4 +375,19 @@ public sealed class GitHubIssuesConnectorConfigurationTests
         builder.Services.AddHiveConnectorPlugins(builder.Configuration);
         return builder;
     }
+
+    private static GitHubIssuesConnectorInstanceOptions ValidInstanceOptions() =>
+        new()
+        {
+            InstanceId = "acme-github",
+            OrganizationId = "acme-delivery",
+            Repositories = ["acme/payments"],
+            InboundDirectiveTarget = "bug-triage",
+            OutboundOperations = [GitHubIssuesOutboundOperations.Comment],
+            Polling = new GitHubIssuesPollingOptions
+            {
+                Interval = "PT30S",
+                PageSize = 100,
+            },
+        };
 }

@@ -283,6 +283,43 @@ public sealed class ConnectorContractTests
             error => error.Code == "connector-outbound-action-duplicate");
     }
 
+    [Fact]
+    public void Contract_validation_reports_a_malformed_connector_in_deterministic_order()
+    {
+        var validation = ConnectorContractValidator.Validate(new MalformedConnector());
+
+        Assert.False(validation.IsValid);
+        Assert.Equal(
+            [
+                new ConnectorContractValidationError(
+                    "connector-capabilities-invalid",
+                    nameof(IConnector.Capabilities)),
+                new ConnectorContractValidationError(
+                    "connector-configuration-schema-missing",
+                    nameof(IConnector.ConfigurationSchema)),
+                new ConnectorContractValidationError(
+                    "connector-id-missing",
+                    nameof(IConnector.Id)),
+                new ConnectorContractValidationError(
+                    "connector-outbound-actions-missing",
+                    nameof(IConnector.OutboundActions)),
+                new ConnectorContractValidationError(
+                    "connector-version-missing",
+                    nameof(IConnector.Version)),
+            ],
+            validation.Errors);
+    }
+
+    [Theory]
+    [InlineData(ConnectorCapability.None)]
+    [InlineData((ConnectorCapability)8)]
+    [InlineData(ConnectorCapability.InboundMessages | (ConnectorCapability)8)]
+    public void Capability_contract_rejects_empty_or_unknown_flags(ConnectorCapability value)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            ConnectorCapabilityContract.RequireSupported(value, nameof(value)));
+    }
+
     [Theory]
     [InlineData(ConnectorErrorCode.InvalidInput, "invalid-input")]
     [InlineData(ConnectorErrorCode.ConfigurationInvalid, "configuration-invalid")]
@@ -420,6 +457,23 @@ public sealed class ConnectorContractTests
             ArgumentNullException.ThrowIfNull(message);
             return ConnectorOutboundMappingResult.Succeeded(mapped);
         }
+    }
+
+    private sealed class MalformedConnector : IConnector
+    {
+        public ConnectorId Id => null!;
+
+        public ConnectorVersion Version => null!;
+
+        public ConnectorCapability Capabilities => ConnectorCapability.None;
+
+        public ConnectorConfigurationSchema ConfigurationSchema => null!;
+
+        public IConnectorInboundMessageMapper? InboundMessageMapper => null;
+
+        public IConnectorOutboundMessageMapper? OutboundMessageMapper => null;
+
+        public IReadOnlyList<ConnectorOutboundAction> OutboundActions => null!;
     }
 
     private sealed class ConstantExtractor(string name, string value) : IActionAttributeExtractor

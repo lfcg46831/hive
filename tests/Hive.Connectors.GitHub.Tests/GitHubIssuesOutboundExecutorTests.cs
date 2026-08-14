@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json;
 using Hive.Domain.Ai;
 using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
@@ -65,6 +66,83 @@ public sealed class GitHubIssuesOutboundExecutorTests
                     ["body"] = "Published",
                     ["repository"] = "other/repository",
                 }),
+            out _,
+            out _));
+    }
+
+    [Fact]
+    public void Outbound_mapping_accepts_each_closed_operation_from_json_values()
+    {
+        using var document = JsonDocument.Parse(
+            """{"body":"Published","state":"closed","labels":["urgent","bug"]}""");
+
+        Assert.True(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.Comment,
+                "body",
+                document.RootElement.GetProperty("body")),
+            out var comment,
+            out var commentError));
+        Assert.Null(commentError);
+        Assert.Equal("Published", comment!.Body);
+        Assert.Equal("{\"body\":\"Published\"}", comment.CanonicalPayload);
+
+        Assert.True(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.UpdateState,
+                "state",
+                document.RootElement.GetProperty("state")),
+            out var state,
+            out var stateError));
+        Assert.Null(stateError);
+        Assert.Equal("closed", state!.State);
+        Assert.Equal("{\"state\":\"closed\"}", state.CanonicalPayload);
+
+        Assert.True(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.UpdateLabels,
+                "labels",
+                document.RootElement.GetProperty("labels")),
+            out var labels,
+            out var labelsError));
+        Assert.Null(labelsError);
+        Assert.Equal(["bug", "urgent"], labels!.Labels);
+        Assert.Equal("{\"labels\":[\"bug\",\"urgent\"]}", labels.CanonicalPayload);
+    }
+
+    [Fact]
+    public void Outbound_mapping_enforces_utf8_limits_and_closed_state_vocabulary()
+    {
+        var maximumUtf8Label = new string('\u00e9', 25);
+        var oversizedUtf8Label = maximumUtf8Label + "x";
+        var oversizedUtf8Body = new string('\u00e9', 32_769);
+
+        Assert.True(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.UpdateLabels,
+                "labels",
+                new[] { maximumUtf8Label }),
+            out _,
+            out _));
+        Assert.False(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.UpdateLabels,
+                "labels",
+                new[] { oversizedUtf8Label }),
+            out _,
+            out _));
+        Assert.False(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.Comment,
+                "body",
+                oversizedUtf8Body),
+            out _,
+            out _));
+        Assert.False(GitHubIssuesOutboundOperation.TryParse(
+            Call(
+                GitHubIssuesOutboundOperations.UpdateState,
+                "state",
+                "Closed"),
             out _,
             out _));
     }
@@ -200,6 +278,15 @@ public sealed class GitHubIssuesOutboundExecutorTests
 
     private static string[] Required(AiToolDefinition definition) =>
         Assert.IsType<string[]>(definition.ParametersSchema["required"]);
+
+    private static AiToolCall Call(string operation, string argument, object? value) =>
+        new(
+            "call-unit",
+            operation,
+            new Dictionary<string, object?>(StringComparer.Ordinal)
+            {
+                [argument] = value,
+            });
 
     private static ConnectorToolInvocation Invocation(string body) =>
         new(

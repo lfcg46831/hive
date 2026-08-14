@@ -245,10 +245,22 @@ public sealed class GitHubIssuesConnectorConfigurationTests
         {
             var tool = Assert.IsAssignableFrom<IConnectorTool>(tools.Find(operation));
             Assert.Equal(operation, tool.Definition.Name);
-            Assert.Contains(
+            var contract = Assert.Single(
                 contracts.ActionContracts,
                 contract => contract.Action == Hive.Domain.Governance.ActionDomainActionKind.Tool
                     && contract.SelectorValue == operation);
+            Assert.Contains(
+                contract.Attributes,
+                attribute => attribute.Name == GitHubIssuesActionAttributeNames.OperationType
+                             && attribute.Source == Hive.Domain.Governance.ActionAttributeSource.Derived);
+            Assert.Contains(
+                contract.Attributes,
+                attribute => attribute.Name == GitHubIssuesActionAttributeNames.Visibility
+                             && attribute.Source == Hive.Domain.Governance.ActionAttributeSource.Derived);
+            Assert.Single(
+                contracts.ActionExtractors,
+                extractor => extractor.Action == Hive.Domain.Governance.ActionDomainActionKind.Tool
+                             && extractor.SelectorValue == operation);
         }
     }
 

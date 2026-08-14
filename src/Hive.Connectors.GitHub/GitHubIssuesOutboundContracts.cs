@@ -78,13 +78,126 @@ internal sealed class GitHubIssuesActionDomainContractSource : IActionDomainCont
 {
     public IReadOnlyList<ActionDomainActionContract> ActionContracts { get; } =
     [
-        ActionDomainActionContract.ForTool(GitHubIssuesOutboundOperations.Comment),
-        ActionDomainActionContract.ForTool(GitHubIssuesOutboundOperations.UpdateState),
-        ActionDomainActionContract.ForTool(GitHubIssuesOutboundOperations.UpdateLabels),
+        Contract(
+            GitHubIssuesOutboundOperations.Comment,
+            GitHubIssuesActionOperationTypes.Comment),
+        Contract(
+            GitHubIssuesOutboundOperations.UpdateState,
+            GitHubIssuesActionOperationTypes.StateUpdate,
+            includesState: true),
+        Contract(
+            GitHubIssuesOutboundOperations.UpdateLabels,
+            GitHubIssuesActionOperationTypes.LabelsUpdate),
     ];
 
-    // T07 adds the deterministic derived attributes without changing the tool selectors.
-    public IReadOnlyList<ActionAttributeExtractorRegistration> ActionExtractors { get; } = [];
+    public IReadOnlyList<ActionAttributeExtractorRegistration> ActionExtractors { get; } =
+    [
+        Extractor(
+            GitHubIssuesOutboundOperations.Comment,
+            GitHubIssuesActionOperationTypes.Comment),
+        Extractor(
+            GitHubIssuesOutboundOperations.UpdateState,
+            GitHubIssuesActionOperationTypes.StateUpdate),
+        Extractor(
+            GitHubIssuesOutboundOperations.UpdateLabels,
+            GitHubIssuesActionOperationTypes.LabelsUpdate),
+    ];
+
+    private static ActionDomainActionContract Contract(
+        string tool,
+        string operationType,
+        bool includesState = false)
+    {
+        var attributes = new List<ActionAttributeDefinition>
+        {
+            ActionAttributeDefinition.Derived(
+                GitHubIssuesActionAttributeNames.OperationType,
+                ActionAttributeValueKind.String,
+                [ActionAttributeValue.FromString(operationType)]),
+            ActionAttributeDefinition.Derived(
+                GitHubIssuesActionAttributeNames.Visibility,
+                ActionAttributeValueKind.String,
+                [ActionAttributeValue.FromString(GitHubIssuesActionVisibilities.External)]),
+        };
+        if (includesState)
+        {
+            attributes.Add(ActionAttributeDefinition.Direct(
+                GitHubIssuesActionAttributeNames.State,
+                ActionAttributeValueKind.String,
+                [
+                    ActionAttributeValue.FromString("open"),
+                    ActionAttributeValue.FromString("closed"),
+                ]));
+        }
+
+        return ActionDomainActionContract.ForTool(tool, attributes);
+    }
+
+    private static ActionAttributeExtractorRegistration Extractor(
+        string tool,
+        string operationType) =>
+        ActionAttributeExtractorRegistration.ForTool(
+            tool,
+            new GitHubIssuesActionAttributeExtractor(tool, operationType));
+}
+
+internal static class GitHubIssuesActionAttributeNames
+{
+    public const string OperationType = "operation_type";
+    public const string Visibility = "visibility";
+    public const string State = "state";
+}
+
+internal static class GitHubIssuesActionOperationTypes
+{
+    public const string Comment = "comment";
+    public const string StateUpdate = "state-update";
+    public const string LabelsUpdate = "labels-update";
+}
+
+internal static class GitHubIssuesActionVisibilities
+{
+    public const string External = "external";
+}
+
+internal sealed class GitHubIssuesActionAttributeExtractor : IActionAttributeExtractor
+{
+    private readonly string _selector;
+    private readonly IReadOnlyDictionary<string, ActionAttributeValue> _derivedAttributes;
+
+    public GitHubIssuesActionAttributeExtractor(string selector, string operationType)
+    {
+        if (!GitHubIssuesOutboundOperations.IsSupported(selector))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(selector),
+                selector,
+                "Unknown GitHub Issues outbound operation.");
+        }
+
+        ArgumentException.ThrowIfNullOrWhiteSpace(operationType);
+        _selector = selector;
+        _derivedAttributes = new Dictionary<string, ActionAttributeValue>(StringComparer.Ordinal)
+        {
+            [GitHubIssuesActionAttributeNames.OperationType] =
+                ActionAttributeValue.FromString(operationType),
+            [GitHubIssuesActionAttributeNames.Visibility] =
+                ActionAttributeValue.FromString(GitHubIssuesActionVisibilities.External),
+        }.ToImmutableDictionary(StringComparer.Ordinal);
+    }
+
+    public ActionAttributeExtractorOutput Extract(ActionAttributeExtractionRequest request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.Action != ActionDomainActionKind.Tool
+            || !string.Equals(request.SelectorValue, _selector, StringComparison.Ordinal))
+        {
+            return ActionAttributeExtractorOutput.Failure(
+                ActionAttributeExtractorFailureReason.InvalidInput);
+        }
+
+        return ActionAttributeExtractorOutput.Success(_derivedAttributes);
+    }
 }
 
 internal sealed class GitHubIssuesOutboundTool : IConnectorTool

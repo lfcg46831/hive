@@ -172,6 +172,13 @@ public sealed class PositionLiveStateFactMapperTests
             "{}");
 
         Assert.Null(mapper.Apply(auditFact));
+        Assert.Null(mapper.Apply(new PositionLiveStateProjectionFact(
+            PositionLiveStateProjectionSource.AuditLog,
+            sourceOffset: 2,
+            Organization,
+            nameof(JourneyAuditStage.ConnectorInbound),
+            At,
+            "{}")));
         Assert.Null(mapper.Apply(MessageFact(
             Engineer,
             new Memo(

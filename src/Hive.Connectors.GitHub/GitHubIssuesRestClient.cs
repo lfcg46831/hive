@@ -113,6 +113,15 @@ internal sealed class GitHubIssuesRestClient :
                 nameof(repository));
         }
 
+        var configuredInstance = _catalog.FindInstance(instance.InstanceId);
+        if (configuredInstance is null
+            || !GitHubIssuesScopePolicy.AuthorizeInbound(
+                configuredInstance,
+                repository).IsAllowed)
+        {
+            throw new GitHubIssuesScopeDeniedException();
+        }
+
         if (pageSize is < 1 or > 100)
         {
             throw new ArgumentOutOfRangeException(nameof(pageSize));
@@ -183,7 +192,7 @@ internal sealed class GitHubIssuesRestClient :
         if (!MatchesScope(request))
         {
             return GitHubIssuesOutboundClientResult.Failed(
-                GitHubIssuesRestErrorCodes.RequestInvalid,
+                GitHubIssuesScopePolicy.ScopeDeniedCode,
                 retryable: false);
         }
 
@@ -1074,12 +1083,15 @@ internal sealed class GitHubIssuesRestClient :
                 out value);
     }
 
-    private static bool MatchesScope(GitHubIssuesOutboundRequest request) =>
-        string.Equals(
-            request.Instance.InstanceId,
-            request.Issue.InstanceId,
-            StringComparison.Ordinal)
-        && request.Instance.OrganizationId == request.Issue.OrganizationId;
+    private bool MatchesScope(GitHubIssuesOutboundRequest request)
+    {
+        var configuredInstance = _catalog.FindInstance(request.Instance.InstanceId);
+        return configuredInstance is not null
+            && GitHubIssuesScopePolicy.AuthorizeOutbound(
+                configuredInstance,
+                request.Issue,
+                request.Operation.Name).IsAllowed;
+    }
 
     private static string OperationMarker(string operationKey) =>
         $"<!-- hive-operation:v1:{operationKey} -->";

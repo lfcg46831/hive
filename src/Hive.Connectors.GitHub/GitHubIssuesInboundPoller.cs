@@ -1,3 +1,4 @@
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 
 namespace Hive.Connectors.GitHub;
@@ -6,6 +7,7 @@ internal sealed class GitHubIssuesInboundPoller(
     GitHubIssuesConnectorConfigurationCatalog catalog,
     IGitHubIssuesInboundClient client,
     IGitHubIssuesInboundStore store,
+    IJourneyAuditLog auditLog,
     TimeProvider timeProvider) : IGitHubIssuesInboundPoller
 {
     internal const string PollFailedCode = "github-issues-poll-failed";
@@ -32,13 +34,25 @@ internal sealed class GitHubIssuesInboundPoller(
         return new GitHubIssuesPollingCycleResult(results);
     }
 
-    private async Task<GitHubIssuesRepositoryPollResult> PollRepositoryAsync(
+    internal async Task<GitHubIssuesRepositoryPollResult> PollRepositoryAsync(
         GitHubIssuesConnectorInstanceConfiguration instance,
         string repository,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var observedAtUtc = timeProvider.GetUtcNow();
         var fallbackNextPollAtUtc = SafeAdd(observedAtUtc, instance.Polling.Interval);
+        var requestedScope = GitHubIssuesScopePolicy.AuthorizeInbound(instance, repository);
+        if (!requestedScope.IsAllowed)
+        {
+            return IgnoreOutOfScope(
+                instance,
+                repository,
+                requestedScope.DeniedDimension!,
+                observedAtUtc,
+                fallbackNextPollAtUtc);
+        }
+
         try
         {
             var checkpoint = await store
@@ -63,7 +77,25 @@ internal sealed class GitHubIssuesInboundPoller(
                     instance.Polling.PageSize,
                     cancellationToken)
                 .ConfigureAwait(false);
-            ValidateBatch(instance, repository, batch);
+            ValidateBatchInstance(instance, batch);
+            var returnedScope = GitHubIssuesScopePolicy.AuthorizeInbound(
+                instance,
+                batch.Repository);
+            if (!returnedScope.IsAllowed)
+            {
+                return IgnoreOutOfScope(
+                    instance,
+                    batch.Repository,
+                    returnedScope.DeniedDimension!,
+                    observedAtUtc,
+                    fallbackNextPollAtUtc);
+            }
+
+            if (!string.Equals(batch.Repository, repository, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "The GitHub Issues client returned a batch for a different in-scope repository.");
+            }
 
             var nextPollAtUtc = batch.RateLimitNotBeforeUtc is { } rateLimit
                 && rateLimit > fallbackNextPollAtUtc
@@ -108,18 +140,63 @@ internal sealed class GitHubIssuesInboundPoller(
         }
     }
 
-    private static void ValidateBatch(
+    private static void ValidateBatchInstance(
         GitHubIssuesConnectorInstanceConfiguration instance,
-        string repository,
         GitHubIssuesInboundBatch batch)
     {
         ArgumentNullException.ThrowIfNull(batch);
-        if (!string.Equals(batch.InstanceId, instance.InstanceId, StringComparison.Ordinal)
-            || !string.Equals(batch.Repository, repository, StringComparison.OrdinalIgnoreCase))
+        if (!string.Equals(batch.InstanceId, instance.InstanceId, StringComparison.Ordinal))
         {
             throw new InvalidOperationException(
                 "The GitHub Issues client returned a batch for a different configured source.");
         }
+    }
+
+    private GitHubIssuesRepositoryPollResult IgnoreOutOfScope(
+        GitHubIssuesConnectorInstanceConfiguration instance,
+        string repository,
+        string deniedDimension,
+        DateTimeOffset observedAtUtc,
+        DateTimeOffset nextPollAtUtc)
+    {
+        var canonicalRepository = GitHubIssuesScopePolicy.CanonicalRepository(repository);
+        var identity = string.Join(
+            "\n",
+            "hive:github-issues:scope-audit:v1",
+            "inbound",
+            instance.OrganizationId.Value,
+            instance.InstanceId,
+            canonicalRepository);
+        var threadId = ThreadId.From(DeterministicGuid.FromName(identity + "\nthread"));
+        var messageId = MessageId.From(DeterministicGuid.FromName(identity + "\nmessage"));
+        auditLog.Append(JourneyAuditRecord.Create(
+            JourneyAuditStage.ConnectorInbound,
+            JourneyAuditOutcome.Rejected,
+            instance.OrganizationId,
+            threadId,
+            messageId,
+            positionId: instance.InboundDirectiveTarget,
+            reasonCode: GitHubIssuesScopePolicy.ScopeDeniedCode,
+            messageType: "github-issues.scope",
+            payload: new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["direction"] = "inbound",
+                ["instanceId"] = instance.InstanceId,
+                ["deniedDimension"] = deniedDimension,
+                ["repository"] = canonicalRepository,
+                ["redactions"] = "content,cursor,credentials,transport-diagnostics",
+            },
+            occurredAtUtc: observedAtUtc,
+            idempotencyDiscriminator: identity + "\n" + deniedDimension));
+
+        return new GitHubIssuesRepositoryPollResult(
+            instance.InstanceId,
+            canonicalRepository,
+            GitHubIssuesRepositoryPollStatus.Ignored,
+            0,
+            0,
+            nextPollAtUtc,
+            GitHubIssuesScopePolicy.ScopeDeniedCode);
     }
 
     private static DateTimeOffset SafeAdd(DateTimeOffset value, TimeSpan interval)

@@ -363,6 +363,7 @@ internal enum GitHubIssuesRepositoryPollStatus
     Committed = 1,
     ConcurrentCheckpoint = 2,
     Failed = 3,
+    Ignored = 4,
 }
 
 internal sealed record GitHubIssuesRepositoryPollResult(

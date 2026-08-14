@@ -21,4 +21,5 @@ public enum JourneyAuditStage
     OccupantResponseTimeout = 17,
     OccupantAbsence = 18,
     ConnectorOutbound = 19,
+    ConnectorInbound = 20,
 }

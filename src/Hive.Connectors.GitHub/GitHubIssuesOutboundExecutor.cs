@@ -106,11 +106,17 @@ internal sealed class GitHubIssuesOutboundExecutor : IGitHubIssuesOutboundExecut
             return ConnectorToolResult.Failed(code);
         }
 
-        if (!resolved.Instance.OutboundOperations.Contains(operation!.Name, StringComparer.Ordinal))
+        var scope = GitHubIssuesScopePolicy.AuthorizeOutbound(
+            resolved.Instance,
+            resolved.Issue,
+            operation!.Name);
+        if (!scope.IsAllowed)
         {
-            const string code = "github-outbound-operation-disabled";
-            AuditFinal(invocation, code, resolved.Issue, attempt: 0, succeeded: false);
-            return ConnectorToolResult.Failed(code);
+            AuditScopeDenied(
+                invocation,
+                resolved.Issue,
+                scope.DeniedDimension!);
+            return ConnectorToolResult.Failed(GitHubIssuesScopePolicy.ScopeDeniedCode);
         }
 
         var now = _timeProvider.GetUtcNow();
@@ -314,6 +320,23 @@ internal sealed class GitHubIssuesOutboundExecutor : IGitHubIssuesOutboundExecut
             issue,
             attempt,
             $"{invocation.OperationKey}:final:{code}");
+
+    private void AuditScopeDenied(
+        ConnectorToolInvocation invocation,
+        GitHubIssueCorrelation issue,
+        string deniedDimension) =>
+        AppendAudit(
+            invocation,
+            JourneyAuditOutcome.Rejected,
+            GitHubIssuesScopePolicy.ScopeDeniedCode,
+            issue,
+            attempt: 0,
+            $"{invocation.OperationKey}:scope-denied:{deniedDimension}",
+            new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                ["direction"] = "outbound",
+                ["deniedDimension"] = deniedDimension,
+            });
 
     private void AppendAudit(
         ConnectorToolInvocation invocation,

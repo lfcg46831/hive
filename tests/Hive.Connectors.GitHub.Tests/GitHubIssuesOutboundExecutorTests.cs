@@ -141,6 +141,63 @@ public sealed class GitHubIssuesOutboundExecutorTests
         Assert.Empty(client.Requests);
     }
 
+    [Fact]
+    public async Task Disabled_outbound_operation_is_scope_denied_and_audited_before_store_or_client()
+    {
+        var store = new RecordingOutboundStore();
+        var client = new SequenceClient(GitHubIssuesOutboundClientResult.Success("unused"));
+        var audit = new RecordingAuditLog();
+        var executor = new GitHubIssuesOutboundExecutor(
+            Catalog(outboundOperations: [GitHubIssuesOutboundOperations.UpdateState]),
+            new CorrelationStore(Correlation()),
+            store,
+            client,
+            new RecordingBackoff(),
+            audit,
+            new FixedTimeProvider(At));
+
+        var result = await executor.ExecuteAsync(Invocation("must stay private"));
+
+        Assert.False(result.IsSuccess);
+        Assert.False(result.Retryable);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, result.ErrorCode);
+        Assert.Equal(0, store.AcquireCount);
+        Assert.Empty(client.Requests);
+        var record = Assert.Single(audit.Records);
+        Assert.Equal(JourneyAuditStage.ConnectorOutbound, record.Stage);
+        Assert.Equal(JourneyAuditOutcome.Rejected, record.Outcome);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, record.ReasonCode);
+        Assert.Equal("outbound", record.Payload["direction"]);
+        Assert.Equal(GitHubIssuesScopeDimensions.Operation, record.Payload["deniedDimension"]);
+        Assert.DoesNotContain("must stay private", string.Join('|', record.Payload.Values));
+    }
+
+    [Fact]
+    public async Task Out_of_scope_correlated_repository_is_denied_before_store_or_client()
+    {
+        var store = new RecordingOutboundStore();
+        var client = new SequenceClient(GitHubIssuesOutboundClientResult.Success("unused"));
+        var audit = new RecordingAuditLog();
+        var executor = new GitHubIssuesOutboundExecutor(
+            Catalog(),
+            new CorrelationStore(Correlation("other/private")),
+            store,
+            client,
+            new RecordingBackoff(),
+            audit,
+            new FixedTimeProvider(At));
+
+        var result = await executor.ExecuteAsync(Invocation("must stay private"));
+
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, result.ErrorCode);
+        Assert.Equal(0, store.AcquireCount);
+        Assert.Empty(client.Requests);
+        var record = Assert.Single(audit.Records);
+        Assert.Equal(JourneyAuditOutcome.Rejected, record.Outcome);
+        Assert.Equal(GitHubIssuesScopeDimensions.Repository, record.Payload["deniedDimension"]);
+        Assert.Equal("other/private", record.Payload["repository"]);
+    }
+
     private static string[] Required(AiToolDefinition definition) =>
         Assert.IsType<string[]>(definition.ParametersSchema["required"]);
 
@@ -158,16 +215,19 @@ public sealed class GitHubIssuesOutboundExecutorTests
                 GitHubIssuesOutboundOperations.Comment,
                 new Dictionary<string, object?> { ["body"] = body }));
 
-    private static GitHubIssueCorrelation Correlation() =>
+    private static GitHubIssueCorrelation Correlation(
+        string repository = "acme/payments") =>
         new(
             "acme-github",
             Organization,
-            "acme/payments",
+            repository,
             42,
             Thread,
             Directive);
 
-    private static GitHubIssuesConnectorConfigurationCatalog Catalog() =>
+    private static GitHubIssuesConnectorConfigurationCatalog Catalog(
+        IReadOnlyList<string>? repositories = null,
+        IReadOnlyList<string>? outboundOperations = null) =>
         new(Options.Create(new GitHubIssuesConnectorOptions
         {
             Instances =
@@ -176,14 +236,14 @@ public sealed class GitHubIssuesOutboundExecutorTests
                 {
                     InstanceId = "acme-github",
                     OrganizationId = Organization.Value,
-                    Repositories = ["acme/payments"],
+                    Repositories = (repositories ?? ["acme/payments"]).ToArray(),
                     InboundDirectiveTarget = Position.Value,
-                    OutboundOperations =
+                    OutboundOperations = (outboundOperations ??
                     [
                         GitHubIssuesOutboundOperations.Comment,
                         GitHubIssuesOutboundOperations.UpdateState,
                         GitHubIssuesOutboundOperations.UpdateLabels,
-                    ],
+                    ]).ToArray(),
                     Polling = new GitHubIssuesPollingOptions
                     {
                         Interval = "PT30S",
@@ -371,4 +431,3 @@ public sealed class GitHubIssuesOutboundExecutorTests
                 && (directiveId is null || record.DirectiveId == directiveId)).ToArray();
     }
 }
-

@@ -369,6 +369,7 @@ public sealed class InboxProjectionFactMapperTests
             "not-json-because-this-event-is-not-an-inbox-reminder");
         Assert.Empty(mapper.Apply(MessageFact(Engineer, unrelatedTrigger)));
         Assert.Empty(mapper.Apply(AuditFact(nameof(Hive.Domain.Auditing.JourneyAuditStage.PositionAccepted))));
+        Assert.Empty(mapper.Apply(AuditFact(nameof(Hive.Domain.Auditing.JourneyAuditStage.ConnectorInbound))));
 
         Assert.Throws<InvalidOperationException>(() =>
             mapper.Apply(AuditFact("FutureInboxRelevantStage")));

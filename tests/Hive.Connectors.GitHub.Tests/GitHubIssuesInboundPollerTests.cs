@@ -1,3 +1,4 @@
+using Hive.Domain.Auditing;
 using Hive.Domain.Identity;
 using Microsoft.Extensions.Options;
 
@@ -28,6 +29,7 @@ public sealed class GitHubIssuesInboundPollerTests
             catalog,
             client,
             store,
+            NoopJourneyAuditLog.Instance,
             new ManualTimeProvider(ObservedAt));
 
         var result = await poller.PollDueRepositoriesAsync();
@@ -61,6 +63,7 @@ public sealed class GitHubIssuesInboundPollerTests
             Catalog(instance),
             client,
             store,
+            NoopJourneyAuditLog.Instance,
             time);
 
         var deferred = Assert.Single((await poller.PollDueRepositoriesAsync()).Repositories);
@@ -92,6 +95,7 @@ public sealed class GitHubIssuesInboundPollerTests
             Catalog(Instance("alpha", ["acme/one", "acme/two"])),
             client,
             store,
+            NoopJourneyAuditLog.Instance,
             new ManualTimeProvider(ObservedAt));
 
         var result = await poller.PollDueRepositoriesAsync();
@@ -122,6 +126,7 @@ public sealed class GitHubIssuesInboundPollerTests
             Catalog(Instance("alpha", ["acme/one"])),
             client,
             store,
+            NoopJourneyAuditLog.Instance,
             new ManualTimeProvider(ObservedAt));
 
         var result = Assert.Single((await poller.PollDueRepositoriesAsync()).Repositories);
@@ -129,6 +134,73 @@ public sealed class GitHubIssuesInboundPollerTests
         Assert.Equal(GitHubIssuesRepositoryPollStatus.ConcurrentCheckpoint, result.Status);
         Assert.Equal(1, result.FetchedCount);
         Assert.Equal(0, result.InsertedCount);
+    }
+
+    [Fact]
+    public async Task Out_of_scope_repository_is_ignored_and_audited_before_client_or_store()
+    {
+        var instance = Instance("alpha", ["acme/one"]);
+        var client = new RecordingClient(_ => throw new InvalidOperationException("must not fetch"));
+        var store = new RecordingStore();
+        var audit = new RecordingAuditLog();
+        var poller = new GitHubIssuesInboundPoller(
+            Catalog(instance),
+            client,
+            store,
+            audit,
+            new ManualTimeProvider(ObservedAt));
+
+        var result = await poller.PollRepositoryAsync(
+            instance,
+            "Other/Private",
+            CancellationToken.None);
+
+        Assert.Equal(GitHubIssuesRepositoryPollStatus.Ignored, result.Status);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, result.ErrorCode);
+        Assert.Equal("other/private", result.Repository);
+        Assert.Empty(client.Calls);
+        Assert.Equal(0, store.ReadCheckpointCalls);
+        Assert.Empty(store.Commits);
+        var record = Assert.Single(audit.Records);
+        Assert.Equal(JourneyAuditStage.ConnectorInbound, record.Stage);
+        Assert.Equal(JourneyAuditOutcome.Rejected, record.Outcome);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, record.ReasonCode);
+        Assert.Equal("inbound", record.Payload["direction"]);
+        Assert.Equal(GitHubIssuesScopeDimensions.Repository, record.Payload["deniedDimension"]);
+        Assert.Equal("other/private", record.Payload["repository"]);
+        Assert.DoesNotContain("test-token", string.Join('|', record.Payload.Values));
+    }
+
+    [Fact]
+    public async Task Out_of_scope_batch_identity_is_ignored_without_staging_mutation()
+    {
+        var instance = Instance("alpha", ["acme/one"]);
+        var client = new RecordingClient(call => Task.FromResult(
+            new GitHubIssuesInboundBatch(
+                call.Instance.InstanceId,
+                "other/private",
+                "cursor-outside",
+                [new GitHubIssuesInboundEvent(
+                    "issue:outside",
+                    GitHubIssuesInboundEventKinds.Issue,
+                    "{\"number\":99}")])));
+        var store = new RecordingStore();
+        var audit = new RecordingAuditLog();
+        var poller = new GitHubIssuesInboundPoller(
+            Catalog(instance),
+            client,
+            store,
+            audit,
+            new ManualTimeProvider(ObservedAt));
+
+        var result = Assert.Single((await poller.PollDueRepositoriesAsync()).Repositories);
+
+        Assert.Equal(GitHubIssuesRepositoryPollStatus.Ignored, result.Status);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, result.ErrorCode);
+        Assert.Single(client.Calls);
+        Assert.Equal(1, store.ReadCheckpointCalls);
+        Assert.Empty(store.Commits);
+        Assert.Equal("other/private", Assert.Single(audit.Records).Payload["repository"]);
     }
 
     [Fact]
@@ -296,14 +368,19 @@ public sealed class GitHubIssuesInboundPollerTests
 
         public bool ApplyCommit { get; init; } = true;
 
+        public int ReadCheckpointCalls { get; private set; }
+
         public List<CommitCall> Commits { get; } = [];
 
         public ValueTask<GitHubIssuesPollingCheckpoint?> ReadCheckpointAsync(
             string instanceId,
             string repository,
-            CancellationToken cancellationToken = default) =>
-            ValueTask.FromResult(
+            CancellationToken cancellationToken = default)
+        {
+            ReadCheckpointCalls++;
+            return ValueTask.FromResult(
                 _checkpoints.GetValueOrDefault(Key(instanceId, repository)));
+        }
 
         public Task<GitHubIssuesInboundCommitResult> CommitBatchAsync(
             GitHubIssuesPollingCheckpoint? expectedCheckpoint,
@@ -378,6 +455,19 @@ public sealed class GitHubIssuesInboundPollerTests
         GitHubIssuesInboundBatch Batch,
         DateTimeOffset CapturedAtUtc,
         DateTimeOffset NextPollAtUtc);
+
+    private sealed class RecordingAuditLog : IJourneyAuditLog
+    {
+        public List<JourneyAuditRecord> Records { get; } = [];
+
+        public void Append(JourneyAuditRecord record) => Records.Add(record);
+
+        public IReadOnlyList<JourneyAuditRecord> ReadByThread(
+            ThreadId threadId,
+            DirectiveId? directiveId = null) =>
+            Records.Where(record => record.ThreadId == threadId
+                && (directiveId is null || record.DirectiveId == directiveId)).ToArray();
+    }
 
     private sealed class ManualTimeProvider(DateTimeOffset utcNow) : TimeProvider
     {

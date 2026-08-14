@@ -338,6 +338,38 @@ public sealed class GitHubIssuesRestClientTests
                 .Select(value => value.GetString()).ToArray());
     }
 
+    [Fact]
+    public async Task Rest_scope_defense_denies_inbound_and_outbound_before_http()
+    {
+        var handler = new RecordingHandler(_ => throw new InvalidOperationException("must not send"));
+        var (client, instance) = Client(
+            handler,
+            [GitHubIssuesOutboundOperations.Comment]);
+        var widenedInstance = new GitHubIssuesConnectorInstanceConfiguration(
+            instance.InstanceId,
+            instance.OrganizationId,
+            ["acme/payments", "other/private"],
+            instance.InboundDirectiveTarget,
+            [
+                GitHubIssuesOutboundOperations.Comment,
+                GitHubIssuesOutboundOperations.UpdateState,
+            ],
+            instance.Polling);
+
+        var inbound = await Assert.ThrowsAsync<GitHubIssuesScopeDeniedException>(() =>
+            client.FetchBatchAsync(widenedInstance, "other/private", null, 100));
+        var outbound = await client.ExecuteAsync(OutboundRequest(
+            widenedInstance,
+            GitHubIssuesOutboundOperations.UpdateState,
+            new Dictionary<string, object?> { ["state"] = "closed" }));
+
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, inbound.ErrorCode);
+        Assert.False(outbound.Succeeded);
+        Assert.False(outbound.Retryable);
+        Assert.Equal(GitHubIssuesScopePolicy.ScopeDeniedCode, outbound.ErrorCode);
+        Assert.Empty(handler.Requests);
+    }
+
     private static (GitHubIssuesRestClient Client, GitHubIssuesConnectorInstanceConfiguration Instance)
         Client(
             HttpMessageHandler handler,
@@ -388,7 +420,8 @@ public sealed class GitHubIssuesRestClientTests
     private static GitHubIssuesOutboundRequest OutboundRequest(
         GitHubIssuesConnectorInstanceConfiguration instance,
         string operationName,
-        IReadOnlyDictionary<string, object?> arguments)
+        IReadOnlyDictionary<string, object?> arguments,
+        string repository = "acme/payments")
     {
         Assert.True(GitHubIssuesOutboundOperation.TryParse(
             new AiToolCall("call-7", operationName, arguments),
@@ -400,7 +433,7 @@ public sealed class GitHubIssuesRestClientTests
             new GitHubIssueCorrelation(
                 instance.InstanceId,
                 instance.OrganizationId,
-                "acme/payments",
+                repository,
                 7,
                 ThreadId.From(Guid.Parse("11111111-1111-1111-1111-111111111111")),
                 DirectiveId.From(Guid.Parse("22222222-2222-2222-2222-222222222222"))),

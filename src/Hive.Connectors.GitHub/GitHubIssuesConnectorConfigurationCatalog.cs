@@ -39,6 +39,19 @@ public sealed class GitHubIssuesConnectorConfigurationCatalog
 
     public IReadOnlyList<GitHubIssuesConnectorInstanceConfiguration> Instances { get; }
 
+    internal GitHubIssuesConnectorInstanceConfiguration? FindInstance(string instanceId)
+    {
+        ArgumentNullException.ThrowIfNull(instanceId);
+        var matches = Instances
+            .Where(instance => string.Equals(
+                instance.InstanceId,
+                instanceId,
+                StringComparison.Ordinal))
+            .Take(2)
+            .ToArray();
+        return matches.Length == 1 ? matches[0] : null;
+    }
+
     internal string GetToken(string instanceId)
     {
         ArgumentNullException.ThrowIfNull(instanceId);

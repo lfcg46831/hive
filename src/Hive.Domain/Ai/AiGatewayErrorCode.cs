@@ -16,6 +16,7 @@ public enum AiGatewayErrorCode
     InvalidProviderResponse = 12,
     Unknown = 13,
     OutputConstraintUnsupported = 14,
+    GatewayOverloaded = 15,
 }
 
 public static class AiGatewayErrorCodeContract
@@ -34,7 +35,8 @@ public static class AiGatewayErrorCodeContract
         (AiGatewayErrorCode.ProviderRejected, "provider-rejected"),
         (AiGatewayErrorCode.InvalidProviderResponse, "invalid-provider-response"),
         (AiGatewayErrorCode.Unknown, "unknown"),
-        (AiGatewayErrorCode.OutputConstraintUnsupported, "output-constraint-unsupported"));
+        (AiGatewayErrorCode.OutputConstraintUnsupported, "output-constraint-unsupported"),
+        (AiGatewayErrorCode.GatewayOverloaded, "gateway-overloaded"));
 
     public static AiGatewayErrorCode RequireDefined(
         AiGatewayErrorCode value,

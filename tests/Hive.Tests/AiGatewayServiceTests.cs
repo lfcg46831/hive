@@ -555,6 +555,7 @@ public sealed class AiGatewayServiceTests
         Assert.NotNull(envelope.Error);
         Assert.Equal(AiGatewayErrorCode.ProviderRejected, envelope.Error!.Code);
         Assert.False(envelope.Error.IsRetryable);
+        Assert.Null(envelope.Error.Reason);
         Assert.DoesNotContain("jane@example.com", envelope.Error.Message, StringComparison.Ordinal);
         Assert.DoesNotContain("sk-error", envelope.Error.Message, StringComparison.Ordinal);
         Assert.Contains(
@@ -563,6 +564,26 @@ public sealed class AiGatewayServiceTests
         Assert.Contains(
             envelope.Redactions,
             redaction => redaction.Path == "error.message" && redaction.Reason == "secret");
+    }
+
+    [Fact]
+    public async Task CompleteAsync_publishes_canonical_resilience_reason_in_detailed_audit()
+    {
+        var request = Request(provider: new AiProviderMetadata("openai", "gpt-5-mini"));
+        var error = AiGatewayResilienceErrorCatalog.CircuitOpen(request);
+        var detailedAudit = new CapturingAiGatewayDetailedAuditPublisher();
+        var gateway = new AiGateway(
+            new RecordingAiGatewayProvider(AiGatewayResponse.Failed(error)),
+            auditPublisher: null,
+            TimeProvider.System,
+            detailedAudit);
+
+        await gateway.CompleteAsync(request);
+
+        var envelope = Assert.Single(detailedAudit.Envelopes);
+        Assert.Equal("circuit-open", envelope.RejectionReason);
+        Assert.Equal(AiGatewayErrorReason.CircuitOpen, envelope.Error!.Reason);
+        Assert.Equal(AiGatewayErrorCode.ProviderUnavailable, envelope.Error.Code);
     }
 
     [Fact]

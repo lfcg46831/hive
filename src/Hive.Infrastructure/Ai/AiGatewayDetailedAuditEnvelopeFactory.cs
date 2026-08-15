@@ -53,13 +53,28 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
         }
 
         var error = response.Error!;
-        var auditError = new AiGatewayAuditErrorSnapshot(
-            error.Code,
-            RedactText(error.Message, "error.message", key: null, redactions),
-            error.IsRetryable,
-            error.Provider ?? request.Provider,
-            error.Diagnostics);
-        var rejectionReason = AiGatewayErrorCodeContract.ToWireValue(error.Code);
+        var redactedErrorMessage = RedactText(
+            error.Message,
+            "error.message",
+            key: null,
+            redactions);
+        var auditError = error.Reason is { } errorReason
+            ? new AiGatewayAuditErrorSnapshot(
+                error.Code,
+                redactedErrorMessage,
+                error.IsRetryable,
+                error.Provider ?? request.Provider,
+                error.Diagnostics,
+                errorReason)
+            : new AiGatewayAuditErrorSnapshot(
+                error.Code,
+                redactedErrorMessage,
+                error.IsRetryable,
+                error.Provider ?? request.Provider,
+                error.Diagnostics);
+        var rejectionReason = error.Reason is { } reason
+            ? AiGatewayErrorReasonContract.ToWireValue(reason)
+            : AiGatewayErrorCodeContract.ToWireValue(error.Code);
 
         return new AiGatewayAuditEnvelope(
             error.OrganizationId,

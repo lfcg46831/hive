@@ -56,6 +56,7 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Equal(12, (int)AiGatewayErrorCode.InvalidProviderResponse);
         Assert.Equal(13, (int)AiGatewayErrorCode.Unknown);
         Assert.Equal(14, (int)AiGatewayErrorCode.OutputConstraintUnsupported);
+        Assert.Equal(15, (int)AiGatewayErrorCode.GatewayOverloaded);
         Assert.Equal(
             [
                 AiGatewayErrorCode.ConfigurationInvalid,
@@ -72,8 +73,22 @@ public sealed class AiGatewayProtocolEnumTests
                 AiGatewayErrorCode.InvalidProviderResponse,
                 AiGatewayErrorCode.Unknown,
                 AiGatewayErrorCode.OutputConstraintUnsupported,
+                AiGatewayErrorCode.GatewayOverloaded,
             ],
             Enum.GetValues<AiGatewayErrorCode>());
+    }
+
+    [Fact]
+    public void Error_reasons_have_stable_values()
+    {
+        Assert.Equal(1, (int)AiGatewayErrorReason.CircuitOpen);
+        Assert.Equal(2, (int)AiGatewayErrorReason.FallbackExhausted);
+        Assert.Equal(
+            [
+                AiGatewayErrorReason.CircuitOpen,
+                AiGatewayErrorReason.FallbackExhausted,
+            ],
+            Enum.GetValues<AiGatewayErrorReason>());
     }
 
     [Fact]
@@ -173,6 +188,7 @@ public sealed class AiGatewayProtocolEnumTests
     [InlineData(AiGatewayErrorCode.InvalidProviderResponse, "invalid-provider-response")]
     [InlineData(AiGatewayErrorCode.Unknown, "unknown")]
     [InlineData(AiGatewayErrorCode.OutputConstraintUnsupported, "output-constraint-unsupported")]
+    [InlineData(AiGatewayErrorCode.GatewayOverloaded, "gateway-overloaded")]
     public void Error_code_wire_values_round_trip_canonically(
         AiGatewayErrorCode value,
         string wireValue)
@@ -180,6 +196,19 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.Equal(wireValue, AiGatewayErrorCodeContract.ToWireValue(value));
         Assert.Equal(value, AiGatewayErrorCodeContract.ParseWireValue(wireValue));
         Assert.True(AiGatewayErrorCodeContract.TryParseWireValue(wireValue, out var parsed));
+        Assert.Equal(value, parsed);
+    }
+
+    [Theory]
+    [InlineData(AiGatewayErrorReason.CircuitOpen, "circuit-open")]
+    [InlineData(AiGatewayErrorReason.FallbackExhausted, "fallback-exhausted")]
+    public void Error_reason_wire_values_round_trip_canonically(
+        AiGatewayErrorReason value,
+        string wireValue)
+    {
+        Assert.Equal(wireValue, AiGatewayErrorReasonContract.ToWireValue(value));
+        Assert.Equal(value, AiGatewayErrorReasonContract.ParseWireValue(wireValue));
+        Assert.True(AiGatewayErrorReasonContract.TryParseWireValue(wireValue, out var parsed));
         Assert.Equal(value, parsed);
     }
 
@@ -213,6 +242,10 @@ public sealed class AiGatewayProtocolEnumTests
         Assert.False(AiGatewayErrorCodeContract.TryParseWireValue(value, out var errorCode));
         Assert.Equal(default, errorCode);
 
+        Assert.Throws<ArgumentException>(() => AiGatewayErrorReasonContract.ParseWireValue(value));
+        Assert.False(AiGatewayErrorReasonContract.TryParseWireValue(value, out var errorReason));
+        Assert.Equal(default, errorReason);
+
         Assert.Throws<ArgumentException>(() => AiProcessingModeContract.ParseWireValue(value));
         Assert.False(AiProcessingModeContract.TryParseWireValue(value, out var processingMode));
         Assert.Equal(default, processingMode);
@@ -242,6 +275,11 @@ public sealed class AiGatewayProtocolEnumTests
             () => AiGatewayErrorCodeContract.RequireDefined((AiGatewayErrorCode)0, "code"));
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AiGatewayErrorCodeContract.ToWireValue((AiGatewayErrorCode)0));
+
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiGatewayErrorReasonContract.RequireDefined((AiGatewayErrorReason)0, "reason"));
+        Assert.Throws<ArgumentOutOfRangeException>(
+            () => AiGatewayErrorReasonContract.ToWireValue((AiGatewayErrorReason)0));
 
         Assert.Throws<ArgumentOutOfRangeException>(
             () => AiProcessingModeContract.RequireDefined((AiProcessingMode)0, "processingMode"));

@@ -223,6 +223,18 @@ public sealed record AiGatewayAuditErrorSnapshot
         Diagnostics = diagnostics;
     }
 
+    public AiGatewayAuditErrorSnapshot(
+        AiGatewayErrorCode code,
+        string message,
+        bool isRetryable,
+        AiProviderMetadata? provider,
+        AiGatewayFailureDiagnostics? diagnostics,
+        AiGatewayErrorReason reason)
+        : this(code, message, isRetryable, provider, diagnostics)
+    {
+        Reason = AiGatewayErrorReasonContract.RequireDefined(reason, nameof(reason));
+    }
+
     public AiGatewayErrorCode Code { get; }
 
     public string Message { get; }
@@ -232,6 +244,8 @@ public sealed record AiGatewayAuditErrorSnapshot
     public AiProviderMetadata? Provider { get; }
 
     public AiGatewayFailureDiagnostics? Diagnostics { get; }
+
+    public AiGatewayErrorReason? Reason { get; }
 }
 
 public sealed record AiGatewayAuditRedaction

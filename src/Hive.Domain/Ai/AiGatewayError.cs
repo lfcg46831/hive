@@ -31,6 +31,31 @@ public sealed record AiGatewayError
         Diagnostics = diagnostics;
     }
 
+    public AiGatewayError(
+        OrganizationId organizationId,
+        PositionId positionId,
+        ThreadId threadId,
+        MessageId messageId,
+        AiGatewayErrorCode code,
+        string message,
+        bool isRetryable,
+        AiProviderMetadata? provider,
+        AiGatewayFailureDiagnostics? diagnostics,
+        AiGatewayErrorReason reason)
+        : this(
+            organizationId,
+            positionId,
+            threadId,
+            messageId,
+            code,
+            message,
+            isRetryable,
+            provider,
+            diagnostics)
+    {
+        Reason = AiGatewayErrorReasonContract.RequireDefined(reason, nameof(reason));
+    }
+
     public OrganizationId OrganizationId { get; }
 
     public PositionId PositionId { get; }
@@ -48,4 +73,6 @@ public sealed record AiGatewayError
     public AiProviderMetadata? Provider { get; }
 
     public AiGatewayFailureDiagnostics? Diagnostics { get; }
+
+    public AiGatewayErrorReason? Reason { get; }
 }

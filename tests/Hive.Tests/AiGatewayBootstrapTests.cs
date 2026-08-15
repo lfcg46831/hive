@@ -34,6 +34,10 @@ public sealed class AiGatewayBootstrapTests
             provider.GetRequiredService<IAiProviderAdmissionLimiter>(),
             provider.GetRequiredService<IAiProviderAdmissionLimiter>());
         Assert.NotNull(provider.GetRequiredService<IAiProviderResiliencePolicyResolver>());
+        Assert.Same(
+            provider.GetRequiredService<IAiProviderRetryBackoff>(),
+            provider.GetRequiredService<IAiProviderRetryBackoff>());
+        Assert.NotNull(provider.GetRequiredService<IAiProviderRetryJitterSource>());
         Assert.Null(provider.GetService<IChatClient>());
 
         var response = await gateway.CompleteAsync(Request());

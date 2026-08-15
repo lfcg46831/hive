@@ -855,6 +855,8 @@ public sealed class RealAiGatewayProviderTests
             services.AddSingleton(auditPublisher);
         }
 
+        services.AddSingleton<IAiProviderResiliencePolicyResolver,
+            SingleAttemptPolicyResolver>();
         services.AddHiveAiGatewayReal(options =>
         {
             options.ProviderId = "openai";
@@ -866,6 +868,22 @@ public sealed class RealAiGatewayProviderTests
         return services
             .BuildServiceProvider()
             .GetRequiredService<IAiGateway>();
+    }
+
+    private sealed class SingleAttemptPolicyResolver
+        : IAiProviderResiliencePolicyResolver
+    {
+        private static AiProviderResiliencePolicy Policy { get; } = new(
+            AiProviderRateLimitPolicy.Default,
+            AiProviderQueuePolicy.Default,
+            new AiProviderRetryPolicy(
+                maxAttempts: 1,
+                AiProviderRetryPolicy.DefaultInitialBackoff,
+                AiProviderRetryPolicy.DefaultMaxBackoff,
+                AiProviderRetryPolicy.DefaultJitterRatio),
+            AiProviderCircuitBreakerPolicy.Default);
+
+        public AiProviderResiliencePolicy Resolve(AiProviderMetadata? provider) => Policy;
     }
 
     private static RealAiGatewayProviderSettings Settings() =>

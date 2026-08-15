@@ -50,11 +50,14 @@ public sealed class AiDirectiveTimeoutIntegrationTests
                 outputCapabilities: new AiOutputProviderCapabilities(
                     [AiOutputConstraintMode.Text])),
             timeProvider);
+        var resiliencePolicyResolver = new SingleAttemptPolicyResolver();
         var gateway = new AiGateway(
             realProvider,
             auditPublisher,
             timeProvider,
-            auditPublisher);
+            auditPublisher,
+            admissionLimiter: null,
+            resiliencePolicyResolver: resiliencePolicyResolver);
         var invoker = new CapturingGatewayInvoker(new AiAgentGatewayInvoker(gateway));
         var completions = new CompletionCapture();
         var system = ActorSystem.Create($"ai-timeout-terminal-{Guid.NewGuid():N}");
@@ -288,6 +291,22 @@ public sealed class AiDirectiveTimeoutIntegrationTests
         private StartProcessing()
         {
         }
+    }
+
+    private sealed class SingleAttemptPolicyResolver
+        : IAiProviderResiliencePolicyResolver
+    {
+        private static AiProviderResiliencePolicy Policy { get; } = new(
+            AiProviderRateLimitPolicy.Default,
+            AiProviderQueuePolicy.Default,
+            new AiProviderRetryPolicy(
+                maxAttempts: 1,
+                AiProviderRetryPolicy.DefaultInitialBackoff,
+                AiProviderRetryPolicy.DefaultMaxBackoff,
+                AiProviderRetryPolicy.DefaultJitterRatio),
+            AiProviderCircuitBreakerPolicy.Default);
+
+        public AiProviderResiliencePolicy Resolve(AiProviderMetadata? provider) => Policy;
     }
 
     private sealed class TriggerableTimeProvider : TimeProvider

@@ -221,7 +221,8 @@ public sealed class AiProviderAdmissionLimiterTests
         var gateway = new AiGateway(
             provider,
             timeProvider: clock,
-            admissionLimiter: limiter);
+            admissionLimiter: limiter,
+            retryBackoff: new ImmediateRetryBackoff());
 
         var firstTask = gateway.CompleteAsync(Request("openai", "primary"));
         var firstCall = await provider.NextCallAsync();
@@ -339,6 +340,18 @@ public sealed class AiProviderAdmissionLimiterTests
 
         public ValueTask<ProviderCall> NextCallAsync() =>
             _calls.Reader.ReadAsync();
+    }
+
+    private sealed class ImmediateRetryBackoff : IAiProviderRetryBackoff
+    {
+        public Task DelayAsync(
+            AiProviderRetryPolicy policy,
+            int failedAttemptNumber,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class ProviderCall(AiGatewayRequest request)

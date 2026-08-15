@@ -29,6 +29,9 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiProviderResiliencePolicyResolver>(
             _ => DefaultAiProviderResiliencePolicyResolver.Instance);
         services.TryAddSingleton<IAiProviderAdmissionLimiter, AiProviderAdmissionLimiter>();
+        services.TryAddSingleton<IAiProviderRetryJitterSource,
+            SystemAiProviderRetryJitterSource>();
+        services.TryAddSingleton<IAiProviderRetryBackoff, AiProviderRetryBackoff>();
         services.TryAddSingleton<IAiGateway, AiGateway>();
 
         return services;

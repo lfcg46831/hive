@@ -9,22 +9,31 @@ public sealed class AiGateway : IAiGateway
     private readonly TimeProvider _timeProvider;
     private readonly IAiGatewayDetailedAuditPublisher _detailedAuditPublisher;
     private readonly IAiProviderAdmissionLimiter _admissionLimiter;
+    private readonly IAiProviderResiliencePolicyResolver _resiliencePolicyResolver;
+    private readonly IAiProviderRetryBackoff _retryBackoff;
 
     public AiGateway(
         IAiGatewayProvider provider,
         IAiGatewayAuditPublisher? auditPublisher = null,
         TimeProvider? timeProvider = null,
         IAiGatewayDetailedAuditPublisher? detailedAuditPublisher = null,
-        IAiProviderAdmissionLimiter? admissionLimiter = null)
+        IAiProviderAdmissionLimiter? admissionLimiter = null,
+        IAiProviderResiliencePolicyResolver? resiliencePolicyResolver = null,
+        IAiProviderRetryBackoff? retryBackoff = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _detailedAuditPublisher =
             detailedAuditPublisher ?? NoopAiGatewayDetailedAuditPublisher.Instance;
+        _resiliencePolicyResolver = resiliencePolicyResolver ??
+            DefaultAiProviderResiliencePolicyResolver.Instance;
         _admissionLimiter = admissionLimiter ?? new AiProviderAdmissionLimiter(
-            DefaultAiProviderResiliencePolicyResolver.Instance,
+            _resiliencePolicyResolver,
             _timeProvider);
+        _retryBackoff = retryBackoff ?? new AiProviderRetryBackoff(
+            _timeProvider,
+            new SystemAiProviderRetryJitterSource());
     }
 
     public async Task<AiGatewayResponse> CompleteAsync(
@@ -45,27 +54,18 @@ public sealed class AiGateway : IAiGateway
         }
         else
         {
-            var admission = await _admissionLimiter
-                .AcquireAsync(effectiveRequest, cancellationToken)
+            var resiliencePolicy = _resiliencePolicyResolver.Resolve(
+                effectiveRequest.Provider);
+            ArgumentNullException.ThrowIfNull(resiliencePolicy);
+            response = await CompleteWithRetryAsync(
+                    effectiveRequest,
+                    resiliencePolicy.Retry,
+                    cancellationToken)
                 .ConfigureAwait(false);
-            ArgumentNullException.ThrowIfNull(admission);
-
-            if (!admission.IsAdmitted)
-            {
-                response = AiGatewayResponse.Failed(admission.Error!);
-            }
-            else
-            {
-                using (admission.Lease!)
-                {
-                    response = await _provider
-                        .CompleteAsync(effectiveRequest, cancellationToken)
-                        .ConfigureAwait(false);
-                }
-            }
         }
 
         ArgumentNullException.ThrowIfNull(response);
+        cancellationToken.ThrowIfCancellationRequested();
 
         var completedAt = _timeProvider.GetUtcNow();
         _detailedAuditPublisher.Publish(
@@ -81,6 +81,72 @@ public sealed class AiGateway : IAiGateway
             completedAt));
 
         return response;
+    }
+
+    private async Task<AiGatewayResponse> CompleteWithRetryAsync(
+        AiGatewayRequest request,
+        AiProviderRetryPolicy retryPolicy,
+        CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; attempt <= retryPolicy.MaxAttempts; attempt++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var response = await CompleteAttemptAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+            ArgumentNullException.ThrowIfNull(response);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!ShouldRetry(response, attempt, retryPolicy.MaxAttempts))
+            {
+                return response;
+            }
+
+            await _retryBackoff
+                .DelayAsync(retryPolicy, attempt, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        throw new InvalidOperationException(
+            "AI provider retry execution completed without a terminal response.");
+    }
+
+    private async Task<AiGatewayResponse> CompleteAttemptAsync(
+        AiGatewayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var admission = await _admissionLimiter
+            .AcquireAsync(request, cancellationToken)
+            .ConfigureAwait(false);
+        ArgumentNullException.ThrowIfNull(admission);
+
+        if (!admission.IsAdmitted)
+        {
+            return AiGatewayResponse.Failed(admission.Error!);
+        }
+
+        using (admission.Lease!)
+        {
+            return await _provider
+                .CompleteAsync(request, cancellationToken)
+                .ConfigureAwait(false);
+        }
+    }
+
+    private static bool ShouldRetry(
+        AiGatewayResponse response,
+        int completedAttempts,
+        int maxAttempts)
+    {
+        if (completedAttempts >= maxAttempts || response.Error is not { } error)
+        {
+            return false;
+        }
+
+        return error.IsRetryable &&
+               error.Reason is null &&
+               error.Code is AiGatewayErrorCode.Timeout or
+                   AiGatewayErrorCode.ProviderUnavailable or
+                   AiGatewayErrorCode.GatewayOverloaded;
     }
 
     private static AiGatewayPolicyResult ApplyPolicy(AiGatewayRequest request)

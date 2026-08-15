@@ -8,18 +8,23 @@ public sealed class AiGateway : IAiGateway
     private readonly IAiGatewayAuditPublisher _auditPublisher;
     private readonly TimeProvider _timeProvider;
     private readonly IAiGatewayDetailedAuditPublisher _detailedAuditPublisher;
+    private readonly IAiProviderAdmissionLimiter _admissionLimiter;
 
     public AiGateway(
         IAiGatewayProvider provider,
         IAiGatewayAuditPublisher? auditPublisher = null,
         TimeProvider? timeProvider = null,
-        IAiGatewayDetailedAuditPublisher? detailedAuditPublisher = null)
+        IAiGatewayDetailedAuditPublisher? detailedAuditPublisher = null,
+        IAiProviderAdmissionLimiter? admissionLimiter = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _detailedAuditPublisher =
             detailedAuditPublisher ?? NoopAiGatewayDetailedAuditPublisher.Instance;
+        _admissionLimiter = admissionLimiter ?? new AiProviderAdmissionLimiter(
+            DefaultAiProviderResiliencePolicyResolver.Instance,
+            _timeProvider);
     }
 
     public async Task<AiGatewayResponse> CompleteAsync(
@@ -32,11 +37,33 @@ public sealed class AiGateway : IAiGateway
         var startedAt = _timeProvider.GetUtcNow();
         var policyResult = ApplyPolicy(request);
         var effectiveRequest = policyResult.Request ?? request;
-        var response = policyResult.Error is { } error
-            ? AiGatewayResponse.Failed(error)
-            : await _provider
-                .CompleteAsync(effectiveRequest, cancellationToken)
+        AiGatewayResponse response;
+
+        if (policyResult.Error is { } error)
+        {
+            response = AiGatewayResponse.Failed(error);
+        }
+        else
+        {
+            var admission = await _admissionLimiter
+                .AcquireAsync(effectiveRequest, cancellationToken)
                 .ConfigureAwait(false);
+            ArgumentNullException.ThrowIfNull(admission);
+
+            if (!admission.IsAdmitted)
+            {
+                response = AiGatewayResponse.Failed(admission.Error!);
+            }
+            else
+            {
+                using (admission.Lease!)
+                {
+                    response = await _provider
+                        .CompleteAsync(effectiveRequest, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+            }
+        }
 
         ArgumentNullException.ThrowIfNull(response);
 

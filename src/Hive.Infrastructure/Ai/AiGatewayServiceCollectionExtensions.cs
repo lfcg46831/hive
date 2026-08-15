@@ -26,6 +26,9 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiGatewayDetailedAuditPublisher>(
             _ => NoopAiGatewayDetailedAuditPublisher.Instance);
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+        services.TryAddSingleton<IAiProviderResiliencePolicyResolver>(
+            _ => DefaultAiProviderResiliencePolicyResolver.Instance);
+        services.TryAddSingleton<IAiProviderAdmissionLimiter, AiProviderAdmissionLimiter>();
         services.TryAddSingleton<IAiGateway, AiGateway>();
 
         return services;

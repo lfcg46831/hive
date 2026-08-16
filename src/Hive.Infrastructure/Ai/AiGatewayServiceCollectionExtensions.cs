@@ -32,6 +32,9 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiProviderRetryJitterSource,
             SystemAiProviderRetryJitterSource>();
         services.TryAddSingleton<IAiProviderRetryBackoff, AiProviderRetryBackoff>();
+        services.TryAddSingleton<IAiProviderCircuitTransitionPublisher>(
+            _ => NoopAiProviderCircuitTransitionPublisher.Instance);
+        services.TryAddSingleton<IAiProviderCircuitBreaker, AiProviderCircuitBreaker>();
         services.TryAddSingleton<IAiGateway, AiGateway>();
 
         return services;

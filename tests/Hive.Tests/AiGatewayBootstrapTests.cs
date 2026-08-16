@@ -38,6 +38,11 @@ public sealed class AiGatewayBootstrapTests
             provider.GetRequiredService<IAiProviderRetryBackoff>(),
             provider.GetRequiredService<IAiProviderRetryBackoff>());
         Assert.NotNull(provider.GetRequiredService<IAiProviderRetryJitterSource>());
+        Assert.Same(
+            provider.GetRequiredService<IAiProviderCircuitBreaker>(),
+            provider.GetRequiredService<IAiProviderCircuitBreaker>());
+        Assert.NotNull(
+            provider.GetRequiredService<IAiProviderCircuitTransitionPublisher>());
         Assert.Null(provider.GetService<IChatClient>());
 
         var response = await gateway.CompleteAsync(Request());

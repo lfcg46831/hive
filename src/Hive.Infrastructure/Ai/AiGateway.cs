@@ -11,6 +11,7 @@ public sealed class AiGateway : IAiGateway
     private readonly IAiProviderAdmissionLimiter _admissionLimiter;
     private readonly IAiProviderResiliencePolicyResolver _resiliencePolicyResolver;
     private readonly IAiProviderRetryBackoff _retryBackoff;
+    private readonly IAiProviderCircuitBreaker _circuitBreaker;
 
     public AiGateway(
         IAiGatewayProvider provider,
@@ -19,7 +20,8 @@ public sealed class AiGateway : IAiGateway
         IAiGatewayDetailedAuditPublisher? detailedAuditPublisher = null,
         IAiProviderAdmissionLimiter? admissionLimiter = null,
         IAiProviderResiliencePolicyResolver? resiliencePolicyResolver = null,
-        IAiProviderRetryBackoff? retryBackoff = null)
+        IAiProviderRetryBackoff? retryBackoff = null,
+        IAiProviderCircuitBreaker? circuitBreaker = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
@@ -34,6 +36,9 @@ public sealed class AiGateway : IAiGateway
         _retryBackoff = retryBackoff ?? new AiProviderRetryBackoff(
             _timeProvider,
             new SystemAiProviderRetryJitterSource());
+        _circuitBreaker = circuitBreaker ?? new AiProviderCircuitBreaker(
+            _resiliencePolicyResolver,
+            _timeProvider);
     }
 
     public async Task<AiGatewayResponse> CompleteAsync(
@@ -114,6 +119,15 @@ public sealed class AiGateway : IAiGateway
         AiGatewayRequest request,
         CancellationToken cancellationToken)
     {
+        var circuitAdmission = _circuitBreaker.Acquire(request);
+        ArgumentNullException.ThrowIfNull(circuitAdmission);
+
+        if (!circuitAdmission.IsAllowed)
+        {
+            return AiGatewayResponse.Failed(circuitAdmission.Error!);
+        }
+
+        using var circuitLease = circuitAdmission.Lease!;
         var admission = await _admissionLimiter
             .AcquireAsync(request, cancellationToken)
             .ConfigureAwait(false);
@@ -126,9 +140,31 @@ public sealed class AiGateway : IAiGateway
 
         using (admission.Lease!)
         {
-            return await _provider
-                .CompleteAsync(request, cancellationToken)
-                .ConfigureAwait(false);
+            try
+            {
+                var response = await _provider
+                    .CompleteAsync(request, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (response is null)
+                {
+                    circuitLease.ObserveFailure(
+                        AiGatewayErrorCode.InvalidProviderResponse);
+                    return response!;
+                }
+
+                circuitLease.Observe(response);
+                return response;
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch
+            {
+                circuitLease.ObserveFailure(AiGatewayErrorCode.Unknown);
+                throw;
+            }
         }
     }
 

@@ -46,6 +46,31 @@ public sealed record AiGatewayPolicy
             allowedProcessingModes,
             nameof(allowedProcessingModes));
         AuthorizedTools = SnapshotToolNames(authorizedTools, nameof(authorizedTools));
+        Fallback = [];
+    }
+
+    /// <summary>
+    /// Additive overload that carries the declared fallback chain of the position
+    /// (US-F1-05-T06). The chain is declarative and carries no authority on its own:
+    /// every candidate is revalidated against this same policy before it is executed.
+    /// </summary>
+    public AiGatewayPolicy(
+        IEnumerable<AiProviderMetadata> authorizedModels,
+        bool hasAvailableBudget,
+        int? maxOutputTokens,
+        TimeSpan? maxTimeout,
+        IEnumerable<AiProcessingMode>? allowedProcessingModes,
+        IEnumerable<string>? authorizedTools,
+        IEnumerable<AiProviderMetadata>? fallback)
+        : this(
+            authorizedModels,
+            hasAvailableBudget,
+            maxOutputTokens,
+            maxTimeout,
+            allowedProcessingModes,
+            authorizedTools)
+    {
+        Fallback = AiContractGuards.Snapshot(fallback, nameof(fallback));
     }
 
     public ImmutableArray<AiProviderMetadata> AuthorizedModels { get; }
@@ -59,6 +84,13 @@ public sealed record AiGatewayPolicy
     public ImmutableArray<AiProcessingMode> AllowedProcessingModes { get; }
 
     public ImmutableArray<string> AuthorizedTools { get; }
+
+    /// <summary>
+    /// The ordered fallback candidates declared by the position (<c>fallback[]</c> of
+    /// US-F0-07-T03). Empty means the gateway executes a single candidate and behaves
+    /// exactly as it did before US-F1-05-T06.
+    /// </summary>
+    public ImmutableArray<AiProviderMetadata> Fallback { get; }
 
     private static ImmutableArray<AiProcessingMode> SnapshotProcessingModes(
         IEnumerable<AiProcessingMode>? values,

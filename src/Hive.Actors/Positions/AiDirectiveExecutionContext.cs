@@ -28,6 +28,7 @@ internal sealed record AiDirectiveExecutionContext
         ImmutableArray<MessageId> recentHistory,
         ImmutableArray<OrgMessage> materializedHistory,
         AiProviderMetadata? provider,
+        ImmutableArray<AiProviderMetadata> fallback,
         AiModelParameters modelParameters,
         AiProcessingMode? processingMode,
         AiDirectiveProcessingLimits limits,
@@ -55,6 +56,7 @@ internal sealed record AiDirectiveExecutionContext
             materializedHistory,
             nameof(materializedHistory));
         Provider = provider;
+        Fallback = RequireItems(fallback, nameof(fallback));
         ModelParameters = modelParameters ?? throw new ArgumentNullException(nameof(modelParameters));
         ProcessingMode = processingMode;
         Limits = limits ?? throw new ArgumentNullException(nameof(limits));
@@ -95,6 +97,12 @@ internal sealed record AiDirectiveExecutionContext
     public ImmutableArray<OrgMessage> MaterializedHistory { get; }
 
     public AiProviderMetadata? Provider { get; }
+
+    /// <summary>
+    /// The ordered fallback chain declared by the position, executed by the gateway in
+    /// US-F1-05-T06 and revalidated against the position policy candidate by candidate.
+    /// </summary>
+    public ImmutableArray<AiProviderMetadata> Fallback { get; }
 
     public AiModelParameters ModelParameters { get; }
 
@@ -162,6 +170,7 @@ internal sealed record AiDirectiveExecutionContext
             request.PersistedContext.RecentHistory,
             request.PersistedContext.MaterializedHistory,
             aiGateway?.Primary,
+            aiGateway?.Fallback ?? ImmutableArray<AiProviderMetadata>.Empty,
             aiGateway?.Parameters
                 ?? AiModelParameters.Default,
             aiGateway?.ProcessingMode,

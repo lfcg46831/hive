@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Hive.Domain.Ai;
 
 namespace Hive.Infrastructure.Ai;
@@ -12,6 +13,7 @@ public sealed class AiGateway : IAiGateway
     private readonly IAiProviderResiliencePolicyResolver _resiliencePolicyResolver;
     private readonly IAiProviderRetryBackoff _retryBackoff;
     private readonly IAiProviderCircuitBreaker _circuitBreaker;
+    private readonly IAiGatewayFallbackSkipPublisher _fallbackSkipPublisher;
 
     public AiGateway(
         IAiGatewayProvider provider,
@@ -21,7 +23,8 @@ public sealed class AiGateway : IAiGateway
         IAiProviderAdmissionLimiter? admissionLimiter = null,
         IAiProviderResiliencePolicyResolver? resiliencePolicyResolver = null,
         IAiProviderRetryBackoff? retryBackoff = null,
-        IAiProviderCircuitBreaker? circuitBreaker = null)
+        IAiProviderCircuitBreaker? circuitBreaker = null,
+        IAiGatewayFallbackSkipPublisher? fallbackSkipPublisher = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
@@ -39,6 +42,8 @@ public sealed class AiGateway : IAiGateway
         _circuitBreaker = circuitBreaker ?? new AiProviderCircuitBreaker(
             _resiliencePolicyResolver,
             _timeProvider);
+        _fallbackSkipPublisher = fallbackSkipPublisher ??
+            NoopAiGatewayFallbackSkipPublisher.Instance;
     }
 
     public async Task<AiGatewayResponse> CompleteAsync(
@@ -59,14 +64,13 @@ public sealed class AiGateway : IAiGateway
         }
         else
         {
-            var resiliencePolicy = _resiliencePolicyResolver.Resolve(
-                effectiveRequest.Provider);
-            ArgumentNullException.ThrowIfNull(resiliencePolicy);
-            response = await CompleteWithRetryAsync(
+            var execution = await CompleteChainAsync(
+                    request,
                     effectiveRequest,
-                    resiliencePolicy.Retry,
                     cancellationToken)
                 .ConfigureAwait(false);
+            effectiveRequest = execution.EffectiveRequest;
+            response = execution.Response;
         }
 
         ArgumentNullException.ThrowIfNull(response);
@@ -87,6 +91,132 @@ public sealed class AiGateway : IAiGateway
 
         return response;
     }
+
+    /// <summary>
+    /// Executes the declared fallback chain of the position (US-F1-05-T06). Candidate zero
+    /// is the primary request already fixed by the pre-call policy; every later candidate
+    /// revalidates that same policy before it runs, so the chain never widens it.
+    /// </summary>
+    private async Task<AiGatewayChainExecution> CompleteChainAsync(
+        AiGatewayRequest request,
+        AiGatewayRequest primaryRequest,
+        CancellationToken cancellationToken)
+    {
+        var chain = request.Policy?.Fallback ?? ImmutableArray<AiProviderMetadata>.Empty;
+        var executedRequest = primaryRequest;
+        var response = await CompleteCandidateAsync(primaryRequest, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (chain.IsDefaultOrEmpty)
+        {
+            return new AiGatewayChainExecution(executedRequest, response);
+        }
+
+        var executedProviders = new List<AiProviderMetadata>(chain.Length + 1);
+        if (primaryRequest.Provider is { } primaryProvider)
+        {
+            executedProviders.Add(primaryProvider);
+        }
+
+        for (var index = 0; index < chain.Length; index++)
+        {
+            if (response.Error is not { } error || !ShouldAdvance(error))
+            {
+                return new AiGatewayChainExecution(executedRequest, response);
+            }
+
+            var candidate = chain[index];
+            var candidateIndex = index + 1;
+
+            if (executedProviders.Any(executed =>
+                    SameProvider(executed, candidate) && SameModel(executed, candidate)))
+            {
+                PublishSkip(
+                    primaryRequest,
+                    candidateIndex,
+                    candidate,
+                    AiGatewayFallbackSkipReason.DuplicateCandidate,
+                    errorCode: null);
+                continue;
+            }
+
+            var candidateResult = ApplyPolicy(ApplyProvider(request, candidate));
+            if (candidateResult.Error is { } candidateError)
+            {
+                PublishSkip(
+                    primaryRequest,
+                    candidateIndex,
+                    candidate,
+                    AiGatewayFallbackSkipReason.PolicyRevalidationFailed,
+                    candidateError.Code);
+                continue;
+            }
+
+            var candidateRequest = candidateResult.Request!;
+            executedProviders.Add(candidateRequest.Provider ?? candidate);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            executedRequest = candidateRequest;
+            response = await CompleteCandidateAsync(candidateRequest, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        if (response.Error is { } lastError && ShouldAdvance(lastError))
+        {
+            response = AiGatewayResponse.Failed(
+                AiGatewayResilienceErrorCatalog.FallbackExhausted(lastError));
+        }
+
+        return new AiGatewayChainExecution(executedRequest, response);
+    }
+
+    private async Task<AiGatewayResponse> CompleteCandidateAsync(
+        AiGatewayRequest request,
+        CancellationToken cancellationToken)
+    {
+        var resiliencePolicy = _resiliencePolicyResolver.Resolve(request.Provider);
+        ArgumentNullException.ThrowIfNull(resiliencePolicy);
+
+        return await CompleteWithRetryAsync(
+                request,
+                resiliencePolicy.Retry,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    private void PublishSkip(
+        AiGatewayRequest request,
+        int candidateIndex,
+        AiProviderMetadata candidate,
+        AiGatewayFallbackSkipReason reason,
+        AiGatewayErrorCode? errorCode) =>
+        _fallbackSkipPublisher.Publish(new AiGatewayFallbackSkip(
+            request.OrganizationId,
+            request.PositionId,
+            request.ThreadId,
+            request.MessageId,
+            candidateIndex,
+            candidate.ProviderId,
+            candidate.ModelId,
+            _timeProvider.GetUtcNow(),
+            reason,
+            errorCode));
+
+    /// <summary>
+    /// The closed set of outcomes that hand the call to the next declared candidate:
+    /// an open circuit, retries exhausted on a retryable provider failure, local
+    /// saturation, and an exceeded provider quota.
+    /// </summary>
+    private static bool ShouldAdvance(AiGatewayError error) =>
+        error.Reason switch
+        {
+            AiGatewayErrorReason.CircuitOpen => true,
+            null => error.Code is AiGatewayErrorCode.Timeout or
+                AiGatewayErrorCode.ProviderUnavailable or
+                AiGatewayErrorCode.GatewayOverloaded or
+                AiGatewayErrorCode.QuotaExceeded,
+            _ => false,
+        };
 
     private async Task<AiGatewayResponse> CompleteWithRetryAsync(
         AiGatewayRequest request,
@@ -390,6 +520,10 @@ public sealed class AiGateway : IAiGateway
             message,
             isRetryable: false,
             provider);
+
+    private sealed record AiGatewayChainExecution(
+        AiGatewayRequest EffectiveRequest,
+        AiGatewayResponse Response);
 
     private sealed record AiGatewayPolicyResult(
         AiGatewayRequest? Request,

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Linq;
 using System.Text;
 using System.Text.Json;
@@ -561,15 +562,44 @@ internal static class AiDirectivePrompt
         }
 
         return new AiGatewayPolicy(
-            [context.Provider],
+            AuthorizedModels(context.Provider, context.Fallback),
             hasAvailableBudget: true,
             maxOutputTokens: context.Limits.MaxOutputTokens,
             maxTimeout: context.Limits.PerCallTimeout,
             allowedProcessingModes: context.ProcessingMode is { } mode
                 ? [mode]
                 : null,
-            authorizedTools: context.AuthorizedTools.Select(tool => tool.Connector));
+            authorizedTools: context.AuthorizedTools.Select(tool => tool.Connector),
+            fallback: context.Fallback);
     }
+
+    /// <summary>
+    /// The position authorizes its primary model and every declared fallback candidate.
+    /// Declaring the chain never widens the policy: the gateway still revalidates each
+    /// candidate against this same authorized set before executing it (US-F1-05-T06).
+    /// </summary>
+    private static IEnumerable<AiProviderMetadata> AuthorizedModels(
+        AiProviderMetadata primary,
+        ImmutableArray<AiProviderMetadata> fallback)
+    {
+        var models = new List<AiProviderMetadata> { primary };
+
+        foreach (var candidate in fallback)
+        {
+            if (!models.Any(model => SameModel(model, candidate)))
+            {
+                models.Add(candidate);
+            }
+        }
+
+        return models;
+    }
+
+    private static bool SameModel(
+        AiProviderMetadata left,
+        AiProviderMetadata right) =>
+        string.Equals(left.ProviderId, right.ProviderId, StringComparison.Ordinal) &&
+        string.Equals(left.ModelId, right.ModelId, StringComparison.Ordinal);
 
     private static void AddTimeoutMetadata(
         IDictionary<string, string> metadata,

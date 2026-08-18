@@ -1,5 +1,6 @@
 using Akka.Actor;
 using Hive.Actors;
+using Hive.Actors.Gateway;
 using Hive.Actors.Positions;
 using Hive.Actors.Sharding;
 using Hive.Application.Directives;
@@ -165,7 +166,9 @@ public sealed class AiAgentGatewayInvokerTests
         builder.AddHiveActorSystem();
         using var host = builder.Build();
 
-        Assert.IsType<AiAgentGatewayInvoker>(
+        // US-F1-05-T07: the composed gateway API routes to the provider entity; it degrades to the
+        // in-process gateway only while no route can be used.
+        Assert.IsType<ShardedAiAgentGatewayInvoker>(
             host.Services.GetRequiredService<IAiAgentGatewayInvoker>());
         Assert.IsType<AiAgentActionGate>(
             host.Services.GetRequiredService<IAiAgentActionGate>());
@@ -208,15 +211,26 @@ public sealed class AiAgentGatewayInvokerTests
     }
 
     [Fact]
-    public void Actors_project_does_not_introduce_ai_gateway_actor()
+    public void AiGatewayActor_is_the_thin_wrapper_reserved_by_US_F0_07_T02_and_T12()
     {
-        var gatewayActors = typeof(AiAgentActor).Assembly
-            .GetTypes()
-            .Where(type => type.Name.Contains("AiGatewayActor", StringComparison.Ordinal))
+        // US-F1-05-T07 introduces the actor the earlier tasks deliberately deferred. It stays a
+        // wrapper: the gateway seam is its only collaborator, so pre-call policy, normalization,
+        // adapters, the fallback chain and auditing cannot be duplicated inside it.
+        var parameters = typeof(AiGatewayActor)
+            .GetConstructors()
+            .SelectMany(constructor => constructor.GetParameters())
+            .Select(parameter => parameter.ParameterType)
             .ToArray();
 
-        Assert.Empty(gatewayActors);
+        Assert.Contains(typeof(IAiGateway), parameters);
+        Assert.DoesNotContain(typeof(IAiAgentGatewayInvoker), parameters);
+        Assert.DoesNotContain(typeof(IAiAgentActionGate), parameters);
+        Assert.All(
+            parameters,
+            parameter => Assert.False(
+                parameter.Namespace?.StartsWith("Hive.Infrastructure.Ai", StringComparison.Ordinal)));
     }
+
 
     private static AiGatewayRequest Request(AiProviderMetadata? provider = null) =>
         new(

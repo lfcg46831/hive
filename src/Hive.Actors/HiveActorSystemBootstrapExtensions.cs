@@ -3,6 +3,7 @@ using Akka.Hosting;
 using Akka.Persistence.Sql.Hosting;
 using Akka.Persistence.Hosting;
 using Akka.Remote.Hosting;
+using Hive.Actors.Gateway;
 using Hive.Actors.Positions;
 using Hive.Actors.OccupantChannels;
 using Hive.Actors.Scheduling;
@@ -76,6 +77,15 @@ public static class HiveActorSystemBootstrapExtensions
                     "hive-position-protocol",
                     PositionProtocolManifests.ProtocolTypes,
                     system => new PositionProtocolJsonSerializer(system))
+                // Bind the sharded AI gateway protocol (US-F1-05-T07): the envelope, the two
+                // provider commands and the two replies, including AiGatewayRequest and
+                // AiGatewayResponse, travel as versionable JSON under stable manifests, so a
+                // call between an agents node and a gateway node never falls back to CLR/.NET
+                // serialization.
+                .WithCustomSerializer(
+                    "hive-ai-gateway-protocol",
+                    AiGatewayProtocolManifests.ProtocolTypes,
+                    system => new AiGatewayProtocolJsonSerializer(system))
                 .WithRemoting(cluster.Hostname, cluster.Port)
                 .WithClustering(new ClusterOptions
                 {
@@ -111,7 +121,10 @@ public static class HiveActorSystemBootstrapExtensions
         // IRoleWorkload seam. The entity Props seam now supplies the persistent PositionActor
         // (US-F0-06-T06b). The action gate's base pipeline guarantees durable audit before a
         // decision can leave the boundary (US-F0-11-T10).
-        builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, AiAgentGatewayInvoker>();
+        // The internal gateway API of US-F0-07-T12 keeps its signature and routes to the provider
+        // entity of US-F1-05-T07. On a node that materialized no route it calls the in-process
+        // gateway, which is the colocated single-node topology.
+        builder.Services.TryAddSingleton<IAiAgentGatewayInvoker, ShardedAiAgentGatewayInvoker>();
         builder.Services.TryAddSingleton<IAiAgentActionGate>(serviceProvider =>
             AiAgentActionGate.CreateRuntime(
                 serviceProvider.GetRequiredService<IOrganizationActionGateRuntimeProvider>(),
@@ -208,6 +221,18 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());
+
+        // The AI gateway entity is sharded by ProviderId and hosted only on the gateway role
+        // (US-F1-05-T07), so a provider's queue, rate limiter and circuit breaker exist exactly
+        // once in the cluster. Agents nodes without the gateway role reach it through a region
+        // proxy; on an all-in-one node the hosted region is the route and no proxy is created.
+        builder.Services.TryAddSingleton<AiGatewayShardRegion>();
+        builder.Services.AddSingleton<AiGatewayShardingWorkload>();
+        builder.Services.AddSingleton<IRoleWorkload>(
+            sp => sp.GetRequiredService<AiGatewayShardingWorkload>());
+        builder.Services.AddSingleton<AiGatewayShardProxyWorkload>();
+        builder.Services.AddSingleton<IRoleWorkload>(
+            sp => sp.GetRequiredService<AiGatewayShardProxyWorkload>());
 
         return builder;
     }

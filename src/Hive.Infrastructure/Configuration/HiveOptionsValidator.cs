@@ -11,6 +11,12 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
         $"{HiveOptions.SectionName}:Agents:PassivateIdleAfter";
     private const string ClusterUpTimeoutPath =
         $"{HiveOptions.SectionName}:Agents:ClusterUpTimeout";
+    private const string GatewayNumberOfShardsPath =
+        $"{HiveOptions.SectionName}:Gateway:NumberOfShards";
+    private const string GatewayClusterUpTimeoutPath =
+        $"{HiveOptions.SectionName}:Gateway:ClusterUpTimeout";
+    private const string GatewayAskTimeoutPath =
+        $"{HiveOptions.SectionName}:Gateway:AskTimeout";
     private const string OutcomeModePath = $"{HiveOptions.SectionName}:Outcomes:Mode";
     private const string OutcomeVerifierTimeoutPath =
         $"{HiveOptions.SectionName}:Outcomes:VerifierTimeout";
@@ -80,6 +86,29 @@ public sealed class HiveOptionsValidator : IValidateOptions<HiveOptions>
             failures.Add(
                 $"{ClusterUpTimeoutPath} must be greater than zero when set " +
                 $"(configured value: {clusterUpTimeout}).");
+        }
+
+        if (options.Gateway?.NumberOfShards is { } gatewayShards && gatewayShards <= 0)
+        {
+            failures.Add(
+                $"{GatewayNumberOfShardsPath} must be greater than zero when set " +
+                $"(configured value: {gatewayShards}).");
+        }
+
+        if (options.Gateway?.ClusterUpTimeout is { } gatewayClusterUpTimeout
+            && gatewayClusterUpTimeout <= TimeSpan.Zero)
+        {
+            failures.Add(
+                $"{GatewayClusterUpTimeoutPath} must be greater than zero when set " +
+                $"(configured value: {gatewayClusterUpTimeout}).");
+        }
+
+        if (options.Gateway?.AskTimeout is { } gatewayAskTimeout
+            && gatewayAskTimeout <= TimeSpan.Zero)
+        {
+            failures.Add(
+                $"{GatewayAskTimeoutPath} must be greater than zero when set " +
+                $"(configured value: {gatewayAskTimeout}).");
         }
 
         if (!OutcomeResolutionModeContract.TryParse(options.Outcomes?.Mode, out _))

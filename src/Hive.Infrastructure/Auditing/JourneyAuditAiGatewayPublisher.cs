@@ -71,7 +71,8 @@ public sealed class JourneyAuditAiGatewayPublisher :
             occurredAtUtc: @event.CompletedAt,
             idempotencyDiscriminator: GatewayCallDiscriminator(
                 @event.Operation,
-                @event.Iteration)));
+                @event.Iteration,
+                @event.AttemptId)));
     }
 
     private static JourneyAuditOutcome Outcome(AiGatewayCallResult result) =>
@@ -133,9 +134,40 @@ public sealed class JourneyAuditAiGatewayPublisher :
                 AiOutputConstraintModeContract.ToWireValue(outputConstraintMode);
         }
 
+        payload["attemptCount"] = envelope.Journey.Count.ToString(
+            CultureInfo.InvariantCulture);
+
+        if (envelope.Journey.Count > 0)
+        {
+            payload["journey"] = string.Join(
+                ",",
+                envelope.Journey.Select(FormatJourneyAttempt));
+        }
+
         AddGatewayCallIdentity(payload, envelope.Request.Metadata);
 
         return payload;
+    }
+
+    /// <summary>
+    /// Compact, content-free rendering of one journey attempt (US-F1-05-T08):
+    /// identity, effective provider, whether the attempt reached the provider and the
+    /// closed outcome vocabulary.
+    /// </summary>
+    private static string FormatJourneyAttempt(AiGatewayAuditAttemptSnapshot attempt)
+    {
+        var outcome = attempt.Result == AiGatewayCallResult.Succeeded
+            ? "succeeded"
+            : attempt.ErrorReason is { } reason
+                ? AiGatewayErrorReasonContract.ToWireValue(reason)
+                : AiGatewayErrorCodeContract.ToWireValue(attempt.ErrorCode!.Value);
+
+        return string.Join(
+            ":",
+            attempt.AttemptId,
+            attempt.ProviderId ?? "-",
+            attempt.ReachedProvider ? "provider" : "local",
+            outcome);
     }
 
     private static Dictionary<string, string> CostPayload(AiGatewayCostAuditEvent @event)
@@ -144,7 +176,35 @@ public sealed class JourneyAuditAiGatewayPublisher :
         {
             ["result"] = @event.Result.ToString(),
             ["costStatus"] = AiCostStatusContract.ToWireValue(@event.CostStatus),
+            ["scope"] = AiGatewayCostAuditScopeContract.ToWireValue(@event.Scope),
         };
+
+        if (@event.AttemptId is { } attemptId)
+        {
+            payload["attemptId"] = attemptId;
+        }
+
+        if (@event.CandidateIndex is { } candidateIndex)
+        {
+            payload["candidateIndex"] = candidateIndex.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (@event.Attempt is { } attempt)
+        {
+            payload["attempt"] = attempt.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (@event.ReachedProvider is { } reachedProvider)
+        {
+            payload["reachedProvider"] = reachedProvider.ToString();
+        }
+
+        if (@event.QueueDuration is { } queueDuration)
+        {
+            payload["queueDurationMilliseconds"] = queueDuration.TotalMilliseconds.ToString(
+                "R",
+                CultureInfo.InvariantCulture);
+        }
 
         if (@event.IsRetryable is { } isRetryable)
         {
@@ -283,10 +343,27 @@ public sealed class JourneyAuditAiGatewayPublisher :
         return GatewayCallDiscriminator(operation, iteration);
     }
 
-    private static string? GatewayCallDiscriminator(string? operation, int? iteration) =>
-        !string.IsNullOrWhiteSpace(operation) && iteration is { } value
+    /// <summary>
+    /// Attempt-scoped cost events of US-F1-05-T08 append their deterministic attempt
+    /// identity, without which two attempts of the same call with the same outcome would
+    /// collapse into a single audit entry.
+    /// </summary>
+    private static string? GatewayCallDiscriminator(
+        string? operation,
+        int? iteration,
+        string? attemptId = null)
+    {
+        var call = !string.IsNullOrWhiteSpace(operation) && iteration is { } value
             ? $"{operation}:{value.ToString(CultureInfo.InvariantCulture)}"
             : null;
+
+        if (attemptId is null)
+        {
+            return call;
+        }
+
+        return call is null ? attemptId : $"{call}:{attemptId}";
+    }
 
     private static DirectiveId? DirectiveIdFrom(
         IReadOnlyDictionary<string, string> metadata)

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Hive.Domain.Identity;
 
 namespace Hive.Domain.Ai;
@@ -78,6 +79,51 @@ public sealed record AiGatewayAuditEnvelope
                 nameof(outputConstraintMode));
     }
 
+    /// <summary>
+    /// Additive shape of US-F1-05-T08: the same envelope plus the ordered journey of the
+    /// attempts that produced it. The terminal reason of the journey is still
+    /// <see cref="RejectionReason"/>, which carries the reason wire when the terminal
+    /// error has one and the code wire when it has not.
+    /// </summary>
+    public AiGatewayAuditEnvelope(
+        OrganizationId organizationId,
+        PositionId positionId,
+        ThreadId threadId,
+        MessageId messageId,
+        DateTimeOffset startedAt,
+        DateTimeOffset completedAt,
+        AiGatewayCallResult result,
+        AiGatewayAuditRequestSnapshot request,
+        AiProviderMetadata? provider,
+        AiGatewayAuditResponseSnapshot? response,
+        AiGatewayAuditErrorSnapshot? error,
+        AiTokenUsage? usage,
+        AiCostMetadata? cost,
+        string? rejectionReason,
+        IEnumerable<AiGatewayAuditRedaction>? redactions,
+        AiOutputConstraintMode? outputConstraintMode,
+        IEnumerable<AiGatewayAuditAttemptSnapshot>? journey)
+        : this(
+            organizationId,
+            positionId,
+            threadId,
+            messageId,
+            startedAt,
+            completedAt,
+            result,
+            request,
+            provider,
+            response,
+            error,
+            usage,
+            cost,
+            rejectionReason,
+            redactions,
+            outputConstraintMode)
+    {
+        Journey = AiContractGuards.Snapshot(journey, nameof(journey));
+    }
+
     public OrganizationId OrganizationId { get; }
 
     public PositionId PositionId { get; }
@@ -109,6 +155,13 @@ public sealed record AiGatewayAuditEnvelope
     public string? RejectionReason { get; }
 
     public IReadOnlyList<AiGatewayAuditRedaction> Redactions { get; }
+
+    /// <summary>
+    /// Ordered, content-free record of every attempt of this call. Empty when the call
+    /// never reached an attempt, as in a pre-call policy rejection.
+    /// </summary>
+    public IReadOnlyList<AiGatewayAuditAttemptSnapshot> Journey { get; } =
+        ImmutableArray<AiGatewayAuditAttemptSnapshot>.Empty;
 
     public AiOutputConstraintMode? OutputConstraintMode { get; }
 }
@@ -246,6 +299,124 @@ public sealed record AiGatewayAuditErrorSnapshot
     public AiGatewayFailureDiagnostics? Diagnostics { get; }
 
     public AiGatewayErrorReason? Reason { get; }
+}
+
+/// <summary>
+/// Provider-neutral, content-free record of one gateway attempt inside a journey
+/// (US-F1-05-T08). Only identity, placement, effective provider/model, measurement and
+/// the closed failure vocabulary travel here; prompt, response text, tool calls, free
+/// metadata and transport diagnostics never do.
+/// </summary>
+public sealed record AiGatewayAuditAttemptSnapshot
+{
+    public AiGatewayAuditAttemptSnapshot(
+        int candidateIndex,
+        int attempt,
+        bool reachedProvider,
+        AiGatewayCallResult result,
+        TimeSpan duration,
+        string? providerId = null,
+        string? modelId = null,
+        TimeSpan? queueDuration = null,
+        AiGatewayErrorCode? errorCode = null,
+        AiGatewayErrorReason? errorReason = null)
+    {
+        if (candidateIndex < 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(candidateIndex),
+                candidateIndex,
+                "AI gateway attempt candidate index cannot be negative.");
+        }
+
+        if (attempt <= 0)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(attempt),
+                attempt,
+                "AI gateway attempt number must be greater than zero.");
+        }
+
+        if (duration < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(duration),
+                duration,
+                "AI gateway attempt duration cannot be negative.");
+        }
+
+        if (queueDuration is { } queued && queued < TimeSpan.Zero)
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(queueDuration),
+                queueDuration,
+                "AI gateway attempt queue duration cannot be negative.");
+        }
+
+        Result = AiGatewayCallResultContract.RequireDefined(result, nameof(result));
+
+        if (Result == AiGatewayCallResult.Succeeded)
+        {
+            if (!reachedProvider)
+            {
+                throw new ArgumentException(
+                    "Successful AI gateway attempt must have reached the provider.",
+                    nameof(reachedProvider));
+            }
+
+            if (errorCode is not null || errorReason is not null)
+            {
+                throw new ArgumentException(
+                    "Successful AI gateway attempt cannot carry an error code or reason.",
+                    nameof(errorCode));
+            }
+        }
+        else if (errorCode is null)
+        {
+            throw new ArgumentException(
+                "Failed AI gateway attempt requires an error code.",
+                nameof(errorCode));
+        }
+
+        CandidateIndex = candidateIndex;
+        Attempt = attempt;
+        AttemptId = AiGatewayCostAuditAttempt.FormatAttemptId(candidateIndex, attempt);
+        ReachedProvider = reachedProvider;
+        Duration = duration;
+        ProviderId = AiContractGuards.OptionalText(providerId, nameof(providerId));
+        ModelId = AiContractGuards.OptionalText(modelId, nameof(modelId));
+        QueueDuration = queueDuration;
+        ErrorCode = errorCode is null
+            ? null
+            : AiGatewayErrorCodeContract.RequireDefined(errorCode.Value, nameof(errorCode));
+        ErrorReason = errorReason is null
+            ? null
+            : AiGatewayErrorReasonContract.RequireDefined(
+                errorReason.Value,
+                nameof(errorReason));
+    }
+
+    public string AttemptId { get; }
+
+    public int CandidateIndex { get; }
+
+    public int Attempt { get; }
+
+    public bool ReachedProvider { get; }
+
+    public AiGatewayCallResult Result { get; }
+
+    public TimeSpan Duration { get; }
+
+    public TimeSpan? QueueDuration { get; }
+
+    public string? ProviderId { get; }
+
+    public string? ModelId { get; }
+
+    public AiGatewayErrorCode? ErrorCode { get; }
+
+    public AiGatewayErrorReason? ErrorReason { get; }
 }
 
 public sealed record AiGatewayAuditRedaction

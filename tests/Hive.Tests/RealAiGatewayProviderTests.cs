@@ -718,13 +718,21 @@ public sealed class RealAiGatewayProviderTests
         Assert.True(error.IsRetryable);
         Assert.NotNull(error.Provider);
         Assert.True(providerToken.IsCancellationRequested);
-        var auditEvent = Assert.Single(audit.Events);
+        var attemptEvent = Assert.Single(
+            audit.Events.Where(@event =>
+                @event.Scope == AiGatewayCostAuditScope.Attempt));
+        Assert.Equal("0-1", attemptEvent.AttemptId);
+        Assert.True(attemptEvent.ReachedProvider);
+        Assert.Equal(AiGatewayErrorCode.Timeout, attemptEvent.ErrorCode);
+        var auditEvent = Assert.Single(
+            audit.Events.Where(@event =>
+                @event.Scope == AiGatewayCostAuditScope.Journey));
         Assert.Equal(AiGatewayCallResult.Failed, auditEvent.Result);
         Assert.Equal(AiGatewayErrorCode.Timeout, auditEvent.ErrorCode);
         Assert.True(auditEvent.IsRetryable);
 
         providerCompletion.SetException(new InvalidOperationException("late failure"));
-        Assert.Single(audit.Events);
+        Assert.Equal(2, audit.Events.Count);
     }
 
     [Fact]

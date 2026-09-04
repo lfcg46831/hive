@@ -236,6 +236,54 @@ public sealed record AiGatewayCostAuditEvent
 
     public AiOutputConstraintMode? OutputConstraintMode { get; }
 
+    /// <summary>
+    /// Attempt-scoped events are the idempotent debit unit of the durable cost ledger;
+    /// the single journey-scoped event of a call summarises the terminal response and is
+    /// never a second accounting of the same spend (US-F1-05-T08).
+    /// </summary>
+    public AiGatewayCostAuditScope Scope { get; private init; } =
+        AiGatewayCostAuditScope.Journey;
+
+    /// <summary>Deterministic attempt identity; absent on journey-scoped events.</summary>
+    public string? AttemptId { get; private init; }
+
+    /// <summary>Zero-based position in the declared fallback chain.</summary>
+    public int? CandidateIndex { get; private init; }
+
+    /// <summary>One-based attempt number inside the candidate.</summary>
+    public int? Attempt { get; private init; }
+
+    /// <summary>Wait measured by the admission lease of US-F1-05-T03.</summary>
+    public TimeSpan? QueueDuration { get; private init; }
+
+    /// <summary>True only when the attempt was admitted and handed to the adapter.</summary>
+    public bool? ReachedProvider { get; private init; }
+
+    /// <summary>
+    /// Builds the attempt-scoped event of one gateway attempt (US-F1-05-T08). The
+    /// timestamps are the attempt's own, so the duration covers circuit, queue and
+    /// provider call of that attempt alone.
+    /// </summary>
+    public static AiGatewayCostAuditEvent FromResponse(
+        AiGatewayRequest request,
+        AiGatewayResponse response,
+        DateTimeOffset startedAt,
+        DateTimeOffset completedAt,
+        AiGatewayCostAuditAttempt attempt)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+
+        return FromResponse(request, response, startedAt, completedAt) with
+        {
+            Scope = AiGatewayCostAuditScope.Attempt,
+            AttemptId = attempt.AttemptId,
+            CandidateIndex = attempt.CandidateIndex,
+            Attempt = attempt.Attempt,
+            QueueDuration = attempt.QueueDuration,
+            ReachedProvider = attempt.ReachedProvider,
+        };
+    }
+
     public static AiGatewayCostAuditEvent FromResponse(
         AiGatewayRequest request,
         AiGatewayResponse response,

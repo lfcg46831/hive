@@ -99,7 +99,7 @@ internal static class EvaluationJourneyProjector
             last = last is null || row.OccurredAt > last ? row.OccurredAt : last;
             if (row.Stage == "AgentDecided") decision = row;
             if (row.Stage == "ResultMessageCreated") result = row;
-            if (row.Stage == "GatewayCostRecorded") costs.Add(row);
+            if (row.Stage == "GatewayCostRecorded" && IsJourneyScoped(row)) costs.Add(row);
             if (row.Stage == "OutcomeResolved") outcomeResolutions.Add(row);
         }
 
@@ -159,6 +159,15 @@ internal static class EvaluationJourneyProjector
             gatewayCalls,
             outcomeResolutionSteps);
     }
+
+    /// <summary>
+    /// Since US-F1-05-T08 the gateway also records one attempt-scoped cost row per
+    /// attempt. This projection is a per-call view, so it keeps reading only the single
+    /// journey-scoped row of each call; rows persisted before T08 carry no scope and are
+    /// journey rows by definition.
+    /// </summary>
+    private static bool IsJourneyScoped(EvaluationAuditRow row) =>
+        PayloadValue(row.Payload, "scope") is not "attempt";
 
     private static EvaluationGatewayCall ProjectGatewayCall(
         EvaluationAuditRow row,

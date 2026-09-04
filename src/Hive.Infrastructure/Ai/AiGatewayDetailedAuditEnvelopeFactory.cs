@@ -24,10 +24,12 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
         AiGatewayRequest request,
         AiGatewayResponse response,
         DateTimeOffset startedAt,
-        DateTimeOffset completedAt)
+        DateTimeOffset completedAt,
+        IReadOnlyList<AiGatewayAuditAttemptSnapshot> journey)
     {
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(response);
+        ArgumentNullException.ThrowIfNull(journey);
 
         var redactions = new List<AiGatewayAuditRedaction>();
         var auditRequest = CreateRequestSnapshot(request, redactions);
@@ -46,10 +48,13 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
                 auditRequest,
                 response.Provider ?? request.Provider,
                 auditResponse,
+                error: null,
                 usage: response.Usage,
                 cost: response.Cost,
+                rejectionReason: null,
                 redactions: redactions,
-                outputConstraintMode: response.OutputConstraintMode);
+                outputConstraintMode: response.OutputConstraintMode,
+                journey: journey);
         }
 
         var error = response.Error!;
@@ -86,12 +91,14 @@ internal static class AiGatewayDetailedAuditEnvelopeFactory
             AiGatewayCallResult.Failed,
             auditRequest,
             error.Provider ?? request.Provider,
+            response: null,
             error: auditError,
             usage: error.Diagnostics?.Usage,
             cost: error.Diagnostics?.Cost,
             rejectionReason: rejectionReason,
             redactions: redactions,
-            outputConstraintMode: response.OutputConstraintMode);
+            outputConstraintMode: response.OutputConstraintMode,
+            journey: journey);
     }
 
     private static AiGatewayAuditRequestSnapshot CreateRequestSnapshot(

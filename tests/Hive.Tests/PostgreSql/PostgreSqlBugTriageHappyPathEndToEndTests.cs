@@ -583,7 +583,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
                 JourneyAuditStage.AgentDecided,
                 JourneyAuditStage.ResultMessageCreated,
             ],
-            timeline.Entries.Select(entry => entry.Stage));
+            JourneyShape(timeline).Select(entry => entry.Stage));
 
         Assert.All(timeline.Entries, entry =>
             Assert.NotEqual(JourneyAuditOutcome.Rejected, entry.Outcome));
@@ -633,7 +633,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
                 JourneyAuditStage.AgentDecided,
                 JourneyAuditStage.ResultMessageCreated,
             ],
-            timeline.Entries.Select(entry => entry.Stage));
+            JourneyShape(timeline).Select(entry => entry.Stage));
 
         Assert.All(timeline.Entries, entry =>
         {
@@ -689,7 +689,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
                 JourneyAuditStage.GatewayCostRecorded,
                 JourneyAuditStage.AgentDecided,
             ],
-            timeline.Entries.Select(entry => entry.Stage));
+            JourneyShape(timeline).Select(entry => entry.Stage));
 
         Assert.All(timeline.Entries, entry =>
         {
@@ -710,7 +710,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
             string.Join(" ", gatewayCalled.RedactedPayload.Values),
             StringComparison.Ordinal);
 
-        var gatewayCost = Assert.Single(timeline.Entries.Where(entry =>
+        var gatewayCost = Assert.Single(JourneyShape(timeline).Where(entry =>
             entry.Stage == JourneyAuditStage.GatewayCostRecorded));
         Assert.Equal(JourneyAuditOutcome.Failed, gatewayCost.Outcome);
         Assert.Equal("provider-unavailable", gatewayCost.ReasonCode);
@@ -736,7 +736,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
 
     private static void AssertJourneyStageCountsAfterRedelivery(JourneyAuditTimeline timeline)
     {
-        Assert.Equal(9, timeline.Entries.Count);
+        Assert.Equal(9, JourneyShape(timeline).Count);
         Assert.Equal(1, Count(JourneyAuditStage.SubmissionReceived));
         Assert.Equal(1, Count(JourneyAuditStage.DirectiveCreated));
         Assert.Equal(1, Count(JourneyAuditStage.PositionAccepted));
@@ -748,8 +748,23 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         Assert.Equal(1, Count(JourneyAuditStage.DuplicateSuppressed));
 
         int Count(JourneyAuditStage stage) =>
-            timeline.Entries.Count(entry => entry.Stage == stage);
+            JourneyShape(timeline).Count(entry => entry.Stage == stage);
     }
+
+    /// <summary>
+    /// The journey shape of a directive, without the attempt-scoped cost entries that
+    /// US-F1-05-T08 records once per gateway attempt. Those entries are asserted by the
+    /// gateway suites; here they would only make the shape depend on how many retries the
+    /// stub provider happens to force.
+    /// </summary>
+    private static IReadOnlyList<JourneyAuditTimelineEntry> JourneyShape(
+        JourneyAuditTimeline timeline) =>
+        timeline.Entries
+            .Where(entry =>
+                entry.Stage != JourneyAuditStage.GatewayCostRecorded ||
+                !entry.RedactedPayload.TryGetValue("scope", out var scope) ||
+                scope != "attempt")
+            .ToArray();
 
     private static IOrganizationRelations SampleRelations() =>
         new MaterializedOrganizationRelations(

@@ -75,14 +75,27 @@ public sealed class AiGatewayServiceTests
             cost: cost,
             outputConstraintMode: AiOutputConstraintMode.JsonSchema);
         var audit = new CapturingAiGatewayAuditPublisher();
-        var timeProvider = new SequenceTimeProvider(startedAt, completedAt);
+        var timeProvider = new SequenceTimeProvider(
+            startedAt,
+            startedAt.AddMilliseconds(20),
+            startedAt.AddMilliseconds(120),
+            completedAt);
         var provider = new RecordingAiGatewayProvider(response);
         var gateway = new AiGateway(provider, audit, timeProvider);
 
         var result = await gateway.CompleteAsync(request);
 
         Assert.Same(response, result);
-        var published = Assert.Single(audit.Events);
+        var attempt = Assert.Single(audit.Events.Where(@event =>
+            @event.Scope == AiGatewayCostAuditScope.Attempt));
+        Assert.Equal("0-1", attempt.AttemptId);
+        Assert.Equal(0, attempt.CandidateIndex);
+        Assert.Equal(1, attempt.Attempt);
+        Assert.True(attempt.ReachedProvider);
+        Assert.Equal(TimeSpan.Zero, attempt.QueueDuration);
+        Assert.Equal(TimeSpan.FromMilliseconds(100), attempt.Duration);
+        var published = Assert.Single(audit.Events.Where(@event =>
+            @event.Scope == AiGatewayCostAuditScope.Journey));
         Assert.Equal(Organization, published.OrganizationId);
         Assert.Equal(Position, published.PositionId);
         Assert.Equal(Thread, published.ThreadId);
@@ -144,7 +157,11 @@ public sealed class AiGatewayServiceTests
         await gateway.CompleteAsync(request);
 
         Assert.Equal(
-            [JourneyAuditStage.GatewayCalled, JourneyAuditStage.GatewayCostRecorded],
+            [
+                JourneyAuditStage.GatewayCostRecorded,
+                JourneyAuditStage.GatewayCalled,
+                JourneyAuditStage.GatewayCostRecorded,
+            ],
             auditLog.Records.Select(record => record.Stage));
         Assert.All(auditLog.Records, record =>
         {
@@ -155,16 +172,28 @@ public sealed class AiGatewayServiceTests
             Assert.Equal(Directive, record.DirectiveId);
             Assert.Equal(Message, record.MessageId);
             Assert.Equal(providerMetadata, record.Provider);
-            Assert.Equal(TimeSpan.FromMilliseconds(210), record.Latency);
         });
-        Assert.Equal(24, auditLog.Records[1].Usage!.TotalTokens);
-        Assert.Equal(0.00032m, auditLog.Records[1].Cost!.Amount);
-        Assert.Equal("estimated", auditLog.Records[1].Payload["costStatus"]);
-        Assert.Equal("pricing-v1", auditLog.Records[1].Payload["pricingVersion"]);
-        Assert.Equal("1000000", auditLog.Records[1].Payload["pricingTokenUnit"]);
-        Assert.Equal("0.25", auditLog.Records[1].Payload["inputPricePerTokenUnit"]);
-        Assert.Equal("2", auditLog.Records[1].Payload["outputPricePerTokenUnit"]);
-        Assert.Equal("USD", auditLog.Records[1].Payload["pricingCurrency"]);
+        var attemptRecorded = auditLog.Records[0];
+        var gatewayCalled = auditLog.Records[1];
+        var costRecorded = auditLog.Records[2];
+        Assert.Equal("attempt", attemptRecorded.Payload["scope"]);
+        Assert.Equal("0-1", attemptRecorded.Payload["attemptId"]);
+        Assert.Equal("0", attemptRecorded.Payload["candidateIndex"]);
+        Assert.Equal("1", attemptRecorded.Payload["attempt"]);
+        Assert.Equal(bool.TrueString, attemptRecorded.Payload["reachedProvider"]);
+        Assert.Equal("journey", costRecorded.Payload["scope"]);
+        Assert.Equal("1", gatewayCalled.Payload["attemptCount"]);
+        Assert.Equal("0-1:stub:provider:succeeded", gatewayCalled.Payload["journey"]);
+        Assert.Equal(TimeSpan.FromMilliseconds(210), gatewayCalled.Latency);
+        Assert.Equal(TimeSpan.FromMilliseconds(210), costRecorded.Latency);
+        Assert.Equal(24, costRecorded.Usage!.TotalTokens);
+        Assert.Equal(0.00032m, costRecorded.Cost!.Amount);
+        Assert.Equal("estimated", costRecorded.Payload["costStatus"]);
+        Assert.Equal("pricing-v1", costRecorded.Payload["pricingVersion"]);
+        Assert.Equal("1000000", costRecorded.Payload["pricingTokenUnit"]);
+        Assert.Equal("0.25", costRecorded.Payload["inputPricePerTokenUnit"]);
+        Assert.Equal("2", costRecorded.Payload["outputPricePerTokenUnit"]);
+        Assert.Equal("USD", costRecorded.Payload["pricingCurrency"]);
         Assert.All(auditLog.Records, record =>
         {
             Assert.Equal("directive-inference", record.Payload["operation"]);
@@ -210,19 +239,28 @@ public sealed class AiGatewayServiceTests
             publisher,
             new SequenceTimeProvider(
                 startedAt,
+                startedAt.AddMilliseconds(10),
+                startedAt.AddMilliseconds(200),
                 startedAt.AddMilliseconds(210),
                 startedAt.AddSeconds(5),
+                startedAt.AddSeconds(5).AddMilliseconds(10),
+                startedAt.AddSeconds(5).AddMilliseconds(440),
                 startedAt.AddSeconds(5).AddMilliseconds(450)),
             publisher);
 
         await gateway.CompleteAsync(request);
         await gateway.CompleteAsync(request);
 
-        Assert.Equal(4, auditLog.Records.Count);
-        Assert.Equal(auditLog.Records[0].AuditEventId, auditLog.Records[2].AuditEventId);
-        Assert.Equal(auditLog.Records[1].AuditEventId, auditLog.Records[3].AuditEventId);
-        Assert.NotEqual(auditLog.Records[0].Latency, auditLog.Records[2].Latency);
-        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[1].AuditEventId);
+        Assert.Equal(6, auditLog.Records.Count);
+        Assert.Equal(auditLog.Records[0].AuditEventId, auditLog.Records[3].AuditEventId);
+        Assert.Equal(auditLog.Records[1].AuditEventId, auditLog.Records[4].AuditEventId);
+        Assert.Equal(auditLog.Records[2].AuditEventId, auditLog.Records[5].AuditEventId);
+        Assert.NotEqual(auditLog.Records[1].Latency, auditLog.Records[4].Latency);
+        Assert.NotEqual(auditLog.Records[1].AuditEventId, auditLog.Records[2].AuditEventId);
+
+        // The attempt identity keeps the attempt row apart from the journey row of the
+        // same call, which share stage and outcome (US-F1-05-T08).
+        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[2].AuditEventId);
     }
 
     [Fact]
@@ -276,11 +314,12 @@ public sealed class AiGatewayServiceTests
         await gateway.CompleteAsync(mainRequest);
         await gateway.CompleteAsync(verifierRequest);
 
-        Assert.Equal(4, auditLog.Records.Count);
-        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[2].AuditEventId);
-        Assert.NotEqual(auditLog.Records[1].AuditEventId, auditLog.Records[3].AuditEventId);
+        Assert.Equal(6, auditLog.Records.Count);
+        Assert.NotEqual(auditLog.Records[0].AuditEventId, auditLog.Records[3].AuditEventId);
+        Assert.NotEqual(auditLog.Records[1].AuditEventId, auditLog.Records[4].AuditEventId);
+        Assert.NotEqual(auditLog.Records[2].AuditEventId, auditLog.Records[5].AuditEventId);
         Assert.Equal("directive-inference", auditLog.Records[0].Payload["operation"]);
-        Assert.Equal("outcome-verification", auditLog.Records[2].Payload["operation"]);
+        Assert.Equal("outcome-verification", auditLog.Records[3].Payload["operation"]);
         Assert.All(auditLog.Records, record => Assert.Equal(Directive, record.DirectiveId));
     }
 
@@ -511,7 +550,13 @@ public sealed class AiGatewayServiceTests
         var result = await gateway.CompleteAsync(Request(provider: providerMetadata));
 
         Assert.Same(response, result);
-        var published = Assert.Single(audit.Events);
+        var attempt = Assert.Single(audit.Events.Where(@event =>
+            @event.Scope == AiGatewayCostAuditScope.Attempt));
+        Assert.Equal("0-1", attempt.AttemptId);
+        Assert.True(attempt.ReachedProvider);
+        Assert.Equal(AiGatewayErrorCode.QuotaExceeded, attempt.ErrorCode);
+        var published = Assert.Single(audit.Events.Where(@event =>
+            @event.Scope == AiGatewayCostAuditScope.Journey));
         Assert.Equal(AiGatewayCallResult.Failed, published.Result);
         Assert.Equal(providerMetadata, published.Provider);
         Assert.Equal(AiGatewayErrorCode.QuotaExceeded, published.ErrorCode);
@@ -615,10 +660,11 @@ public sealed class AiGatewayServiceTests
             modelParameters: new AiModelParameters(maxOutputTokens: 8192),
             timeout: TimeSpan.FromSeconds(60)));
 
-        Assert.Equal(2, auditLog.Records.Count);
-        var gatewayCalled = auditLog.Records[0];
-        var costRecorded = auditLog.Records[1];
+        Assert.Equal(3, auditLog.Records.Count);
+        var gatewayCalled = auditLog.Records[1];
+        var costRecorded = auditLog.Records[2];
         Assert.Equal(JourneyAuditStage.GatewayCalled, gatewayCalled.Stage);
+        Assert.Equal("attempt", auditLog.Records[0].Payload["scope"]);
         Assert.Equal("provider-rejected", gatewayCalled.ReasonCode);
         Assert.Equal("provider-rejected", gatewayCalled.Payload["errorCode"]);
         Assert.Equal("False", gatewayCalled.Payload["isRetryable"]);
@@ -683,10 +729,14 @@ public sealed class AiGatewayServiceTests
             timeout: TimeSpan.FromSeconds(60)));
 
         Assert.Equal(
-            [JourneyAuditStage.GatewayCalled, JourneyAuditStage.GatewayCostRecorded],
+            [
+                JourneyAuditStage.GatewayCostRecorded,
+                JourneyAuditStage.GatewayCalled,
+                JourneyAuditStage.GatewayCostRecorded,
+            ],
             auditLog.Records.Select(record => record.Stage));
-        var gatewayCalled = auditLog.Records[0];
-        var costRecorded = auditLog.Records[1];
+        var gatewayCalled = auditLog.Records[1];
+        var costRecorded = auditLog.Records[2];
         Assert.Equal("Length", gatewayCalled.Payload["finishReason"]);
         Assert.Equal("Length", costRecorded.Payload["finishReason"]);
         Assert.Equal("60000", costRecorded.Payload["requestTimeoutMilliseconds"]);
@@ -730,6 +780,8 @@ public sealed class AiGatewayServiceTests
         Assert.True(response.IsFailure);
         Assert.Equal(0, provider.CallCount);
         var published = Assert.Single(audit.Events);
+        Assert.Equal(AiGatewayCostAuditScope.Journey, published.Scope);
+        Assert.Null(published.AttemptId);
         Assert.Equal(AiGatewayCallResult.Failed, published.Result);
         Assert.Equal(providerMetadata, published.Provider);
         Assert.Equal(AiGatewayErrorCode.BudgetInsufficient, published.ErrorCode);
@@ -770,6 +822,7 @@ public sealed class AiGatewayServiceTests
         Assert.False(envelope.Error.IsRetryable);
         Assert.Equal(startedAt, envelope.StartedAt);
         Assert.Equal(completedAt, envelope.CompletedAt);
+        Assert.Empty(envelope.Journey);
     }
 
     [Fact]

@@ -126,9 +126,22 @@ public sealed class AiGatewayFallbackTests : IDisposable
         Assert.Empty(skips.Skips);
 
         // Cost attribution follows the candidate that produced the response.
-        var costEvent = Assert.Single(audit.Events);
+        var costEvent = Assert.Single(
+            audit.Events.Where(@event =>
+                @event.Scope == AiGatewayCostAuditScope.Journey));
         Assert.Equal(Secondary.ProviderId, costEvent.Provider?.ProviderId);
         Assert.Equal(Secondary.ModelId, costEvent.Provider?.ModelId);
+
+        // One attempt event per attempt, carrying its position in the chain (T08).
+        Assert.Equal(
+            new[] { "0-1", "0-2", "1-1" },
+            audit.Events
+                .Where(@event => @event.Scope == AiGatewayCostAuditScope.Attempt)
+                .Select(@event => @event.AttemptId));
+        Assert.All(
+            audit.Events.Where(@event =>
+                @event.Scope == AiGatewayCostAuditScope.Attempt),
+            @event => Assert.True(@event.ReachedProvider));
     }
 
     [Fact]

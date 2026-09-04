@@ -56,6 +56,7 @@ public sealed class AiGateway : IAiGateway
         var startedAt = _timeProvider.GetUtcNow();
         var policyResult = ApplyPolicy(request);
         var effectiveRequest = policyResult.Request ?? request;
+        var journey = new List<AiGatewayAuditAttemptSnapshot>();
         AiGatewayResponse response;
 
         if (policyResult.Error is { } error)
@@ -67,6 +68,7 @@ public sealed class AiGateway : IAiGateway
             var execution = await CompleteChainAsync(
                     request,
                     effectiveRequest,
+                    journey,
                     cancellationToken)
                 .ConfigureAwait(false);
             effectiveRequest = execution.EffectiveRequest;
@@ -82,7 +84,8 @@ public sealed class AiGateway : IAiGateway
                 effectiveRequest,
                 response,
                 startedAt,
-                completedAt));
+                completedAt,
+                journey));
         _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
             effectiveRequest,
             response,
@@ -100,11 +103,16 @@ public sealed class AiGateway : IAiGateway
     private async Task<AiGatewayChainExecution> CompleteChainAsync(
         AiGatewayRequest request,
         AiGatewayRequest primaryRequest,
+        List<AiGatewayAuditAttemptSnapshot> journey,
         CancellationToken cancellationToken)
     {
         var chain = request.Policy?.Fallback ?? ImmutableArray<AiProviderMetadata>.Empty;
         var executedRequest = primaryRequest;
-        var response = await CompleteCandidateAsync(primaryRequest, cancellationToken)
+        var response = await CompleteCandidateAsync(
+                primaryRequest,
+                candidateIndex: 0,
+                journey,
+                cancellationToken)
             .ConfigureAwait(false);
 
         if (chain.IsDefaultOrEmpty)
@@ -157,7 +165,11 @@ public sealed class AiGateway : IAiGateway
             cancellationToken.ThrowIfCancellationRequested();
 
             executedRequest = candidateRequest;
-            response = await CompleteCandidateAsync(candidateRequest, cancellationToken)
+            response = await CompleteCandidateAsync(
+                    candidateRequest,
+                    candidateIndex,
+                    journey,
+                    cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -172,6 +184,8 @@ public sealed class AiGateway : IAiGateway
 
     private async Task<AiGatewayResponse> CompleteCandidateAsync(
         AiGatewayRequest request,
+        int candidateIndex,
+        List<AiGatewayAuditAttemptSnapshot> journey,
         CancellationToken cancellationToken)
     {
         var resiliencePolicy = _resiliencePolicyResolver.Resolve(request.Provider);
@@ -180,6 +194,8 @@ public sealed class AiGateway : IAiGateway
         return await CompleteWithRetryAsync(
                 request,
                 resiliencePolicy.Retry,
+                candidateIndex,
+                journey,
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -221,12 +237,19 @@ public sealed class AiGateway : IAiGateway
     private async Task<AiGatewayResponse> CompleteWithRetryAsync(
         AiGatewayRequest request,
         AiProviderRetryPolicy retryPolicy,
+        int candidateIndex,
+        List<AiGatewayAuditAttemptSnapshot> journey,
         CancellationToken cancellationToken)
     {
         for (var attempt = 1; attempt <= retryPolicy.MaxAttempts; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var response = await CompleteAttemptAsync(request, cancellationToken)
+            var response = await CompleteAttemptAsync(
+                    request,
+                    candidateIndex,
+                    attempt,
+                    journey,
+                    cancellationToken)
                 .ConfigureAwait(false);
             ArgumentNullException.ThrowIfNull(response);
             cancellationToken.ThrowIfCancellationRequested();
@@ -247,14 +270,26 @@ public sealed class AiGateway : IAiGateway
 
     private async Task<AiGatewayResponse> CompleteAttemptAsync(
         AiGatewayRequest request,
+        int candidateIndex,
+        int attempt,
+        List<AiGatewayAuditAttemptSnapshot> journey,
         CancellationToken cancellationToken)
     {
+        var startedAt = _timeProvider.GetUtcNow();
         var circuitAdmission = _circuitBreaker.Acquire(request);
         ArgumentNullException.ThrowIfNull(circuitAdmission);
 
         if (!circuitAdmission.IsAllowed)
         {
-            return AiGatewayResponse.Failed(circuitAdmission.Error!);
+            return RecordAttempt(
+                request,
+                AiGatewayResponse.Failed(circuitAdmission.Error!),
+                candidateIndex,
+                attempt,
+                startedAt,
+                queueDuration: null,
+                reachedProvider: false,
+                journey);
         }
 
         using var circuitLease = circuitAdmission.Lease!;
@@ -265,8 +300,18 @@ public sealed class AiGateway : IAiGateway
 
         if (!admission.IsAdmitted)
         {
-            return AiGatewayResponse.Failed(admission.Error!);
+            return RecordAttempt(
+                request,
+                AiGatewayResponse.Failed(admission.Error!),
+                candidateIndex,
+                attempt,
+                startedAt,
+                queueDuration: null,
+                reachedProvider: false,
+                journey);
         }
+
+        var queueDuration = admission.Lease!.QueueDuration;
 
         using (admission.Lease!)
         {
@@ -284,7 +329,15 @@ public sealed class AiGateway : IAiGateway
                 }
 
                 circuitLease.Observe(response);
-                return response;
+                return RecordAttempt(
+                    request,
+                    response,
+                    candidateIndex,
+                    attempt,
+                    startedAt,
+                    queueDuration,
+                    reachedProvider: true,
+                    journey);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -296,6 +349,53 @@ public sealed class AiGateway : IAiGateway
                 throw;
             }
         }
+    }
+
+    /// <summary>
+    /// Publishes the attempt-scoped cost event of US-F1-05-T08 and appends the attempt to
+    /// the journey carried by the final detailed envelope. Only an attempt that produced a
+    /// structured response is recorded: an adapter exception and caller cancellation keep
+    /// the T04/T06 rule that without a response there is no audit.
+    /// </summary>
+    private AiGatewayResponse RecordAttempt(
+        AiGatewayRequest request,
+        AiGatewayResponse response,
+        int candidateIndex,
+        int attempt,
+        DateTimeOffset startedAt,
+        TimeSpan? queueDuration,
+        bool reachedProvider,
+        List<AiGatewayAuditAttemptSnapshot> journey)
+    {
+        var completedAt = _timeProvider.GetUtcNow();
+        var identity = new AiGatewayCostAuditAttempt(
+            candidateIndex,
+            attempt,
+            reachedProvider,
+            queueDuration);
+
+        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
+            request,
+            response,
+            startedAt,
+            completedAt,
+            identity));
+
+        journey.Add(new AiGatewayAuditAttemptSnapshot(
+            candidateIndex,
+            attempt,
+            reachedProvider,
+            response.IsSuccess
+                ? AiGatewayCallResult.Succeeded
+                : AiGatewayCallResult.Failed,
+            completedAt - startedAt,
+            request.Provider?.ProviderId,
+            request.Provider?.ModelId,
+            queueDuration,
+            response.Error?.Code,
+            response.Error?.Reason));
+
+        return response;
     }
 
     private static bool ShouldRetry(

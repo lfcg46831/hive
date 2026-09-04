@@ -99,7 +99,8 @@ public sealed class AiDirectiveTimeoutIntegrationTests
             Assert.DoesNotContain("errorMessage", gatewayCalled.Payload.Keys);
 
             var cost = Assert.Single(auditLog.Records.Where(
-                record => record.Stage == JourneyAuditStage.GatewayCostRecorded));
+                record => record.Stage == JourneyAuditStage.GatewayCostRecorded &&
+                    record.Payload["scope"] == "journey"));
             Assert.Equal(JourneyAuditOutcome.Failed, cost.Outcome);
             Assert.Equal("timeout", cost.ReasonCode);
             Assert.Null(cost.Usage);
@@ -134,7 +135,8 @@ public sealed class AiDirectiveTimeoutIntegrationTests
                 Assert.Single(auditLog.Records.Where(
                     record => record.Stage == JourneyAuditStage.GatewayCalled));
                 Assert.Single(auditLog.Records.Where(
-                    record => record.Stage == JourneyAuditStage.GatewayCostRecorded));
+                    record => record.Stage == JourneyAuditStage.GatewayCostRecorded &&
+                        record.Payload["scope"] == "journey"));
                 Assert.Single(auditLog.Records.Where(
                     record => record.Stage == JourneyAuditStage.AgentDecided));
             }

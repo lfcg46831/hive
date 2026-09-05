@@ -52,7 +52,7 @@ export function InboxItemDetail({ detail, nowMs }: InboxItemDetailProps) {
   }
 
   const item = detail.item;
-  if (item === null) {
+  if (detail.phase === 'loading' || item === null) {
     return (
       <section className="inbox-detail" aria-label="Inbox item" aria-busy="true">
         <p className="panel__detail">Loading the item…</p>

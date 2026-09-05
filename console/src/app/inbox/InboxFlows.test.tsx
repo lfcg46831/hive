@@ -205,6 +205,78 @@ function pushNotification(sequence: number, itemId = 'item-new'): void {
   });
 }
 
+describe('changing detail while requests are pending (BUG-022)', () => {
+  it('removes the previous detail and its actions while the next snapshot loads', async () => {
+    server.items = [inboxItem({ id: 'A' }), inboxItem({ id: 'B' })];
+    await renderInboxShowing('A');
+    fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'A unsaved text' } });
+    fireEvent.click(screen.getByLabelText('Completed'));
+    const answer = server.detail;
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => { release = resolve; });
+    server.detail = async (request) => {
+      await pending;
+      return answer(request);
+    };
+
+    fireEvent.click(listButton('B'));
+    expect(shownItemId()).toBeNull();
+    expect(screen.getByText('Loading the item…')).toBeDefined();
+    expect(within(detailPanel()).queryByRole('button')).toBeNull();
+    expect(screen.queryByLabelText('Message')).toBeNull();
+    expect(screen.queryByText('thread-A')).toBeNull();
+
+    await act(async () => release());
+    await waitFor(() => expect(shownItemId()).toBe('B'));
+    expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toBe('');
+    expect((screen.getByLabelText('Progress') as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Mark as read' }));
+    await waitFor(() => expect(server.requestsTo('/B/read')).toHaveLength(1));
+    expect(server.requestsTo('/A/read')).toHaveLength(0);
+  });
+
+  it.each(['reply', 'decision'] as const)(
+    'keeps the new form intact when the previous %s completes',
+    async (kind) => {
+      server.items = kind === 'reply'
+        ? [inboxItem({ id: 'A' }), inboxItem({ id: 'B' })]
+        : [approvalRequest({ id: 'A', canDecide: true }), approvalRequest({ id: 'B', canDecide: true })];
+      await renderInboxShowing('A');
+      await act(async () => {});
+      const route = kind === 'reply' ? 'reply' : 'decide';
+      const answer = server[route];
+      let release!: () => void;
+      const pending = new Promise<void>((resolve) => { release = resolve; });
+      server[route] = async (request) => {
+        const response = await answer(request);
+        await pending;
+        return response;
+      };
+      const label = kind === 'reply' ? 'Message' : 'Reason (optional)';
+      const button = kind === 'reply' ? 'Send response' : 'Approve';
+      fireEvent.change(screen.getByLabelText(label), { target: { value: 'A text' } });
+      expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe('A text');
+      expect((screen.getByRole('button', { name: button }) as HTMLButtonElement).disabled).toBe(false);
+      fireEvent.click(screen.getByRole('button', { name: button }));
+      await waitFor(() => expect(server.requestsTo(`/A/${kind}`)).toHaveLength(1));
+      fireEvent.click(listButton('B'));
+      await waitFor(() => expect(shownItemId()).toBe('B'));
+      await act(async () => {});
+      expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe('');
+      fireEvent.change(screen.getByLabelText(label), { target: { value: 'B unsaved text' } });
+      await act(async () => release());
+
+      expect(shownItemId()).toBe('B');
+      expect((screen.getByLabelText(label) as HTMLTextAreaElement).value).toBe('B unsaved text');
+      expect((screen.getByRole('button', { name: button }) as HTMLButtonElement).disabled).toBe(false);
+      expect(outcomeText()).toBe('');
+      expect(errorText()).toBe('');
+      expect(server.requestsTo(`/A/${kind}`)).toHaveLength(1);
+      expect(server.requestsTo(`/B/${kind}`)).toHaveLength(0);
+    },
+  );
+});
+
 describe('an inbox with nothing to show', () => {
   it('states that nothing is addressed to the person, rather than failing', async () => {
     const container = await renderInbox();

@@ -1,14 +1,21 @@
 # HIVE
 
-HIVE is an internal-first distributed runtime for organizations made of AI agents and people. This repository is currently an F0 engineering prototype, not a production-ready product.
+HIVE is an internal-first distributed runtime for organizations made of AI agents and people. This repository is an engineering prototype with an F0 runtime and F1 capabilities under development; it is not production-ready.
 
 ## Project status
 
-### Current — F0 runtime and initial F1 slice
+### Current — F0 runtime and F1 implementation in progress
 
-The repository contains the F0 runtime through the F0.8 stabilization cut: a local Akka.NET cluster, PostgreSQL persistence, GitOps organization configuration, the vertical directive flow, and the isolated audit/export boundary. It also contains the complete F1 read-only organization slice of `US-F1-01` (`T01`–`T14`): public REST snapshots, organization-scoped authorization, live-state projection, SignalR change notifications with REST/ETag fallback, the typed TypeScript client for that public surface verified against the published OpenAPI document, and a read-only React organogram view built on it, with its degraded-mode states, client-side filters and search, and API/contract and frontend test suites — all in [`console/`](console/), operated per the [console guide](docs/configuration.md#console-web-application). On top of it, the human inbox of `US-F1-02` (`T01`–`T12`) is in place: the person-scoped inbox projection and public surface, human responses and approval decisions emitted through the occupied position, realtime notifications with ETag polling, and the React inbox view with filters, deadline and priority badges, response form and approval panel; its API/contract and frontend test suites (`T13`–`T14`) are still outstanding. Start with the [F0 roadmap and exit criteria](docs/bible.html#phase-panel-f0), then use the [configuration guide](docs/configuration.md#run-locally-without-docker-compose) or the [Docker Compose runbook](docs/configuration.md#run-with-docker-compose).
+Implemented surfaces include:
 
-F0.8 makes the solution eligible for controlled measurement; it does not satisfy the product-quality gate. After the approved post-F0.8 preflight, the separately authorized three-run [calibration](evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md#decision) preserved the frozen manifest but failed projection coverage and all quality thresholds except cost, so the result is `rejected-for-freeze-request`. The run ids are burned, no freeze or holdout is authorized, and F1a remains closed.
+- The F0 runtime: Akka.NET clustering, PostgreSQL persistence, GitOps organization configuration, directive execution, and the isolated audit/export boundary. See the [F0 roadmap](docs/bible.html#phase-panel-f0) and [local setup](docs/configuration.md#run-locally-without-docker-compose) or [Docker Compose runbook](docs/configuration.md#run-with-docker-compose).
+- The React/TypeScript organogram and human inbox, backed by public REST/SignalR APIs, with message content, responses, approvals, and API/contract and frontend test suites. See the [console guide](docs/configuration.md#console-web-application).
+- Occupant-channel email components for [SMTP delivery](docs/configuration.md#outbound-occupant-email-smtp) and [IMAP intake](docs/configuration.md#inbound-occupant-email-imap), plus the opt-in [GitHub Issues connector plugin](docs/configuration.md#github-issues-connector-instances). Email delivery and admission still depend on active identity bindings; the identity implementation remains outstanding.
+- [AI gateway](docs/configuration.md#ai-gateway) resilience, including retries, provider fallback, admission limits, and circuit breakers.
+
+**Validation:** automated coverage exists for these engineering surfaces, including inbox flows, email components, GitHub integration, and gateway resilience. That coverage does not establish product quality or market value: the historical F0 quality gate remains **no-go**, and the [post-F0.8 calibration](evidence/evaluation/bug-triage-lab-v1/post-f0-8-calibration-report.v1.md#decision) was rejected for a freeze request. Recorded outcomes belong to their evaluated revisions; they do not certify the current checkout.
+
+**Decision to advance:** [bible §1.5, rev 2.88](docs/bible.html#vision) authorizes the full F1 (F1a and F1b) as instrumentation to observe and improve real work. It preserves the historical no-go and the burned `holdout-v2` corpus. F1 completion still depends on the technical and market gates in the [F1 roadmap](docs/bible.html#phase-panel-f1); engineering progress does not satisfy those gates or authorize a new evaluation run.
 
 ### Experimental — Evaluation Lab
 
@@ -16,7 +23,9 @@ The Evaluation Lab is disabled by default and lives in separate tooling that obs
 
 ### Planned — not implemented
 
-The remaining [F1](docs/bible.html#phase-panel-f1) work, [F2](docs/bible.html#phase-panel-f2), and [F3](docs/bible.html#phase-panel-f3) remain roadmap. In particular, real user identity and management, editing of the organization, production connectors, Kubernetes deployment, and strong multi-tenant product surface are not implemented; the inbox authenticates a person by static configured credential, not by an identity provider.
+Remaining [F1](docs/bible.html#phase-panel-f1) work includes real OIDC identity and occupation bindings (`US-F1-09`), data classification/minimization and privacy controls (`US-F1-08`), and continuous evaluation in the real loop (`US-F1-10`). The inbox currently uses a static configured person credential. See the roadmap for the remaining F1 scope and exit criteria.
+
+[F2](docs/bible.html#phase-panel-f2) includes Kubernetes deployment; MCP interoperability is a future F2 commitment, with its own story still to be specified. [F3](docs/bible.html#phase-panel-f3), including the strong multi-tenant product surface, is a post-validation backlog without a delivery commitment. The governing value and market gates remain in [bible §1.5](docs/bible.html#vision).
 
 ## Documentation map
 

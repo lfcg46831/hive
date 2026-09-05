@@ -5,14 +5,12 @@ namespace Hive.Infrastructure.Ai;
 
 public sealed class AiGateway : IAiGateway
 {
-    private readonly IAiGatewayProvider _provider;
+    private readonly IAiGatewayAttemptExecutor _attemptExecutor;
     private readonly IAiGatewayAuditPublisher _auditPublisher;
     private readonly TimeProvider _timeProvider;
     private readonly IAiGatewayDetailedAuditPublisher _detailedAuditPublisher;
-    private readonly IAiProviderAdmissionLimiter _admissionLimiter;
     private readonly IAiProviderResiliencePolicyResolver _resiliencePolicyResolver;
     private readonly IAiProviderRetryBackoff _retryBackoff;
-    private readonly IAiProviderCircuitBreaker _circuitBreaker;
     private readonly IAiGatewayFallbackSkipPublisher _fallbackSkipPublisher;
     private readonly IAiGatewayMetricsPublisher _metricsPublisher;
 
@@ -26,16 +24,17 @@ public sealed class AiGateway : IAiGateway
         IAiProviderRetryBackoff? retryBackoff = null,
         IAiProviderCircuitBreaker? circuitBreaker = null,
         IAiGatewayFallbackSkipPublisher? fallbackSkipPublisher = null,
-        IAiGatewayMetricsPublisher? metricsPublisher = null)
+        IAiGatewayMetricsPublisher? metricsPublisher = null,
+        IAiGatewayAttemptExecutor? attemptExecutor = null)
     {
-        _provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        ArgumentNullException.ThrowIfNull(provider);
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
         _timeProvider = timeProvider ?? TimeProvider.System;
         _detailedAuditPublisher =
             detailedAuditPublisher ?? NoopAiGatewayDetailedAuditPublisher.Instance;
         _resiliencePolicyResolver = resiliencePolicyResolver ??
             DefaultAiProviderResiliencePolicyResolver.Instance;
-        _admissionLimiter = admissionLimiter ?? new AiProviderAdmissionLimiter(
+        var localAdmissionLimiter = admissionLimiter ?? new AiProviderAdmissionLimiter(
             _resiliencePolicyResolver,
             _timeProvider);
         _retryBackoff = retryBackoff ?? new AiProviderRetryBackoff(
@@ -43,10 +42,12 @@ public sealed class AiGateway : IAiGateway
             new SystemAiProviderRetryJitterSource());
         _metricsPublisher = metricsPublisher ??
             NoopAiGatewayMetricsPublisher.Instance;
-        _circuitBreaker = circuitBreaker ?? new AiProviderCircuitBreaker(
+        var localCircuitBreaker = circuitBreaker ?? new AiProviderCircuitBreaker(
             _resiliencePolicyResolver,
             _timeProvider,
             metricsPublisher: _metricsPublisher);
+        _attemptExecutor = attemptExecutor ?? new LocalAiGatewayAttemptExecutor(
+            provider, localAdmissionLimiter, localCircuitBreaker);
         _fallbackSkipPublisher = fallbackSkipPublisher ??
             NoopAiGatewayFallbackSkipPublisher.Instance;
     }
@@ -286,79 +287,11 @@ public sealed class AiGateway : IAiGateway
         CancellationToken cancellationToken)
     {
         var startedAt = _timeProvider.GetUtcNow();
-        var circuitAdmission = _circuitBreaker.Acquire(request);
-        ArgumentNullException.ThrowIfNull(circuitAdmission);
-
-        if (!circuitAdmission.IsAllowed)
-        {
-            return RecordAttempt(
-                request,
-                AiGatewayResponse.Failed(circuitAdmission.Error!),
-                candidateIndex,
-                attempt,
-                startedAt,
-                queueDuration: null,
-                reachedProvider: false,
-                journey);
-        }
-
-        using var circuitLease = circuitAdmission.Lease!;
-        var admission = await _admissionLimiter
-            .AcquireAsync(request, cancellationToken)
+        var result = await _attemptExecutor.ExecuteAsync(request, cancellationToken)
             .ConfigureAwait(false);
-        ArgumentNullException.ThrowIfNull(admission);
-
-        if (!admission.IsAdmitted)
-        {
-            return RecordAttempt(
-                request,
-                AiGatewayResponse.Failed(admission.Error!),
-                candidateIndex,
-                attempt,
-                startedAt,
-                queueDuration: null,
-                reachedProvider: false,
-                journey);
-        }
-
-        var queueDuration = admission.Lease!.QueueDuration;
-
-        using (admission.Lease!)
-        {
-            try
-            {
-                var response = await _provider
-                    .CompleteAsync(request, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (response is null)
-                {
-                    circuitLease.ObserveFailure(
-                        AiGatewayErrorCode.InvalidProviderResponse);
-                    return response!;
-                }
-
-                circuitLease.Observe(response);
-                return RecordAttempt(
-                    request,
-                    response,
-                    candidateIndex,
-                    attempt,
-                    startedAt,
-                    queueDuration,
-                    reachedProvider: true,
-                    journey);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                circuitLease.ObserveFailure(AiGatewayErrorCode.Unknown);
-                throw;
-            }
-        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return RecordAttempt(request, result.Response, candidateIndex, attempt, startedAt,
+            result.QueueDuration, result.ReachedProvider, journey);
     }
 
     /// <summary>

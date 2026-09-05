@@ -46,6 +46,23 @@ public sealed record CancelAiGatewayCall : AiGatewayProviderCommand
     }
 }
 
+/// <summary>One attempt after policy validation; no retries, fallback or audit at the receiver.</summary>
+public sealed record ExecuteAiGatewayAttempt : AiGatewayProviderCommand
+{
+    public ExecuteAiGatewayAttempt(string correlationId, AiGatewayRequest request)
+        : base(correlationId)
+    {
+        Request = request ?? throw new ArgumentNullException(nameof(request));
+    }
+
+    public AiGatewayRequest Request { get; }
+}
+
+public sealed record AiGatewayAttemptCompleted(string CorrelationId, AiGatewayAttemptResult Result);
+
+/// <summary>No structured provider response exists; the caller must not fabricate attempt audit.</summary>
+public sealed record AiGatewayAttemptFailed(string CorrelationId);
+
 /// <summary>The terminal reply of a completed call: the gateway response, unchanged.</summary>
 public sealed record AiGatewayCallCompleted
 {

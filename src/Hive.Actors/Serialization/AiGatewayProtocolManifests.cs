@@ -15,6 +15,9 @@ internal static class AiGatewayProtocolManifests
         ("cancel-ai-gateway-call", typeof(CancelAiGatewayCall)),
         ("ai-gateway-call-completed", typeof(AiGatewayCallCompleted)),
         ("ai-gateway-call-canceled", typeof(AiGatewayCallCanceled)),
+        ("execute-ai-gateway-attempt", typeof(ExecuteAiGatewayAttempt)),
+        ("ai-gateway-attempt-completed", typeof(AiGatewayAttemptCompleted)),
+        ("ai-gateway-attempt-failed", typeof(AiGatewayAttemptFailed)),
     ];
 
     private static readonly IReadOnlyDictionary<Type, string> ManifestByType =

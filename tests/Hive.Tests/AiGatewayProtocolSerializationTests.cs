@@ -310,6 +310,40 @@ public sealed class AiGatewayProtocolSerializationTests
     }
 
     [Fact]
+    public void Attempt_reply_preserves_the_response_queue_measurement_and_provider_arrival()
+    {
+        var completed = new AiGatewayAttemptCompleted(
+            "attempt-9",
+            AttemptResult(SucceededResponse()));
+
+        var restored = Assert.IsType<AiGatewayAttemptCompleted>(
+            AiGatewayProtocolJsonFormat.Deserialize(
+                "ai-gateway-attempt-completed",
+                AiGatewayProtocolJsonFormat.Serialize(completed)));
+
+        Assert.Equal("attempt-9", restored.CorrelationId);
+        Assert.Equal(TimeSpan.FromMilliseconds(40), restored.Result.QueueDuration);
+        Assert.True(restored.Result.ReachedProvider);
+        Assert.True(restored.Result.Response.IsSuccess);
+        Assert.Equal(120, restored.Result.Response.Usage!.TotalTokens);
+        Assert.Equal(0.42m, restored.Result.Response.Cost!.Amount);
+    }
+
+    [Fact]
+    public void An_attempt_without_a_structured_response_carries_no_diagnostics()
+    {
+        var payload = AiGatewayProtocolJsonFormat.Serialize(new AiGatewayAttemptFailed("attempt-9"));
+
+        var restored = Assert.IsType<AiGatewayAttemptFailed>(
+            AiGatewayProtocolJsonFormat.Deserialize("ai-gateway-attempt-failed", payload));
+
+        Assert.Equal("attempt-9", restored.CorrelationId);
+        Assert.Equal(
+            "{\u0022CorrelationId\u0022:\u0022attempt-9\u0022}",
+            Encoding.UTF8.GetString(payload));
+    }
+
+    [Fact]
     public void Envelope_embeds_the_command_with_an_explicit_manifest()
     {
         var envelope = new AiGatewayEnvelope("openai", CompleteCall());
@@ -382,6 +416,9 @@ public sealed class AiGatewayProtocolSerializationTests
         yield return typeof(CancelAiGatewayCall);
         yield return typeof(AiGatewayCallCompleted);
         yield return typeof(AiGatewayCallCanceled);
+        yield return typeof(ExecuteAiGatewayAttempt);
+        yield return typeof(AiGatewayAttemptCompleted);
+        yield return typeof(AiGatewayAttemptFailed);
     }
 
     private static IEnumerable<(string Manifest, object Value)> Samples()
@@ -396,7 +433,26 @@ public sealed class AiGatewayProtocolSerializationTests
             "ai-gateway-call-completed",
             new AiGatewayCallCompleted("corr-1", FailedResponse()));
         yield return ("ai-gateway-call-canceled", new AiGatewayCallCanceled("corr-1"));
+        yield return (
+            "ai-gateway-envelope",
+            new AiGatewayEnvelope("anthropic", ExecuteAttempt()));
+        yield return ("execute-ai-gateway-attempt", ExecuteAttempt());
+        yield return (
+            "ai-gateway-attempt-completed",
+            new AiGatewayAttemptCompleted("attempt-1", AttemptResult(SucceededResponse())));
+        yield return (
+            "ai-gateway-attempt-completed",
+            new AiGatewayAttemptCompleted(
+                "attempt-1",
+                new AiGatewayAttemptResult(FailedResponse(), QueueDuration: null, ReachedProvider: false)));
+        yield return ("ai-gateway-attempt-failed", new AiGatewayAttemptFailed("attempt-1"));
     }
+
+    private static ExecuteAiGatewayAttempt ExecuteAttempt() =>
+        new("attempt-1", CompleteCall().Request);
+
+    private static AiGatewayAttemptResult AttemptResult(AiGatewayResponse response) =>
+        new(response, TimeSpan.FromMilliseconds(40), ReachedProvider: true);
 
     private static CompleteAiGatewayCall CompleteCall() =>
         new(

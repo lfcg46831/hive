@@ -11,6 +11,7 @@ using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Application.Directives;
 using Hive.Domain.Auditing;
+using Hive.Domain.Ai;
 using Hive.Domain.Messaging;
 using Hive.Domain.OccupantChannels;
 using Hive.Domain.Outcomes;
@@ -232,6 +233,7 @@ public static class HiveActorSystemBootstrapExtensions
         // once in the cluster. Agents nodes without the gateway role reach it through a region
         // proxy; on an all-in-one node the hosted region is the route and no proxy is created.
         builder.Services.TryAddSingleton<AiGatewayShardRegion>();
+        builder.Services.TryAddSingleton<IAiGatewayAttemptExecutor, ShardedAiGatewayAttemptExecutor>();
         builder.Services.AddSingleton<AiGatewayShardingWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<AiGatewayShardingWorkload>());

@@ -27,24 +27,66 @@ namespace Hive.Actors.Gateway;
 public sealed class AiGatewayActor : ReceiveActor
 {
     private readonly IAiGateway _gateway;
+    private readonly IAiGatewayAttemptExecutor? _localAttempts;
     private readonly ILogger? _logger;
     private readonly Dictionary<string, CancellationTokenSource> _inFlight =
         new(StringComparer.Ordinal);
 
-    public AiGatewayActor(IAiGateway gateway, ILogger? logger = null)
+    public AiGatewayActor(IAiGateway gateway, ILogger? logger = null,
+        IAiGatewayAttemptExecutor? localAttempts = null)
     {
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
         _logger = logger;
+        _localAttempts = localAttempts;
 
         Receive<CompleteAiGatewayCall>(Handle);
+        Receive<ExecuteAiGatewayAttempt>(Handle);
         Receive<CancelAiGatewayCall>(Handle);
         Receive<CallSettled>(Handle);
     }
 
-    public static Props Props(IAiGateway gateway, ILogger? logger = null)
+    public static Props Props(IAiGateway gateway, ILogger? logger = null,
+        IAiGatewayAttemptExecutor? localAttempts = null)
     {
         ArgumentNullException.ThrowIfNull(gateway);
-        return Akka.Actor.Props.Create(() => new AiGatewayActor(gateway, logger));
+        return Akka.Actor.Props.Create(() => new AiGatewayActor(gateway, logger, localAttempts));
+    }
+
+    private void Handle(ExecuteAiGatewayAttempt call)
+    {
+        var replyTo = Sender;
+        if (_localAttempts is null || _inFlight.ContainsKey(call.CorrelationId))
+        {
+            replyTo.Tell(new AiGatewayAttemptFailed(call.CorrelationId));
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _inFlight.Add(call.CorrelationId, cancellation);
+        ExecuteAttempt(call, replyTo, cancellation.Token).PipeTo(Self);
+    }
+
+    private async Task<CallSettled> ExecuteAttempt(
+        ExecuteAiGatewayAttempt call, IActorRef replyTo, CancellationToken cancellationToken)
+    {
+        object reply;
+        try
+        {
+            var result = await _localAttempts!.ExecuteAsync(call.Request, cancellationToken)
+                .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            reply = new AiGatewayAttemptCompleted(call.CorrelationId, result);
+        }
+        catch (OperationCanceledException)
+        {
+            reply = new AiGatewayCallCanceled(call.CorrelationId);
+        }
+        catch
+        {
+            reply = new AiGatewayAttemptFailed(call.CorrelationId);
+        }
+
+        return new CallSettled(call.CorrelationId, replyTo, reply);
     }
 
     private void Handle(CompleteAiGatewayCall call)

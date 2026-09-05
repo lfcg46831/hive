@@ -3,6 +3,7 @@ using Akka.Cluster;
 using Akka.Cluster.Sharding;
 using Hive.Actors.Sharding;
 using Hive.Domain.Ai;
+using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Hosting;
 using Microsoft.Extensions.Logging;
@@ -28,6 +29,7 @@ public sealed class AiGatewayShardingWorkload : IRoleWorkload
 
     private readonly ActorSystem _system;
     private readonly IAiGateway _gateway;
+    private readonly LocalAiGatewayAttemptExecutor? _localAttempts;
     private readonly AiGatewayShardRegion _region;
     private readonly int _numberOfShards;
     private readonly TimeSpan _clusterUpTimeout;
@@ -41,10 +43,12 @@ public sealed class AiGatewayShardingWorkload : IRoleWorkload
         IAiGateway gateway,
         AiGatewayShardRegion region,
         IOptions<HiveOptions> options,
-        ILogger<AiGatewayShardingWorkload> logger)
+        ILogger<AiGatewayShardingWorkload> logger,
+        LocalAiGatewayAttemptExecutor? localAttempts = null)
     {
         _system = system ?? throw new ArgumentNullException(nameof(system));
         _gateway = gateway ?? throw new ArgumentNullException(nameof(gateway));
+        _localAttempts = localAttempts;
         _region = region ?? throw new ArgumentNullException(nameof(region));
         ArgumentNullException.ThrowIfNull(options);
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -89,7 +93,7 @@ public sealed class AiGatewayShardingWorkload : IRoleWorkload
             _started = await sharding
                 .StartAsync(
                     typeName: AiGatewayEntityId.EntityTypeName,
-                    entityPropsFactory: _ => AiGatewayActor.Props(_gateway, _logger),
+                    entityPropsFactory: _ => AiGatewayActor.Props(_gateway, _logger, _localAttempts),
                     settings: settings,
                     messageExtractor: new AiGatewayMessageExtractor(_numberOfShards))
                 .ConfigureAwait(false);

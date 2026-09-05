@@ -5073,7 +5073,7 @@ public interface IPositionConfigurationProvider
 </tr>
 <tr>
 <td><code>BUG-019</code></td>
-<td>None</td>
+<td>Completed</td>
 <td>A solução não compila porque os testes de sharding do gateway omitem o namespace de ActiveNodeRoles.</td>
 <td><code>AiGatewayShardingTests</code> usa <code>ActiveNodeRoles</code> sem importar <code>Hive.Infrastructure.Hosting</code>; <code>dotnet build Hive.sln --no-restore</code> falha com dois CS0246. Conclui quando o build normal, sem imports temporários ou exclusão de testes, passa sem warnings e os testes de colocação do gateway são executáveis.</td>
 <td>1</td>

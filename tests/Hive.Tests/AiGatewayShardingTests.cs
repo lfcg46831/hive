@@ -3,6 +3,7 @@ using Hive.Actors.Gateway;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Hosting;
 using Microsoft.Extensions.Options;
 
 namespace Hive.Tests;

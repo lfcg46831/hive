@@ -5071,6 +5071,62 @@ public interface IPositionConfigurationProvider
 <td>1</td>
 <td><code>src/Hive.Connectors.GitHub/GitHubIssuesOutboundContracts.cs</code><br><code>tests/Hive.Connectors.GitHub.Tests/GitHubIssuesOutboundExecutorTests.cs</code></td>
 </tr>
+<tr>
+<td><code>BUG-019</code></td>
+<td>None</td>
+<td>A solução não compila porque os testes de sharding do gateway omitem o namespace de ActiveNodeRoles.</td>
+<td><code>AiGatewayShardingTests</code> usa <code>ActiveNodeRoles</code> sem importar <code>Hive.Infrastructure.Hosting</code>; <code>dotnet build Hive.sln --no-restore</code> falha com dois CS0246. Conclui quando o build normal, sem imports temporários ou exclusão de testes, passa sem warnings e os testes de colocação do gateway são executáveis.</td>
+<td>1</td>
+<td><code>tests/Hive.Tests/AiGatewayShardingTests.cs</code>; build reproduzido na análise de 2026-09-05.</td>
+</tr>
+<tr>
+<td><code>BUG-020</code></td>
+<td>None</td>
+<td>O arranque exige o serviço de tokens de email mesmo com IMAP desativado e sem role connectors.</td>
+<td>O bootstrap regista incondicionalmente o workload IMAP; a resolução de <code>IEnumerable&lt;IRoleWorkload&gt;</code> instancia o parser antes do filtro de roles ou do teste de <code>Enabled</code>, mas o serviço de tokens só é registado quando existe signing key. Conclui quando hosts sem configuração de email arrancam com IMAP inerte, roles não relacionadas não instanciam dependências opcionais indisponíveis, e IMAP ativo sem configuração obrigatória continua a falhar de forma explícita. Cobrir arranque agents/api/gateway sem email e os casos IMAP ativo válido/inválido.</td>
+<td>3</td>
+<td><code>src/Hive.Actors/HiveActorSystemBootstrapExtensions.cs</code>; <code>src/Hive.Infrastructure/Hosting/RoleWorkloadHostedService.cs</code>; <code>src/Hive.Infrastructure/OccupantChannels/OccupantChannelCorrelationTokenServiceCollectionExtensions.cs</code>. Análise de 2026-09-05: 17 falhas com a mesma dependência em falta; reprodução isolada em <code>OrgMessageSerializerBindingTests</code>, após import temporário de BUG-019 apenas no build.</td>
+</tr>
+<tr>
+<td><code>BUG-021</code></td>
+<td>None</td>
+<td>O protocolo sharded do gateway não consegue desserializar AiGatewayRequest.</td>
+<td>O construtor recebe coleções <code>IEnumerable</code> enquanto as propriedades correspondentes são <code>IReadOnlyList</code>, incompatibilidade com o binding de construtores de System.Text.Json; o formato do gateway não fornece converter para este request. Conclui quando pedidos completos atravessam os manifests de comando e envelope preservando contexto, ferramentas, política, fallback e constraint; enums inválidos continuam a produzir rejeição JSON fechada; domínio e wire permanecem sem nomes CLR. Validar round-trip de todos os tipos aninhados e uma chamada entre dois nós com provider stub.</td>
+<td>3</td>
+<td><code>src/Hive.Domain/Ai/AiGatewayRequest.cs</code>; <code>src/Hive.Actors/Serialization/AiGatewayProtocolJsonFormat.cs</code>; <code>tests/Hive.Tests/AiGatewayProtocolSerializationTests.cs</code>. Cinco falhas reproduzidas isoladamente em 2026-09-05, após import temporário de BUG-019 apenas no build.</td>
+</tr>
+<tr>
+<td><code>BUG-022</code></td>
+<td>None</td>
+<td>A troca de item na inbox permite ações sobre um item diferente do visível e mistura respostas assíncronas entre itens.</td>
+<td><code>useInboxItemDetail</code> mantém o item A e a fase ready enquanto carrega B, mas os callbacks já capturam o id de B; além disso, as respostas de mutações de A atualizam o estado mesmo depois de B ser selecionado. Conclui quando uma ação só pode atingir o item cujo detalhe foi carregado e está visível, mudar de item bloqueia ações até ao snapshot correspondente, e respostas tardias de leitura/rascunho/resposta/aprovação não alteram o item selecionado posteriormente. Cobrir fetch lento de B, mutação de A concluída após seleção de B e duas mudanças rápidas; não cancelar ou repetir mensagens organizacionais já submetidas.</td>
+<td>3</td>
+<td><code>console/src/app/inbox/useInboxItemDetail.ts</code>; <code>console/src/app/inbox/InboxView.tsx</code>; <code>console/src/app/inbox/InboxItemDetail.tsx</code>. Dois testes temporários reproduziram em 2026-09-05 a leitura enviada a B com A visível e o rascunho de A aplicado ao estado de B; o código de produto não foi alterado.</td>
+</tr>
+<tr>
+<td><code>BUG-023</code></td>
+<td>None</td>
+<td>O fallback entre providers contorna a unicidade cluster-wide dos limites e circuitos por provider.</td>
+<td>O invoker escolhe o shard uma vez pelo provider inicial; <code>AiGateway.CompleteChainAsync</code> executa candidatos posteriores no mesmo processo e usa buckets locais. Se o shard A e o shard B estiverem em nós distintos, o fallback A→B e chamadas diretas a B usam estados de admissão/circuito diferentes, contrariando <code>US-F1-05-T07</code>/Q16. Conclui quando todas as tentativas para B, incluindo fallbacks, partilham o mesmo dono de admissão e circuito no cluster, sem duplicar auditoria nem alargar a política. Cobrir com dois nós e stubs uma chamada direta concorrente com fallback, limite global de uma chamada e circuito aberto; preservar cancelamento e atribuição de custos por tentativa.</td>
+<td>5</td>
+<td>Fluxo confirmado por inspeção estática em 2026-09-05: <code>src/Hive.Actors/Gateway/ShardedAiAgentGatewayInvoker.cs</code>, <code>src/Hive.Infrastructure/Ai/AiGateway.cs</code> e <code>src/Hive.Infrastructure/Ai/AiProviderAdmissionLimiter.cs</code>. Reprodução multinó pendente; Docker indisponível na sessão de análise.</td>
+</tr>
+<tr>
+<td><code>BUG-024</code></td>
+<td>None</td>
+<td>O README apresenta estado e gate de avanço desatualizados face ao bible.</td>
+<td>O README ainda declara F1a fechada e descreve um corte antigo de F0/F1; §1.5 rev 2.88 autoriza a F1 completa como instrumentação e já existem código de email, plugin GitHub, resiliência AI e testes de inbox além daquele resumo. Conclui quando a entrada distingue o que existe, o que está validado e o que falta, reflete a decisão vigente de avanço sem revogar o no-go histórico, e aponta para os donos canónicos sem duplicar contratos ou evidência histórica.</td>
+<td>1</td>
+<td><code>README.md</code>; <code>docs/bible.html#vision</code> e roadmap F1. Divergência verificada em 2026-09-05.</td>
+</tr>
+<tr>
+<td><code>BUG-025</code></td>
+<td>None</td>
+<td>O teste do plano histórico pressupõe uma primeira causa de rejeição que já não é estável.</td>
+<td><code>Historical_tracked_plan_preserves_corpus_isolation_and_rejects_post_freeze_code</code> exige a mensagem de ficheiro evaluation-runner-code ausente, mas o plano é corretamente rejeitado antes por drift de organization-configuration. Conclui quando o teste do plano histórico verifica isolamento e rejeição sem depender da primeira divergência do checkout, e fixtures isoladas continuam a provar os diagnósticos específicos de ficheiro ausente e hash divergente. Não atualizar hashes, planos, corpus ou evidência históricos para fazer o teste passar.</td>
+<td>1</td>
+<td><code>tests/Hive.Evaluation.Tooling.Tests/EvaluationPlanTests.cs</code>; <code>src/Hive.Evaluation.Tooling/Evaluation/EvaluationPlan.cs</code>. Falha reproduzida na suite (90 passados, 1 falhado) e isoladamente em 2026-09-05.</td>
+</tr>
 </tbody>
 </table>
 

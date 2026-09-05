@@ -5089,7 +5089,7 @@ public interface IPositionConfigurationProvider
 </tr>
 <tr>
 <td><code>BUG-021</code></td>
-<td>None</td>
+<td>Completed</td>
 <td>O protocolo sharded do gateway não consegue desserializar AiGatewayRequest.</td>
 <td>O construtor recebe coleções <code>IEnumerable</code> enquanto as propriedades correspondentes são <code>IReadOnlyList</code>, incompatibilidade com o binding de construtores de System.Text.Json; o formato do gateway não fornece converter para este request. Conclui quando pedidos completos atravessam os manifests de comando e envelope preservando contexto, ferramentas, política, fallback e constraint; enums inválidos continuam a produzir rejeição JSON fechada; domínio e wire permanecem sem nomes CLR. Validar round-trip de todos os tipos aninhados e uma chamada entre dois nós com provider stub.</td>
 <td>3</td>

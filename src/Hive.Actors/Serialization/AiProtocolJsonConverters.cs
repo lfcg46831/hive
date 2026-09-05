@@ -8,8 +8,8 @@ namespace Hive.Actors.Serialization;
 /// <summary>
 /// Converters for the AI gateway protocol (US-F1-05-T07). Enums render as their canonical wire
 /// values (§9.5) and the records whose shape System.Text.Json cannot bind on its own — a private
-/// constructor, or two public overloads — are written and read field by field, so the domain stays
-/// free of any serialization concern.
+/// constructor, multiple overloads, or differing collection types — are read field by field,
+/// so the domain stays free of any serialization concern.
 /// </summary>
 internal sealed class AiProcessingModeJsonConverter : WireEnumJsonConverter<AiProcessingMode>
 {
@@ -94,6 +94,95 @@ internal sealed class AiGatewayMessageRoleJsonConverter :
                 result = default;
                 return false;
         }
+    }
+}
+
+/// <summary>
+/// Binds enumerable constructor arguments while preserving the request's existing property shape.
+/// </summary>
+internal sealed class AiGatewayRequestJsonConverter : JsonConverter<AiGatewayRequest>
+{
+    public override AiGatewayRequest Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+
+        return new AiGatewayRequest(
+            AiJsonElements.Require<OrganizationId>(root, "organizationId", options),
+            AiJsonElements.Require<PositionId>(root, "positionId", options),
+            AiJsonElements.Require<ThreadId>(root, "threadId", options),
+            AiJsonElements.Require<MessageId>(root, "messageId", options),
+            AiJsonElements.Require<string>(root, "content", options),
+            AiJsonElements.Read<string>(root, "systemInstruction", options),
+            AiJsonElements.Read<IReadOnlyList<AiGatewayMessage>>(root, "contextMessages", options),
+            AiJsonElements.Read<IReadOnlyList<AiToolDefinition>>(root, "tools", options),
+            AiJsonElements.Read<AiModelParameters>(root, "modelParameters", options),
+            AiJsonElements.Read<IReadOnlyDictionary<string, string>>(root, "metadata", options),
+            AiJsonElements.Read<AiProviderMetadata>(root, "provider", options),
+            AiJsonElements.Read<AiProcessingMode?>(root, "processingMode", options),
+            AiJsonElements.Read<TimeSpan?>(root, "timeout", options),
+            AiJsonElements.Read<AiGatewayPolicy>(root, "policy", options),
+            AiJsonElements.Read<AiOutputConstraint>(root, "outputConstraint", options));
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        AiGatewayRequest value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        AiJsonElements.Write(writer, nameof(value.OrganizationId), value.OrganizationId, options);
+        AiJsonElements.Write(writer, nameof(value.PositionId), value.PositionId, options);
+        AiJsonElements.Write(writer, nameof(value.ThreadId), value.ThreadId, options);
+        AiJsonElements.Write(writer, nameof(value.MessageId), value.MessageId, options);
+        AiJsonElements.Write(writer, nameof(value.Content), value.Content, options);
+        AiJsonElements.Write(writer, nameof(value.SystemInstruction), value.SystemInstruction, options);
+        AiJsonElements.Write(writer, nameof(value.ContextMessages), value.ContextMessages, options);
+        AiJsonElements.Write(writer, nameof(value.Tools), value.Tools, options);
+        AiJsonElements.Write(writer, nameof(value.ModelParameters), value.ModelParameters, options);
+        AiJsonElements.Write(writer, nameof(value.Metadata), value.Metadata, options);
+        AiJsonElements.Write(writer, nameof(value.Provider), value.Provider, options);
+        AiJsonElements.Write(writer, nameof(value.ProcessingMode), value.ProcessingMode, options);
+        AiJsonElements.Write(writer, nameof(value.Timeout), value.Timeout, options);
+        AiJsonElements.Write(writer, nameof(value.Policy), value.Policy, options);
+        AiJsonElements.Write(writer, nameof(value.OutputConstraint), value.OutputConstraint, options);
+        writer.WriteEndObject();
+    }
+}
+
+/// <summary>Binds fallback modes without changing the domain's immutable collection contract.</summary>
+internal sealed class AiOutputConstraintJsonConverter : JsonConverter<AiOutputConstraint>
+{
+    public override AiOutputConstraint Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        using var document = JsonDocument.ParseValue(ref reader);
+        var root = document.RootElement;
+
+        return new AiOutputConstraint(
+            AiJsonElements.Require<string>(root, "schemaName", options),
+            AiJsonElements.Require<int>(root, "schemaVersion", options),
+            AiJsonElements.Require<JsonElement>(root, "jsonSchema", options),
+            AiJsonElements.Read<IReadOnlyList<AiOutputConstraintMode>>(
+                root, "allowedFallbackModes", options));
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        AiOutputConstraint value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        AiJsonElements.Write(writer, nameof(value.SchemaName), value.SchemaName, options);
+        AiJsonElements.Write(writer, nameof(value.SchemaVersion), value.SchemaVersion, options);
+        AiJsonElements.Write(writer, nameof(value.JsonSchema), value.JsonSchema, options);
+        AiJsonElements.Write(writer, nameof(value.AllowedFallbackModes), value.AllowedFallbackModes, options);
+        writer.WriteEndObject();
     }
 }
 

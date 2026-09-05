@@ -39,6 +39,8 @@ internal static class AiGatewayProtocolJsonFormat
         options.Converters.Add(new AiGatewayMessageRoleJsonConverter());
 
         // Records System.Text.Json cannot bind through a constructor.
+        options.Converters.Add(new AiGatewayRequestJsonConverter());
+        options.Converters.Add(new AiOutputConstraintJsonConverter());
         options.Converters.Add(new AiGatewayPolicyJsonConverter());
         options.Converters.Add(new AiGatewayErrorJsonConverter());
         options.Converters.Add(new AiGatewayResponseJsonConverter());

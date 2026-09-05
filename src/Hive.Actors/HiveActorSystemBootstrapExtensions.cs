@@ -209,18 +209,23 @@ public static class HiveActorSystemBootstrapExtensions
         // Inbound occupant email is a cluster-wide transport and admission source on the
         // connectors role. Its actor owns sequential polling/parsing; PostgreSQL owns checkpoint,
         // deduplication, admission state and canonical reply/decision emission state.
-        builder.Services.TryAddSingleton<ShardedInboundOccupantEmailReplyEmitter>();
-        builder.Services.TryAddSingleton<IInboundOccupantEmailReplyEmitter>(serviceProvider =>
-            serviceProvider.GetRequiredService<ShardedInboundOccupantEmailReplyEmitter>());
-        builder.Services.TryAddSingleton<IInboundOccupantEmailDecisionEmitter>(serviceProvider =>
-            serviceProvider.GetRequiredService<ShardedInboundOccupantEmailReplyEmitter>());
-        builder.Services.TryAddSingleton<IInboundOccupantEmailReplyProcessor,
-            InboundOccupantEmailReplyProcessor>();
-        builder.Services.TryAddSingleton<IInboundOccupantEmailDecisionProcessor,
-            InboundOccupantEmailDecisionProcessor>();
-        builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
-        builder.Services.AddSingleton<IRoleWorkload>(
-            sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());
+        // Gate registration as well as activation: resolving IEnumerable<IRoleWorkload>
+        // constructs workloads before RoleWorkloadHostedService can filter by role.
+        if (ImapInboundEmailServiceCollectionExtensions.IsEnabledConnectorNode(builder.Configuration))
+        {
+            builder.Services.TryAddSingleton<ShardedInboundOccupantEmailReplyEmitter>();
+            builder.Services.TryAddSingleton<IInboundOccupantEmailReplyEmitter>(serviceProvider =>
+                serviceProvider.GetRequiredService<ShardedInboundOccupantEmailReplyEmitter>());
+            builder.Services.TryAddSingleton<IInboundOccupantEmailDecisionEmitter>(serviceProvider =>
+                serviceProvider.GetRequiredService<ShardedInboundOccupantEmailReplyEmitter>());
+            builder.Services.TryAddSingleton<IInboundOccupantEmailReplyProcessor,
+                InboundOccupantEmailReplyProcessor>();
+            builder.Services.TryAddSingleton<IInboundOccupantEmailDecisionProcessor,
+                InboundOccupantEmailDecisionProcessor>();
+            builder.Services.AddSingleton<ImapInboundEmailSingletonWorkload>();
+            builder.Services.AddSingleton<IRoleWorkload>(
+                sp => sp.GetRequiredService<ImapInboundEmailSingletonWorkload>());
+        }
 
         // The AI gateway entity is sharded by ProviderId and hosted only on the gateway role
         // (US-F1-05-T07), so a provider's queue, rate limiter and circuit breaker exist exactly

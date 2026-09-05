@@ -21,15 +21,17 @@ internal sealed class OccupantChannelCorrelationTokenOptionsValidator(
 
         var failures = new List<string>();
         var signingKeyRequired = activeRoles.Contains(NodeRoleNames.Connectors) &&
-            configuration.GetValue<bool>(
-                $"{SmtpOccupantChannelOptions.SectionName}:Enabled");
+            (configuration.GetValue<bool>(
+                $"{SmtpOccupantChannelOptions.SectionName}:Enabled")
+             || configuration.GetValue<bool>(
+                $"{ImapInboundEmailOptions.SectionName}:Enabled"));
 
         if (string.IsNullOrWhiteSpace(options.SigningKey))
         {
             if (signingKeyRequired)
             {
                 failures.Add(
-                    $"{Prefix}:SigningKey is required when SMTP occupant delivery is enabled on a connectors node.");
+                    $"{Prefix}:SigningKey is required when SMTP occupant delivery or IMAP ingestion is enabled on a connectors node.");
             }
         }
         else if (!TryDecodeKey(options.SigningKey, out var keyLength) ||

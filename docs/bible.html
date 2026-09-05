@@ -5081,7 +5081,7 @@ public interface IPositionConfigurationProvider
 </tr>
 <tr>
 <td><code>BUG-020</code></td>
-<td>None</td>
+<td>Completed</td>
 <td>O arranque exige o serviço de tokens de email mesmo com IMAP desativado e sem role connectors.</td>
 <td>O bootstrap regista incondicionalmente o workload IMAP; a resolução de <code>IEnumerable&lt;IRoleWorkload&gt;</code> instancia o parser antes do filtro de roles ou do teste de <code>Enabled</code>, mas o serviço de tokens só é registado quando existe signing key. Conclui quando hosts sem configuração de email arrancam com IMAP inerte, roles não relacionadas não instanciam dependências opcionais indisponíveis, e IMAP ativo sem configuração obrigatória continua a falhar de forma explícita. Cobrir arranque agents/api/gateway sem email e os casos IMAP ativo válido/inválido.</td>
 <td>3</td>

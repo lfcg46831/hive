@@ -24,6 +24,14 @@ internal static class ImapInboundEmailServiceCollectionExtensions
             .AddOptions<ImapInboundEmailOptions>()
             .Bind(configuration.GetSection(ImapInboundEmailOptions.SectionName))
             .ValidateOnStart();
+
+        // Inactive sources must not contribute a dependency graph that requires email secrets,
+        // including when the host validates service registrations before startup.
+        if (!IsEnabledConnectorNode(configuration))
+        {
+            return services;
+        }
+
         services.TryAddSingleton<IImapInboundEmailClient, MailKitImapInboundEmailClient>();
         services.TryAddSingleton<IImapInboundEmailStore>(serviceProvider =>
         {
@@ -40,5 +48,19 @@ internal static class ImapInboundEmailServiceCollectionExtensions
         services.TryAddSingleton<IInboundOccupantEmailParser, InboundOccupantEmailParser>();
         services.TryAddSingleton<IInboundOccupantEmailProcessor, InboundOccupantEmailProcessor>();
         return services;
+    }
+
+    internal static bool IsEnabledConnectorNode(IConfiguration configuration)
+    {
+        var enabled = configuration.GetValue<bool>(
+            $"{ImapInboundEmailOptions.SectionName}:Enabled");
+        var roles = configuration
+            .GetSection($"{HiveOptions.SectionName}:Node:Roles")
+            .Get<string[]>() ?? [];
+
+        return enabled && roles.Any(role => string.Equals(
+            role?.Trim(),
+            NodeRoleNames.Connectors,
+            StringComparison.OrdinalIgnoreCase));
     }
 }

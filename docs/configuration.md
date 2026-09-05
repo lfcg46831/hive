@@ -780,7 +780,7 @@ Email notifications carry a private, versioned correlation token signed with HMA
 
 | Setting | Required | Default / purpose |
 | --- | --- | --- |
-| `Hive:OccupantChannels:CorrelationTokens:SigningKey` | when SMTP is enabled on a `connectors` node | Base64-encoded secret containing at least 32 random bytes (256 bits). |
+| `Hive:OccupantChannels:CorrelationTokens:SigningKey` | when SMTP or IMAP is enabled on a `connectors` node | Base64-encoded secret containing at least 32 random bytes (256 bits). |
 | `Hive:OccupantChannels:CorrelationTokens:Lifetime` | no | `7.00:00:00`; must be at least one second and no longer than 30 days. The exact expiry instant is invalid. |
 
 Use the same signing key on every node that issues or validates occupant-channel tokens and store it in the deployment secret store or .NET user-secrets. Never put the key in `appsettings*.json`, `.env.example`, organization YAML, logs, snapshots, email, or source control. Replacing the key invalidates every outstanding token immediately; schedule rotation after the current token lifetime unless emergency invalidation is intended. Production decision redemption also requires the canonical `ConnectionStrings:PostgreSql` setting so all replicas share the atomic use registry.
@@ -847,6 +847,8 @@ The durable cursor is `(SourceId, Mailbox, UIDVALIDITY, last UID)`. A first acti
 | `Hive:OccupantChannels:Email:Imap:OperationTimeout` | no | `00:00:30`; positive timeout for connect/authenticate/fetch. |
 | `Hive:OccupantChannels:Email:Imap:ClusterUpTimeout` | no | `00:00:30`; positive maximum wait for the connector node to reach cluster *Up* before singleton materialization. |
 | `ConnectionStrings:PostgreSql` | when enabled | Shared durable staging/checkpoint store. IMAP activation fails startup when it is absent. |
+
+IMAP admission requires the [correlation-token signing key](#occupant-channel-correlation-tokens) even when SMTP is disabled. An enabled `connectors` node rejects a missing or invalid key at startup. Disabled sources and nodes without the `connectors` role do not register the IMAP workload or its transport/admission dependencies.
 
 Example for a connector deployment:
 

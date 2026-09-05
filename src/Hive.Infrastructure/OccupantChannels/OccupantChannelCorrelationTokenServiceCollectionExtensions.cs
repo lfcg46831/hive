@@ -37,7 +37,10 @@ internal static class OccupantChannelCorrelationTokenServiceCollectionExtensions
 
         var signingKey = configuration[
             $"{OccupantChannelCorrelationTokenOptions.SectionName}:SigningKey"];
-        if (!string.IsNullOrWhiteSpace(signingKey))
+        // An active IMAP parser always needs this service. Keep its dependency graph valid
+        // even for a missing key so options validation reports the configuration error.
+        if (!string.IsNullOrWhiteSpace(signingKey)
+            || ImapInboundEmailServiceCollectionExtensions.IsEnabledConnectorNode(configuration))
         {
             services.TryAddSingleton<
                 IOccupantChannelCorrelationTokenService,

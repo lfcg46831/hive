@@ -5122,7 +5122,7 @@ public interface IPositionConfigurationProvider
 </tr>
 <tr>
 <td><code>BUG-025</code></td>
-<td>None</td>
+<td>Completed</td>
 <td>O teste do plano histórico pressupõe uma primeira causa de rejeição que já não é estável.</td>
 <td><code>Historical_tracked_plan_preserves_corpus_isolation_and_rejects_post_freeze_code</code> exige a mensagem de ficheiro evaluation-runner-code ausente, mas o plano é corretamente rejeitado antes por drift de organization-configuration. Conclui quando o teste do plano histórico verifica isolamento e rejeição sem depender da primeira divergência do checkout, e fixtures isoladas continuam a provar os diagnósticos específicos de ficheiro ausente e hash divergente. Não atualizar hashes, planos, corpus ou evidência históricos para fazer o teste passar.</td>
 <td>1</td>

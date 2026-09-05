@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using System.Text.Json;
 using Hive.Evaluation.Tooling.Evaluation;
 
@@ -27,10 +28,42 @@ public sealed class EvaluationPlanTests
         Assert.Empty(calibration.Cases.Select(item => Normalize(item.Context))
             .Intersect(holdout.Cases.Select(item => Normalize(item.Context)), StringComparer.Ordinal));
 
-        var exception = Assert.Throws<InvalidDataException>(() =>
+        // The first frozen input to diverge changes as the checkout evolves.
+        Assert.Throws<InvalidDataException>(() =>
             EvaluationPlan.Load(PlanPath, EvaluationPlan.CalibrationPartition));
+    }
+
+    [Theory]
+    [InlineData("evaluation-runner-code")]
+    [InlineData("organization-configuration")]
+    public void Plan_rejects_missing_frozen_input_with_specific_diagnostic(string role)
+    {
+        using var fixture = new FrozenPlanFixture();
+        var plan = EvaluationPlan.Load(fixture.PlanPath, EvaluationPlan.CalibrationPartition);
+        var input = Assert.Single(plan.FrozenInputs, item => item.Role == role);
+        File.Delete(Path.Combine(plan.RepositoryRoot, input.Path));
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            EvaluationPlan.Load(fixture.PlanPath, EvaluationPlan.CalibrationPartition));
         Assert.Equal(
-            "Frozen evaluation-runner-code is missing or outside the repository.",
+            $"Frozen {role} is missing or outside the repository.",
+            exception.Message);
+    }
+
+    [Theory]
+    [InlineData("evaluation-runner-code")]
+    [InlineData("organization-configuration")]
+    public void Plan_rejects_drifted_frozen_input_with_specific_diagnostic(string role)
+    {
+        using var fixture = new FrozenPlanFixture();
+        var plan = EvaluationPlan.Load(fixture.PlanPath, EvaluationPlan.CalibrationPartition);
+        var input = Assert.Single(plan.FrozenInputs, item => item.Role == role);
+        File.AppendAllText(Path.Combine(plan.RepositoryRoot, input.Path), "post-freeze change");
+
+        var exception = Assert.Throws<InvalidDataException>(() =>
+            EvaluationPlan.Load(fixture.PlanPath, EvaluationPlan.CalibrationPartition));
+        Assert.Equal(
+            $"Frozen {role} has drifted from SHA-256 {input.Sha256}.",
             exception.Message);
     }
 
@@ -225,6 +258,92 @@ public sealed class EvaluationPlanTests
                     .Select(property => property.Name)
                     .OrderBy(value => value, StringComparer.Ordinal));
         });
+    }
+
+    private sealed class FrozenPlanFixture : IDisposable
+    {
+        private readonly string _root = Path.Combine(
+            RepositoryRoot, "artifacts", "evaluation-tests", Guid.NewGuid().ToString("N"));
+
+        public string PlanPath => Path.Combine(_root, "plan.json");
+
+        public FrozenPlanFixture()
+        {
+            Directory.CreateDirectory(_root);
+            File.WriteAllText(Path.Combine(_root, "Hive.sln"), string.Empty);
+            var defaults = PlanForAnalysis();
+            var plan = new EvaluationPlan
+            {
+                PlanVersion = 1,
+                FixtureKind = "evaluation-calibration-holdout",
+                FreezeId = "synthetic-test-freeze",
+                FreezeStatus = "frozen",
+                CodeVersion = "test-v1",
+                ConfigurationVersion = "test-v1",
+                Provider = defaults.Provider,
+                Runner = new EvaluationRunnerFreeze { TimeoutSeconds = 120, PollMilliseconds = 1000 },
+                DeadlineCalibration = defaults.DeadlineCalibration,
+                DecisionAnalysis = defaults.DecisionAnalysis,
+                Calibration = WriteCorpus("calibration"),
+                Holdout = WriteCorpus("holdout"),
+                Rubric = WriteFrozenFile("rubric.json", """
+                    {
+                      "rubric_version": 1,
+                      "fixture_kind": "evaluation-example",
+                      "applies_to": { "corpus_version": 1 },
+                      "score_scale": { "minimum": 0, "maximum": 1, "higher_is_better": true },
+                      "dimensions": [{
+                        "id": "decision", "weight": 1, "source": "result-message-kind",
+                        "value_kind": "single-label", "scorer": "exact-match", "scorer_version": 1,
+                        "allowed_labels": ["report", "escalation"],
+                        "source_mapping": { "report": "report", "escalation": "escalation" },
+                        "match_score": 1, "mismatch_score": 0
+                      }],
+                      "aggregation": {
+                        "case_score": "weighted-arithmetic-mean",
+                        "corpus_score": "unweighted-macro-mean-of-case-scores",
+                        "rounding": "none-until-presentation"
+                      }
+                    }
+                    """),
+                FrozenInputs = new[]
+                {
+                    "business-prompt", "organization-configuration", "provider-configuration",
+                    "evaluation-profile", "evaluation-runner-code",
+                }.Select(role =>
+                {
+                    var file = WriteFrozenFile($"{role}.txt", $"Frozen synthetic {role}");
+                    return new EvaluationFrozenInput { Role = role, Path = file.Path, Sha256 = file.Sha256 };
+                }).ToArray(),
+            };
+            File.WriteAllText(PlanPath, JsonSerializer.Serialize(plan));
+        }
+
+        private EvaluationPlanCorpus WriteCorpus(string partition)
+        {
+            var corpus = new EvaluationCorpus(1, "evaluation-example",
+                [Case($"{partition}-001", "report") with { Context = $"Synthetic {partition} context." }]);
+            var file = WriteFrozenFile($"{partition}.json", JsonSerializer.Serialize(corpus));
+            return new EvaluationPlanCorpus
+            {
+                Path = file.Path,
+                Sha256 = file.Sha256,
+                SemanticOverlapReviewed = true,
+            };
+        }
+
+        private EvaluationFrozenFile WriteFrozenFile(string path, string content)
+        {
+            var fullPath = Path.Combine(_root, path);
+            File.WriteAllText(fullPath, content);
+            return new EvaluationFrozenFile
+            {
+                Path = path,
+                Sha256 = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fullPath))).ToLowerInvariant(),
+            };
+        }
+
+        public void Dispose() => Directory.Delete(_root, recursive: true);
     }
 
     private static EvaluationPlan PlanForAnalysis() => new()

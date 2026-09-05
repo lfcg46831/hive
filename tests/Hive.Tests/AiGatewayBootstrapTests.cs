@@ -43,6 +43,7 @@ public sealed class AiGatewayBootstrapTests
             provider.GetRequiredService<IAiProviderCircuitBreaker>());
         Assert.NotNull(
             provider.GetRequiredService<IAiProviderCircuitTransitionPublisher>());
+        Assert.NotNull(provider.GetRequiredService<IAiGatewayMetricsPublisher>());
         Assert.Null(provider.GetService<IChatClient>());
 
         var response = await gateway.CompleteAsync(Request());

@@ -14,6 +14,7 @@ public sealed class AiGateway : IAiGateway
     private readonly IAiProviderRetryBackoff _retryBackoff;
     private readonly IAiProviderCircuitBreaker _circuitBreaker;
     private readonly IAiGatewayFallbackSkipPublisher _fallbackSkipPublisher;
+    private readonly IAiGatewayMetricsPublisher _metricsPublisher;
 
     public AiGateway(
         IAiGatewayProvider provider,
@@ -24,7 +25,8 @@ public sealed class AiGateway : IAiGateway
         IAiProviderResiliencePolicyResolver? resiliencePolicyResolver = null,
         IAiProviderRetryBackoff? retryBackoff = null,
         IAiProviderCircuitBreaker? circuitBreaker = null,
-        IAiGatewayFallbackSkipPublisher? fallbackSkipPublisher = null)
+        IAiGatewayFallbackSkipPublisher? fallbackSkipPublisher = null,
+        IAiGatewayMetricsPublisher? metricsPublisher = null)
     {
         _provider = provider ?? throw new ArgumentNullException(nameof(provider));
         _auditPublisher = auditPublisher ?? NoopAiGatewayAuditPublisher.Instance;
@@ -39,9 +41,12 @@ public sealed class AiGateway : IAiGateway
         _retryBackoff = retryBackoff ?? new AiProviderRetryBackoff(
             _timeProvider,
             new SystemAiProviderRetryJitterSource());
+        _metricsPublisher = metricsPublisher ??
+            NoopAiGatewayMetricsPublisher.Instance;
         _circuitBreaker = circuitBreaker ?? new AiProviderCircuitBreaker(
             _resiliencePolicyResolver,
-            _timeProvider);
+            _timeProvider,
+            metricsPublisher: _metricsPublisher);
         _fallbackSkipPublisher = fallbackSkipPublisher ??
             NoopAiGatewayFallbackSkipPublisher.Instance;
     }
@@ -86,7 +91,7 @@ public sealed class AiGateway : IAiGateway
                 startedAt,
                 completedAt,
                 journey));
-        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
+        PublishCostAuditEvent(AiGatewayCostAuditEvent.FromResponse(
             effectiveRequest,
             response,
             startedAt,
@@ -205,8 +210,9 @@ public sealed class AiGateway : IAiGateway
         int candidateIndex,
         AiProviderMetadata candidate,
         AiGatewayFallbackSkipReason reason,
-        AiGatewayErrorCode? errorCode) =>
-        _fallbackSkipPublisher.Publish(new AiGatewayFallbackSkip(
+        AiGatewayErrorCode? errorCode)
+    {
+        var skip = new AiGatewayFallbackSkip(
             request.OrganizationId,
             request.PositionId,
             request.ThreadId,
@@ -216,7 +222,11 @@ public sealed class AiGateway : IAiGateway
             candidate.ModelId,
             _timeProvider.GetUtcNow(),
             reason,
-            errorCode));
+            errorCode);
+
+        _fallbackSkipPublisher.Publish(skip);
+        _metricsPublisher.Publish(AiGatewayMetricsProjection.FromFallbackSkip(skip));
+    }
 
     /// <summary>
     /// The closed set of outcomes that hand the call to the next declared candidate:
@@ -374,7 +384,7 @@ public sealed class AiGateway : IAiGateway
             reachedProvider,
             queueDuration);
 
-        _auditPublisher.Publish(AiGatewayCostAuditEvent.FromResponse(
+        PublishCostAuditEvent(AiGatewayCostAuditEvent.FromResponse(
             request,
             response,
             startedAt,
@@ -396,6 +406,16 @@ public sealed class AiGateway : IAiGateway
             response.Error?.Reason));
 
         return response;
+    }
+
+    private void PublishCostAuditEvent(AiGatewayCostAuditEvent auditEvent)
+    {
+        _auditPublisher.Publish(auditEvent);
+
+        if (AiGatewayMetricsProjection.FromAuditEvent(auditEvent) is { } metrics)
+        {
+            _metricsPublisher.Publish(metrics);
+        }
     }
 
     private static bool ShouldRetry(

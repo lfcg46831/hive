@@ -37,6 +37,8 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiProviderCircuitBreaker, AiProviderCircuitBreaker>();
         services.TryAddSingleton<IAiGatewayFallbackSkipPublisher>(
             _ => NoopAiGatewayFallbackSkipPublisher.Instance);
+        services.TryAddSingleton<IAiGatewayMetricsPublisher>(
+            _ => NoopAiGatewayMetricsPublisher.Instance);
         services.TryAddSingleton<IAiGateway, AiGateway>();
 
         return services;

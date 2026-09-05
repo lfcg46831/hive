@@ -77,17 +77,21 @@ public sealed class AiProviderCircuitBreaker : IAiProviderCircuitBreaker
     private readonly IAiProviderResiliencePolicyResolver _policyResolver;
     private readonly TimeProvider _timeProvider;
     private readonly IAiProviderCircuitTransitionPublisher _transitionPublisher;
+    private readonly IAiGatewayMetricsPublisher _metricsPublisher;
 
     public AiProviderCircuitBreaker(
         IAiProviderResiliencePolicyResolver policyResolver,
         TimeProvider? timeProvider = null,
-        IAiProviderCircuitTransitionPublisher? transitionPublisher = null)
+        IAiProviderCircuitTransitionPublisher? transitionPublisher = null,
+        IAiGatewayMetricsPublisher? metricsPublisher = null)
     {
         _policyResolver = policyResolver ??
             throw new ArgumentNullException(nameof(policyResolver));
         _timeProvider = timeProvider ?? TimeProvider.System;
         _transitionPublisher = transitionPublisher ??
             NoopAiProviderCircuitTransitionPublisher.Instance;
+        _metricsPublisher = metricsPublisher ??
+            NoopAiGatewayMetricsPublisher.Instance;
     }
 
     public AiProviderCircuitAdmission Acquire(AiGatewayRequest request)
@@ -128,6 +132,8 @@ public sealed class AiProviderCircuitBreaker : IAiProviderCircuitBreaker
         if (transition is not null)
         {
             _transitionPublisher.Publish(transition);
+            _metricsPublisher.Publish(
+                AiGatewayMetricsProjection.FromCircuitTransition(transition));
         }
     }
 

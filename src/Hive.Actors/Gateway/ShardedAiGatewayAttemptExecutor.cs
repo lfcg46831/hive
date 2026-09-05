@@ -28,13 +28,14 @@ internal sealed class ShardedAiGatewayAttemptExecutor(
         var command = new AiGatewayEnvelope(providerKey, new ExecuteAiGatewayAttempt(correlationId, request));
         // Send before registering cancellation: a token already canceled during dispatch still
         // sends cancel after execute, using the same sender to preserve remote ordering.
-        IActorRef sender = ActorRefs.NoSender;
-        var pending = route.Ask<object>(replyTo =>
+        IActorRef? sender = ActorRefs.NoSender;
+        var pending = route.Ask<object>(new Func<IActorRef, object>(replyTo =>
             {
                 sender = replyTo;
                 return command;
-            },
-            options.Value.Gateway?.AskTimeout ?? ShardedAiAgentGatewayInvoker.DefaultAskTimeout);
+            }),
+            options.Value.Gateway?.AskTimeout ?? ShardedAiAgentGatewayInvoker.DefaultAskTimeout,
+            CancellationToken.None);
         using var registration = cancellationToken.Register(() => route.Tell(
             new AiGatewayEnvelope(providerKey, new CancelAiGatewayCall(correlationId)), sender));
 

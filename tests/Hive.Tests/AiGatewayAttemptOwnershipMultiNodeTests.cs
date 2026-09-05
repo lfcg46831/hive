@@ -5,6 +5,7 @@ using Hive.Actors;
 using Hive.Actors.Gateway;
 using Hive.Domain.Ai;
 using Hive.Domain.Identity;
+using Hive.Infrastructure.Ai;
 using Hive.Infrastructure.Configuration;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;

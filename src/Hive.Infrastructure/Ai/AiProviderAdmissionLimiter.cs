@@ -5,7 +5,7 @@ namespace Hive.Infrastructure.Ai;
 
 /// <summary>
 /// Resolves the immutable resilience policy applied to one effective provider.
-/// Operational configuration replaces the default resolver in US-F1-05-T10.
+/// The host supplies a validated startup snapshot; direct construction uses domain defaults.
 /// </summary>
 public interface IAiProviderResiliencePolicyResolver
 {

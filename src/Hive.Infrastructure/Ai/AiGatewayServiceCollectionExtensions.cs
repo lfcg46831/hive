@@ -26,8 +26,9 @@ public static class AiGatewayServiceCollectionExtensions
         services.TryAddSingleton<IAiGatewayDetailedAuditPublisher>(
             _ => NoopAiGatewayDetailedAuditPublisher.Instance);
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
-        services.TryAddSingleton<IAiProviderResiliencePolicyResolver>(
-            _ => DefaultAiProviderResiliencePolicyResolver.Instance);
+        services.AddOptions<AiProviderResilienceOptions>();
+        services.TryAddSingleton<IAiProviderResiliencePolicyResolver,
+            ConfiguredAiProviderResiliencePolicyResolver>();
         services.TryAddSingleton<IAiProviderAdmissionLimiter, AiProviderAdmissionLimiter>();
         services.TryAddSingleton<IAiProviderRetryJitterSource,
             SystemAiProviderRetryJitterSource>();
@@ -52,6 +53,15 @@ public static class AiGatewayServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(configuration);
 
         services.AddHiveAiGateway();
+        if (string.Equals(
+            configuration[AiGatewayProviderKey],
+            RealProviderName,
+            StringComparison.OrdinalIgnoreCase))
+        {
+            return services.AddHiveAiGatewayReal(configuration);
+        }
+
+        services.AddHiveAiGatewayResilienceConfiguration(configuration);
 
         if (string.Equals(
             configuration[AiGatewayProviderKey],
@@ -63,15 +73,25 @@ public static class AiGatewayServiceCollectionExtensions
                     .GetSection(StubAiGatewayProviderOptions.SectionName)
                     .Bind(options));
         }
-        else if (string.Equals(
-            configuration[AiGatewayProviderKey],
-            RealProviderName,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            services.AddHiveAiGatewayReal(configuration);
-        }
 
         return services;
+    }
+
+    private static void AddHiveAiGatewayResilienceConfiguration(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // IOptions and startup validation use separate caches. Share one snapshot
+        // even if the source reloads before the gateway is first resolved.
+        var snapshot = new Lazy<AiProviderResilienceOptions>(() =>
+        {
+            var options = new AiProviderResilienceOptions();
+            options.Load(configuration);
+            return options;
+        });
+        services.AddOptions<AiProviderResilienceOptions>()
+            .Configure(options => options.UseSnapshot(snapshot.Value))
+            .ValidateOnStart();
     }
 
     public static IServiceCollection AddHiveAiGatewayStub(
@@ -182,6 +202,7 @@ public static class AiGatewayServiceCollectionExtensions
 
         services.AddHiveAiGateway();
         services.AddHiveAiGatewayRealConfiguration(configuration);
+        services.AddHiveAiGatewayResilienceConfiguration(configuration);
         services.TryAddSingleton<IChatClient>(CreateOpenAiChatClient);
 
         services.Replace(ServiceDescriptor.Singleton<IAiGatewayProvider>(

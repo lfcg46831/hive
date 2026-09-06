@@ -646,6 +646,63 @@ HIVE__AIGATEWAY__PROVIDER=stub
 HIVE__AIGATEWAY__STUB__SCENARIO=bug-triage-report
 ```
 
+### Provider resilience configuration
+
+Configure resilience under `Hive:AiGateway:Providers:<providerId>` for both stub and real providers. Each entry overrides the defaults below; omitted fields and providers use defaults, as does the legacy bucket for requests without an effective provider. The provider id must exactly match the effective `ProviderId`, including case, and applies across all its models and positions. Configuration keys are case-insensitive in .NET, so do not define providers that differ only by case. These entries configure limits; adapter selection remains `Hive:AiGateway:Provider`, and the position's registry policy still controls authorization and fallback.
+
+| Field under each provider | Default | Validation |
+|---|---|---|
+| `RateLimit:MaxConcurrentCalls` | `4` | Positive integer. |
+| `RateLimit:MaxCallsPerWindow` | `60` | Positive integer; counts admissions, including retries. |
+| `RateLimit:Window` | `00:01:00` | Positive duration of the sliding window. |
+| `Queue:MaxDepth` | `100` | Waiting requests only; non-negative integer. |
+| `Queue:MaxWait` | `00:00:30` | Positive duration with positive depth; disable queuing by setting both depth and wait to zero. Maximum `49.17:02:47.294` (4294967294 ms). |
+| `Retry:MaxAttempts` | `3` | Positive integer, including the initial call. Use `1` to disable retries. |
+| `Retry:InitialBackoff` | `00:00:00.250` | Positive duration, no greater than `MaxBackoff`. |
+| `Retry:MaxBackoff` | `00:00:05` | Positive duration, at most `49.17:02:47.294`. |
+| `Retry:JitterRatio` | `0.20` | Decimal from `0` to `1`, with `.` as decimal separator. |
+| `CircuitBreaker:SamplingWindow` | `00:01:00` | Positive duration. |
+| `CircuitBreaker:FailureThreshold` | `5` | Positive integer; counts qualifying failures within the window. |
+| `CircuitBreaker:OpenDuration` | `00:00:30` | Positive duration. |
+| `CircuitBreaker:HalfOpenMaxConcurrentProbes` | `1` | Positive integer. |
+
+Durations use invariant `TimeSpan` format `[-][d.]hh:mm:ss[.fffffff]`; active durations must be positive. Empty, malformed or out-of-range values, unknown fields and incorrect object/scalar shapes fail startup, including entries for currently inactive providers. Failures are `OptionsValidationException` with `configuration-invalid`, the fixed section path and a closed reason (`invalid-provider-id`, `invalid-shape`, `unknown-field`, `invalid-value`, or `invalid-range`); provider ids, supplied values and inner exceptions are excluded. Correct the configuration and restart; invalid settings are never silently replaced by defaults. Resilience validation does not contact a provider or require its credentials.
+
+Example partial overrides in `appsettings.json`:
+
+```json
+{
+  "Hive": {
+    "AiGateway": {
+      "Providers": {
+        "openai": {
+          "RateLimit": { "MaxConcurrentCalls": 2, "MaxCallsPerWindow": 30 },
+          "Queue": { "MaxDepth": 20, "MaxWait": "00:00:10" },
+          "Retry": { "MaxAttempts": 2, "JitterRatio": 0.10 },
+          "CircuitBreaker": { "FailureThreshold": 3, "OpenDuration": "00:00:20" }
+        },
+        "stub": {
+          "Queue": { "MaxDepth": 0, "MaxWait": "00:00:00" },
+          "Retry": { "MaxAttempts": 1 }
+        }
+      }
+    }
+  }
+}
+```
+
+Environment overrides use double underscores. Preserve the provider id's case, including when all other segments are uppercase:
+
+```text
+HIVE__AIGATEWAY__PROVIDERS__openai__RATELIMIT__MAXCONCURRENTCALLS=2
+HIVE__AIGATEWAY__PROVIDERS__openai__QUEUE__MAXDEPTH=20
+HIVE__AIGATEWAY__PROVIDERS__openai__QUEUE__MAXWAIT=00:00:10
+HIVE__AIGATEWAY__PROVIDERS__openai__RETRY__MAXATTEMPTS=2
+HIVE__AIGATEWAY__PROVIDERS__openai__CIRCUITBREAKER__FAILURETHRESHOLD=3
+```
+
+API and Worker validate and retain an immutable startup snapshot. Hot reload is unsupported: deploy the same provider configuration to every node participating in gateway journeys, including `agents` and `gateway`, and restart them together when limits change. Resilience state is in memory and resets on restart/rebalance. Keep `Hive:Gateway:AskTimeout` above the worst-case queue wait, provider timeouts and retry backoffs. Credentials belong in the separate secure provider configuration below; fallback stays in the position's registry configuration. The canonical contracts are in [the bible](bible.html).
+
 ### Real provider configuration
 
 The real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The demo Compose profile does this by default; the default test suite does not enable it, does not require credentials, and does not open external network connections. The first concrete provider supported by US-F0-07-T05c is OpenAI through `ProviderId=openai`; unsupported real provider ids fail startup as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables, the ignored local `.env` file used by Compose, or user-secrets.

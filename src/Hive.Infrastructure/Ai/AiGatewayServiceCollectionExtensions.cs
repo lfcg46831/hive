@@ -1,11 +1,8 @@
-using System.ClientModel;
 using Hive.Domain.Ai;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using OpenAI;
-using OpenAI.Chat;
 
 namespace Hive.Infrastructure.Ai;
 
@@ -14,7 +11,6 @@ public static class AiGatewayServiceCollectionExtensions
     private const string AiGatewayProviderKey = "Hive:AiGateway:Provider";
     private const string StubProviderName = "stub";
     private const string RealProviderName = "real";
-    private const string OpenAiProviderId = "openai";
 
     public static IServiceCollection AddHiveAiGateway(this IServiceCollection services)
     {
@@ -189,9 +185,8 @@ public static class AiGatewayServiceCollectionExtensions
 
     /// <summary>
     /// Explicitly activates the real provider from configuration (US-F0-07-T05c).
-    /// This path constructs the first concrete <see cref="IChatClient"/> supported
-    /// by the gateway: OpenAI via Microsoft.Extensions.AI.OpenAI. Construction is
-    /// local-only; the provider is not called during registration.
+    /// Each effective attempt selects its own provider credentials and model client.
+    /// OpenAI and Mistral use Microsoft.Extensions.AI.OpenAI; registration never calls them.
     /// </summary>
     public static IServiceCollection AddHiveAiGatewayReal(
         this IServiceCollection services,
@@ -203,46 +198,17 @@ public static class AiGatewayServiceCollectionExtensions
         services.AddHiveAiGateway();
         services.AddHiveAiGatewayRealConfiguration(configuration);
         services.AddHiveAiGatewayResilienceConfiguration(configuration);
-        services.TryAddSingleton<IChatClient>(CreateOpenAiChatClient);
-
         services.Replace(ServiceDescriptor.Singleton<IAiGatewayProvider>(
-            static provider =>
+            provider =>
             {
                 var settings = ResolveRealProviderSettings(provider);
-                var chatClient = provider.GetRequiredService<IChatClient>();
                 var timeProvider = provider.GetRequiredService<TimeProvider>();
-                return new RealAiGatewayProvider(chatClient, settings, timeProvider);
+                return new RoutingRealAiGatewayProvider(settings,
+                    RoutingRealAiGatewayProvider.ReadAdditionalSettings(configuration),
+                    timeProvider: timeProvider);
             }));
 
         return services;
-    }
-
-    private static IChatClient CreateOpenAiChatClient(IServiceProvider provider)
-    {
-        var settings = ResolveRealProviderSettings(provider);
-        if (!string.Equals(
-            settings.DefaultProvider.ProviderId,
-            OpenAiProviderId,
-            StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                "AI gateway real provider is misconfigured " +
-                $"({AiGatewayErrorCodeContract.ToWireValue(AiGatewayErrorCode.ConfigurationInvalid)}): " +
-                $"unsupported real provider '{settings.DefaultProvider.ProviderId}'.");
-        }
-
-        var options = new OpenAIClientOptions();
-        if (settings.Endpoint is { } endpoint)
-        {
-            options.Endpoint = endpoint;
-        }
-
-        var chatClient = new ChatClient(
-            settings.DefaultProvider.ModelId,
-            new ApiKeyCredential(settings.ApiKey),
-            options);
-
-        return chatClient.AsIChatClient();
     }
 
     private static RealAiGatewayProviderSettings ResolveRealProviderSettings(

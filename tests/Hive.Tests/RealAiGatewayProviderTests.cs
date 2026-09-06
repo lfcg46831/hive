@@ -40,9 +40,8 @@ public sealed class RealAiGatewayProviderTests
 
         using var provider = services.BuildServiceProvider();
 
-        Assert.NotNull(provider.GetRequiredService<IChatClient>());
         Assert.Equal(
-            "RealAiGatewayProvider",
+            "RoutingRealAiGatewayProvider",
             provider.GetRequiredService<IAiGatewayProvider>().GetType().Name);
         Assert.IsType<AiGateway>(provider.GetRequiredService<IAiGateway>());
     }

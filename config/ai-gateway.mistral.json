@@ -1,0 +1,27 @@
+{
+  "Hive": {
+    "AiGateway": {
+      "RealProviders": {
+        "mistral": {
+          "ModelId": "mistral-small-2603",
+          "TimeoutSeconds": 30,
+          "MaxOutputTokens": 256,
+          "OutputCapabilities": ["text", "json-object", "json-schema"],
+          "Pricing": {
+            "Version": "mistral-2026-09-06",
+            "TokenUnit": 1000000,
+            "Models": [
+              {
+                "ProviderId": "mistral",
+                "ModelId": "mistral-small-2603",
+                "Currency": "USD",
+                "InputPrice": 0.15,
+                "OutputPrice": 0.60
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

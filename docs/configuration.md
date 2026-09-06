@@ -705,11 +705,11 @@ API and Worker validate and retain an immutable startup snapshot. Hot reload is 
 
 ### Real provider configuration
 
-The real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The demo Compose profile does this by default; the default test suite does not enable it, does not require credentials, and does not open external network connections. The first concrete provider supported by US-F0-07-T05c is OpenAI through `ProviderId=openai`; unsupported real provider ids fail startup as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables, the ignored local `.env` file used by Compose, or user-secrets.
+The real provider reads its secure configuration from `Hive:AiGateway:Real` and is activated only when `Hive:AiGateway:Provider` is set to `real`. The demo Compose profile does this by default; the default test suite does not enable it, does not require credentials, and does not open external network connections. Concrete provider ids are `openai` and `mistral` (case-sensitive); unsupported ids fail as `configuration-invalid`. The `ApiKey` is a secret: keep it out of `appsettings.json` and supply it through environment variables, the ignored local `.env` file used by Compose, or user-secrets.
 
 | Setting | Required | Purpose |
 | --- | --- | --- |
-| `Hive:AiGateway:Real:ProviderId` | yes | Default provider id, applied when the position config omits it. `openai` is the only concrete provider supported by T05c. Missing/empty or unsupported values fail with `configuration-invalid`. |
+| `Hive:AiGateway:Real:ProviderId` | yes | Default provider id, applied when the request omits it: `openai` or `mistral`. Missing/empty or unsupported values fail with `configuration-invalid`. |
 | `Hive:AiGateway:Real:ModelId` | yes | Default model id, applied when the position config omits it. Missing/empty fails with `configuration-invalid`. |
 | `Hive:AiGateway:Real:ApiKey` | yes | Secret credential. Infrastructure-only; never logged or exposed to the domain. Missing/empty fails with `credentials-missing`. |
 | `Hive:AiGateway:Real:Endpoint` | no | Absolute endpoint URI. A non-absolute value fails with `configuration-invalid`. |
@@ -723,6 +723,24 @@ The real provider reads its secure configuration from `Hive:AiGateway:Real` and 
 | `Hive:AiGateway:Real:Pricing:Models:{n}:Aliases` | no | Exact response-model aliases or snapshots that use the same price. Aliases cannot be ambiguous within a provider. |
 | `Hive:AiGateway:Real:Pricing:Models:{n}:InputPrice` / `OutputPrice` | per price entry | Non-negative decimal input/output prices per `TokenUnit`. |
 | `Hive:AiGateway:Real:Pricing:Models:{n}:Currency` | per price entry | Three-letter uppercase currency code shared by the entry's input/output prices. |
+
+#### Additional real providers and Mistral
+
+Keep the default provider in `Hive:AiGateway:Real`. Add each other provider under `Hive:AiGateway:RealProviders:{providerId}`, using the same settings in the table above; `ProviderId` is derived from the key and, if supplied, must match it exactly. Every additional provider needs its own `ApiKey` and `ModelId`. No credentials, endpoint, model parameters, capabilities or pricing are inherited from the default. Duplicate default/additional ids, unsupported ids, unknown additional settings and invalid values fail with a sanitized configuration error. Configuration is resolved when the gateway service is activated, without making an external call.
+
+The router selects credentials and an SDK client for the effective provider/model on **every attempt**, including fallback and another model of the same provider. A provider absent from configuration returns non-retryable `configuration-invalid` before HTTP. Position `fallback[]` and the pre-call policy remain authoritative; adding host credentials grants no model permission. Apply the same provider configuration to all nodes that can host the `gateway` role.
+
+Mistral uses `https://api.mistral.ai/v1` by default, following its [OpenAI compatibility guide](https://docs.mistral.ai/resources/migration-guides). The transport translates the SDK's `max_completion_tokens` to Mistral's `max_tokens`. SDK retries are disabled for both providers: the gateway owns retry, timeout, fallback and attempt accounting. HTTP redirects are disabled. Output capabilities remain explicit and default to text.
+
+The secret-free [Mistral profile](../config/ai-gateway.mistral.json) supplies the `mistral-small-2603` snapshot, structured output capabilities and catalog `mistral-2026-09-06`. Merge its `Hive:AiGateway:RealProviders` section into the host configuration; this file is a reference profile, not automatically loaded by the application. Supply `HIVE__AIGATEWAY__REALPROVIDERS__mistral__APIKEY` through the environment or secret store. The profile records standard uncached text rates of USD 0.15 input and USD 0.60 output per million tokens, verified on 2026-09-06 against [Mistral pricing](https://docs.mistral.ai/inference/pricing) and the [Small 4 model page](https://docs.mistral.ai/models/mistral-small-4-0-26-03). It conservatively applies the full input rate; it does not estimate cache discounts. Unknown response-model ids produce unavailable cost, never another provider's price. Update the version and entries together when prices/models change.
+
+The multi-provider smoke is explicitly opt-in and otherwise reported as **skipped**. Set `HIVE_AI_GATEWAY_MULTI_REAL_SMOKE=1`, `HIVE_AI_GATEWAY_REAL_TEST_API_KEY`, `HIVE_AI_GATEWAY_REAL_TEST_MODEL_ID` and `HIVE_AI_GATEWAY_MISTRAL_TEST_API_KEY` in the local process, then run:
+
+```powershell
+dotnet test tests/Hive.Tests/Hive.Tests.csproj --filter FullyQualifiedName~MultiRealAiGatewaySmokeTests --logger "console;verbosity=normal"
+```
+
+This makes four small real calls: one direct success per provider, then a real success at the destination of each fallback direction. A retryable failure is injected before the primary transport to exercise the chain deterministically; it is explicitly identified in test output and never presented as a real provider failure. The smoke fixes Mistral to the versioned profile, requires usage on all successes and estimated Mistral pricing on its direct call, and verifies provider attribution in attempt audit events. Once opted in, missing credentials or any provider failure fail the test. Clear the opt-in variable afterwards. Offline tests use the concrete SDK over in-memory HTTP handlers and need no secrets.
 
 Example (secret supplied as an environment variable):
 

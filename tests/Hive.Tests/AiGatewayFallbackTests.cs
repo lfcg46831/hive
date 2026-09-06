@@ -433,6 +433,79 @@ public sealed class AiGatewayFallbackTests : IDisposable
             provider.Requests.Select(request => request.Provider));
     }
 
+    [Fact]
+    public async Task Unauthorized_model_on_an_authorized_provider_is_skipped_without_replacing_last_error()
+    {
+        var skips = new RecordingSkipPublisher();
+        var unauthorized = new AiProviderMetadata(Primary.ProviderId, "unauthorized-model");
+        AiGatewayError? lastError = null;
+        var provider = new ScriptedProvider((_, request) =>
+        {
+            var failure = Failure(request, AiGatewayErrorCode.Timeout, isRetryable: true);
+            lastError = failure.Error;
+            return failure;
+        });
+        var policy = new AiGatewayPolicy([Primary], true, null, null, null, null, [unauthorized]);
+
+        var response = await Gateway(provider, skipPublisher: skips).CompleteAsync(Request(policy));
+
+        Assert.Equal(2, provider.Requests.Count);
+        Assert.All(provider.Requests, request => Assert.Equal(Primary, request.Provider));
+        var skip = Assert.Single(skips.Skips);
+        Assert.Equal(AiGatewayErrorCode.ModelNotAuthorized, skip.ErrorCode);
+        Assert.Equal(AiGatewayFallbackSkipReason.PolicyRevalidationFailed, skip.Reason);
+        Assert.Equal(AiGatewayResilienceErrorCatalog.FallbackExhausted(lastError!), response.Error);
+    }
+
+    [Fact]
+    public async Task Fallback_to_a_different_authorized_model_preserves_position_caps()
+    {
+        var alternative = new AiProviderMetadata(Primary.ProviderId, "authorized-alternative");
+        var provider = new ScriptedProvider((_, request) => request.Provider == Primary
+            ? Failure(request, AiGatewayErrorCode.QuotaExceeded, isRetryable: true)
+            : Success(request));
+        var policy = new AiGatewayPolicy([Primary, alternative], true, 100, TimeSpan.FromSeconds(2),
+            [AiProcessingMode.Interactive], null, [alternative]);
+        var request = new AiGatewayRequest(Organization, Position, Thread, Message, "Classify this bug.",
+            modelParameters: new AiModelParameters(0.2m, 1000), provider: Primary,
+            processingMode: AiProcessingMode.Interactive, timeout: TimeSpan.FromSeconds(20), policy: policy);
+
+        var response = await Gateway(provider).CompleteAsync(request);
+
+        Assert.True(response.IsSuccess);
+        Assert.Equal(alternative, response.Provider);
+        Assert.Equal(new[] { Primary, alternative }, provider.Requests.Select(item => item.Provider));
+        Assert.All(provider.Requests, effective =>
+        {
+            Assert.Same(policy, effective.Policy);
+            Assert.Equal(100, effective.ModelParameters.MaxOutputTokens);
+            Assert.Equal(TimeSpan.FromSeconds(2), effective.Timeout);
+            Assert.Equal(AiProcessingMode.Interactive, effective.ProcessingMode);
+            Assert.Equal(Message, effective.MessageId);
+        });
+        Assert.Equal(1000, request.ModelParameters.MaxOutputTokens);
+        Assert.Equal(TimeSpan.FromSeconds(20), request.Timeout);
+    }
+
+    [Theory]
+    [InlineData(false, AiGatewayErrorCode.BudgetInsufficient)]
+    [InlineData(true, AiGatewayErrorCode.ConfigurationInvalid)]
+    public async Task Pre_call_rejection_never_enters_a_declared_fallback_chain(
+        bool hasBudget, AiGatewayErrorCode expectedCode)
+    {
+        var skips = new RecordingSkipPublisher();
+        var provider = new ScriptedProvider((_, request) => Success(request));
+        var policy = new AiGatewayPolicy([Primary, Secondary], hasBudget, null, null,
+            [AiProcessingMode.Batch], null, [Secondary]);
+
+        var response = await Gateway(provider, skipPublisher: skips).CompleteAsync(Request(policy));
+
+        Assert.Equal(expectedCode, response.Error!.Code);
+        Assert.Null(response.Error.Reason);
+        Assert.Empty(provider.Requests);
+        Assert.Empty(skips.Skips);
+    }
+
     public void Dispose()
     {
         foreach (var disposable in _disposables)

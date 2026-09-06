@@ -190,6 +190,26 @@ public sealed class AiProviderResiliencePolicyTests
     }
 
     [Fact]
+    public void Smallest_active_values_and_disabled_queue_are_preserved_without_normalization()
+    {
+        var tick = TimeSpan.FromTicks(1);
+        var policy = new AiProviderResiliencePolicy(
+            new AiProviderRateLimitPolicy(1, 1, tick),
+            new AiProviderQueuePolicy(0, TimeSpan.Zero),
+            new AiProviderRetryPolicy(1, tick, tick, 1m),
+            new AiProviderCircuitBreakerPolicy(tick, 1, tick, 1));
+
+        Assert.Equal(tick, policy.RateLimit.Window);
+        Assert.False(policy.Queue.IsEnabled);
+        Assert.Equal(1, policy.Retry.MaxAttempts);
+        Assert.Equal(tick, policy.Retry.InitialBackoff);
+        Assert.Equal(tick, policy.Retry.MaxBackoff);
+        Assert.Equal(1m, policy.Retry.JitterRatio);
+        Assert.Equal(tick, policy.CircuitBreaker.SamplingWindow);
+        Assert.Equal(tick, policy.CircuitBreaker.OpenDuration);
+    }
+
+    [Fact]
     public void Contract_surface_is_provider_neutral_and_domain_owned()
     {
         Type[] contractTypes =

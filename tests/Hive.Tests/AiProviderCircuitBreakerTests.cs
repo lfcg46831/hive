@@ -412,6 +412,111 @@ public sealed class AiProviderCircuitBreakerTests
         afterCancellation.Lease!.Dispose();
     }
 
+    public static IEnumerable<object[]> CircuitOutcomes()
+    {
+        foreach (var code in Enum.GetValues<AiGatewayErrorCode>())
+        {
+            var counts = code is AiGatewayErrorCode.Timeout or AiGatewayErrorCode.QuotaExceeded or
+                AiGatewayErrorCode.ProviderUnavailable or AiGatewayErrorCode.InvalidProviderResponse or
+                AiGatewayErrorCode.Unknown;
+            yield return [code, counts];
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(CircuitOutcomes))]
+    public void Closed_and_half_open_classify_the_entire_error_catalog(AiGatewayErrorCode code, bool counts)
+    {
+        var clock = new ManualTimeProvider();
+        var publisher = new CapturingTransitionPublisher();
+        var breaker = CreateBreaker(clock, publisher, Policy(failureThreshold: 1));
+        var request = Request("openai", "primary");
+        breaker.Acquire(request).Lease!.Observe(Failure(request, code));
+        Assert.Equal(counts ? 1 : 0, publisher.Transitions.Count);
+        if (!counts)
+        {
+            Fail(breaker.Acquire(request), AiGatewayErrorCode.Timeout);
+        }
+
+        clock.Advance(TimeSpan.FromSeconds(5));
+        breaker.Acquire(request).Lease!.Observe(Failure(request, code));
+
+        Assert.Equal(counts ? 3 : 2, publisher.Transitions.Count);
+        var next = breaker.Acquire(request);
+        Assert.Equal(!counts, next.IsAllowed);
+        next.Lease?.Dispose();
+        if (counts)
+        {
+            Assert.Equal(AiProviderCircuitTransitionReason.HalfOpenProbeFailed, publisher.Transitions[^1].Reason);
+            Assert.Equal(code, publisher.Transitions[^1].ErrorCode);
+        }
+    }
+
+    [Theory]
+    [InlineData(AiGatewayErrorReason.CircuitOpen)]
+    [InlineData(AiGatewayErrorReason.FallbackExhausted)]
+    public void Terminal_reasons_are_neutral_even_for_provider_health_errors(AiGatewayErrorReason reason)
+    {
+        var clock = new ManualTimeProvider();
+        var publisher = new CapturingTransitionPublisher();
+        var breaker = CreateBreaker(clock, publisher, Policy(failureThreshold: 1));
+        var request = Request("openai", "primary");
+        var response = AiGatewayResponse.Failed(new AiGatewayError(
+            Organization, Position, Thread, Message, AiGatewayErrorCode.ProviderUnavailable,
+            "Provider unavailable.", true, request.Provider, null, reason));
+        breaker.Acquire(request).Lease!.Observe(response);
+        Assert.Empty(publisher.Transitions);
+        Fail(breaker.Acquire(request), AiGatewayErrorCode.Timeout);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        breaker.Acquire(request).Lease!.Observe(response);
+
+        var replacement = breaker.Acquire(request);
+        Assert.True(replacement.IsAllowed);
+        Assert.Equal(2, publisher.Transitions.Count);
+        replacement.Lease!.Dispose();
+    }
+
+    [Fact]
+    public void A_lease_counts_only_its_first_terminal_result()
+    {
+        var clock = new ManualTimeProvider();
+        var publisher = new CapturingTransitionPublisher();
+        var breaker = CreateBreaker(clock, publisher, Policy(failureThreshold: 2));
+        var request = Request("openai", "primary");
+        var lease = breaker.Acquire(request).Lease!;
+        lease.ObserveFailure(AiGatewayErrorCode.Timeout);
+        lease.ObserveFailure(AiGatewayErrorCode.Timeout);
+        lease.Dispose();
+        lease.Observe(Success(request));
+        Assert.Empty(publisher.Transitions);
+
+        Fail(breaker.Acquire(request), AiGatewayErrorCode.Timeout);
+        Assert.Single(publisher.Transitions);
+    }
+
+    [Fact]
+    public void Late_successful_probe_cannot_close_or_extend_a_reopened_circuit()
+    {
+        var clock = new ManualTimeProvider();
+        var publisher = new CapturingTransitionPublisher();
+        var breaker = CreateBreaker(clock, publisher,
+            Policy(failureThreshold: 1, halfOpenMaxConcurrentProbes: 2));
+        var request = Request("openai", "primary");
+        Fail(breaker.Acquire(request), AiGatewayErrorCode.Timeout);
+        clock.Advance(TimeSpan.FromSeconds(5));
+        var late = breaker.Acquire(request);
+        Fail(breaker.Acquire(request), AiGatewayErrorCode.Timeout);
+
+        clock.Advance(TimeSpan.FromSeconds(4));
+        late.Lease!.Observe(Success(request));
+        Assert.False(breaker.Acquire(request).IsAllowed);
+        Assert.Equal(3, publisher.Transitions.Count);
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var nextProbe = breaker.Acquire(request);
+        Assert.True(nextProbe.IsAllowed);
+        nextProbe.Lease!.Dispose();
+    }
+
     private static AiProviderCircuitBreaker CreateBreaker(
         TimeProvider clock,
         IAiProviderCircuitTransitionPublisher publisher,

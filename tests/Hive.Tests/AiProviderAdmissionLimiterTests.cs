@@ -271,6 +271,87 @@ public sealed class AiProviderAdmissionLimiterTests
         Assert.True((await queuedTask).IsSuccess);
     }
 
+    [Fact]
+    public async Task Queue_deadline_wins_when_rate_window_expires_at_the_same_instant()
+    {
+        var clock = new ManualTimeProvider();
+        using var limiter = CreateLimiter(clock, Policy(1, 1, 1,
+            TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1)));
+        var request = Request("openai", "primary");
+        (await limiter.AcquireAsync(request)).Lease!.Dispose();
+        var waiting = limiter.AcquireAsync(request).AsTask();
+
+        clock.Advance(TimeSpan.FromSeconds(1));
+
+        var expired = await waiting.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(AiGatewayErrorCode.GatewayOverloaded, expired.Error!.Code);
+        Assert.Null(expired.Lease);
+        var next = await limiter.AcquireAsync(request);
+        Assert.True(next.IsAdmitted);
+        Assert.Equal(TimeSpan.Zero, next.Lease!.QueueDuration);
+        next.Lease.Dispose();
+    }
+
+    [Fact]
+    public async Task Canceling_middle_waiter_preserves_fifo_and_does_not_consume_window()
+    {
+        var clock = new ManualTimeProvider();
+        using var limiter = CreateLimiter(clock, Policy(1, 4, 3, TimeSpan.FromSeconds(5)));
+        using var cancellation = new CancellationTokenSource();
+        var request = Request("openai", "primary");
+        var active = await limiter.AcquireAsync(request);
+        var first = limiter.AcquireAsync(request).AsTask();
+        var middle = limiter.AcquireAsync(request, cancellation.Token).AsTask();
+        var last = limiter.AcquireAsync(request).AsTask();
+
+        await cancellation.CancelAsync();
+        var canceled = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => middle);
+        Assert.Equal(cancellation.Token, canceled.CancellationToken);
+        var newcomer = limiter.AcquireAsync(request).AsTask();
+        active.Lease!.Dispose();
+
+        var firstAdmission = await first.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(last.IsCompleted);
+        Assert.False(newcomer.IsCompleted);
+        firstAdmission.Lease!.Dispose();
+        var lastAdmission = await last.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(newcomer.IsCompleted);
+        lastAdmission.Lease!.Dispose();
+        (await newcomer.WaitAsync(TimeSpan.FromSeconds(5))).Lease!.Dispose();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Gateway_releases_admission_after_null_response_or_caller_cancellation(bool cancel)
+    {
+        var clock = new ManualTimeProvider();
+        using var limiter = CreateLimiter(clock, Policy(1, 10, 1, TimeSpan.FromSeconds(5)));
+        using var cancellation = new CancellationTokenSource();
+        var provider = new BlockingProvider();
+        var gateway = new AiGateway(provider, timeProvider: clock, admissionLimiter: limiter);
+        var failing = gateway.CompleteAsync(Request("openai", "primary"), cancellation.Token);
+        var call = await provider.NextCallAsync();
+        var queued = gateway.CompleteAsync(Request("openai", "secondary"));
+
+        if (cancel)
+        {
+            await cancellation.CancelAsync();
+            call.Fail(new OperationCanceledException(cancellation.Token));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => failing);
+        }
+        else
+        {
+            call.Completion.SetResult(null!);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => failing);
+        }
+
+        var next = await provider.NextCallAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+        next.Succeed();
+        Assert.True((await queued.WaitAsync(TimeSpan.FromSeconds(5))).IsSuccess);
+        Assert.Equal(2, provider.CallCount);
+    }
+
     private static AiProviderAdmissionLimiter CreateLimiter(
         TimeProvider clock,
         AiProviderResiliencePolicy policy) =>

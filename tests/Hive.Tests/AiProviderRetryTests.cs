@@ -149,12 +149,21 @@ public sealed class AiProviderRetryTests
         Assert.Same(provider.Responses[^1], response);
     }
 
+    public static IEnumerable<object[]> NonRetryableOutcomes()
+    {
+        foreach (var code in Enum.GetValues<AiGatewayErrorCode>())
+        {
+            yield return [code, false];
+            if (code is not (AiGatewayErrorCode.Timeout or
+                AiGatewayErrorCode.ProviderUnavailable or AiGatewayErrorCode.GatewayOverloaded))
+            {
+                yield return [code, true];
+            }
+        }
+    }
+
     [Theory]
-    [InlineData(AiGatewayErrorCode.Timeout, false)]
-    [InlineData(AiGatewayErrorCode.ProviderUnavailable, false)]
-    [InlineData(AiGatewayErrorCode.ProviderRejected, true)]
-    [InlineData(AiGatewayErrorCode.InvalidProviderResponse, true)]
-    [InlineData(AiGatewayErrorCode.QuotaExceeded, true)]
+    [MemberData(nameof(NonRetryableOutcomes))]
     public async Task Gateway_does_not_retry_outside_the_closed_eligible_catalog(
         AiGatewayErrorCode code,
         bool isRetryable)
@@ -175,8 +184,10 @@ public sealed class AiProviderRetryTests
         Assert.Empty(backoff.FailedAttempts);
     }
 
-    [Fact]
-    public async Task Gateway_does_not_retry_an_error_with_terminal_reason()
+    [Theory]
+    [InlineData(AiGatewayErrorReason.CircuitOpen)]
+    [InlineData(AiGatewayErrorReason.FallbackExhausted)]
+    public async Task Gateway_does_not_retry_an_error_with_terminal_reason(AiGatewayErrorReason reason)
     {
         var retryPolicy = RetryPolicy(maxAttempts: 3);
         var resiliencePolicy = ResiliencePolicy(retryPolicy);
@@ -194,7 +205,7 @@ public sealed class AiProviderRetryTests
                 isRetryable: true,
                 request.Provider,
                 diagnostics: null,
-                AiGatewayErrorReason.FallbackExhausted)));
+                reason)));
         var gateway = Gateway(provider, limiter, resolver, backoff);
 
         var response = await gateway.CompleteAsync(Request());
@@ -282,6 +293,37 @@ public sealed class AiProviderRetryTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await completion);
         Assert.Equal(cancellation.Token, call.CancellationToken);
         Assert.Empty(backoff.FailedAttempts);
+    }
+
+    [Theory]
+    [InlineData(-1, 0)]
+    [InlineData(0, 3)]
+    [InlineData(1, 6)]
+    public void Full_jitter_reaches_both_extremes_including_zero(int sample, long expectedTicks)
+    {
+        var backoff = new AiProviderRetryBackoff(TimeProvider.System, new SequenceJitterSource(sample));
+        var policy = new AiProviderRetryPolicy(2, TimeSpan.FromTicks(3), TimeSpan.FromTicks(10), 1m);
+        Assert.Equal(TimeSpan.FromTicks(expectedTicks), backoff.CalculateDelay(policy, 1));
+    }
+
+    [Fact]
+    public void Fractional_jitter_rounds_half_a_tick_up()
+    {
+        var backoff = new AiProviderRetryBackoff(TimeProvider.System, new SequenceJitterSource(-1m, 1m));
+        var policy = new AiProviderRetryPolicy(2, TimeSpan.FromTicks(3), TimeSpan.FromTicks(10), 0.5m);
+        Assert.Equal(TimeSpan.FromTicks(2), backoff.CalculateDelay(policy, 1));
+        Assert.Equal(TimeSpan.FromTicks(5), backoff.CalculateDelay(policy, 1));
+    }
+
+    [Theory]
+    [InlineData(-2)]
+    [InlineData(2)]
+    public async Task Invalid_jitter_samples_fail_without_scheduling_a_delay(int sample)
+    {
+        var clock = new RecordingTimeProvider();
+        var backoff = new AiProviderRetryBackoff(clock, new SequenceJitterSource(sample));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backoff.DelayAsync(AiProviderRetryPolicy.Default, 1));
+        Assert.Null(clock.LastDueTime);
     }
 
     private static AiGateway Gateway(

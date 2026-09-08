@@ -66,6 +66,19 @@ public static class OrganizationConfigurationUniquenessValidator
             firstLocation: index => $"prompts[{index}]",
             errors);
 
+        for (var u = 0; u < configuration.Units.Count; u++)
+        {
+            var unitIndex = u;
+            CollectDuplicates(
+                configuration.Units[u].AllowedPeerChannels,
+                channel => channel.From.Value,
+                code: "duplicate-peer-channel",
+                label: "peer channel source unit",
+                path: index => $"units[{unitIndex}].allowed_peer_channels[{index}].from",
+                firstLocation: index => $"units[{unitIndex}].allowed_peer_channels[{index}]",
+                errors);
+        }
+
         // Schedule ids and subscription events are scoped to a single occupant: the same id or event
         // may legitimately recur under different positions, so each occupant is checked in isolation.
         for (var p = 0; p < configuration.Positions.Count; p++)

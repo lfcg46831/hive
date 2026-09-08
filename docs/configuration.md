@@ -1167,6 +1167,12 @@ Because the files are the source of truth, every structural change — adding a 
 
 Both executable outputs and the Docker image include the tracked `config/organizations` tree. At startup the relative default is resolved from the application directory; deployments that mount configuration elsewhere override it with `HIVE__ORGANIZATIONS__ROOTPATH`. Every immediate child directory must contain `organization.yaml` and its directory name must equal `organization.id`; any parse or semantic validation error aborts startup before workloads run.
 
+### Incoming peer channels
+
+Declare incoming unit channels in the destination unit's `allowed_peer_channels` list in `organization.yaml`, following the canonical schema in [bible §4.8](bible.html). Apply changes through the same reviewed GitOps import workflow. Import errors identify the offending field; invalid imports leave the current registry version intact. Removing the list removes the declared channels on the next import.
+
+Registry migration `008_peer_channels.sql` adds `registry.units.allowed_peer_channels` as JSONB and initializes existing units with an empty list. It runs through the normal migration bootstrap and requires no new settings or credentials. Channel declarations are stored at this stage; runtime routing enforcement is delivered by the remaining tasks of `US-F1-06`.
+
 ### Outcome policy overlays
 
 The outcome resolver uses a code-defined system policy (`outcome-policy-v1`) with a maximum of 8 iterations, 3 retries, verifier support enabled, and every closed objective risk trigger enabled. Organization files may only tighten that baseline. An optional `organization.outcome_policy` applies to every position; an optional `positions[].occupant.outcome_policy` tightens it for one position:

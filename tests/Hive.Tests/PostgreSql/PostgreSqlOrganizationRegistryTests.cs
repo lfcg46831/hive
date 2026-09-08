@@ -57,7 +57,10 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal("ceo", authorityOverride.Approver);
         var triageAuthority = reloaded.Authorities[PositionId.From("bug-triage")].Value;
         Assert.Equal(["delivery.bug-triage"], triageAuthority.CanDecide);
-        Assert.Empty(triageAuthority.Overrides);
+        var triageOverride = Assert.Single(triageAuthority.Overrides);
+        Assert.Equal("delivery.github-issue-state", triageOverride.Key);
+        Assert.Equal(ActionDomainGate.HumanApproval, triageOverride.Gate);
+        Assert.Equal("delivery-lead", triageOverride.Approver);
 
         await using var command = secondDataSource.CreateCommand(
             """

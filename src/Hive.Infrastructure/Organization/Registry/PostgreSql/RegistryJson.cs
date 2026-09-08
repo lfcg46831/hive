@@ -1,6 +1,8 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Hive.Domain.Governance;
+using Hive.Domain.Identity;
+using Hive.Domain.Organization.Configuration;
 
 namespace Hive.Infrastructure.Organization.Registry.PostgreSql;
 
@@ -20,6 +22,19 @@ internal static class RegistryJson
         JsonSerializer.Deserialize<T>(json, Options)
         ?? throw new InvalidDataException(
             $"Registry JSONB value could not be deserialized as {typeof(T).Name}.");
+
+    public static IReadOnlyList<PeerChannelConfiguration> DeserializePeerChannels(string json)
+    {
+        using var document = JsonDocument.Parse(json);
+        return Array.AsReadOnly(document.RootElement.EnumerateArray().Select(channel =>
+            new PeerChannelConfiguration(
+                UnitId.From(channel.GetProperty("from").GetProperty("value").GetString()!),
+                channel.GetProperty("types").EnumerateArray().Select(type =>
+                    Enum.Parse<PeerChannelMessageType>(type.GetString()!, ignoreCase: true)).ToArray(),
+                channel.GetProperty("maxOpenRequests").GetInt32(),
+                Enum.Parse<PeerChannelRejectionAction>(
+                    channel.GetProperty("onRejection").GetString()!, ignoreCase: true))).ToArray());
+    }
 
     public static ActionDomainCatalog DeserializeActionDomainCatalog(string json)
     {

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using Hive.Domain.Identity;
 
 namespace Hive.Domain.Organization.Configuration;
@@ -11,7 +12,12 @@ namespace Hive.Domain.Organization.Configuration;
 public sealed record UnitConfiguration
 {
     /// <summary>Creates unit <paramref name="id"/> led by <paramref name="leadership"/>.</summary>
-    public UnitConfiguration(UnitId id, PositionId leadership, UnitId? parent = null, string? name = null)
+    public UnitConfiguration(
+        UnitId id,
+        PositionId leadership,
+        UnitId? parent = null,
+        string? name = null,
+        IReadOnlyList<PeerChannelConfiguration>? allowedPeerChannels = null)
     {
         ArgumentNullException.ThrowIfNull(id);
         ArgumentNullException.ThrowIfNull(leadership);
@@ -20,6 +26,11 @@ public sealed record UnitConfiguration
         Leadership = leadership;
         Parent = parent;
         Name = name;
+        AllowedPeerChannels = (allowedPeerChannels ?? []).ToImmutableArray();
+        if (AllowedPeerChannels.Any(channel => channel is null))
+        {
+            throw new ArgumentException("Collection cannot contain null entries.", nameof(allowedPeerChannels));
+        }
     }
 
     /// <summary>The unique unit identifier.</summary>
@@ -33,4 +44,7 @@ public sealed record UnitConfiguration
 
     /// <summary>The position that leads the unit (exactly one per unit, enforced later).</summary>
     public PositionId Leadership { get; }
+
+    /// <summary>Incoming contracts from other units; omitted configuration exposes no channels.</summary>
+    public IReadOnlyList<PeerChannelConfiguration> AllowedPeerChannels { get; }
 }

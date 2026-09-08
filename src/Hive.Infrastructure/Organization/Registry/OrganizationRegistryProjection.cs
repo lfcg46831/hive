@@ -79,7 +79,18 @@ internal sealed class OrganizationRegistryProjection
             .OrderBy(unit => unit.Id.Value, StringComparer.Ordinal)
             .ToDictionary(
                 unit => unit.Id,
-                unit => Project(new RegistryUnit(unit.Id, unit.Name, unit.Parent, unit.Leadership)));
+                unit => Project(new RegistryUnit(
+                    unit.Id,
+                    unit.Name,
+                    unit.Parent,
+                    unit.Leadership,
+                    ReadOnly(unit.AllowedPeerChannels
+                        .OrderBy(channel => channel.From.Value, StringComparer.Ordinal)
+                        .Select(channel => new PeerChannelConfiguration(
+                            channel.From,
+                            channel.Types.Order().ToArray(),
+                            channel.MaxOpenRequests,
+                            channel.OnRejection))))));
 
         var positions = configuration.Positions
             .OrderBy(position => position.Id.Value, StringComparer.Ordinal)

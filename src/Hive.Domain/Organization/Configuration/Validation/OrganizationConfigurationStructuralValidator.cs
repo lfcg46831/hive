@@ -66,8 +66,29 @@ public static class OrganizationConfigurationStructuralValidator
         ValidateOutcomePolicies(configuration, errors);
         ValidateResponsePolicies(configuration, errors);
         ValidateAbsences(configuration, errors);
+        ValidatePeerChannels(configuration, errors);
 
         return OrganizationConfigurationValidationResult.Create(errors);
+    }
+
+    private static void ValidatePeerChannels(
+        OrganizationConfiguration configuration,
+        List<OrganizationConfigurationValidationError> errors)
+    {
+        for (var u = 0; u < configuration.Units.Count; u++)
+        {
+            var unit = configuration.Units[u];
+            for (var c = 0; c < unit.AllowedPeerChannels.Count; c++)
+            {
+                if (unit.AllowedPeerChannels[c].From == unit.Id)
+                {
+                    errors.Add(new OrganizationConfigurationValidationError(
+                        "peer-channel-same-unit",
+                        $"units[{u}].allowed_peer_channels[{c}].from",
+                        "Peer channels must originate in another unit; same-unit communication is implicit."));
+                }
+            }
+        }
     }
 
     private static void ValidateAbsences(

@@ -76,6 +76,20 @@ public static class OrganizationConfigurationCrossReferenceValidator
         // units[].leadership — every unit is led by a declared position.
         for (var u = 0; u < configuration.Units.Count; u++)
         {
+            var channels = configuration.Units[u].AllowedPeerChannels;
+            for (var c = 0; c < channels.Count; c++)
+            {
+                if (!declaredUnits.Contains(channels[c].From.Value))
+                {
+                    errors.Add(Unresolved(
+                        "peer-channel-unit-not-found",
+                        $"units[{u}].allowed_peer_channels[{c}].from",
+                        "peer channel source unit",
+                        channels[c].From.Value,
+                        "unit"));
+                }
+            }
+
             var leadership = configuration.Units[u].Leadership.Value;
             if (!declaredPositions.Contains(leadership))
             {

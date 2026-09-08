@@ -1,6 +1,8 @@
 using Hive.Infrastructure.Organization.Registry.PostgreSql;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Governance;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Hive.Tests.PostgreSql;
@@ -170,7 +172,7 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
                 "units",
             ],
             tableNames);
-        Assert.Equal([1, 2, 3, 4, 5, 6, 7], appliedVersions);
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], appliedVersions);
         Assert.Equal(
             [
                 "current_snapshots",
@@ -241,6 +243,8 @@ public sealed class PostgreSqlOrganizationRegistryMigrationTests(PostgreSqlFixtu
             ["ConnectionStrings:PostgreSql"] = fixture.ConnectionString,
         });
         builder.AddHiveBootstrap();
+        builder.Services.AddSingleton<IActionDomainContractSource>(
+            ExampleOrganizationConnectorContractSource.Instance);
         using var host = builder.Build();
 
         await host.StartAsync();

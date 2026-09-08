@@ -218,14 +218,15 @@ internal static class PostgreSqlOrganizationRegistryWriter
             """
             INSERT INTO registry.units (
                 organization_id, unit_id, name, parent_unit_id, leadership_position_id,
-                entry_fingerprint, updated_at)
+                entry_fingerprint, updated_at, allowed_peer_channels)
             VALUES (
                 @organization_id, @unit_id, @name, @parent_unit_id, @leadership_position_id,
-                @entry_fingerprint, @updated_at)
+                @entry_fingerprint, @updated_at, @allowed_peer_channels)
             ON CONFLICT (organization_id, unit_id) DO UPDATE SET
                 name = EXCLUDED.name,
                 parent_unit_id = EXCLUDED.parent_unit_id,
                 leadership_position_id = EXCLUDED.leadership_position_id,
+                allowed_peer_channels = EXCLUDED.allowed_peer_channels,
                 entry_fingerprint = EXCLUDED.entry_fingerprint,
                 updated_at = EXCLUDED.updated_at;
             """,
@@ -236,6 +237,7 @@ internal static class PostgreSqlOrganizationRegistryWriter
         AddText(command, "name", value.Name);
         AddText(command, "parent_unit_id", value.Parent?.Value);
         AddText(command, "leadership_position_id", value.Leadership.Value);
+        AddJson(command, "allowed_peer_channels", value.AllowedPeerChannels);
         AddText(command, "entry_fingerprint", entry.Fingerprint);
         AddTimestamp(command, "updated_at", entry.UpdatedAt);
         await command.ExecuteNonQueryAsync(cancellationToken);

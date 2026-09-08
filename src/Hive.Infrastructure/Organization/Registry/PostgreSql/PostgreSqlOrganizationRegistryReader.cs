@@ -132,7 +132,8 @@ internal static class PostgreSqlOrganizationRegistryReader
         var result = new Dictionary<UnitId, RegistryEntry<RegistryUnit>>();
         await using var command = CreateCommand(
             """
-            SELECT unit_id, name, parent_unit_id, leadership_position_id, entry_fingerprint, updated_at
+            SELECT unit_id, name, parent_unit_id, leadership_position_id, entry_fingerprint, updated_at,
+                   allowed_peer_channels
             FROM registry.units
             WHERE organization_id = @organization_id
             ORDER BY unit_id;
@@ -151,7 +152,8 @@ internal static class PostgreSqlOrganizationRegistryReader
                         id,
                         reader.IsDBNull(1) ? null : reader.GetString(1),
                         reader.IsDBNull(2) ? null : UnitId.From(reader.GetString(2)),
-                        PositionId.From(reader.GetString(3))),
+                        PositionId.From(reader.GetString(3)),
+                        RegistryJson.DeserializePeerChannels(reader.GetString(6))),
                     reader.GetString(4),
                     reader.GetFieldValue<DateTimeOffset>(5)));
         }

@@ -233,6 +233,7 @@ public sealed class OrganizationConfigurationParser
             var leadershipValue = RequireScalar(entry, "leadership", path, context);
             var name = OptionalScalar(entry, "name", path, context);
             var (parentOk, parent) = ReadRequiredNullableId(entry, "parent", UnitId.From, path, context);
+            var allowedPeerChannels = ReadPeerChannels(entry, path, context);
 
             var id = idValue is null ? null : Identity(UnitId.From, idValue, idNode!, $"{path}.id", context);
             var leadership = leadershipValue is null
@@ -244,10 +245,94 @@ public sealed class OrganizationConfigurationParser
                 continue;
             }
 
-            units.Add(new UnitConfiguration(id, leadership, parent, name));
+            units.Add(new UnitConfiguration(id, leadership, parent, name, allowedPeerChannels));
         }
 
         return units;
+    }
+
+    private static IReadOnlyList<PeerChannelConfiguration> ReadPeerChannels(
+        YamlMappingNode unit,
+        string unitPath,
+        ParseContext context)
+    {
+        var path = $"{unitPath}.allowed_peer_channels";
+        var node = Child(unit, "allowed_peer_channels");
+        if (node is null)
+        {
+            return [];
+        }
+
+        if (node is not YamlSequenceNode sequence)
+        {
+            context.AddAt(node, path, "field 'allowed_peer_channels' must be a sequence.");
+            return [];
+        }
+
+        var channels = new List<PeerChannelConfiguration>();
+        for (var index = 0; index < sequence.Children.Count; index++)
+        {
+            var channelPath = $"{path}[{index}]";
+            if (sequence.Children[index] is not YamlMappingNode entry)
+            {
+                context.AddAt(sequence.Children[index], channelPath, "each peer channel must be a mapping.");
+                continue;
+            }
+
+            var errorCount = context.Errors.Count;
+            AddUnknownFields(entry, channelPath, ["from", "types", "max_open_requests", "on_rejection"], context);
+            var fromValue = RequireScalar(entry, "from", channelPath, context);
+            var from = fromValue is null ? null : Identity(
+                UnitId.From, fromValue, Child(entry, "from")!, $"{channelPath}.from", context);
+            var types = new List<PeerChannelMessageType>();
+            var typesNode = Child(entry, "types");
+            if (typesNode is not YamlSequenceNode { Children.Count: > 0 } typesSequence)
+            {
+                context.AddAt(typesNode ?? entry, $"{channelPath}.types", "field 'types' must be a nonempty sequence.");
+            }
+            else
+            {
+                for (var t = 0; t < typesSequence.Children.Count; t++)
+                {
+                    var typeNode = typesSequence.Children[t];
+                    if (typeNode is not YamlScalarNode scalar
+                        || !PeerChannelMessageTypeContract.TryParseWireValue(scalar.Value, out var type))
+                    {
+                        context.AddAt(typeNode, $"{channelPath}.types[{t}]", "channel type must be 'peer-request' or 'memo'.");
+                    }
+                    else if (types.Contains(type))
+                    {
+                        context.AddAt(typeNode, $"{channelPath}.types[{t}]", "channel types must not repeat.");
+                    }
+                    else
+                    {
+                        types.Add(type);
+                    }
+                }
+            }
+
+            var limit = RequiredInt(entry, "max_open_requests", channelPath, context);
+            if (limit is <= 0)
+            {
+                context.AddAt(Child(entry, "max_open_requests")!, $"{channelPath}.max_open_requests",
+                    "field 'max_open_requests' must be positive.");
+            }
+
+            var rejectionValue = RequireScalar(entry, "on_rejection", channelPath, context);
+            var validRejection = PeerChannelRejectionActionContract.TryParseWireValue(rejectionValue, out var rejection);
+            if (rejectionValue is not null && !validRejection)
+            {
+                context.AddAt(Child(entry, "on_rejection")!, $"{channelPath}.on_rejection",
+                    "field 'on_rejection' must be 'none' or 'escalate'.");
+            }
+
+            if (context.Errors.Count == errorCount && from is not null && limit is > 0 && validRejection)
+            {
+                channels.Add(new PeerChannelConfiguration(from, types, limit.Value, rejection));
+            }
+        }
+
+        return channels;
     }
 
     private static IReadOnlyList<PositionConfiguration> ReadPositions(YamlMappingNode root, ParseContext context)

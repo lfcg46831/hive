@@ -32,6 +32,12 @@ public sealed class OrganizationRegistrySnapshot
         Schedules = schedules;
         Relations = relations;
         ActionDomainCatalog = actionDomainCatalog;
+        var peerChannels = PeerChannelContractsSnapshot.CreateBuilder(organizationId);
+        foreach (var unit in units.Values)
+        {
+            peerChannels.AddUnit(unit.Value.Id, unit.Value.AllowedPeerChannels);
+        }
+        PeerChannelContracts = peerChannels.Build();
     }
 
     public OrganizationId OrganizationId { get; }
@@ -57,4 +63,6 @@ public sealed class OrganizationRegistrySnapshot
     public RegistryEntry<OrganizationRelationsSnapshot> Relations { get; }
 
     public RegistryEntry<ActionDomainCatalog> ActionDomainCatalog { get; }
+
+    public PeerChannelContractsSnapshot PeerChannelContracts { get; }
 }

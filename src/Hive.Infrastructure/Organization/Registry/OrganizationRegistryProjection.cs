@@ -143,7 +143,14 @@ internal sealed class OrganizationRegistryProjection
             .ToArray();
         var relations = new ProjectedEntry<OrganizationRelationsSnapshot>(
             relationsSnapshot,
-            ComputeFingerprint(relationDescriptor));
+            ComputeFingerprint(new
+            {
+                Positions = relationDescriptor,
+                UnitLeaderships = configuration.Units
+                    .OrderBy(unit => unit.Id.Value, StringComparer.Ordinal)
+                    .Select(unit => new { Unit = unit.Id.Value, Leadership = unit.Leadership.Value })
+                    .ToArray(),
+            }));
         var projectedActionDomainCatalog = Project(actionDomainCatalog);
 
         var entityFingerprints = new List<(RegistryEntityKind Kind, string Key, string Fingerprint)>
@@ -279,6 +286,11 @@ internal sealed class OrganizationRegistryProjection
         foreach (var position in configuration.Positions)
         {
             builder.AddPosition(position.Id, position.Unit, position.ReportsTo);
+        }
+
+        foreach (var unit in configuration.Units)
+        {
+            builder.AddUnitLeadership(unit.Id, unit.Leadership);
         }
 
         var snapshot = builder.Build();

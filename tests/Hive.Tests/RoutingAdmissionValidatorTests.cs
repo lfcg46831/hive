@@ -333,6 +333,7 @@ public sealed class RoutingAdmissionValidatorTests
         new MaterializedOrganizationRelations(
             OrganizationRelationsSnapshot
                 .CreateBuilder(Org, new OrganizationOwnerEndpointRef())
+                .AddUnitLeadership(UnitId.From("delivery"), PositionId.From("delivery-lead"))
                 .AddPosition(PositionId.From("ceo"), UnitId.From("root"))
                 .AddPosition(
                     PositionId.From("delivery-lead"),
@@ -376,6 +377,12 @@ public sealed class RoutingAdmissionValidatorTests
 
     private sealed class FailingRelations(Exception failure) : IOrganizationRelations
     {
+        public ValueTask<PositionId> GetUnitLeadershipAsync(
+            OrganizationId organizationId,
+            UnitId unitId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PositionId>(failure);
+
         public ValueTask<PositionId?> GetDirectSuperiorAsync(
             OrganizationId organizationId,
             PositionId positionId,

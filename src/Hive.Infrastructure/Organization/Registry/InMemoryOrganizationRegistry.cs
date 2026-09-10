@@ -86,6 +86,16 @@ public sealed class InMemoryOrganizationRegistry :
             relations.GetDirectSubordinates(positionId));
     }
 
+    public ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(unitId);
+        cancellationToken.ThrowIfCancellationRequested();
+        return new ValueTask<PositionId>(RequireRelations(organizationId).GetUnitLeadership(unitId));
+    }
+
     public ValueTask<PositionId> GetRootUnitLeadershipAsync(
         OrganizationId organizationId,
         CancellationToken cancellationToken = default)

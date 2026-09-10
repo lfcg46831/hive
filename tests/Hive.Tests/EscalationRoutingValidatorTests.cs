@@ -283,6 +283,7 @@ public sealed class EscalationRoutingValidatorTests
         new MaterializedOrganizationRelations(
             OrganizationRelationsSnapshot
                 .CreateBuilder(Org, new OrganizationOwnerEndpointRef())
+                .AddUnitLeadership(UnitId.From("delivery"), PositionId.From("delivery-lead"))
                 .AddPosition(PositionId.From("ceo"), UnitId.From("root"))
                 .AddPosition(
                     PositionId.From("delivery-lead"),
@@ -296,6 +297,12 @@ public sealed class EscalationRoutingValidatorTests
 
     private sealed class FailingRelations(Exception failure) : IOrganizationRelations
     {
+        public ValueTask<PositionId> GetUnitLeadershipAsync(
+            OrganizationId organizationId,
+            UnitId unitId,
+            CancellationToken cancellationToken = default) =>
+            ValueTask.FromException<PositionId>(failure);
+
         public ValueTask<PositionId?> GetDirectSuperiorAsync(
             OrganizationId organizationId,
             PositionId positionId,
@@ -327,6 +334,12 @@ public sealed class EscalationRoutingValidatorTests
 
     private sealed class SuperiorFailureRelations(Exception failure) : IOrganizationRelations
     {
+        public ValueTask<PositionId> GetUnitLeadershipAsync(
+            OrganizationId organizationId,
+            UnitId unitId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public ValueTask<PositionId?> GetDirectSuperiorAsync(
             OrganizationId organizationId,
             PositionId positionId,
@@ -358,6 +371,12 @@ public sealed class EscalationRoutingValidatorTests
 
     private sealed class OwnerFailureRelations(Exception failure) : IOrganizationRelations
     {
+        public ValueTask<PositionId> GetUnitLeadershipAsync(
+            OrganizationId organizationId,
+            UnitId unitId,
+            CancellationToken cancellationToken = default) =>
+            throw new NotSupportedException();
+
         public ValueTask<PositionId?> GetDirectSuperiorAsync(
             OrganizationId organizationId,
             PositionId positionId,

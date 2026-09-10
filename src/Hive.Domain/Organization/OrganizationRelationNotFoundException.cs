@@ -4,10 +4,10 @@ namespace Hive.Domain.Organization;
 
 /// <summary>
 /// Thrown by <see cref="IOrganizationRelations"/> implementations when a query targets an
-/// organization or position that does not exist in the materialized registry.
+/// organization, unit or position that does not exist in the materialized registry.
 /// </summary>
 /// <remarks>
-/// This exception signals a structural lookup failure (unknown organization or position),
+/// This exception signals a structural lookup failure (unknown organization, unit or position),
 /// not a valid "no relation" answer. Queries distinguish these cases deliberately: a
 /// <see langword="null"/> direct superior means the position is the root unit leadership and
 /// therefore has no organizational superior, whereas an unknown position is an error and is
@@ -17,6 +17,18 @@ namespace Hive.Domain.Organization;
 /// </remarks>
 public sealed class OrganizationRelationNotFoundException : Exception
 {
+    /// <summary>Creates an exception for a unit absent from the given organization.</summary>
+    public static OrganizationRelationNotFoundException ForUnit(
+        OrganizationId organizationId,
+        UnitId unitId)
+    {
+        ArgumentNullException.ThrowIfNull(organizationId);
+        ArgumentNullException.ThrowIfNull(unitId);
+
+        return new OrganizationRelationNotFoundException(
+            $"Unit '{unitId.Value}' was not found in organization '{organizationId.Value}'.");
+    }
+
     private OrganizationRelationNotFoundException(string message)
         : base(message)
     {

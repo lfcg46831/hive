@@ -7,7 +7,7 @@ namespace Hive.Domain.Organization;
 /// Read-only query contract over the materialized organizational structure of a single
 /// organization. It exposes exactly the relations that vertical routing and governance
 /// validation (US-F0-04) depend on: the direct superior of a position, its direct
-/// subordinates, the leadership of the root unit, the configured <c>OrganizationOwner</c>,
+/// subordinates, the leadership of each unit, the configured <c>OrganizationOwner</c>,
 /// and the unit a position belongs to.
 /// </summary>
 /// <remarks>
@@ -22,13 +22,27 @@ namespace Hive.Domain.Organization;
 /// organization and must not leak structure across organizations.
 /// </para>
 /// <para>
-/// Unknown organizations or positions are structural errors and are surfaced through
+/// Unknown organizations, units or positions are structural errors and are surfaced through
 /// <see cref="OrganizationRelationNotFoundException"/>, except where a method documents a
 /// <see langword="null"/> return as the existence probe.
 /// </para>
 /// </remarks>
 public interface IOrganizationRelations
 {
+    /// <summary>Returns the declared leadership of a unit within the organization.</summary>
+    /// <returns>The leader position; every known unit has exactly one leader.</returns>
+    /// <exception cref="OrganizationRelationNotFoundException">
+    /// The organization or unit is not present in the registry.
+    /// </exception>
+    /// <remarks>
+    /// Cancellation and technical failures propagate as exceptions, never as absence.
+    /// The position existence probe remains <see cref="GetUnitOfPositionAsync"/>.
+    /// </remarks>
+    ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default);
+
     /// <summary>
     /// Returns the direct organizational superior of <paramref name="positionId"/>.
     /// </summary>

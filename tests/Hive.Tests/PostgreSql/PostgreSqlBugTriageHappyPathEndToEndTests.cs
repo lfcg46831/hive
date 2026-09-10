@@ -770,6 +770,7 @@ public sealed class PostgreSqlBugTriageHappyPathEndToEndTests(PostgreSqlFixture 
         new MaterializedOrganizationRelations(
             OrganizationRelationsSnapshot
                 .CreateBuilder(OrganizationId.From("acme"), new OrganizationOwnerEndpointRef())
+                .AddUnitLeadership(UnitId.From("delivery"), PositionId.From("delivery-lead"))
                 .AddPosition(PositionId.From("ceo"), UnitId.From("root"))
                 .AddPosition(
                     PositionId.From("delivery-lead"),

@@ -74,6 +74,18 @@ public sealed class MaterializedOrganizationRelations : IOrganizationRelations
         return new ValueTask<IReadOnlyCollection<PositionId>>(snapshot.GetDirectSubordinates(positionId));
     }
 
+    public ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(organizationId);
+        ArgumentNullException.ThrowIfNull(unitId);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return new ValueTask<PositionId>(RequireOrganization(organizationId).GetUnitLeadership(unitId));
+    }
+
     public ValueTask<PositionId> GetRootUnitLeadershipAsync(
         OrganizationId organizationId,
         CancellationToken cancellationToken = default)

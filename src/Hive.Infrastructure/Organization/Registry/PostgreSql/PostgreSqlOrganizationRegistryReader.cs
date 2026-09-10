@@ -36,6 +36,7 @@ internal static class PostgreSqlOrganizationRegistryReader
             connection,
             transaction,
             organizationId,
+            units,
             positions,
             cancellationToken);
 
@@ -346,6 +347,7 @@ internal static class PostgreSqlOrganizationRegistryReader
         NpgsqlConnection connection,
         NpgsqlTransaction? transaction,
         OrganizationId organizationId,
+        IReadOnlyDictionary<UnitId, RegistryEntry<RegistryUnit>> units,
         IReadOnlyDictionary<PositionId, RegistryEntry<RegistryPosition>> positions,
         CancellationToken cancellationToken)
     {
@@ -372,6 +374,11 @@ internal static class PostgreSqlOrganizationRegistryReader
         foreach (var position in positions.Values.Select(entry => entry.Value))
         {
             builder.AddPosition(position.Id, position.Unit, position.ReportsTo);
+        }
+
+        foreach (var unit in units.Values.Select(entry => entry.Value))
+        {
+            builder.AddUnitLeadership(unit.Id, unit.Leadership);
         }
 
         var relations = builder.Build();

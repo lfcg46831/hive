@@ -18,6 +18,15 @@ internal sealed class UnavailableOrganizationRelations(string connectionStringNa
         CancellationToken cancellationToken = default) =>
         Unavailable<IReadOnlyCollection<PositionId>>();
 
+    public ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Unavailable<PositionId>();
+    }
+
     public ValueTask<PositionId> GetRootUnitLeadershipAsync(
         OrganizationId organizationId,
         CancellationToken cancellationToken = default) =>

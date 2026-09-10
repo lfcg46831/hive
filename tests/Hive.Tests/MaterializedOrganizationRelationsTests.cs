@@ -228,6 +228,7 @@ public sealed class MaterializedOrganizationRelationsTests
     private static OrganizationRelationsSnapshot BuildSample(OrganizationOwnerEndpointRef owner) =>
         OrganizationRelationsSnapshot
             .CreateBuilder(Org, owner)
+            .AddUnitLeadership(UnitId.From("delivery"), Position("delivery-lead"))
             .AddPosition(Position("ceo"), UnitId.From("root"))
             .AddPosition(Position("delivery-lead"), UnitId.From("delivery"), Position("ceo"))
             .AddPosition(Position("engineer"), UnitId.From("delivery"), Position("delivery-lead"))

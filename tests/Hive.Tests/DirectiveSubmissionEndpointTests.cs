@@ -395,6 +395,7 @@ public sealed class DirectiveSubmissionEndpointTests
         new MaterializedOrganizationRelations(
             OrganizationRelationsSnapshot
                 .CreateBuilder(OrganizationId.From("acme-delivery"), new OrganizationOwnerEndpointRef())
+                .AddUnitLeadership(UnitId.From("delivery"), PositionId.From("delivery-lead"))
                 .AddPosition(PositionId.From("ceo"), UnitId.From("root"))
                 .AddPosition(
                     PositionId.From("delivery-lead"),

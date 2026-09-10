@@ -94,6 +94,16 @@ public sealed class PostgreSqlOrganizationRegistry :
         return relations.GetDirectSubordinates(positionId);
     }
 
+    public async ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(unitId);
+        var relations = await RequireRelationsAsync(organizationId, cancellationToken);
+        return relations.GetUnitLeadership(unitId);
+    }
+
     public async ValueTask<PositionId> GetRootUnitLeadershipAsync(
         OrganizationId organizationId,
         CancellationToken cancellationToken = default) =>

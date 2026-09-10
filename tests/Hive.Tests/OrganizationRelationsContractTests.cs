@@ -13,6 +13,17 @@ public sealed class OrganizationRelationsContractTests
 {
     private static readonly OrganizationId Org = OrganizationId.From("engineering-delivery");
 
+    [Theory]
+    [InlineData("root", "ceo")]
+    [InlineData("delivery", "delivery-lead")]
+    public async Task Unit_leadership_is_non_null_for_each_known_unit(string unit, string leader)
+    {
+        var relations = FakeOrganizationRelations.SampleOrganization();
+        Assert.Equal(Position(leader), await relations.GetUnitLeadershipAsync(Org, UnitId.From(unit)));
+        await Assert.ThrowsAsync<OrganizationRelationNotFoundException>(async () =>
+            await relations.GetUnitLeadershipAsync(Org, UnitId.From("missing")));
+    }
+
     [Fact]
     public async Task Root_unit_leadership_has_no_direct_superior()
     {
@@ -190,6 +201,21 @@ public sealed class OrganizationRelationsContractTests
             }
 
             return new ValueTask<IReadOnlyCollection<PositionId>>(subordinates.ToArray());
+        }
+
+        public ValueTask<PositionId> GetUnitLeadershipAsync(
+            OrganizationId organizationId,
+            UnitId unitId,
+            CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            RequireOrganization(organizationId);
+            return new ValueTask<PositionId>(unitId.Value switch
+            {
+                "root" => _rootLeadership,
+                "delivery" => PositionId.From("delivery-lead"),
+                _ => throw OrganizationRelationNotFoundException.ForUnit(organizationId, unitId),
+            });
         }
 
         public ValueTask<PositionId> GetRootUnitLeadershipAsync(

@@ -39,6 +39,12 @@ internal sealed class PostgreSqlOrganizationRelations :
         CancellationToken cancellationToken = default) =>
         _inner.GetDirectSubordinatesAsync(organizationId, positionId, cancellationToken);
 
+    public ValueTask<PositionId> GetUnitLeadershipAsync(
+        OrganizationId organizationId,
+        UnitId unitId,
+        CancellationToken cancellationToken = default) =>
+        _inner.GetUnitLeadershipAsync(organizationId, unitId, cancellationToken);
+
     public ValueTask<PositionId> GetRootUnitLeadershipAsync(
         OrganizationId organizationId,
         CancellationToken cancellationToken = default) =>

@@ -2,8 +2,8 @@ namespace Hive.Domain.Messaging;
 
 /// <summary>
 /// Canonical catalog of the structured rejection reasons produced when validating vertical routing
-/// for <see cref="Directive"/>, <see cref="Report"/> and <see cref="Escalation"/>
-/// (US-F0-04-T04/T05/T06), consolidated by US-F0-04-T08. The routing validators and the audit trail
+/// and horizontal initiation (<see cref="Memo"/> and <see cref="PeerRequest"/>).
+/// The routing validators and the audit trail
 /// consume this single source, so a given stable, machine-readable <see cref="ValidationError.Code"/>
 /// always carries the same canonical <see cref="ValidationError.Path"/> and coarse-grained
 /// <see cref="RejectionReason"/>.
@@ -21,7 +21,7 @@ namespace Hive.Domain.Messaging;
 public static class RoutingValidationCatalog
 {
     /// <summary>
-    /// Stable, machine-readable error codes (lowercase/kebab-case) shared by the vertical routing
+    /// Stable, machine-readable error codes (lowercase/kebab-case) shared by the routing
     /// validators and the audit trail. They distinguish specific violations within a single
     /// <see cref="RejectionReason"/>.
     /// </summary>
@@ -33,6 +33,8 @@ public static class RoutingValidationCatalog
         public const string DirectSubordinateRequired = "direct-subordinate-required";
         public const string DirectSuperiorRequired = "direct-superior-required";
         public const string RootLeadershipRequired = "root-leadership-required";
+        public const string PeerChannelRequired = "peer-channel-required";
+        public const string PeerTypeNotAllowed = "peer-type-not-allowed";
     }
 
     /// <summary>The endpoint variant at <paramref name="path"/> is not allowed for the message type.</summary>
@@ -61,4 +63,12 @@ public static class RoutingValidationCatalog
     /// <summary>The escalation-to-owner source is not the root unit leadership.</summary>
     public static ValidationError RootLeadershipRequired() =>
         new(Codes.RootLeadershipRequired, "from.positionId", RejectionReason.InvalidRoute);
+
+    /// <summary>No channel is declared in the direction of the destination unit.</summary>
+    public static ValidationError PeerChannelRequired() =>
+        new(Codes.PeerChannelRequired, "to.positionId", RejectionReason.InvalidRoute);
+
+    /// <summary>The declared channel does not allow this horizontal message type.</summary>
+    public static ValidationError PeerTypeNotAllowed() =>
+        new(Codes.PeerTypeNotAllowed, "type", RejectionReason.InvalidRoute);
 }

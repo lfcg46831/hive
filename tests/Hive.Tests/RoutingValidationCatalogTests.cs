@@ -15,6 +15,8 @@ public sealed class RoutingValidationCatalogTests
         { RoutingValidationCatalog.DirectSubordinateRequired(), "direct-subordinate-required", "to.positionId", RejectionReason.InvalidRoute },
         { RoutingValidationCatalog.DirectSuperiorRequired(), "direct-superior-required", "to.positionId", RejectionReason.InvalidRoute },
         { RoutingValidationCatalog.RootLeadershipRequired(), "root-leadership-required", "from.positionId", RejectionReason.InvalidRoute },
+        { RoutingValidationCatalog.PeerChannelRequired(), "peer-channel-required", "to.positionId", RejectionReason.InvalidRoute },
+        { RoutingValidationCatalog.PeerTypeNotAllowed(), "peer-type-not-allowed", "type", RejectionReason.InvalidRoute },
     };
 
     [Theory]

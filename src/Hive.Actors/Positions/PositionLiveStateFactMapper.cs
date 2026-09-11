@@ -97,7 +97,7 @@ internal sealed class PositionLiveStateFactMapper
             // OrganizationalMessage fact by T06a.
             MessageReceived or TaskUpdated or ShortMemoryUpdated or OccupantChanged
                 or PositionPassivated or DirectiveCheckpointPersisted
-                or OccupantReplyEmitted => null,
+                or OccupantReplyEmitted or PeerRequestRecorded or PeerRequestClosed => null,
             _ => throw new InvalidOperationException(
                 $"Position event '{@event.GetType().Name}' has no explicit live-state mapping."),
         };

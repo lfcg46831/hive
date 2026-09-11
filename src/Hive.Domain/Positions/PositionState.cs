@@ -68,6 +68,10 @@ public sealed record PositionState
     /// <summary>The messages admitted but not yet dispatched.</summary>
     public ImmutableArray<OrgMessage> Inbox { get; }
 
+    /// <summary>Outgoing peer requests retained independently of bounded delivery history.</summary>
+    public ImmutableDictionary<MessageId, PeerRequestRecord> PeerRequests { get; private init; } =
+        ImmutableDictionary<MessageId, PeerRequestRecord>.Empty;
+
     /// <summary>The tasks currently in progress, keyed by task identity.</summary>
     public ImmutableDictionary<PositionTaskId, PersistedTask> OpenTasks { get; }
 
@@ -131,7 +135,10 @@ public sealed record PositionState
                 checkpoint => checkpoint.Correlation.DirectiveId),
             snapshot.OccupantReplies,
             snapshot.OccupantNotifications.ToImmutableDictionary(notification => notification.Message),
-            snapshot.OccupantAbsenceEscalations.ToImmutableDictionary(item => item.Message));
+            snapshot.OccupantAbsenceEscalations.ToImmutableDictionary(item => item.Message))
+        {
+            PeerRequests = snapshot.PeerRequests.ToImmutableDictionary(item => item.Request.Id),
+        };
     }
 
     /// <summary>Exports the live state into the persisted snapshot shape.</summary>
@@ -152,7 +159,8 @@ public sealed record PositionState
             checkpoint => checkpoint.Correlation.DirectiveId.Value),
         OccupantReplies.OrderBy(reply => reply.Message.Id.Value),
         OccupantNotifications.Values.OrderBy(notification => notification.Message.Value),
-        OccupantAbsenceEscalations.Values.OrderBy(item => item.Message.Value));
+        OccupantAbsenceEscalations.Values.OrderBy(item => item.Message.Value),
+        PeerRequests.Values.OrderBy(item => item.Request.Id.Value));
 
     /// <summary>
     /// Evaluates an attempted checkpoint revision without mutating state. Re-delivered or stale
@@ -250,7 +258,7 @@ public sealed record PositionState
     {
         ArgumentNullException.ThrowIfNull(@event);
 
-        return @event switch
+        var next = @event switch
         {
             MessageReceived received => Apply(received),
             TaskCreated created => Apply(created),
@@ -279,6 +287,41 @@ public sealed record PositionState
             OccupantAbsenceEscalationHandled handled => Apply(handled),
             _ => this,
         };
+
+        return next with { PeerRequests = ApplyPeerRequest(@event) };
+    }
+
+    private ImmutableDictionary<MessageId, PeerRequestRecord> ApplyPeerRequest(PositionEvent @event)
+    {
+        switch (@event)
+        {
+            case PeerRequestRecorded recorded:
+                if (PeerRequests.TryGetValue(recorded.Request.Id, out var existing))
+                {
+                    if (existing.Request != recorded.Request)
+                    {
+                        throw new InvalidOperationException("A peer request id cannot identify different envelopes.");
+                    }
+                    return PeerRequests;
+                }
+                return PeerRequests.Add(recorded.Request.Id,
+                    new PeerRequestRecord(recorded.Request, MessageState.Accepted));
+
+            case PeerRequestClosed closed when PeerRequests.TryGetValue(closed.RequestId, out var record):
+                return record.State is MessageState.Received or MessageState.Accepted or MessageState.Processing
+                    ? PeerRequests.SetItem(closed.RequestId, new PeerRequestRecord(record.Request, closed.State))
+                    : PeerRequests;
+
+            case MessageReceived { Message: PeerResponse response } received
+                when PeerRequests.TryGetValue(response.InReplyTo, out var record):
+                return PeerResponseRoutingValidator.Validate(response, record, received.OccurredAt).IsValid
+                    ? PeerRequests.SetItem(response.InReplyTo,
+                        new PeerRequestRecord(record.Request, MessageState.Completed))
+                    : PeerRequests;
+
+            default:
+                return PeerRequests;
+        }
     }
 
     private PositionState Apply(MessageReceived @event) => new(

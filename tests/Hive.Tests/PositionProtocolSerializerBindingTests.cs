@@ -163,6 +163,12 @@ public sealed class PositionProtocolSerializerBindingTests
         yield return typeof(PositionCommand);
         yield return typeof(AcceptMessage);
         yield return typeof(AcceptMessageResult);
+        yield return typeof(RecordPeerRequest);
+        yield return typeof(ClosePeerRequest);
+        yield return typeof(FindPeerRequest);
+        yield return typeof(PeerRequestLookupResult);
+        yield return typeof(PeerRequestRecorded);
+        yield return typeof(PeerRequestClosed);
         yield return typeof(EmitOccupantReply);
         yield return typeof(EmitCorrelatedOccupantReply);
         yield return typeof(EmitOccupantApprovalDecision);

@@ -195,6 +195,18 @@ internal sealed class PositionActor :
         Recover<RecoveryCompleted>(_ => BeginConfigurationLoad());
 
         Command<GetPositionState>(_ => Sender.Tell(_state));
+        Command<FindPeerRequest>(query => Sender.Tell(new PeerRequestLookupResult(
+            _state.PeerRequests.GetValueOrDefault(query.RequestId))));
+        Command<RecordPeerRequest>(command =>
+        {
+            var replyTo = Sender;
+            WhenReady(() => PersistPeerRequest(command, replyTo));
+        });
+        Command<ClosePeerRequest>(command =>
+        {
+            var replyTo = Sender;
+            WhenReady(() => ClosePeerRequest(command, replyTo));
+        });
         Command<GetPositionRuntimeStatus>(_ => Sender.Tell(RuntimeStatus()));
         Command<PositionConfigurationLoadCompleted>(HandleConfigurationLoadCompleted);
         Command<PositionConfigurationLoadFailed>(failure => throw new PositionConfigurationGateException(
@@ -397,6 +409,45 @@ internal sealed class PositionActor :
 
     private void PersistAndApply(PositionEvent @event) =>
         Persist(@event, ApplyPersisted);
+
+    private void PersistPeerRequest(RecordPeerRequest command, IActorRef replyTo)
+    {
+        if (command.Request.OrganizationId != EntityId.Organization ||
+            command.Request.From != new PositionEndpointRef(EntityId.Position))
+        {
+            replyTo.Tell(new Status.Failure(new InvalidOperationException(
+                "A peer request must be recorded at its original requester.")));
+            return;
+        }
+
+        if (_state.PeerRequests.TryGetValue(command.Request.Id, out var existing))
+        {
+            if (existing.Request != command.Request)
+            {
+                replyTo.Tell(new Status.Failure(new InvalidOperationException(
+                    "A peer request id already identifies another envelope.")));
+                return;
+            }
+            replyTo.Tell(new PeerRequestLookupResult(existing));
+            return;
+        }
+
+        PersistEvents([new PeerRequestRecorded(command.Request, _clock())], () =>
+            replyTo.Tell(new PeerRequestLookupResult(_state.PeerRequests[command.Request.Id])));
+    }
+
+    private void ClosePeerRequest(ClosePeerRequest command, IActorRef replyTo)
+    {
+        if (!_state.PeerRequests.TryGetValue(command.RequestId, out var record) ||
+            record.State is MessageState.Completed or MessageState.Rejected or MessageState.Failed)
+        {
+            replyTo.Tell(new PeerRequestLookupResult(record));
+            return;
+        }
+
+        PersistEvents([new PeerRequestClosed(command.RequestId, command.State, _clock())], () =>
+            replyTo.Tell(new PeerRequestLookupResult(_state.PeerRequests[command.RequestId])));
+    }
 
     private void PersistAcceptedMessage(OrgMessage message, Action? afterPersisted = null)
     {

@@ -2,7 +2,7 @@ namespace Hive.Domain.Messaging;
 
 /// <summary>
 /// Canonical catalog of the structured rejection reasons produced when validating vertical routing
-/// and horizontal initiation (<see cref="Memo"/> and <see cref="PeerRequest"/>).
+/// and horizontal initiation and response correlation.
 /// The routing validators and the audit trail
 /// consume this single source, so a given stable, machine-readable <see cref="ValidationError.Code"/>
 /// always carries the same canonical <see cref="ValidationError.Path"/> and coarse-grained
@@ -35,6 +35,13 @@ public static class RoutingValidationCatalog
         public const string RootLeadershipRequired = "root-leadership-required";
         public const string PeerChannelRequired = "peer-channel-required";
         public const string PeerTypeNotAllowed = "peer-type-not-allowed";
+        public const string PeerRequestNotFound = "peer-request-not-found";
+        public const string PeerThreadMismatch = "peer-thread-mismatch";
+        public const string PeerResponderRequired = "peer-responder-required";
+        public const string PeerRequesterRequired = "peer-requester-required";
+        public const string PeerResponseDuplicate = "peer-response-duplicate";
+        public const string PeerRequestNotOpen = "peer-request-not-open";
+        public const string PeerRequestExpired = "peer-request-expired";
     }
 
     /// <summary>The endpoint variant at <paramref name="path"/> is not allowed for the message type.</summary>
@@ -71,4 +78,25 @@ public static class RoutingValidationCatalog
     /// <summary>The declared channel does not allow this horizontal message type.</summary>
     public static ValidationError PeerTypeNotAllowed() =>
         new(Codes.PeerTypeNotAllowed, "type", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerRequestNotFound() =>
+        new(Codes.PeerRequestNotFound, "inReplyTo", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerThreadMismatch() =>
+        new(Codes.PeerThreadMismatch, "threadId", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerResponderRequired() =>
+        new(Codes.PeerResponderRequired, "from.positionId", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerRequesterRequired() =>
+        new(Codes.PeerRequesterRequired, "to.positionId", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerResponseDuplicate() =>
+        new(Codes.PeerResponseDuplicate, "inReplyTo", RejectionReason.Duplicate);
+
+    public static ValidationError PeerRequestNotOpen() =>
+        new(Codes.PeerRequestNotOpen, "inReplyTo", RejectionReason.InvalidRoute);
+
+    public static ValidationError PeerRequestExpired() =>
+        new(Codes.PeerRequestExpired, "inReplyTo", RejectionReason.Expired);
 }

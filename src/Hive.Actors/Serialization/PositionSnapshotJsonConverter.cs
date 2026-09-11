@@ -39,7 +39,8 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
             dto.DirectiveCheckpoints,
             dto.OccupantReplies,
             dto.OccupantNotifications,
-            dto.OccupantAbsenceEscalations);
+            dto.OccupantAbsenceEscalations,
+            dto.PeerRequests);
     }
 
     public override void Write(
@@ -53,6 +54,7 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
         var dto = new PositionSnapshotData
         {
             TakenAt = value.TakenAt,
+            PeerRequests = value.PeerRequests.IsEmpty ? null : value.PeerRequests.ToList(),
             Occupant = value.Occupant,
             OccupantType = value.OccupantType,
             Inbox = value.Inbox.ToList(),
@@ -94,6 +96,9 @@ internal sealed class PositionSnapshotJsonConverter : JsonConverter<PositionSnap
     private sealed class PositionSnapshotData
     {
         public DateTimeOffset TakenAt { get; set; }
+
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public List<PeerRequestRecord>? PeerRequests { get; set; }
 
         public OccupantId? Occupant { get; set; }
 

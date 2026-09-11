@@ -22,6 +22,12 @@ internal static class CanonicalPositionProtocolFixtures
     public static IReadOnlyList<(string Manifest, object Value)> All { get; } =
     [
         ("message-received", new MessageReceived(Message(), OccurredAt)),
+        ("peer-request-recorded", new PeerRequestRecorded(new PeerRequest(
+            MessageId(), OrganizationId.From("acme"),
+            new PositionEndpointRef(PositionId.From("requester")),
+            new PositionEndpointRef(PositionId.From("responder")),
+            ThreadId(), Priority.Normal, 1, OccurredAt, OccurredAt.AddHours(1), "Review"), OccurredAt)),
+        ("peer-request-closed", new PeerRequestClosed(MessageId(), MessageState.Failed, OccurredAt)),
         ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming regression", Priority.High, OccurredAt, OccurredAt.AddHours(3), MessageId())),
         ("task-updated", new TaskUpdated(TaskId(), "reproduced on staging", OccurredAt.AddMinutes(5), Priority.Critical, OccurredAt.AddHours(1))),
         ("task-completed", new TaskCompleted(TaskId(), OccurredAt.AddMinutes(15), "hotfix shipped")),

@@ -42,6 +42,25 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
         {
             PublishApprovalDecisionRejection(decisionRejected);
         }
+        else if (@event is PositionMessageRoutingRejected routingRejected)
+        {
+            var audit = RoutingRejectionAuditEvent.FromRejection(routingRejected.Rejection, routingRejected.OccurredAt);
+            _auditLog.Append(JourneyAuditRecord.Create(
+                JourneyAuditStage.PositionAccepted, JourneyAuditOutcome.Rejected,
+                audit.OrganizationId, audit.Thread, audit.MessageId,
+                positionId: routingRejected.EntityId.Position,
+                reasonCode: audit.Errors[0].Code,
+                messageType: nameof(PeerRequest),
+                payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                {
+                    ["sender"] = EndpointValue(audit.Sender),
+                    ["recipient"] = EndpointValue(audit.Recipient),
+                    ["errors"] = string.Join(",", audit.Errors.Select(error =>
+                        $"{error.Code}@{error.Path}:{RejectionReasonContract.ToWireValue(error.Reason)}")),
+                    ["redactions"] = "message.payload",
+                },
+                occurredAtUtc: audit.OccurredAt));
+        }
         else if (@event is PositionRetainedActionLifecycleChanged lifecycle)
         {
             PublishRetainedActionLifecycle(lifecycle);

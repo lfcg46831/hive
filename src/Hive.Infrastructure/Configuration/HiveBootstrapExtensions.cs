@@ -153,6 +153,14 @@ public static class HiveBootstrapExtensions
                 ? new UnavailableOutcomePolicyProvider(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlOutcomePolicyProvider(connectionString);
         });
+        builder.Services.TryAddSingleton<IPeerChannelContracts>(serviceProvider =>
+        {
+            var connectionString = serviceProvider.GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? new UnavailablePeerChannelContracts()
+                : new PostgreSqlPeerChannelContracts(connectionString);
+        });
         builder.Services.TryAddSingleton<IOrganizationRelations>(serviceProvider =>
         {
             var connectionString = serviceProvider

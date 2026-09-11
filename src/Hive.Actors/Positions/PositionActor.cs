@@ -34,6 +34,7 @@ internal sealed class PositionActor :
     private readonly IOccupantResponseEscalationTargetResolver? _responseTargetResolver;
     private readonly IOccupantResponseKillSwitch _responseKillSwitch;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly PeerRequestLimitResolver? _peerRequestLimits;
     private readonly Dictionary<PositionOccupantKey, IActorRef> _occupantActors = new();
     private readonly HashSet<Guid> _handledResumeAttempts = [];
     private readonly HashSet<RetainedActionId> _resumingActions = [];
@@ -170,6 +171,25 @@ internal sealed class PositionActor :
         IOccupantResponseScheduler? responseScheduler,
         IOccupantResponseEscalationTargetResolver? responseTargetResolver,
         IOccupantResponseKillSwitch? responseKillSwitch)
+        : this(entityId, configurationProvider, occupantFactory, projectionPublisher, clock,
+            resumeCoordinator, occupantReplyValidator, messageEmitter, responseScheduler,
+            responseTargetResolver, responseKillSwitch, null)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock,
+        RetainedActionResumeCoordinator? resumeCoordinator,
+        IOccupantReplyMessageValidator? occupantReplyValidator,
+        IPositionMessageEmitter? messageEmitter,
+        IOccupantResponseScheduler? responseScheduler,
+        IOccupantResponseEscalationTargetResolver? responseTargetResolver,
+        IOccupantResponseKillSwitch? responseKillSwitch,
+        PeerRequestLimitResolver? peerRequestLimits)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
@@ -188,6 +208,7 @@ internal sealed class PositionActor :
         _responseScheduler = responseScheduler ?? AkkaOccupantResponseScheduler.Instance;
         _responseTargetResolver = responseTargetResolver;
         _responseKillSwitch = responseKillSwitch ?? EventStreamOccupantResponseKillSwitch.Instance;
+        _peerRequestLimits = peerRequestLimits;
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -223,31 +244,7 @@ internal sealed class PositionActor :
             WhenReady(() => BeginOccupantMessageHandoff(handoff, Sender)));
         Command<PositionOccupantMessageDeliveryCompleted>(HandleOccupantMessageDeliveryCompleted);
         Command<PositionOccupantMessageDeliveryFailed>(HandleOccupantMessageDeliveryFailed);
-        Command<AcceptMessage>(command =>
-        {
-            var replyTo = Sender;
-            WhenReady(() =>
-            {
-                if (_state.ProcessedMessages.Contains(command.Message.Id))
-                {
-                    PublishProjection(new PositionMessageDuplicateRejected(
-                        EntityId,
-                        command.Message.Id,
-                        command.Message.Thread,
-                        _clock()));
-                    ReplyToAcceptMessageIfRequested(
-                        replyTo,
-                        AcceptMessageResult.AlreadyAccepted(command.Message.Id));
-                    return;
-                }
-
-                PersistAcceptedMessage(
-                    command.Message,
-                    () => ReplyToAcceptMessageIfRequested(
-                        replyTo,
-                        AcceptMessageResult.Accepted(command.Message.Id)));
-            });
-        });
+        CommandAsync<AcceptMessage>(AcceptMessageAsync);
         Command<EmitOccupantReply>(command =>
             WhenReady(() => BeginOccupantReplyEmission(command, Sender)));
         Command<EmitCorrelatedOccupantReply>(command =>
@@ -449,11 +446,68 @@ internal sealed class PositionActor :
             replyTo.Tell(new PeerRequestLookupResult(_state.PeerRequests[command.RequestId])));
     }
 
-    private void PersistAcceptedMessage(OrgMessage message, Action? afterPersisted = null)
+    private async Task AcceptMessageAsync(AcceptMessage command)
+    {
+        var replyTo = Sender;
+        var ready = false;
+        WhenReady(() => ready = true);
+        if (!ready) return;
+
+        if (_state.ProcessedMessages.Contains(command.Message.Id))
+        {
+            PublishProjection(new PositionMessageDuplicateRejected(
+                EntityId, command.Message.Id, command.Message.Thread, _clock()));
+            ReplyToAcceptMessageIfRequested(replyTo,
+                AcceptMessageResult.AlreadyAccepted(command.Message.Id));
+            return;
+        }
+
+        PeerRequestChannel? channel = null;
+        if (command.Message is PeerRequest request && _peerRequestLimits is not null)
+        {
+            if (request.OrganizationId != EntityId.Organization
+                || request.To is not PositionEndpointRef destination
+                || destination.PositionId != EntityId.Position)
+            {
+                replyTo.Tell(new Status.Failure(new InvalidOperationException(
+                    "Peer request must target this position entity.")));
+                return;
+            }
+
+            try
+            {
+                // CommandAsync suspends mailbox processing across the lookup; Persist then
+                // holds subsequent commands until the admission fact has been applied.
+                channel = await _peerRequestLimits.ResolveAsync(request);
+            }
+            catch (Exception failure)
+            {
+                replyTo.Tell(new Status.Failure(failure));
+                return;
+            }
+
+            if (channel is not null && _state.CountOpenPeerRequests(channel, _clock()) >= channel.MaxOpenRequests)
+            {
+                var rejection = RoutingRejection.Create(RoutingValidationContext.ForMessage(request),
+                    ValidationResult.Create([RoutingValidationCatalog.PeerChannelLimitExceeded()]));
+                PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock()));
+                ReplyToAcceptMessageIfRequested(replyTo,
+                    AcceptMessageResult.Rejected(request.Id, RejectionReason.LimitExceeded));
+                return;
+            }
+        }
+
+        PersistAcceptedMessage(command.Message,
+            () => ReplyToAcceptMessageIfRequested(replyTo, AcceptMessageResult.Accepted(command.Message.Id)),
+            channel);
+    }
+
+    private void PersistAcceptedMessage(OrgMessage message, Action? afterPersisted = null,
+        PeerRequestChannel? peerChannel = null)
     {
         var events = new List<PositionEvent>
         {
-            new MessageReceived(message, _clock()),
+            new MessageReceived(message, _clock(), peerChannel),
         };
 
         if (TryGetCurrentOccupantActivation(out var activation))

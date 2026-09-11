@@ -42,6 +42,7 @@ public static class RoutingValidationCatalog
         public const string PeerResponseDuplicate = "peer-response-duplicate";
         public const string PeerRequestNotOpen = "peer-request-not-open";
         public const string PeerRequestExpired = "peer-request-expired";
+        public const string PeerChannelLimitExceeded = "peer-channel-limit-exceeded";
     }
 
     /// <summary>The endpoint variant at <paramref name="path"/> is not allowed for the message type.</summary>
@@ -99,4 +100,7 @@ public static class RoutingValidationCatalog
 
     public static ValidationError PeerRequestExpired() =>
         new(Codes.PeerRequestExpired, "inReplyTo", RejectionReason.Expired);
+
+    public static ValidationError PeerChannelLimitExceeded() =>
+        new(Codes.PeerChannelLimitExceeded, "to.positionId", RejectionReason.LimitExceeded);
 }

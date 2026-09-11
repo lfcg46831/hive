@@ -15,6 +15,7 @@ public sealed class PostgreSqlPeerChannelTests(PostgreSqlFixture fixture)
         var channel = PeerChannelConfigurationTests.Channel;
         var configuration = PeerChannelConfigurationTests.Configuration($"[{channel}]");
         OrganizationImportResult first;
+        await using var runtimeContracts = new PostgreSqlPeerChannelContracts(fixture.ConnectionString);
         await using (var dataSource = fixture.CreateDataSource())
         {
             await new PostgreSqlOrganizationRegistryMigrator(dataSource).MigrateAsync();
@@ -39,6 +40,8 @@ public sealed class PostgreSqlPeerChannelTests(PostgreSqlFixture fixture)
             var resolved = await contracts.ResolveChannelAsync(configuration.Organization.Id, UnitId.From("engineering"), UnitId.From("root"));
             Assert.Equal(persisted.Types, resolved!.Types);
             Assert.Equal(2, resolved.MaxOpenRequests);
+            Assert.Equal(2, (await runtimeContracts.ResolveChannelAsync(configuration.Organization.Id,
+                UnitId.From("engineering"), UnitId.From("root")))!.MaxOpenRequests);
             Assert.Equal(PeerChannelRejectionAction.Escalate, resolved.OnRejection);
             Assert.Null(await contracts.ResolveChannelAsync(configuration.Organization.Id, UnitId.From("root"), UnitId.From("engineering")));
 
@@ -63,6 +66,8 @@ public sealed class PostgreSqlPeerChannelTests(PostgreSqlFixture fixture)
             var snapshot = await registry.FindSnapshotAsync(configuration.Organization.Id);
             var persisted = Assert.Single(snapshot!.Units[UnitId.From("root")].Value.AllowedPeerChannels);
             Assert.Equal(5, persisted.MaxOpenRequests);
+            Assert.Equal(5, (await runtimeContracts.ResolveChannelAsync(configuration.Organization.Id,
+                UnitId.From("engineering"), UnitId.From("root")))!.MaxOpenRequests);
             Assert.Equal(PeerChannelRejectionAction.None, persisted.OnRejection);
             var resolved = await new RegistryPeerChannelContracts(registry)
                 .ResolveChannelAsync(configuration.Organization.Id, UnitId.From("engineering"), UnitId.From("root"));
@@ -79,6 +84,8 @@ public sealed class PostgreSqlPeerChannelTests(PostgreSqlFixture fixture)
             var registry = new PostgreSqlOrganizationRegistry(dataSource);
             var snapshot = await registry.FindSnapshotAsync(configuration.Organization.Id);
             Assert.Empty(snapshot!.Units[UnitId.From("root")].Value.AllowedPeerChannels);
+            Assert.Null(await runtimeContracts.ResolveChannelAsync(configuration.Organization.Id,
+                UnitId.From("engineering"), UnitId.From("root")));
             Assert.Null(await new RegistryPeerChannelContracts(registry)
                 .ResolveChannelAsync(configuration.Organization.Id, UnitId.From("engineering"), UnitId.From("root")));
         }

@@ -2,6 +2,7 @@ using Akka.Actor;
 using Hive.Actors.Positions;
 using Hive.Domain.Auditing;
 using Hive.Domain.Organization;
+using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Auditing;
 
@@ -19,11 +20,13 @@ internal sealed class PositionEntityProps : IPositionEntityProps
     private readonly RetainedActionResumeCoordinator? _resumeCoordinator;
     private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
     private readonly IOccupantResponseEscalationTargetResolver _responseTargetResolver;
+    private readonly PeerRequestLimitResolver _peerRequestLimits;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
         IPositionOccupantFactory occupantFactory,
         IOrganizationRelations organizationRelations,
+        IPeerChannelContracts peerChannelContracts,
         IJourneyAuditLog? auditLog = null,
         RetainedActionResumeCoordinator? resumeCoordinator = null)
     {
@@ -32,6 +35,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
         _occupantFactory = occupantFactory
             ?? throw new ArgumentNullException(nameof(occupantFactory));
         ArgumentNullException.ThrowIfNull(organizationRelations);
+        _peerRequestLimits = new PeerRequestLimitResolver(organizationRelations, peerChannelContracts);
         _occupantReplyValidator = new OccupantReplyMessageValidator(organizationRelations);
         _responseTargetResolver = new OrganizationRelationsOccupantResponseEscalationTargetResolver(
             organizationRelations);
@@ -53,5 +57,6 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             ShardedPositionMessageEmitter.Instance,
             null,
             _responseTargetResolver,
-            null));
+            null,
+            _peerRequestLimits));
 }

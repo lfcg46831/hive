@@ -141,7 +141,21 @@ public sealed record PositionReactivated : PositionProjectionEvent
     public PositionConfigurationStamp? LastConfigurationStamp { get; }
 }
 
-/// <summary>A redelivered message was rejected because the recovered processed set already contains it.</summary>
+/// <summary>A routing rejection at the recipient, reserved for the authorized audit trail.</summary>
+public sealed record PositionMessageRoutingRejected : PositionProjectionEvent
+{
+    public PositionMessageRoutingRejected(PositionEntityId entityId, RoutingRejection rejection,
+        DateTimeOffset occurredAt) : base(entityId, occurredAt)
+    {
+        Rejection = rejection ?? throw new ArgumentNullException(nameof(rejection));
+        if (rejection.Context.OrganizationId != entityId.Organization)
+            throw new ArgumentException("Rejection must belong to this organization.", nameof(rejection));
+    }
+
+    public RoutingRejection Rejection { get; }
+}
+
+/// <summary>A redelivered message was already accepted.</summary>
 public sealed record PositionMessageDuplicateRejected : PositionProjectionEvent
 {
     public PositionMessageDuplicateRejected(

@@ -72,6 +72,14 @@ public sealed record PositionState
     public ImmutableDictionary<MessageId, PeerRequestRecord> PeerRequests { get; private init; } =
         ImmutableDictionary<MessageId, PeerRequestRecord>.Empty;
 
+    public ImmutableDictionary<MessageId, ReceivedPeerRequest> ReceivedPeerRequests { get; private init; } =
+        ImmutableDictionary<MessageId, ReceivedPeerRequest>.Empty;
+
+    public int CountOpenPeerRequests(PeerRequestChannel channel, DateTimeOffset at) =>
+        ReceivedPeerRequests.Values.Count(item => !item.Responded
+            && item.Channel.FromUnit == channel.FromUnit && item.Channel.ToUnit == channel.ToUnit
+            && (item.Request.Deadline is null || item.Request.Deadline > at));
+
     /// <summary>The tasks currently in progress, keyed by task identity.</summary>
     public ImmutableDictionary<PositionTaskId, PersistedTask> OpenTasks { get; }
 
@@ -138,6 +146,7 @@ public sealed record PositionState
             snapshot.OccupantAbsenceEscalations.ToImmutableDictionary(item => item.Message))
         {
             PeerRequests = snapshot.PeerRequests.ToImmutableDictionary(item => item.Request.Id),
+            ReceivedPeerRequests = snapshot.ReceivedPeerRequests.ToImmutableDictionary(item => item.Request.Id),
         };
     }
 
@@ -160,7 +169,8 @@ public sealed record PositionState
         OccupantReplies.OrderBy(reply => reply.Message.Id.Value),
         OccupantNotifications.Values.OrderBy(notification => notification.Message.Value),
         OccupantAbsenceEscalations.Values.OrderBy(item => item.Message.Value),
-        PeerRequests.Values.OrderBy(item => item.Request.Id.Value));
+        PeerRequests.Values.OrderBy(item => item.Request.Id.Value),
+        ReceivedPeerRequests.Values.OrderBy(item => item.Request.Id.Value));
 
     /// <summary>
     /// Evaluates an attempted checkpoint revision without mutating state. Re-delivered or stale
@@ -288,7 +298,34 @@ public sealed record PositionState
             _ => this,
         };
 
-        return next with { PeerRequests = ApplyPeerRequest(@event) };
+        var peerRequests = ApplyPeerRequest(@event);
+        var receivedPeerRequests = ApplyReceivedPeerRequest(@event);
+        if (ReferenceEquals(next.PeerRequests, peerRequests)
+            && ReferenceEquals(next.ReceivedPeerRequests, receivedPeerRequests))
+            return next;
+
+        return next with
+        {
+            PeerRequests = peerRequests,
+            ReceivedPeerRequests = receivedPeerRequests,
+        };
+    }
+
+    private ImmutableDictionary<MessageId, ReceivedPeerRequest> ApplyReceivedPeerRequest(PositionEvent @event)
+    {
+        if (@event is MessageReceived { Message: PeerRequest request, PeerChannel: { } channel }
+            && !ReceivedPeerRequests.ContainsKey(request.Id))
+            return ReceivedPeerRequests.Add(request.Id, new ReceivedPeerRequest(request, channel));
+
+        if (@event is OccupantReplyEmitted { Message: PeerResponse response } emitted
+            && ReceivedPeerRequests.TryGetValue(response.InReplyTo, out var record)
+            && emitted.SourceMessageId == record.Request.Id
+            && PeerResponseRoutingValidator.Validate(response,
+                new PeerRequestRecord(record.Request, MessageState.Accepted), emitted.OccurredAt).IsValid)
+            return ReceivedPeerRequests.SetItem(record.Request.Id,
+                new ReceivedPeerRequest(record.Request, record.Channel, responded: true));
+
+        return ReceivedPeerRequests;
     }
 
     private ImmutableDictionary<MessageId, PeerRequestRecord> ApplyPeerRequest(PositionEvent @event)

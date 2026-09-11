@@ -10,13 +10,19 @@ namespace Hive.Domain.Positions;
 /// </summary>
 public sealed record MessageReceived : PositionEvent
 {
-    public MessageReceived(OrgMessage message, DateTimeOffset occurredAt)
+    public MessageReceived(OrgMessage message, DateTimeOffset occurredAt, PeerRequestChannel? peerChannel = null)
         : base(occurredAt)
     {
         ArgumentNullException.ThrowIfNull(message);
         Message = message;
+        if (peerChannel is not null && message is not PeerRequest)
+            throw new ArgumentException("Only peer requests consume channel capacity.", nameof(peerChannel));
+        PeerChannel = peerChannel;
     }
 
     /// <summary>The organizational message admitted into the inbox.</summary>
     public OrgMessage Message { get; }
+
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public PeerRequestChannel? PeerChannel { get; }
 }

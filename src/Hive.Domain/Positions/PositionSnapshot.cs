@@ -44,7 +44,8 @@ public sealed record PositionSnapshot
         IEnumerable<OccupantReplyEmitted>? occupantReplies = null,
         IEnumerable<PersistedOccupantNotification>? occupantNotifications = null,
         IEnumerable<OccupantAbsenceEscalationHandled>? occupantAbsenceEscalations = null,
-        IEnumerable<PeerRequestRecord>? peerRequests = null)
+        IEnumerable<PeerRequestRecord>? peerRequests = null,
+        IEnumerable<ReceivedPeerRequest>? receivedPeerRequests = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -62,6 +63,9 @@ public sealed record PositionSnapshot
         }
 
         TakenAt = takenAt;
+        ReceivedPeerRequests = ToValidatedArray(receivedPeerRequests, nameof(receivedPeerRequests));
+        if (ReceivedPeerRequests.Select(item => item.Request.Id).Distinct().Count() != ReceivedPeerRequests.Length)
+            throw new ArgumentException("Received peer request ids must be unique.", nameof(receivedPeerRequests));
         PeerRequests = ToValidatedArray(peerRequests, nameof(peerRequests));
         if (PeerRequests.Select(item => item.Request.Id).Distinct().Count() != PeerRequests.Length)
         {
@@ -158,6 +162,8 @@ public sealed record PositionSnapshot
 
     /// <summary>Original outgoing peer requests and their correlation states.</summary>
     public ImmutableArray<PeerRequestRecord> PeerRequests { get; }
+
+    public ImmutableArray<ReceivedPeerRequest> ReceivedPeerRequests { get; }
 
     /// <summary>The current occupant, or null when the position has none yet.</summary>
     public OccupantId? Occupant { get; }

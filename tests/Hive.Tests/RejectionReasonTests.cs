@@ -13,6 +13,7 @@ public sealed class RejectionReasonTests
         Assert.Equal(4, (int)RejectionReason.Unauthorized);
         Assert.Equal(5, (int)RejectionReason.Duplicate);
         Assert.Equal(6, (int)RejectionReason.Expired);
+        Assert.Equal(7, (int)RejectionReason.LimitExceeded);
         Assert.Equal(
             [
                 RejectionReason.InvalidContract,
@@ -21,6 +22,7 @@ public sealed class RejectionReasonTests
                 RejectionReason.Unauthorized,
                 RejectionReason.Duplicate,
                 RejectionReason.Expired,
+                RejectionReason.LimitExceeded,
             ],
             Enum.GetValues<RejectionReason>());
     }
@@ -32,6 +34,7 @@ public sealed class RejectionReasonTests
     [InlineData(RejectionReason.Unauthorized, "unauthorized")]
     [InlineData(RejectionReason.Duplicate, "duplicate")]
     [InlineData(RejectionReason.Expired, "expired")]
+    [InlineData(RejectionReason.LimitExceeded, "limit-exceeded")]
     public void Wire_values_round_trip_canonically(RejectionReason value, string wireValue)
     {
         Assert.Equal(wireValue, RejectionReasonContract.ToWireValue(value));
@@ -65,7 +68,7 @@ public sealed class RejectionReasonTests
 
     [Theory]
     [InlineData(0)]
-    [InlineData(7)]
+    [InlineData(8)]
     public void Operations_reject_undefined_in_memory_values(int rawValue)
     {
         var value = (RejectionReason)rawValue;

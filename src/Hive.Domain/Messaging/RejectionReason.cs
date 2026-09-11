@@ -8,6 +8,7 @@ public enum RejectionReason
     Unauthorized = 4,
     Duplicate = 5,
     Expired = 6,
+    LimitExceeded = 7,
 }
 
 public static class RejectionReasonContract
@@ -18,7 +19,8 @@ public static class RejectionReasonContract
         (RejectionReason.InvalidRoute, "invalid-route"),
         (RejectionReason.Unauthorized, "unauthorized"),
         (RejectionReason.Duplicate, "duplicate"),
-        (RejectionReason.Expired, "expired"));
+        (RejectionReason.Expired, "expired"),
+        (RejectionReason.LimitExceeded, "limit-exceeded"));
 
     public static RejectionReason RequireDefined(RejectionReason value, string parameterName) =>
         Contract.RequireDefined(value, parameterName);

@@ -37,9 +37,14 @@ public sealed record MessageRoutingRule
 
     public MessageChannel Channel { get; }
 
+    /// <summary>Alternative permitted paths; each path's relation must be proved by a validator.</summary>
     public ImmutableArray<RoutingPathRule> Paths { get; }
 }
 
+/// <summary>
+/// Immutable routing metadata. Contextual validators prove these relations; the catalog itself
+/// does not resolve contracts, correlate requests, enforce limits or admit messages.
+/// </summary>
 public static class MessageRoutingRules
 {
     public static ImmutableDictionary<Type, MessageRoutingRule> All { get; } =
@@ -59,6 +64,22 @@ public static class MessageRoutingRules
                     RoutingRelation.DirectSubordinateToDirectSuperior),
                 Path<PositionEndpointRef, OrganizationOwnerEndpointRef>(
                     RoutingRelation.RootLeadershipToOrganizationOwner)),
+            Rule<Memo>(
+                MessageChannel.Horizontal,
+                Path<PositionEndpointRef, PositionEndpointRef>(RoutingRelation.SameUnit),
+                Path<PositionEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.UnitLeadershipToUnitLeadership),
+                Path<PositionEndpointRef, PositionEndpointRef>(RoutingRelation.DeclaredPeerChannel)),
+            Rule<PeerRequest>(
+                MessageChannel.Horizontal,
+                Path<PositionEndpointRef, PositionEndpointRef>(RoutingRelation.SameUnit),
+                Path<PositionEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.UnitLeadershipToUnitLeadership),
+                Path<PositionEndpointRef, PositionEndpointRef>(RoutingRelation.DeclaredPeerChannel)),
+            Rule<PeerResponse>(
+                MessageChannel.Horizontal,
+                Path<PositionEndpointRef, PositionEndpointRef>(
+                    RoutingRelation.PeerRequestRecipientToOriginalRequester)),
             Rule<ApprovalRequest>(
                 MessageChannel.Governance,
                 Path<PositionEndpointRef, PositionEndpointRef>(
@@ -99,7 +120,7 @@ public static class MessageRoutingRules
         }
 
         throw new ArgumentException(
-            $"{messageType.Name} has no vertical or governance routing rule.",
+            $"{messageType.Name} has no routing rule.",
             nameof(messageType));
     }
 

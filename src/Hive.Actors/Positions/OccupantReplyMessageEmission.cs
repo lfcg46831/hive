@@ -24,6 +24,9 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
     private readonly MessageContractValidator _contractValidator = new();
     private readonly ApprovalRoutingValidator _approvalValidator;
     private readonly RoutingAdmissionValidator _routingValidator;
+    private readonly TimeProvider _timeProvider;
+    private readonly IOrganizationRelations _relations;
+    private readonly PeerResponseRoutingValidator? _peerResponseValidator;
 
     public OccupantReplyMessageValidator(IOrganizationRelations relations)
         : this(relations, TimeProvider.System)
@@ -33,9 +36,20 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
     public OccupantReplyMessageValidator(
         IOrganizationRelations relations,
         TimeProvider timeProvider)
+        : this(relations, timeProvider, null)
+    {
+    }
+
+    private OccupantReplyMessageValidator(
+        IOrganizationRelations relations,
+        TimeProvider timeProvider,
+        IPeerRequestLog? peerRequestLog)
     {
         ArgumentNullException.ThrowIfNull(relations);
         ArgumentNullException.ThrowIfNull(timeProvider);
+        _timeProvider = timeProvider;
+        _relations = relations;
+        _peerResponseValidator = peerRequestLog is null ? null : new PeerResponseRoutingValidator(peerRequestLog, timeProvider);
         _approvalValidator = new ApprovalRoutingValidator(
             UnsupportedApprovalAuthority.Instance,
             UnsupportedApprovalRequestLog.Instance,
@@ -46,6 +60,9 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
             new EscalationRoutingValidator(relations),
             _approvalValidator);
     }
+
+    internal OccupantReplyMessageValidator WithPeerRequestLog(IPeerRequestLog requestLog) =>
+        new(_relations, _timeProvider, requestLog);
 
     public async ValueTask<ValidationResult> ValidateAsync(
         PositionState state,
@@ -89,6 +106,26 @@ internal sealed class OccupantReplyMessageValidator : IOccupantReplyMessageValid
                     requestState,
                     cancellationToken)
                 .ConfigureAwait(false);
+        }
+
+        if (message is PeerResponse response)
+        {
+            if (_peerResponseValidator is not null)
+            {
+                var correlated = await _peerResponseValidator.ValidateAsync(response, cancellationToken);
+                return correlated.IsValid ? correlated
+                    : RoutingRejection.Create(RoutingValidationContext.ForMessage(response), correlated).PublicResult;
+            }
+
+            var request = state.Inbox.Concat(state.MaterializedHistory).OfType<PeerRequest>()
+                .FirstOrDefault(candidate => candidate.Id == response.InReplyTo);
+            var requestState = state.OccupantReplies.Any(reply =>
+                reply.Message is PeerResponse previous && previous.InReplyTo == response.InReplyTo)
+                ? MessageState.Completed : MessageState.Accepted;
+            var validation = PeerResponseRoutingValidator.Validate(response,
+                request is null ? null : new PeerRequestRecord(request, requestState), _timeProvider.GetUtcNow());
+            return validation.IsValid ? validation
+                : RoutingRejection.Create(RoutingValidationContext.ForMessage(response), validation).PublicResult;
         }
 
         var admission = await _routingValidator

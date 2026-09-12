@@ -21,6 +21,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
     private readonly IOccupantReplyMessageValidator _occupantReplyValidator;
     private readonly IOccupantResponseEscalationTargetResolver _responseTargetResolver;
     private readonly PeerRequestLimitResolver _peerRequestLimits;
+    private readonly HorizontalRoutingValidator _horizontalRouting;
 
     public PositionEntityProps(
         IPositionConfigurationProvider configurationProvider,
@@ -36,6 +37,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             ?? throw new ArgumentNullException(nameof(occupantFactory));
         ArgumentNullException.ThrowIfNull(organizationRelations);
         _peerRequestLimits = new PeerRequestLimitResolver(organizationRelations, peerChannelContracts);
+        _horizontalRouting = new HorizontalRoutingValidator(organizationRelations, peerChannelContracts);
         _occupantReplyValidator = new OccupantReplyMessageValidator(organizationRelations);
         _responseTargetResolver = new OrganizationRelationsOccupantResponseEscalationTargetResolver(
             organizationRelations);
@@ -58,5 +60,7 @@ internal sealed class PositionEntityProps : IPositionEntityProps
             null,
             _responseTargetResolver,
             null,
-            _peerRequestLimits));
+            _peerRequestLimits,
+            _horizontalRouting,
+            null));
 }

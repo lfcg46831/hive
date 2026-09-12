@@ -18,9 +18,10 @@ namespace Hive.Actors.Positions;
 /// snapshot and folds subsequent persisted events into <see cref="PositionState"/> before Akka
 /// releases commands from the recovery stash.
 /// </summary>
-internal sealed class PositionActor :
+internal sealed partial class PositionActor :
     ReceivePersistentActor,
-    IWithUnboundedStash
+    IWithUnboundedStash,
+    IWithTimers
 {
     internal const string PersistenceIdPrefix = "position:";
 
@@ -190,6 +191,27 @@ internal sealed class PositionActor :
         IOccupantResponseEscalationTargetResolver? responseTargetResolver,
         IOccupantResponseKillSwitch? responseKillSwitch,
         PeerRequestLimitResolver? peerRequestLimits)
+        : this(entityId, configurationProvider, occupantFactory, projectionPublisher, clock,
+            resumeCoordinator, occupantReplyValidator, messageEmitter, responseScheduler,
+            responseTargetResolver, responseKillSwitch, peerRequestLimits, null, null)
+    {
+    }
+
+    public PositionActor(
+        string entityId,
+        IPositionConfigurationProvider configurationProvider,
+        IPositionOccupantFactory occupantFactory,
+        IPositionProjectionPublisher? projectionPublisher,
+        Func<DateTimeOffset> clock,
+        RetainedActionResumeCoordinator? resumeCoordinator,
+        IOccupantReplyMessageValidator? occupantReplyValidator,
+        IPositionMessageEmitter? messageEmitter,
+        IOccupantResponseScheduler? responseScheduler,
+        IOccupantResponseEscalationTargetResolver? responseTargetResolver,
+        IOccupantResponseKillSwitch? responseKillSwitch,
+        PeerRequestLimitResolver? peerRequestLimits,
+        HorizontalRoutingValidator? horizontalRouting,
+        IPeerRequestRegistrar? peerRequestRegistrar)
     {
         EntityId = PositionEntityId.Parse(entityId);
         _configurationProvider = configurationProvider
@@ -204,11 +226,17 @@ internal sealed class PositionActor :
             Domain.Auditing.NoopJourneyAuditLog.Instance);
         _occupantReplyValidator = occupantReplyValidator
             ?? UnavailableOccupantReplyMessageValidator.Instance;
+        if (horizontalRouting is not null && occupantReplyValidator is OccupantReplyMessageValidator replyValidator)
+            _occupantReplyValidator = replyValidator.WithPeerRequestLog(new PositionPeerRequestLog(Context.System));
         _messageEmitter = messageEmitter ?? ShardedPositionMessageEmitter.Instance;
         _responseScheduler = responseScheduler ?? AkkaOccupantResponseScheduler.Instance;
         _responseTargetResolver = responseTargetResolver;
         _responseKillSwitch = responseKillSwitch ?? EventStreamOccupantResponseKillSwitch.Instance;
         _peerRequestLimits = peerRequestLimits;
+        _horizontalAdmission = horizontalRouting is null ? null : new RoutingAdmissionValidator(
+            horizontalRouting, new PeerResponseRoutingValidator(
+                new LocalPeerRequestLog(EntityId, () => _state), new PositionTimeProvider(_clock)));
+        _peerRequestRegistrar = peerRequestRegistrar ?? ShardedPeerRequestRegistrar.Instance;
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -245,6 +273,8 @@ internal sealed class PositionActor :
         Command<PositionOccupantMessageDeliveryCompleted>(HandleOccupantMessageDeliveryCompleted);
         Command<PositionOccupantMessageDeliveryFailed>(HandleOccupantMessageDeliveryFailed);
         CommandAsync<AcceptMessage>(AcceptMessageAsync);
+        Command<PeerRegistrationCompleted>(HandlePeerRegistrationCompleted);
+        Command<RetryPeerRegistration>(retry => BeginPeerRegistration(retry.Request));
         Command<EmitOccupantReply>(command =>
             WhenReady(() => BeginOccupantReplyEmission(command, Sender)));
         Command<EmitCorrelatedOccupantReply>(command =>
@@ -463,6 +493,32 @@ internal sealed class PositionActor :
         }
 
         PeerRequestChannel? channel = null;
+        if (_horizontalAdmission is not null && command.Message is Memo or PeerRequest or PeerResponse)
+        {
+            if (command.Message.OrganizationId != EntityId.Organization
+                || command.Message.To is PositionEndpointRef target && target.PositionId != EntityId.Position)
+            {
+                replyTo.Tell(new Status.Failure(new InvalidOperationException(
+                    "Horizontal message must target this position entity.")));
+                return;
+            }
+
+            try
+            {
+                var admission = await _horizontalAdmission.AdmitAsync(command.Message);
+                if (!admission.IsAdmitted)
+                {
+                    RejectHorizontalMessage(command.Message, admission.Rejection!, replyTo);
+                    return;
+                }
+            }
+            catch (Exception failure)
+            {
+                replyTo.Tell(new Status.Failure(failure));
+                return;
+            }
+        }
+
         if (command.Message is PeerRequest request && _peerRequestLimits is not null)
         {
             if (request.OrganizationId != EntityId.Organization
@@ -490,24 +546,36 @@ internal sealed class PositionActor :
             {
                 var rejection = RoutingRejection.Create(RoutingValidationContext.ForMessage(request),
                     ValidationResult.Create([RoutingValidationCatalog.PeerChannelLimitExceeded()]));
-                PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock()));
-                ReplyToAcceptMessageIfRequested(replyTo,
-                    AcceptMessageResult.Rejected(request.Id, RejectionReason.LimitExceeded));
+                RejectHorizontalMessage(request, rejection, replyTo);
+                return;
+            }
+        }
+
+        var receivedAt = _clock();
+        if (_horizontalAdmission is not null && command.Message is PeerResponse response)
+        {
+            // Use exactly the receipt timestamp when folding the event too, even at a deadline boundary.
+            var validation = PeerResponseRoutingValidator.Validate(response,
+                _state.PeerRequests.GetValueOrDefault(response.InReplyTo), receivedAt);
+            if (!validation.IsValid)
+            {
+                RejectHorizontalMessage(response, RoutingRejection.Create(
+                    RoutingValidationContext.ForMessage(response), validation), replyTo);
                 return;
             }
         }
 
         PersistAcceptedMessage(command.Message,
             () => ReplyToAcceptMessageIfRequested(replyTo, AcceptMessageResult.Accepted(command.Message.Id)),
-            channel);
+            channel, receivedAt);
     }
 
     private void PersistAcceptedMessage(OrgMessage message, Action? afterPersisted = null,
-        PeerRequestChannel? peerChannel = null)
+        PeerRequestChannel? peerChannel = null, DateTimeOffset? receivedAt = null)
     {
         var events = new List<PositionEvent>
         {
-            new MessageReceived(message, _clock(), peerChannel),
+            new MessageReceived(message, receivedAt ?? _clock(), peerChannel),
         };
 
         if (TryGetCurrentOccupantActivation(out var activation))
@@ -2153,6 +2221,9 @@ internal sealed class PositionActor :
 
     private void PersistPendingDispatches(Action? afterDispatch = null)
     {
+        foreach (var request in _state.Inbox.OfType<PeerRequest>())
+            BeginPeerRegistration(request);
+
         if (!TryGetCurrentOccupantActivation(out var activation))
         {
             if (_state.Occupant is { } inactiveOccupant &&
@@ -2188,14 +2259,7 @@ internal sealed class PositionActor :
                     activation.Occupant,
                     activation.OccupantType,
                     _clock());
-                if (activation.OccupantType == OccupantType.Human)
-                {
-                    PersistHumanOccupantNotificationRequest(message, dispatch);
-                }
-                else
-                {
-                    DeliverToOccupant(message, dispatch);
-                }
+                DispatchRegisteredMessage(message, dispatch);
             }
 
             afterDispatch?.Invoke();
@@ -2233,6 +2297,9 @@ internal sealed class PositionActor :
         _state = _state.Apply(persisted);
         PublishProjection(new PositionEventCommitted(EntityId, persisted));
 
+        if (persisted is MessageReceived { Message: PeerRequest peerRequest })
+            BeginPeerRegistration(peerRequest);
+
         if (persisted is ActionRetained retained)
         {
             PublishProjection(new PositionRetainedActionReady(EntityId, retained.Action));
@@ -2262,14 +2329,7 @@ internal sealed class PositionActor :
 
         if (persisted is MessageDispatched dispatchEvent && dispatchedMessage is not null)
         {
-            if (dispatchEvent.OccupantType == OccupantType.Human)
-            {
-                PersistHumanOccupantNotificationRequest(dispatchedMessage, dispatchEvent);
-            }
-            else
-            {
-                DeliverToOccupant(dispatchedMessage, dispatchEvent);
-            }
+            DispatchRegisteredMessage(dispatchedMessage, dispatchEvent);
         }
 
         if (persisted is OccupantReplyEmitted emitted)
@@ -2293,6 +2353,10 @@ internal sealed class PositionActor :
         OrgMessage message,
         MessageDispatched dispatch)
     {
+        if (_horizontalAdmission is not null && message is PeerRequest
+            && !_registeredPeerRequests.Contains(message.Id))
+            return;
+
         if (!TryGetActivation(dispatch.Occupant, dispatch.OccupantType, out var activation))
         {
             if (dispatch.OccupantType == OccupantType.Human)

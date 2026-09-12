@@ -118,10 +118,10 @@ public sealed class RoutingAdmissionValidatorTests
             admission.Rejection!.PublicResult.Errors);
     }
 
-    // ---- out of vertical/governance scope ----
+    // ---- missing horizontal configuration fails closed ----
 
     [Fact]
-    public async Task Message_without_routing_rule_is_admitted_without_querying_validators()
+    public async Task Horizontal_message_without_its_validator_is_a_configuration_failure()
     {
         var blowUp = new InvalidOperationException("Validators must not be queried.");
         var admission = new RoutingAdmissionValidator(
@@ -130,10 +130,8 @@ public sealed class RoutingAdmissionValidatorTests
             new EscalationRoutingValidator(new FailingRelations(blowUp)),
             new ApprovalRoutingValidator(new FailingAuthority(blowUp), new FailingLog(blowUp)));
 
-        var result = await admission.AdmitAsync(Memo(Engineer, DeliveryLead));
-
-        Assert.True(result.IsAdmitted);
-        Assert.Null(result.Rejection);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            admission.AdmitAsync(Memo(Engineer, DeliveryLead)).AsTask());
     }
 
     // ---- technical failures stay exceptional ----

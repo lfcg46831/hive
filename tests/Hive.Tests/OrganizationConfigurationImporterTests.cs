@@ -34,10 +34,10 @@ public sealed class OrganizationConfigurationImporterTests
         Assert.Equal(1, snapshot.Version);
         Assert.StartsWith("sha256:", snapshot.Fingerprint, StringComparison.Ordinal);
         Assert.Equal(FirstImportAt, snapshot.ImportedAt);
-        Assert.Equal(2, snapshot.Units.Count);
-        Assert.Equal(3, snapshot.Positions.Count);
-        Assert.Equal(3, snapshot.Occupants.Count);
-        Assert.Equal(3, snapshot.Authorities.Count);
+        Assert.Equal(3, snapshot.Units.Count);
+        Assert.Equal(5, snapshot.Positions.Count);
+        Assert.Equal(5, snapshot.Occupants.Count);
+        Assert.Equal(5, snapshot.Authorities.Count);
         Assert.Single(snapshot.Schedules);
         var schedule = Assert.Single(snapshot.Schedules).Value.Value;
         Assert.True(schedule.IsActive);
@@ -51,15 +51,22 @@ public sealed class OrganizationConfigurationImporterTests
                 (RegistryEntityKind.Organization, "acme-delivery"),
                 (RegistryEntityKind.Unit, "engenharia"),
                 (RegistryEntityKind.Unit, "raiz"),
+                (RegistryEntityKind.Unit, "suporte"),
                 (RegistryEntityKind.Position, "bug-triage"),
                 (RegistryEntityKind.Position, "ceo"),
                 (RegistryEntityKind.Position, "delivery-lead"),
+                (RegistryEntityKind.Position, "support-analyst"),
+                (RegistryEntityKind.Position, "support-lead"),
                 (RegistryEntityKind.Occupant, "bug-triage"),
                 (RegistryEntityKind.Occupant, "ceo"),
                 (RegistryEntityKind.Occupant, "delivery-lead"),
+                (RegistryEntityKind.Occupant, "support-analyst"),
+                (RegistryEntityKind.Occupant, "support-lead"),
                 (RegistryEntityKind.Authority, "bug-triage"),
                 (RegistryEntityKind.Authority, "ceo"),
                 (RegistryEntityKind.Authority, "delivery-lead"),
+                (RegistryEntityKind.Authority, "support-analyst"),
+                (RegistryEntityKind.Authority, "support-lead"),
                 (RegistryEntityKind.Schedule, "delivery-lead/relatorio-diario"),
                 (RegistryEntityKind.CommandRelations, "acme-delivery"),
                 (RegistryEntityKind.ActionDomainCatalog, "acme-delivery"),
@@ -366,10 +373,10 @@ public sealed class OrganizationConfigurationImporterTests
             UnitId.From("engenharia"),
             await relations.GetUnitOfPositionAsync(organizationId, deliveryLead));
         Assert.Equal(
-            deliveryLead,
-            Assert.Single(await relations.GetDirectSubordinatesAsync(
+            [deliveryLead, PositionId.From("support-lead")],
+            await relations.GetDirectSubordinatesAsync(
                 organizationId,
-                PositionId.From("ceo"))));
+                PositionId.From("ceo")));
         Assert.Equal(
             bugTriage,
             Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, deliveryLead)));

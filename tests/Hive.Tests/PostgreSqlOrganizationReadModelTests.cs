@@ -41,19 +41,19 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
         Assert.Equal("raiz", response.RootUnitId);
         Assert.Equal("raiz", response.Organization.RootUnitId);
         Assert.Equal("ceo", response.Organization.RootPositionId);
-        Assert.Equal(["engenharia", "raiz"], response.Units.Select(unit => unit.Id));
+        Assert.Equal(["engenharia", "raiz", "suporte"], response.Units.Select(unit => unit.Id));
         Assert.Equal(
             "delivery-lead",
             response.Units.Single(unit => unit.Id == "engenharia").LeadershipPositionId);
         Assert.Equal(
-            ["bug-triage", "ceo", "delivery-lead"],
+            ["bug-triage", "ceo", "delivery-lead", "support-analyst", "support-lead"],
             response.Positions.Select(position => position.Id));
 
         var ceo = response.Positions.Single(position => position.Id == "ceo");
         var deliveryLead = response.Positions.Single(position => position.Id == "delivery-lead");
         var bugTriage = response.Positions.Single(position => position.Id == "bug-triage");
         Assert.Null(ceo.Hierarchy.ReportsToPositionId);
-        Assert.Equal(["delivery-lead"], ceo.Hierarchy.DirectSubordinatePositionIds);
+        Assert.Equal(["delivery-lead", "support-lead"], ceo.Hierarchy.DirectSubordinatePositionIds);
         Assert.Equal("ceo", deliveryLead.Hierarchy.ReportsToPositionId);
         Assert.Equal(["bug-triage"], deliveryLead.Hierarchy.DirectSubordinatePositionIds);
         Assert.Equal("delivery-lead", bugTriage.Hierarchy.ReportsToPositionId);
@@ -117,7 +117,7 @@ public sealed class PostgreSqlOrganizationReadModelTests(PostgreSqlFixture fixtu
         Assert.Equal("delivery-lead", position.Position.Id);
         Assert.Null(states.LastEventAppliedAtUtc);
         Assert.Equal(
-            ["bug-triage", "ceo", "delivery-lead"],
+            ["bug-triage", "ceo", "delivery-lead", "support-analyst", "support-lead"],
             states.States.Select(state => state.PositionId));
         Assert.All(states.States, state => Assert.Equal(PositionOperationalState.Idle, state.State));
     }

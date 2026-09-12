@@ -13,6 +13,10 @@ prompts:
     path: prompts/engineer-v1.md
   - id: triage-v1
     path: prompts/triage-v1.md
+  - id: support-lead-v1
+    path: prompts/support-lead-v1.md
+  - id: support-analyst-v1
+    path: prompts/support-analyst-v1.md
 
 units:
   - id: raiz
@@ -23,6 +27,15 @@ units:
     name: Engenharia/Delivery
     parent: raiz
     leadership: delivery-lead
+  - id: suporte
+    name: Suporte
+    parent: raiz
+    leadership: support-lead
+    allowed_peer_channels:
+      - from: engenharia
+        types: [peer-request]
+        max_open_requests: 2
+        on_rejection: escalate
 
 positions:
   - id: ceo
@@ -115,3 +128,43 @@ positions:
           - key: delivery.github-issue-state
             gate: human-approval
             approver: delivery-lead
+  - id: support-lead
+    name: Support Lead
+    unit: suporte
+    reports_to: ceo
+    timezone: Europe/Lisbon
+    occupant:
+      type: ai-agent
+      identity_prompt_ref: support-lead-v1
+      ai:
+        provider: openai
+        model: gpt-5-mini
+        max_tokens: 4096
+        max_iterations: 4
+        timeout: PT30S
+        processing: interactive
+        budget:
+          reactive_max_eur_per_day: 5.00
+          proactive_max_eur_per_day: 1.00
+          total_max_eur_per_day: 6.00
+          max_calls_per_hour: 60
+  - id: support-analyst
+    name: Support Analyst
+    unit: suporte
+    reports_to: support-lead
+    timezone: Europe/Lisbon
+    occupant:
+      type: ai-agent
+      identity_prompt_ref: support-analyst-v1
+      ai:
+        provider: openai
+        model: gpt-5-mini
+        max_tokens: 4096
+        max_iterations: 4
+        timeout: PT30S
+        processing: interactive
+        budget:
+          reactive_max_eur_per_day: 5.00
+          proactive_max_eur_per_day: 1.00
+          total_max_eur_per_day: 6.00
+          max_calls_per_hour: 60

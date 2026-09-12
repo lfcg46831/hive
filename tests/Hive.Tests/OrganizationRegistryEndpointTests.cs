@@ -135,7 +135,7 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
         Assert.Equal(snapshot.Version, json.GetProperty("version").GetInt64());
         Assert.Equal(snapshot.Fingerprint, json.GetProperty("fingerprint").GetString());
         Assert.Equal("human", json.GetProperty("owner").GetProperty("type").GetString());
-        Assert.Equal(3, json.GetProperty("prompts").GetArrayLength());
+        Assert.Equal(5, json.GetProperty("prompts").GetArrayLength());
     }
 
     [Fact]
@@ -150,7 +150,7 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
             $"{OrganizationRegistryEndpointExtensions.BasePath}/acme-delivery/units");
 
         Assert.Equal(
-            new[] { "engenharia", "raiz" },
+            new[] { "engenharia", "raiz", "suporte" },
             json.GetProperty("units").EnumerateArray()
                 .Select(unit => unit.GetProperty("id").GetString()));
     }
@@ -167,7 +167,7 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
             $"{OrganizationRegistryEndpointExtensions.BasePath}/acme-delivery/positions");
 
         Assert.Equal(
-            new[] { "bug-triage", "ceo", "delivery-lead" },
+            new[] { "bug-triage", "ceo", "delivery-lead", "support-analyst", "support-lead" },
             json.GetProperty("positions").EnumerateArray()
                 .Select(position => position.GetProperty("id").GetString()));
     }
@@ -187,18 +187,17 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
         Assert.Equal("owner@acme.pt", json.GetProperty("owner").GetProperty("ref").GetString());
         var relations = json.GetProperty("relations").EnumerateArray().ToArray();
         Assert.Equal(
-            new[] { "bug-triage", "ceo", "delivery-lead" },
+            new[] { "bug-triage", "ceo", "delivery-lead", "support-analyst", "support-lead" },
             relations.Select(item => item.GetProperty("positionId").GetString()));
         Assert.Equal("delivery-lead", relations[0].GetProperty("reportsToPositionId").GetString());
         Assert.Empty(relations[0].GetProperty("directSubordinatePositionIds").EnumerateArray());
         Assert.Equal("ceo", relations[2].GetProperty("reportsToPositionId").GetString());
         Assert.Equal(
-            "delivery-lead",
-            Assert.Single(
-                relations[1]
-                    .GetProperty("directSubordinatePositionIds")
-                    .EnumerateArray())
-                .GetString());
+            new[] { "delivery-lead", "support-lead" },
+            relations[1]
+                .GetProperty("directSubordinatePositionIds")
+                .EnumerateArray()
+                .Select(position => position.GetString()));
         Assert.Equal(
             "bug-triage",
             Assert.Single(

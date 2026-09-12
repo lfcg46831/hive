@@ -1171,7 +1171,23 @@ Both executable outputs and the Docker image include the tracked `config/organiz
 
 Declare incoming unit channels in the destination unit's `allowed_peer_channels` list in `organization.yaml`, following the canonical schema in [bible §4.8](bible.html). Apply changes through the same reviewed GitOps import workflow. Import errors identify the offending field; invalid imports leave the current registry version intact. Removing the list removes the declared channels on the next import.
 
-Registry migration `008_peer_channels.sql` adds `registry.units.allowed_peer_channels` as JSONB and initializes existing units with an empty list. It runs through the normal migration bootstrap and requires no new settings or credentials. Channel declarations are stored at this stage; runtime routing enforcement is delivered by the remaining tasks of `US-F1-06`.
+Registry migration `008_peer_channels.sql` adds `registry.units.allowed_peer_channels` as JSONB and initializes existing units with an empty list. It runs through the normal migration bootstrap and requires no new settings or credentials. The runtime enforces directional channels, response correlation, admission limits and declared rejection escalation; see the canonical contracts and [worked routing examples in US-F1-06](bible.html#peer-channel-examples).
+
+The tracked [ACME organization](../config/organizations/acme-delivery/organization.yaml) contains two operational units, `engenharia` and `suporte`, under `raiz`. Support receives the following channel from Engineering:
+
+```yaml
+  - id: suporte
+    name: Suporte
+    parent: raiz
+    leadership: support-lead
+    allowed_peer_channels:
+      - from: engenharia
+        types: [peer-request]
+        max_open_requests: 2
+        on_rejection: escalate
+```
+
+`support-lead` reports to `ceo`; `support-analyst` reports to `support-lead`. Their business identities are the tracked `prompts/support-lead-v1.md` and `prompts/support-analyst-v1.md`. Import the whole organization directory through the normal startup/deploy workflow above. The example needs no new host settings, credentials or connectors. Review channel changes in this YAML; the experiment snapshots under `config/experiments` are independent historical inputs.
 
 ### Outcome policy overlays
 

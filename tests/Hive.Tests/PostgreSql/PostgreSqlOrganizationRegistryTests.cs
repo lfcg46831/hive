@@ -40,10 +40,10 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         Assert.Equal(1, reloaded.Version);
         Assert.Equal(imported.Snapshot!.Fingerprint, reloaded.Fingerprint);
         Assert.Equal(FirstImportAt, reloaded.ImportedAt);
-        Assert.Equal(2, reloaded.Units.Count);
-        Assert.Equal(3, reloaded.Positions.Count);
-        Assert.Equal(3, reloaded.Occupants.Count);
-        Assert.Equal(3, reloaded.Authorities.Count);
+        Assert.Equal(3, reloaded.Units.Count);
+        Assert.Equal(5, reloaded.Positions.Count);
+        Assert.Equal(5, reloaded.Occupants.Count);
+        Assert.Equal(5, reloaded.Authorities.Count);
         var schedule = Assert.Single(reloaded.Schedules).Value.Value;
         Assert.True(schedule.IsActive);
         Assert.Equal("normal", schedule.Priority);
@@ -189,8 +189,8 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
                 organizationId,
                 PositionId.From("missing-position")));
         Assert.Equal(
-            deliveryLead,
-            Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, ceo)));
+            [deliveryLead, PositionId.From("support-lead")],
+            await relations.GetDirectSubordinatesAsync(organizationId, ceo));
         Assert.Equal(
             bugTriage,
             Assert.Single(await relations.GetDirectSubordinatesAsync(organizationId, deliveryLead)));

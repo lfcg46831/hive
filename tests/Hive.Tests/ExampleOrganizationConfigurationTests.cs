@@ -18,9 +18,9 @@ public sealed class ExampleOrganizationConfigurationTests
 
         Assert.Equal(OrganizationId, configuration.Organization.Id.Value);
         Assert.Equal("raiz", configuration.Organization.RootUnit.Value);
-        Assert.Equal(2, configuration.Units.Count);
-        Assert.Equal(3, configuration.Positions.Count);
-        Assert.Equal(3, configuration.Prompts.Count);
+        Assert.Equal(3, configuration.Units.Count);
+        Assert.Equal(5, configuration.Positions.Count);
+        Assert.Equal(5, configuration.Prompts.Count);
 
         Assert.True(OrganizationConfigurationUniquenessValidator.Validate(configuration).IsValid);
         Assert.True(OrganizationConfigurationCrossReferenceValidator.Validate(configuration).IsValid);

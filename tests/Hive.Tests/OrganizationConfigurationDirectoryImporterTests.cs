@@ -62,8 +62,8 @@ public sealed class OrganizationConfigurationDirectoryImporterTests
         var result = Assert.Single(results);
         Assert.Equal(OrganizationImportStatus.Applied, result.Status);
         Assert.Equal("acme-delivery", result.Snapshot!.OrganizationId.Value);
-        Assert.Equal(2, result.Snapshot.Units.Count);
-        Assert.Equal(3, result.Snapshot.Positions.Count);
+        Assert.Equal(3, result.Snapshot.Units.Count);
+        Assert.Equal(5, result.Snapshot.Positions.Count);
         Assert.Single(result.Snapshot.Schedules);
         Assert.Contains(
             result.Snapshot.ActionDomainCatalog.Value.Domains,

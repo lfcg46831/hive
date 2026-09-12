@@ -47,11 +47,13 @@ public sealed class PeerChannelConfigurationTests
             yield return [$"[{Channel.Replace(field, "")}]", $"{ChannelPath}.{field.TrimStart(',', ' ').Split(':')[0]}"];
         foreach (var value in new[] { "[]", "null", "memo", "[peer-response]", "[directive]", "[Memo]", "[1]", "[{}]", "[memo, memo]" })
             yield return [$"[{Channel.Replace("[peer-request, memo]", value)}]", $"{ChannelPath}.types"];
-        foreach (var value in new[] { "0", "-1", "1.5", "2147483648", "null" })
+        foreach (var value in new[] { "0", "-1", "1.5", "2147483648", "null", "true", "[]", "{}" })
             yield return [$"[{Channel.Replace("max_open_requests: 2", $"max_open_requests: {value}")}]", $"{ChannelPath}.max_open_requests"];
-        foreach (var value in new[] { "None", "reject", "1", "null" })
+        foreach (var value in new[] { "None", "reject", "1", "null", "[]", "{}" })
             yield return [$"[{Channel.Replace("on_rejection: escalate", $"on_rejection: {value}")}]", $"{ChannelPath}.on_rejection"];
         yield return [$"[{Channel.Replace("from: engineering", "from: null")}]", $"{ChannelPath}.from"];
+        foreach (var value in new[] { "''", "[]", "{}" })
+            yield return [$"[{Channel.Replace("from: engineering", $"from: {value}")}]", $"{ChannelPath}.from"];
         yield return [$"[{Channel.Replace(" }", ", unexpected: true }")}]", $"{ChannelPath}.unexpected"];
     }
 
@@ -91,12 +93,15 @@ public sealed class PeerChannelConfigurationTests
     [Fact]
     public async Task Duplicate_sources_are_rejected_even_when_types_differ()
     {
-        var importer = new OrganizationConfigurationImporter(new InMemoryOrganizationRegistry());
+        var registry = new InMemoryOrganizationRegistry();
+        var importer = new OrganizationConfigurationImporter(registry);
+        var initial = await importer.ImportAsync(Configuration($"[{Channel}]"));
         var result = await importer.ImportAsync(Configuration($"[{Channel}, {Channel.Replace("peer-request, memo", "memo")}]"));
         Assert.Equal(OrganizationImportStatus.Invalid, result.Status);
         var error = Assert.Single(result.ValidationErrors);
         Assert.Equal("duplicate-peer-channel", error.Code);
         Assert.Equal("units[0].allowed_peer_channels[1].from", error.Path);
+        Assert.Same(initial.Snapshot, await registry.FindSnapshotAsync(initial.Snapshot!.OrganizationId));
     }
 
     [Fact]

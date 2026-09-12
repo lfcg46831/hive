@@ -11,6 +11,58 @@ public sealed class HorizontalRoutingValidatorTests
     private static readonly UnitId Root = UnitId.From("root");
     private static readonly UnitId Delivery = UnitId.From("delivery");
 
+    public static IEnumerable<object[]> InitiationMatrix()
+    {
+        // Explicit routing expectations: 0 = implicit, 1 = declared direction, 2 = undeclared reverse.
+        (string From, string To, int Route)[] routes =
+        [
+            ("ceo", "assistant", 0), ("assistant", "ceo", 0),
+            ("delivery-lead", "engineer", 0), ("engineer", "delivery-lead", 0),
+            ("ceo", "delivery-lead", 0), ("delivery-lead", "ceo", 0),
+            ("ceo", "engineer", 1), ("assistant", "delivery-lead", 1), ("assistant", "engineer", 1),
+            ("engineer", "ceo", 2), ("delivery-lead", "assistant", 2), ("engineer", "assistant", 2),
+        ];
+        foreach (var (from, to, route) in routes)
+        foreach (var request in new[] { false, true })
+        foreach (var types in new[] { "absent", "memo", "peer-request", "both" })
+        {
+            var allowedType = types == "both" || types == (request ? "peer-request" : "memo");
+            string? error = route == 0 ? null
+                : route == 2 || types == "absent" ? "peer-channel-required"
+                : allowedType ? null : "peer-type-not-allowed";
+            yield return [from, to, request, types, error!, request && route == 1 && allowedType];
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(InitiationMatrix))]
+    public async Task Initiation_and_limit_resolution_agree_for_every_direction_role_and_type(
+        string from, string to, bool request, string types, string? error, bool limited)
+    {
+        var relations = new MaterializedOrganizationRelations(RelationsSnapshot(Org));
+        var channel = types == "absent" ? null : new PeerChannelConfiguration(Root,
+            types == "both" ? [PeerChannelMessageType.Memo, PeerChannelMessageType.PeerRequest]
+                : [types == "memo" ? PeerChannelMessageType.Memo : PeerChannelMessageType.PeerRequest],
+            7, PeerChannelRejectionAction.Escalate);
+        var contracts = new MaterializedPeerChannelContracts(ContractsSnapshot(Org, channel));
+        var message = Message(request, Position(from), Position(to));
+
+        var result = await Validate(new HorizontalRoutingValidator(relations, contracts), message);
+
+        if (error is null)
+            Assert.Same(ValidationResult.Valid, result);
+        else
+            Assert.Equal(new ValidationError(error,
+                error == "peer-type-not-allowed" ? "type" : "to.positionId", RejectionReason.InvalidRoute),
+                Assert.Single(result.Errors));
+
+        if (message is PeerRequest peerRequest)
+        {
+            var capacity = await new PeerRequestLimitResolver(relations, contracts).ResolveAsync(peerRequest);
+            Assert.Equal(limited ? new PeerRequestChannel(Root, Delivery, 7) : null, capacity);
+        }
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

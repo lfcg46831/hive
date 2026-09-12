@@ -12,6 +12,32 @@ public sealed class PeerChannelContractsTests
     private static readonly UnitId Destination = UnitId.From("root");
 
     [Fact]
+    public async Task Channels_are_not_transitive_and_case_distinct_units_keep_independent_policies()
+    {
+        var third = UnitId.From("support");
+        var caseDistinct = UnitId.From("Engineering");
+        var contracts = new MaterializedPeerChannelContracts(PeerChannelContractsSnapshot.CreateBuilder(Org)
+            .AddUnit(Source, [])
+            .AddUnit(caseDistinct, [])
+            .AddUnit(Destination, [Channel(), new(caseDistinct, [PeerChannelMessageType.Memo],
+                9, PeerChannelRejectionAction.None)])
+            .AddUnit(third, [new(Destination, [PeerChannelMessageType.PeerRequest],
+                3, PeerChannelRejectionAction.Escalate)])
+            .Build());
+
+        Assert.NotNull(await contracts.ResolveChannelAsync(Org, Source, Destination));
+        Assert.NotNull(await contracts.ResolveChannelAsync(Org, Destination, third));
+        Assert.Null(await contracts.ResolveChannelAsync(Org, Source, third));
+        Assert.Null(await contracts.ResolveChannelAsync(Org, third, Source));
+        var distinct = await contracts.ResolveChannelAsync(Org, caseDistinct, Destination);
+        Assert.Equal(caseDistinct, distinct!.From);
+        Assert.Equal([PeerChannelMessageType.Memo], distinct.Types);
+        Assert.Equal(9, distinct.MaxOpenRequests);
+        Assert.Equal(PeerChannelRejectionAction.None, distinct.OnRejection);
+        Assert.Equal(2, (await contracts.ResolveChannelAsync(Org, Source, Destination))!.MaxOpenRequests);
+    }
+
+    [Fact]
     public async Task Resolves_directional_contracts_with_canonical_types_and_independent_reverse_policy()
     {
         IPeerChannelContracts contracts = new MaterializedPeerChannelContracts(PeerChannelContractsSnapshot.CreateBuilder(Org)

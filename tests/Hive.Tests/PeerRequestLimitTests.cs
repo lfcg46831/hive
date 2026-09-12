@@ -22,6 +22,50 @@ public sealed class PeerRequestLimitTests
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(10);
     private static readonly PeerRequestChannel Channel = new(Source, Destination, 1);
 
+    [Theory]
+    [InlineData("sender")]
+    [InlineData("recipient")]
+    [InlineData("thread")]
+    [InlineData("request")]
+    [InlineData("source-message")]
+    public void Uncorrelated_emission_cannot_release_another_requests_capacity(string mismatch)
+    {
+        var request = Request();
+        var state = PositionState.Empty.Apply(new MessageReceived(request, At, Channel));
+        var valid = PeerResponseRoutingValidatorTests.Response(request);
+        var wrongPosition = new PositionEndpointRef(PositionId.From("unrelated"));
+        var response = new PeerResponse(MessageId.New(), valid.OrganizationId,
+            mismatch == "sender" ? wrongPosition : valid.From,
+            mismatch == "recipient" ? wrongPosition : valid.To,
+            mismatch == "thread" ? ThreadId.New() : valid.Thread,
+            valid.Priority, valid.SchemaVersion, valid.SentAt, valid.Deadline,
+            mismatch == "request" ? MessageId.New() : valid.InReplyTo, valid.Body);
+
+        var afterInvalid = state.Apply(new OccupantReplyEmitted(
+            mismatch == "source-message" ? MessageId.New() : request.Id,
+            OccupantReplyAuthor.HumanUser("person", "web"), response, At));
+
+        Assert.Equal(1, afterInvalid.CountOpenPeerRequests(Channel, At));
+        Assert.False(afterInvalid.ReceivedPeerRequests[request.Id].Responded);
+        var afterValid = afterInvalid.Apply(new OccupantReplyEmitted(request.Id,
+            OccupantReplyAuthor.HumanUser("person", "web"), valid, At));
+        Assert.Equal(0, afterValid.CountOpenPeerRequests(Channel, At));
+        Assert.True(afterValid.ReceivedPeerRequests[request.Id].Responded);
+    }
+
+    [Fact]
+    public void Requester_terminal_events_and_duplicate_receipts_do_not_release_recipient_capacity()
+    {
+        var request = Request();
+        var state = PositionState.Empty.Apply(new MessageReceived(request, At, Channel));
+        foreach (var terminal in new[] { MessageState.Rejected, MessageState.Failed })
+            state = state.Apply(new PeerRequestClosed(request.Id, terminal, At));
+        state = state.Apply(new MessageReceived(request, At.AddSeconds(1), new(Source, Destination, 9)));
+
+        Assert.Equal(1, state.CountOpenPeerRequests(Channel, At.AddYears(1)));
+        Assert.Equal(Channel, Assert.Single(state.ReceivedPeerRequests.Values).Channel);
+    }
+
     [Fact]
     public void Capacity_survives_delivery_history_eviction_snapshot_and_reply_replay()
     {

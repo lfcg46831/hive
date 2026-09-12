@@ -105,6 +105,41 @@ public sealed class PeerResponseRoutingValidatorTests
             .ValidateAsync(Response(request))).IsValid);
     }
 
+    [Theory]
+    [InlineData(MessageState.Received)]
+    [InlineData(MessageState.Accepted)]
+    [InlineData(MessageState.Processing)]
+    [InlineData(MessageState.Completed)]
+    [InlineData(MessageState.Rejected)]
+    [InlineData(MessageState.Failed)]
+    public async Task Correlation_mismatches_are_reported_alongside_state_errors_in_both_validation_paths(
+        MessageState state)
+    {
+        var request = Request(deadline: At);
+        var record = new PeerRequestRecord(request, state);
+        var response = Response(request, from: Position("intruder"), to: Position("another-requester"),
+            thread: ThreadId.New());
+        var expected = ValidationResult.Create([
+            new("peer-responder-required", "from.positionId", RejectionReason.InvalidRoute),
+            new("peer-requester-required", "to.positionId", RejectionReason.InvalidRoute),
+            new("peer-thread-mismatch", "threadId", RejectionReason.InvalidRoute),
+            state switch
+            {
+                MessageState.Completed => new("peer-response-duplicate", "inReplyTo", RejectionReason.Duplicate),
+                MessageState.Rejected or MessageState.Failed => new("peer-request-not-open", "inReplyTo", RejectionReason.InvalidRoute),
+                _ => new("peer-request-expired", "inReplyTo", RejectionReason.Expired),
+            },
+        ]);
+
+        var result = await new PeerResponseRoutingValidator(new Log(record), new Clock(At)).ValidateAsync(response);
+
+        Assert.Equal(expected.Errors, result.Errors);
+        Assert.Equal(expected.Errors, PeerResponseRoutingValidator.Validate(response, record, At).Errors);
+        var rejection = RoutingRejection.Create(RoutingValidationContext.ForMessage(response), result);
+        Assert.All(rejection.PublicResult.Errors, error => Assert.Equal("$", error.Path));
+        Assert.DoesNotContain(rejection.PublicResult.Errors, error => error.Code.StartsWith("peer-", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Failures_and_cancellation_propagate_without_becoming_absence()
     {

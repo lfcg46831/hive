@@ -14,12 +14,15 @@ public sealed class HorizontalRoutingValidator
     private readonly IOrganizationRelations _relations;
     private readonly IPeerChannelContracts _contracts;
 
+    public PeerRequestRejectionPolicy RejectionPolicy { get; }
+
     public HorizontalRoutingValidator(IOrganizationRelations relations, IPeerChannelContracts contracts)
     {
         ArgumentNullException.ThrowIfNull(relations);
         ArgumentNullException.ThrowIfNull(contracts);
         _relations = relations;
         _contracts = contracts;
+        RejectionPolicy = new PeerRequestRejectionPolicy(relations, contracts);
     }
 
     public ValueTask<ValidationResult> ValidateAsync(

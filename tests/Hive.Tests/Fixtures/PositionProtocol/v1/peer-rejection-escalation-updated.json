@@ -1,0 +1,26 @@
+{
+  "Rejection": {
+    "Request": {
+      "Ask": "Review",
+      "Id": "d3000000-0000-0000-0000-000000000001",
+      "OrganizationId": "acme",
+      "From": {
+        "kind": "position",
+        "positionId": "requester"
+      },
+      "To": {
+        "kind": "position",
+        "positionId": "responder"
+      },
+      "Thread": "d3000000-0000-0000-0000-0000000000a1",
+      "Priority": "normal",
+      "SchemaVersion": 1,
+      "SentAt": "2026-06-26T10:00:00\u002B00:00",
+      "Deadline": null
+    },
+    "Reason": "invalid-route"
+  },
+  "Escalation": null,
+  "Completed": false,
+  "OccurredAt": "2026-06-26T10:00:00\u002B00:00"
+}

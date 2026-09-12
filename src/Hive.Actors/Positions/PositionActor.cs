@@ -237,6 +237,10 @@ internal sealed partial class PositionActor :
             horizontalRouting, new PeerResponseRoutingValidator(
                 new LocalPeerRequestLog(EntityId, () => _state), new PositionTimeProvider(_clock)));
         _peerRequestRegistrar = peerRequestRegistrar ?? ShardedPeerRequestRegistrar.Instance;
+        _peerRejectionPolicy = horizontalRouting?.RejectionPolicy;
+        CommandAsync<RecordPeerRequestRejection>(RecordPeerRejectionAsync);
+        Command<RetryPeerRejection>(retry => WhenReady(() => BeginPeerRejectionDelivery(retry.Id)));
+        Command<PeerRejectionDelivered>(HandlePeerRejectionDelivered);
         PersistenceId = PersistenceIdFor(EntityId.Value);
 
         Recover<SnapshotOffer>(RecoverSnapshot);
@@ -508,7 +512,7 @@ internal sealed partial class PositionActor :
                 var admission = await _horizontalAdmission.AdmitAsync(command.Message);
                 if (!admission.IsAdmitted)
                 {
-                    RejectHorizontalMessage(command.Message, admission.Rejection!, replyTo);
+                    await RejectHorizontalMessageAsync(command.Message, admission.Rejection!, replyTo);
                     return;
                 }
             }
@@ -546,7 +550,7 @@ internal sealed partial class PositionActor :
             {
                 var rejection = RoutingRejection.Create(RoutingValidationContext.ForMessage(request),
                     ValidationResult.Create([RoutingValidationCatalog.PeerChannelLimitExceeded()]));
-                RejectHorizontalMessage(request, rejection, replyTo);
+                await RejectHorizontalMessageAsync(request, rejection, replyTo);
                 return;
             }
         }
@@ -559,7 +563,7 @@ internal sealed partial class PositionActor :
                 _state.PeerRequests.GetValueOrDefault(response.InReplyTo), receivedAt);
             if (!validation.IsValid)
             {
-                RejectHorizontalMessage(response, RoutingRejection.Create(
+                await RejectHorizontalMessageAsync(response, RoutingRejection.Create(
                     RoutingValidationContext.ForMessage(response), validation), replyTo);
                 return;
             }
@@ -2623,6 +2627,8 @@ internal sealed partial class PositionActor :
             RedeliverRequestedOccupantNotifications();
             ReconcileOccupantResponsePolicies();
             ReconcileOccupantAbsenceEscalations();
+            foreach (var pending in _state.PeerRejectionEscalations.Values.Where(item => !item.Completed))
+                BeginPeerRejectionDelivery(pending.Rejection.EscalationId);
             PublishProjection(new PositionReactivated(EntityId, _state.LastConfigurationStamp, _clock()));
             Stash.UnstashAll();
         });

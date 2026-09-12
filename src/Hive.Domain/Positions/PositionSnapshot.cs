@@ -45,7 +45,8 @@ public sealed record PositionSnapshot
         IEnumerable<PersistedOccupantNotification>? occupantNotifications = null,
         IEnumerable<OccupantAbsenceEscalationHandled>? occupantAbsenceEscalations = null,
         IEnumerable<PeerRequestRecord>? peerRequests = null,
-        IEnumerable<ReceivedPeerRequest>? receivedPeerRequests = null)
+        IEnumerable<ReceivedPeerRequest>? receivedPeerRequests = null,
+        IEnumerable<PeerRejectionEscalationUpdated>? peerRejectionEscalations = null)
     {
         if (occupant is null != occupantType is null)
         {
@@ -63,6 +64,9 @@ public sealed record PositionSnapshot
         }
 
         TakenAt = takenAt;
+        PeerRejectionEscalations = ToValidatedArray(peerRejectionEscalations, nameof(peerRejectionEscalations));
+        if (PeerRejectionEscalations.Select(item => item.Rejection.EscalationId).Distinct().Count() != PeerRejectionEscalations.Length)
+            throw new ArgumentException("Peer rejection escalation ids must be unique.", nameof(peerRejectionEscalations));
         ReceivedPeerRequests = ToValidatedArray(receivedPeerRequests, nameof(receivedPeerRequests));
         if (ReceivedPeerRequests.Select(item => item.Request.Id).Distinct().Count() != ReceivedPeerRequests.Length)
             throw new ArgumentException("Received peer request ids must be unique.", nameof(receivedPeerRequests));
@@ -209,6 +213,8 @@ public sealed record PositionSnapshot
 
     /// <summary>Durable immediate-escalation outcomes caused by basic occupant absence.</summary>
     public ImmutableArray<OccupantAbsenceEscalationHandled> OccupantAbsenceEscalations { get; }
+
+    public ImmutableArray<PeerRejectionEscalationUpdated> PeerRejectionEscalations { get; }
 
     private static ImmutableArray<T> ToValidatedArray<T>(IEnumerable<T>? source, string parameterName)
         where T : class

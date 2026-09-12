@@ -75,6 +75,9 @@ public sealed record PositionState
     public ImmutableDictionary<MessageId, ReceivedPeerRequest> ReceivedPeerRequests { get; private init; } =
         ImmutableDictionary<MessageId, ReceivedPeerRequest>.Empty;
 
+    public ImmutableDictionary<MessageId, PeerRejectionEscalationUpdated> PeerRejectionEscalations { get; private init; } =
+        ImmutableDictionary<MessageId, PeerRejectionEscalationUpdated>.Empty;
+
     public int CountOpenPeerRequests(PeerRequestChannel channel, DateTimeOffset at) =>
         ReceivedPeerRequests.Values.Count(item => !item.Responded
             && item.Channel.FromUnit == channel.FromUnit && item.Channel.ToUnit == channel.ToUnit
@@ -147,6 +150,7 @@ public sealed record PositionState
         {
             PeerRequests = snapshot.PeerRequests.ToImmutableDictionary(item => item.Request.Id),
             ReceivedPeerRequests = snapshot.ReceivedPeerRequests.ToImmutableDictionary(item => item.Request.Id),
+            PeerRejectionEscalations = snapshot.PeerRejectionEscalations.ToImmutableDictionary(item => item.Rejection.EscalationId),
         };
     }
 
@@ -170,7 +174,8 @@ public sealed record PositionState
         OccupantNotifications.Values.OrderBy(notification => notification.Message.Value),
         OccupantAbsenceEscalations.Values.OrderBy(item => item.Message.Value),
         PeerRequests.Values.OrderBy(item => item.Request.Id.Value),
-        ReceivedPeerRequests.Values.OrderBy(item => item.Request.Id.Value));
+        ReceivedPeerRequests.Values.OrderBy(item => item.Request.Id.Value),
+        PeerRejectionEscalations.Values.OrderBy(item => item.Rejection.EscalationId.Value));
 
     /// <summary>
     /// Evaluates an attempted checkpoint revision without mutating state. Re-delivered or stale
@@ -235,7 +240,7 @@ public sealed record PositionState
         ArgumentNullException.ThrowIfNull(configuration);
 
         var reasons = ImmutableArray.CreateBuilder<PositionPassivationBlockReason>();
-        if (!Inbox.IsEmpty)
+        if (!Inbox.IsEmpty || PeerRejectionEscalations.Values.Any(item => !item.Completed))
         {
             reasons.Add(PositionPassivationBlockReason.PendingDelivery);
         }
@@ -300,14 +305,20 @@ public sealed record PositionState
 
         var peerRequests = ApplyPeerRequest(@event);
         var receivedPeerRequests = ApplyReceivedPeerRequest(@event);
+        var escalations = PeerRejectionEscalations;
+        if (@event is PeerRejectionEscalationUpdated escalationUpdated
+            && (!escalations.TryGetValue(escalationUpdated.Rejection.EscalationId, out var previous) || !previous.Completed))
+            escalations = escalations.SetItem(escalationUpdated.Rejection.EscalationId, escalationUpdated);
         if (ReferenceEquals(next.PeerRequests, peerRequests)
-            && ReferenceEquals(next.ReceivedPeerRequests, receivedPeerRequests))
+            && ReferenceEquals(next.ReceivedPeerRequests, receivedPeerRequests)
+            && ReferenceEquals(next.PeerRejectionEscalations, escalations))
             return next;
 
         return next with
         {
             PeerRequests = peerRequests,
             ReceivedPeerRequests = receivedPeerRequests,
+            PeerRejectionEscalations = escalations,
         };
     }
 

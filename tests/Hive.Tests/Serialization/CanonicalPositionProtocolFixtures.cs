@@ -28,6 +28,13 @@ internal static class CanonicalPositionProtocolFixtures
             new PositionEndpointRef(PositionId.From("responder")),
             ThreadId(), Priority.Normal, 1, OccurredAt, OccurredAt.AddHours(1), "Review"), OccurredAt)),
         ("peer-request-closed", new PeerRequestClosed(MessageId(), MessageState.Failed, OccurredAt)),
+        ("peer-rejection-escalation-updated", new PeerRejectionEscalationUpdated(
+            new RecordPeerRequestRejection(new PeerRequest(
+                MessageId(), OrganizationId.From("acme"),
+                new PositionEndpointRef(PositionId.From("requester")),
+                new PositionEndpointRef(PositionId.From("responder")),
+                ThreadId(), Priority.Normal, 1, OccurredAt, null, "Review"), RejectionReason.InvalidRoute),
+            null, false, OccurredAt)),
         ("task-created", new TaskCreated(TaskId(), ThreadId(), "triage incoming regression", Priority.High, OccurredAt, OccurredAt.AddHours(3), MessageId())),
         ("task-updated", new TaskUpdated(TaskId(), "reproduced on staging", OccurredAt.AddMinutes(5), Priority.Critical, OccurredAt.AddHours(1))),
         ("task-completed", new TaskCompleted(TaskId(), OccurredAt.AddMinutes(15), "hotfix shipped")),

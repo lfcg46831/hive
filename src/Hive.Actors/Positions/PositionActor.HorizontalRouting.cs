@@ -17,11 +17,35 @@ internal sealed partial class PositionActor
     private readonly HashSet<MessageId> _registeringPeerRequests = [];
     private readonly HashSet<MessageId> _registeredPeerRequests = [];
 
-    private void RejectHorizontalMessage(OrgMessage message, RoutingRejection rejection, IActorRef replyTo)
+    private async Task RejectHorizontalMessageAsync(OrgMessage message, RoutingRejection rejection, IActorRef replyTo)
     {
-        PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock()));
-        ReplyToAcceptMessageIfRequested(replyTo,
-            AcceptMessageResult.Rejected(message.Id, rejection.PublicResult.Errors[0].Reason));
+        try
+        {
+            if (_peerRejectionPolicy is not null
+                && await _peerRejectionPolicy.ShouldEscalateAsync(message, rejection))
+            {
+                var notification = new RecordPeerRequestRejection((PeerRequest)message, rejection.PublicResult.Errors[0].Reason);
+                if (!_state.PeerRejectionEscalations.ContainsKey(notification.EscalationId))
+                {
+                    PersistEvents([new PeerRejectionEscalationUpdated(notification, null, false, _clock())], () =>
+                    {
+                        Reply();
+                        BeginPeerRejectionDelivery(notification.EscalationId);
+                    });
+                    return;
+                }
+                BeginPeerRejectionDelivery(notification.EscalationId);
+            }
+            Reply();
+        }
+        catch (Exception failure) { replyTo.Tell(new Status.Failure(failure)); }
+
+        void Reply()
+        {
+            PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock()));
+            ReplyToAcceptMessageIfRequested(replyTo,
+                AcceptMessageResult.Rejected(message.Id, rejection.PublicResult.Errors[0].Reason));
+        }
     }
 
     private void BeginPeerRegistration(PeerRequest request)
@@ -97,11 +121,19 @@ internal sealed partial class PositionActor
 internal interface IPeerRequestRegistrar
 {
     Task<PeerRequestLookupResult> RecordAsync(ActorSystem system, PeerRequest request);
+
+    Task<AcceptMessageResult> RecordRejectionAsync(ActorSystem system, RecordPeerRequestRejection rejection);
 }
 
 internal sealed class ShardedPeerRequestRegistrar : IPeerRequestRegistrar
 {
     public static ShardedPeerRequestRegistrar Instance { get; } = new();
+
+    public Task<AcceptMessageResult> RecordRejectionAsync(ActorSystem system, RecordPeerRequestRejection rejection) =>
+        ClusterSharding.Get(system).ShardRegion(PositionEntityId.EntityTypeName)
+            .Ask<AcceptMessageResult>(PositionEnvelope.For(
+                PositionEntityId.From(rejection.Request.OrganizationId, ((PositionEndpointRef)rejection.Request.From).PositionId),
+                rejection), TimeSpan.FromSeconds(30));
 
     public Task<PeerRequestLookupResult> RecordAsync(ActorSystem system, PeerRequest request) =>
         ClusterSharding.Get(system).ShardRegion(PositionEntityId.EntityTypeName)

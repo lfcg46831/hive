@@ -94,7 +94,7 @@ internal sealed class InboxProjectionFactMapper
                 or ActionRetained or RetainedActionAuthorized or RetainedActionDenied
                 or RetainedActionConsumed or RetainedActionExpired or RetainedActionReturned
                 or DirectiveCheckpointPersisted or OccupantReplyEmitted
-                or PeerRequestRecorded or PeerRequestClosed => true,
+                or PeerRequestRecorded or PeerRequestClosed or PeerRejectionEscalationUpdated => true,
             _ => throw new InvalidOperationException(
                 $"Position event '{@event.GetType().Name}' has no explicit inbox mapping."),
         };

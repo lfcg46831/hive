@@ -11,7 +11,7 @@ using static Hive.Tests.PeerResponseRoutingValidatorTests;
 
 namespace Hive.Tests;
 
-public sealed class HorizontalRoutingAdmissionTests
+public sealed partial class HorizontalRoutingAdmissionTests
 {
     private static readonly OrganizationId Org = Request().OrganizationId;
     private static readonly UnitId Source = UnitId.From("source");
@@ -262,9 +262,9 @@ public sealed class HorizontalRoutingAdmissionTests
             """));
 
     private static IActorRef Create(ActorSystem system, string position, Contracts contracts,
-        Registrar registrar, Projections projections) => system.ActorOf(Props.Create(() => new PositionActor(
+        Registrar registrar, Projections projections, IPositionMessageEmitter? emitter = null) => system.ActorOf(Props.Create(() => new PositionActor(
             PositionEntityId.From(Org, PositionId.From(position)).Value, new Provider(), PositionOccupantFactory.Instance,
-            projections, () => At, null, null, null, null, null, null,
+            projections, () => At, null, null, emitter, null, null, null,
             new PeerRequestLimitResolver(Relations(), contracts), new HorizontalRoutingValidator(Relations(), contracts), registrar)));
 
     private static Task<PositionState> State(IActorRef actor) => actor.Ask<PositionState>(GetPositionState.Instance, Timeout);
@@ -293,13 +293,15 @@ public sealed class HorizontalRoutingAdmissionTests
     private sealed class Contracts : IPeerChannelContracts
     {
         public bool Allowed { get; set; } = true;
+        public PeerChannelRejectionAction OnRejection { get; set; } = PeerChannelRejectionAction.None;
+        public int Limit { get; set; } = 20;
         public Exception? Failure { get; set; }
         public PeerChannelMessageType[] Types { get; set; } = [PeerChannelMessageType.PeerRequest, PeerChannelMessageType.Memo];
         public ValueTask<PeerChannelConfiguration?> ResolveChannelAsync(OrganizationId organizationId,
             UnitId fromUnitId, UnitId toUnitId, CancellationToken cancellationToken = default) => Failure is { } failure
             ? ValueTask.FromException<PeerChannelConfiguration?>(failure)
             : ValueTask.FromResult<PeerChannelConfiguration?>(Allowed
-                ? new PeerChannelConfiguration(fromUnitId, Types, 20, PeerChannelRejectionAction.None) : null);
+                ? new PeerChannelConfiguration(fromUnitId, Types, Limit, OnRejection) : null);
     }
 
     private sealed class Registrar : IPeerRequestRegistrar
@@ -307,6 +309,14 @@ public sealed class HorizontalRoutingAdmissionTests
         public ConcurrentDictionary<string, IActorRef> Actors { get; } = new();
         public ConcurrentQueue<PeerRequest> Requests { get; } = new();
         public bool Unavailable { get; set; }
+        public ConcurrentQueue<RecordPeerRequestRejection> Rejections { get; } = new();
+        public async Task<AcceptMessageResult> RecordRejectionAsync(ActorSystem system, RecordPeerRequestRejection rejection)
+        {
+            Rejections.Enqueue(rejection);
+            if (Unavailable) throw new InvalidOperationException("requester unavailable");
+            return await Actors[((PositionEndpointRef)rejection.Request.From).PositionId.Value]
+                .Ask<AcceptMessageResult>(rejection, Timeout);
+        }
         public TaskCompletionSource<bool>? Barrier { get; set; }
         public async Task<PeerRequestLookupResult> RecordAsync(ActorSystem system, PeerRequest request)
         {

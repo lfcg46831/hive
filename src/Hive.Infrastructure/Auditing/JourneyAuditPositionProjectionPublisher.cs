@@ -113,6 +113,21 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                 PublishOccupantReply(committed, reply);
                 break;
 
+            case PeerRejectionEscalationUpdated { Escalation: { } escalation, Completed: false } rejection:
+                _auditLog.Append(JourneyAuditRecord.Create(
+                    JourneyAuditStage.ResultMessageCreated, JourneyAuditOutcome.Accepted,
+                    escalation.OrganizationId, escalation.Thread, escalation.Id,
+                    positionId: committed.EntityId.Position,
+                    reasonCode: "peer-rejection-escalated", messageType: nameof(Escalation),
+                    payload: new Dictionary<string, string>(StringComparer.Ordinal)
+                    {
+                        ["sourceMessageId"] = rejection.Rejection.Request.Id.ToString(),
+                        ["rejectionReason"] = RejectionReasonContract.ToWireValue(rejection.Rejection.Reason),
+                        ["redactions"] = "sourceMessage.payload,escalation.context",
+                    },
+                    occurredAtUtc: committed.OccurredAt));
+                break;
+
             case OccupantResponseTimeoutHandled timeout:
                 PublishOccupantResponseTimeout(committed, timeout);
                 break;

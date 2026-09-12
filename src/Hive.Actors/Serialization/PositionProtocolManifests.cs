@@ -21,6 +21,8 @@ internal static class PositionProtocolManifests
         ("peer-request-lookup-result", typeof(PeerRequestLookupResult)),
         ("peer-request-recorded", typeof(PeerRequestRecorded)),
         ("peer-request-closed", typeof(PeerRequestClosed)),
+        ("record-peer-request-rejection", typeof(RecordPeerRequestRejection)),
+        ("peer-rejection-escalation-updated", typeof(PeerRejectionEscalationUpdated)),
         ("emit-occupant-reply", typeof(EmitOccupantReply)),
         ("emit-correlated-occupant-reply", typeof(EmitCorrelatedOccupantReply)),
         ("emit-occupant-approval-decision", typeof(EmitOccupantApprovalDecision)),

@@ -42,7 +42,7 @@ internal sealed partial class PositionActor
 
         void Reply()
         {
-            PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock()));
+            PublishProjection(new PositionMessageRoutingRejected(EntityId, rejection, _clock(), message.GetType().Name));
             ReplyToAcceptMessageIfRequested(replyTo,
                 AcceptMessageResult.Rejected(message.Id, rejection.PublicResult.Errors[0].Reason));
         }

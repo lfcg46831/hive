@@ -50,7 +50,7 @@ public sealed class JourneyAuditPositionProjectionPublisher : IPositionProjectio
                 audit.OrganizationId, audit.Thread, audit.MessageId,
                 positionId: routingRejected.EntityId.Position,
                 reasonCode: audit.Errors[0].Code,
-                messageType: nameof(PeerRequest),
+                messageType: routingRejected.MessageType,
                 payload: new Dictionary<string, string>(StringComparer.Ordinal)
                 {
                     ["sender"] = EndpointValue(audit.Sender),

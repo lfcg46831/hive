@@ -145,14 +145,18 @@ public sealed record PositionReactivated : PositionProjectionEvent
 public sealed record PositionMessageRoutingRejected : PositionProjectionEvent
 {
     public PositionMessageRoutingRejected(PositionEntityId entityId, RoutingRejection rejection,
-        DateTimeOffset occurredAt) : base(entityId, occurredAt)
+        DateTimeOffset occurredAt, string? messageType = null) : base(entityId, occurredAt)
     {
         Rejection = rejection ?? throw new ArgumentNullException(nameof(rejection));
         if (rejection.Context.OrganizationId != entityId.Organization)
             throw new ArgumentException("Rejection must belong to this organization.", nameof(rejection));
+        MessageType = messageType;
     }
 
     public RoutingRejection Rejection { get; }
+
+    /// <summary>The original message type, or null for older producers that omit it.</summary>
+    public string? MessageType { get; }
 }
 
 /// <summary>A redelivered message was already accepted.</summary>

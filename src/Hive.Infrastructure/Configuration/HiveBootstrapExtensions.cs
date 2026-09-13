@@ -1,4 +1,5 @@
 using Hive.Domain.Ai;
+using Hive.Domain.Events;
 using Hive.Domain.Auditing;
 using Hive.Infrastructure.Auditing;
 using Hive.Infrastructure.Auditing.PostgreSql;
@@ -152,6 +153,14 @@ public static class HiveBootstrapExtensions
             return string.IsNullOrWhiteSpace(connectionString)
                 ? new UnavailableOutcomePolicyProvider(ConnectionStringNames.PostgreSql)
                 : new PostgreSqlOutcomePolicyProvider(connectionString);
+        });
+        builder.Services.TryAddSingleton<IEventSubscriptions>(serviceProvider =>
+        {
+            var connectionString = serviceProvider.GetRequiredService<IConfiguration>()
+                .GetConnectionString(ConnectionStringNames.PostgreSql);
+            return string.IsNullOrWhiteSpace(connectionString)
+                ? new UnavailableEventSubscriptions()
+                : new PostgreSqlEventSubscriptions(connectionString);
         });
         builder.Services.TryAddSingleton<IPeerChannelContracts>(serviceProvider =>
         {

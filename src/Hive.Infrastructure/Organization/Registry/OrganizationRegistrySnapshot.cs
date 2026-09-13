@@ -1,4 +1,5 @@
 using Hive.Domain.Identity;
+using Hive.Domain.Events;
 using Hive.Domain.Governance;
 using Hive.Domain.Organization;
 
@@ -38,6 +39,13 @@ public sealed class OrganizationRegistrySnapshot
             peerChannels.AddUnit(unit.Value.Id, unit.Value.AllowedPeerChannels);
         }
         PeerChannelContracts = peerChannels.Build();
+        var eventSubscriptions = EventSubscriptionsSnapshot.CreateBuilder(organizationId);
+        foreach (var occupant in occupants.Values)
+        {
+            eventSubscriptions.AddPosition(occupant.Value.PositionId,
+                occupant.Value.Subscriptions.Select(subscription => subscription.ToEventSubscription()));
+        }
+        EventSubscriptions = eventSubscriptions.Build();
     }
 
     public OrganizationId OrganizationId { get; }
@@ -65,4 +73,6 @@ public sealed class OrganizationRegistrySnapshot
     public RegistryEntry<ActionDomainCatalog> ActionDomainCatalog { get; }
 
     public PeerChannelContractsSnapshot PeerChannelContracts { get; }
+
+    public EventSubscriptionsSnapshot EventSubscriptions { get; }
 }

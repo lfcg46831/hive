@@ -15,6 +15,27 @@ namespace Hive.Tests;
 public sealed class HiveBootstrapTests
 {
     [Fact]
+    public async Task Bootstrap_event_subscriptions_fail_explicitly_without_postgresql()
+    {
+        using var host = CreateBuilder(new Dictionary<string, string?>()).Build();
+        var seam = host.Services.GetRequiredService<Hive.Domain.Events.IEventSubscriptions>();
+        Assert.Same(seam, host.Services.GetRequiredService<Hive.Domain.Events.IEventSubscriptions>());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => seam.GetSnapshotAsync(
+            Hive.Domain.Identity.OrganizationId.From("example")).AsTask());
+    }
+
+    [Fact]
+    public void Bootstrap_event_subscriptions_use_postgresql_when_configured()
+    {
+        using var host = CreateBuilder(new Dictionary<string, string?>
+        {
+            ["ConnectionStrings:PostgreSql"] = "Host=localhost;Database=hive;Username=hive;Password=hive",
+        }).Build();
+        Assert.IsType<Hive.Infrastructure.Organization.Registry.PostgreSqlEventSubscriptions>(
+            host.Services.GetRequiredService<Hive.Domain.Events.IEventSubscriptions>());
+    }
+
+    [Fact]
     public async Task Bootstrap_binds_roles_and_preserves_configured_values()
     {
         var builder = CreateBuilder(new Dictionary<string, string?>

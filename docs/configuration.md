@@ -1130,6 +1130,8 @@ The organization definition is GitOps source of truth (bible §4.7): organizatio
 
 Declare event subscriptions in each position's `occupant.subscriptions` in `organization.yaml`, following [US-F1-07-T02 in the bible](bible.html). YAML parsing errors identify the file, field path and source location; correct the declaration and rerun the normal GitOps import. Subscription validation and registry storage are available; event detection and trigger delivery belong to the subsequent US-F1-07 tasks.
 
+The domain events coordinator starts automatically on `agents` nodes after cluster `Up`. It uses the existing `Hive:Agents:ClusterUpTimeout` / `HIVE__AGENTS__CLUSTERUPTIMEOUT` setting (30 seconds when unset); timeout fails startup with `ClusterStartupTimeoutException`. Startup logs identify the singleton manager and proxy. At the T04 stage, subscriptions are materialized through internal registry-snapshot reconciliation, including after handover; there is no automatic detection loop or trigger delivery yet. No additional connection string, schema or configuration section is required for the coordinator.
+
 All organization configuration lives under a single tracked root, `config/organizations/`, with one directory per organization named exactly by its `organization.id`:
 
 ```text

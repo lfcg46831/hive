@@ -1128,6 +1128,8 @@ The organization definition is GitOps source of truth (bible §4.7): organizatio
 
 ### Repository layout
 
+Declare event subscriptions in each position's `occupant.subscriptions` in `organization.yaml`, following [US-F1-07-T02 in the bible](bible.html). YAML parsing errors identify the file, field path and source location; correct the declaration and rerun the normal GitOps import. Subscription validation and registry storage are available; event detection and trigger delivery belong to the subsequent US-F1-07 tasks.
+
 All organization configuration lives under a single tracked root, `config/organizations/`, with one directory per organization named exactly by its `organization.id`:
 
 ```text

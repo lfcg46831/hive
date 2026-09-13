@@ -5,7 +5,7 @@ namespace Hive.Domain.Organization.Configuration.Validation;
 /// <summary>
 /// Enforces the uniqueness rules of §4.8 over an already-typed <see cref="OrganizationConfiguration"/>
 /// (US-F0-05-T05): unit ids, position ids and prompt-catalog ids must each be unique across the
-/// document, and within a single occupant the declared schedule ids and the subscribed events must
+/// document, and within a single occupant the declared schedule ids and subscription identities must
 /// not repeat. Cross-references (US-F0-05-T06) and structural rules (US-F0-05-T07) are validated
 /// separately over the same model.
 /// </summary>
@@ -79,7 +79,7 @@ public static class OrganizationConfigurationUniquenessValidator
                 errors);
         }
 
-        // Schedule ids and subscription events are scoped to a single occupant: the same id or event
+        // Schedule ids and subscription identities are scoped to a single occupant: the same identity
         // may legitimately recur under different positions, so each occupant is checked in isolation.
         for (var p = 0; p < configuration.Positions.Count; p++)
         {
@@ -97,9 +97,9 @@ public static class OrganizationConfigurationUniquenessValidator
 
             CollectDuplicates(
                 occupant.Subscriptions,
-                subscription => subscription.Event,
+                subscription => subscription.GetIdentity(),
                 code: "duplicate-subscription-event",
-                label: "subscription event",
+                label: "subscription identity",
                 path: index => $"positions[{positionIndex}].occupant.subscriptions[{index}].event",
                 firstLocation: index => $"positions[{positionIndex}].occupant.subscriptions[{index}]",
                 errors);

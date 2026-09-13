@@ -480,7 +480,7 @@ public sealed class OrganizationConfigurationImporterTests
                                 ]),
                             position.Occupant.Schedule,
                             [
-                                new SubscriptionConfiguration("work-item-created", "PT1H"),
+                                new SubscriptionConfiguration("position-blocked-prolonged", after: "PT1H"),
                                 new SubscriptionConfiguration("directive-deadline-approaching", "PT4H"),
                             ],
                             [

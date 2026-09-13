@@ -272,7 +272,7 @@ public sealed class PositionRuntimeConfigurationTests
             identityPromptRef: "engineer-v1",
             ai: null,
             workingHours: null,
-            subscriptions: new[] { new SubscriptionConfiguration("customer.reported", "PT4H") },
+            subscriptions: new[] { new SubscriptionConfiguration("directive-deadline-approaching", "PT4H") },
             tools: Array.Empty<ToolConfiguration>());
 
     private static PositionAuthorityRuntimeConfiguration Authority() =>

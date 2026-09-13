@@ -1,8 +1,10 @@
 using System.Globalization;
 using System.Xml;
 using Hive.Domain.Directives;
+using Hive.Domain.Events;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
+using Hive.Domain.Messaging;
 using Hive.Domain.Organization.Configuration;
 using Hive.Domain.Outcomes;
 using YamlDotNet.Core;
@@ -581,7 +583,7 @@ public sealed class OrganizationConfigurationParser
             context.AddAt(
                 pair.Key,
                 $"{path}.{renderedKey}",
-                $"unknown response-policy field '{renderedKey}'.");
+                $"unknown field '{renderedKey}'.");
         }
     }
 
@@ -1045,9 +1047,15 @@ public sealed class OrganizationConfigurationParser
 
     private static IReadOnlyList<SubscriptionConfiguration> ReadSubscriptions(YamlMappingNode occupant, string path, ParseContext context)
     {
-        var sequence = OptionalSequence(occupant, "subscriptions", $"{path}.subscriptions", context);
-        if (sequence is null)
+        var node = Child(occupant, "subscriptions");
+        if (node is null)
         {
+            return Array.Empty<SubscriptionConfiguration>();
+        }
+
+        if (node is not YamlSequenceNode sequence)
+        {
+            context.AddAt(node, $"{path}.subscriptions", "field 'subscriptions' must be a sequence.");
             return Array.Empty<SubscriptionConfiguration>();
         }
 
@@ -1057,19 +1065,62 @@ public sealed class OrganizationConfigurationParser
             var entryPath = $"{path}.subscriptions[{index}]";
             if (sequence.Children[index] is not YamlMappingNode entry)
             {
-                context.AddAt(sequence.Children[index], entryPath, "each subscription must be a mapping with 'event' and 'within'.");
+                context.AddAt(sequence.Children[index], entryPath, "each subscription must be a mapping with 'event' and its typed parameter.");
                 continue;
             }
 
+            var errorCount = context.Errors.Count;
             var @event = RequireScalar(entry, "event", entryPath, context);
-            var within = RequireScalar(entry, "within", entryPath, context);
-
-            if (@event is null || within is null)
+            if (!OrganizationEventTypeContract.TryParseWireValue(@event, out var eventType))
             {
+                if (@event is not null)
+                    context.AddAt(Child(entry, "event")!, $"{entryPath}.event", "unknown organizational event type.");
                 continue;
             }
 
-            subscriptions.Add(new SubscriptionConfiguration(@event, within));
+            var parameterName = eventType switch
+            {
+                OrganizationEventType.DirectiveDeadlineApproaching => "within",
+                OrganizationEventType.PositionBlockedProlonged => "after",
+                _ => "threshold_percent",
+            };
+            AddUnknownFields(entry, entryPath, ["event", parameterName, "critical", "priority"], context);
+
+            string? duration = null;
+            int? threshold = null;
+            if (eventType == OrganizationEventType.BudgetThresholdReached)
+            {
+                threshold = RequiredInt(entry, parameterName, entryPath, context);
+                if (threshold is < 1 or > 100)
+                    context.AddAt(Child(entry, parameterName)!, $"{entryPath}.{parameterName}", "field 'threshold_percent' must be an integer from 1 to 100.");
+            }
+            else
+            {
+                duration = RequireScalar(entry, parameterName, entryPath, context);
+                if (duration is not null && (!TryParseIsoDuration(duration, out var parsed) || parsed <= TimeSpan.Zero))
+                    context.AddAt(Child(entry, parameterName)!, $"{entryPath}.{parameterName}", $"field '{parameterName}' must be a positive ISO-8601 duration.");
+            }
+
+            var priority = Child(entry, "priority") is null
+                ? "normal"
+                : RequireScalar(entry, "priority", entryPath, context);
+            if (priority is not null && !PriorityContract.TryParseWireValue(priority, out _))
+                context.AddAt(Child(entry, "priority")!, $"{entryPath}.priority", "field 'priority' must be low, normal, high, or critical.");
+
+            var criticalValue = Child(entry, "critical") is null
+                ? "false"
+                : RequireScalar(entry, "critical", entryPath, context);
+            if (criticalValue is not null && criticalValue is not ("true" or "false"))
+                context.AddAt(Child(entry, "critical")!, $"{entryPath}.critical", "field 'critical' must be true or false.");
+
+            if (context.Errors.Count == errorCount)
+                subscriptions.Add(new SubscriptionConfiguration(
+                    @event!,
+                    parameterName == "within" ? duration : null,
+                    parameterName == "after" ? duration : null,
+                    threshold,
+                    criticalValue == "true",
+                    priority!));
         }
 
         return subscriptions;

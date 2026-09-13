@@ -25,7 +25,7 @@ public sealed class OrganizationConfigurationUniquenessValidatorTests
                     "delivery-lead",
                     "engenharia",
                     schedule: new[] { Schedule("relatorio-diario"), Schedule("revisao-semanal") },
-                    subscriptions: new[] { Subscription("directive-deadline-approaching"), Subscription("report-overdue") }),
+                    subscriptions: new[] { Subscription("directive-deadline-approaching"), new SubscriptionConfiguration("position-blocked-prolonged", after: "PT4H") }),
             });
 
         var result = OrganizationConfigurationUniquenessValidator.Validate(config);

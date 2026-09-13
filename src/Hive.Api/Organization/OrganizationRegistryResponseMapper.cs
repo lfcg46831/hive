@@ -152,7 +152,11 @@ internal static class OrganizationRegistryResponseMapper
             entry.Value.Subscriptions
                 .Select(subscription => new SubscriptionResponse(
                     subscription.Event,
-                    subscription.Within))
+                    subscription.Within,
+                    subscription.After,
+                    subscription.ThresholdPercent,
+                    subscription.IsCritical,
+                    subscription.Priority))
                 .ToArray(),
             entry.Value.Tools
                 .Select(tool => new ToolResponse(tool.Connector, tool.Scope.ToArray()))

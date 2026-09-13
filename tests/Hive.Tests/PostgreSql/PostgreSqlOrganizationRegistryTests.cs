@@ -15,6 +15,37 @@ public sealed class PostgreSqlOrganizationRegistryTests(PostgreSqlFixture fixtur
         new(2026, 6, 24, 9, 0, 0, TimeSpan.Zero);
 
     [Fact]
+    public async Task Typed_subscriptions_survive_reload_and_semantically_equivalent_reimport()
+    {
+        await fixture.ResetRegistryAsync();
+        var configuration = EventSubscriptionConfigurationTests.Configuration(
+            $"[{EventSubscriptionConfigurationTests.Deadline}, {EventSubscriptionConfigurationTests.Blocked}, {EventSubscriptionConfigurationTests.Budget}]");
+        OrganizationImportResult imported;
+        await using (var dataSource = fixture.CreateDataSource())
+        {
+            await new PostgreSqlOrganizationRegistryMigrator(dataSource).MigrateAsync();
+            imported = await new OrganizationConfigurationImporter(new PostgreSqlOrganizationRegistry(dataSource))
+                .ImportAsync(configuration);
+        }
+
+        await using var reconnected = fixture.CreateDataSource();
+        var registry = new PostgreSqlOrganizationRegistry(reconnected);
+        var loaded = await registry.FindSnapshotAsync(configuration.Organization.Id);
+        var subscriptions = loaded!.Occupants[PositionId.From("ceo")].Value.Subscriptions;
+        Assert.Equal(imported.Snapshot!.Occupants[PositionId.From("ceo")].Value.Subscriptions, subscriptions);
+        Assert.Equal(3, subscriptions.Count);
+        var blocked = Assert.Single(subscriptions, subscription => subscription.After is not null);
+        Assert.Equal("P1D", blocked.After);
+        Assert.True(blocked.IsCritical);
+        Assert.Equal("high", blocked.Priority);
+        var equivalent = EventSubscriptionConfigurationTests.Configuration(
+            $"[{EventSubscriptionConfigurationTests.Budget}, {EventSubscriptionConfigurationTests.Blocked.Replace("P1D", "PT24H")}, {EventSubscriptionConfigurationTests.Deadline.Replace("PT1H", "PT60M")}]" );
+        var result = await new OrganizationConfigurationImporter(registry).ImportAsync(equivalent);
+        Assert.Equal(OrganizationImportStatus.NoChanges, result.Status);
+        Assert.Equal(imported.Snapshot.Fingerprint, result.Snapshot!.Fingerprint);
+    }
+
+    [Fact]
     public async Task First_import_survives_a_new_connection()
     {
         await fixture.ResetRegistryAsync();

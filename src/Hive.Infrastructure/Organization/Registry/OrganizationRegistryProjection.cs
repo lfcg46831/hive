@@ -204,10 +204,14 @@ internal sealed class OrganizationRegistryProjection
                     occupant.WorkingHours.Start,
                     occupant.WorkingHours.End),
             ReadOnly(occupant.Subscriptions
-                .OrderBy(subscription => subscription.Event, StringComparer.Ordinal)
+                .OrderBy(subscription => subscription.GetIdentity(), StringComparer.Ordinal)
                 .Select(subscription => new SubscriptionConfiguration(
                     subscription.Event,
-                    subscription.Within))),
+                    subscription.Within,
+                    subscription.After,
+                    subscription.ThresholdPercent,
+                    subscription.IsCritical,
+                    subscription.Priority))),
             ReadOnly(occupant.Tools
                 .Select(tool => new ToolConfiguration(
                     tool.Connector,

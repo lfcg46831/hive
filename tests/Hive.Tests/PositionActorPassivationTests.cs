@@ -161,7 +161,7 @@ public sealed class PositionActorPassivationTests
                 entity,
                 stamp,
                 new[] { new PositionScheduleRuntimeConfiguration("daily-pulse", "0 8 * * *", "Send pulse") },
-                new[] { new SubscriptionConfiguration("deadline.near", "PT2H") });
+                new[] { new SubscriptionConfiguration("directive-deadline-approaching", "PT2H") });
 
             var actor = system.ActorOf(
                 Props.Create(() => new PositionActor(

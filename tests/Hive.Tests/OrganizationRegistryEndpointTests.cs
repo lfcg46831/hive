@@ -250,6 +250,35 @@ public sealed class OrganizationRegistryEndpointTests(PostgreSqlFixture fixture)
         Assert.Equal("skip", schedule.GetProperty("catchUp").GetString());
     }
 
+    [Fact]
+    public async Task Position_configuration_query_preserves_all_subscription_parameters()
+    {
+        await PrepareEmptyRegistryAsync();
+        await using var dataSource = fixture.CreateDataSource();
+        var imported = await new OrganizationConfigurationImporter(new PostgreSqlOrganizationRegistry(dataSource))
+            .ImportAsync(EventSubscriptionConfigurationTests.Configuration(
+                $"[{EventSubscriptionConfigurationTests.Deadline}, {EventSubscriptionConfigurationTests.Blocked}, {EventSubscriptionConfigurationTests.Budget}]"));
+        Assert.Equal(OrganizationImportStatus.Applied, imported.Status);
+        await using var app = BuildApp(fixture.ConnectionString);
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        var json = await client.GetFromJsonAsync<JsonElement>(
+            $"{OrganizationRegistryEndpointExtensions.BasePath}/subscriptions-test/positions/ceo/configuration");
+        var subscriptions = json.GetProperty("occupant").GetProperty("subscriptions").EnumerateArray()
+            .ToDictionary(entry => entry.GetProperty("event").GetString()!);
+        Assert.Equal(3, subscriptions.Count);
+        var deadline = subscriptions["directive-deadline-approaching"];
+        Assert.Equal("PT1H", deadline.GetProperty("within").GetString());
+        Assert.False(deadline.GetProperty("critical").GetBoolean());
+        Assert.Equal("normal", deadline.GetProperty("priority").GetString());
+        var blocked = subscriptions["position-blocked-prolonged"];
+        Assert.Equal("P1D", blocked.GetProperty("after").GetString());
+        Assert.True(blocked.GetProperty("critical").GetBoolean());
+        Assert.Equal("high", blocked.GetProperty("priority").GetString());
+        Assert.Equal(80, subscriptions["budget-threshold-reached"].GetProperty("thresholdPercent").GetInt32());
+    }
+
     private async Task<OrganizationRegistrySnapshot> SeedRegistryAsync()
     {
         await PrepareEmptyRegistryAsync();

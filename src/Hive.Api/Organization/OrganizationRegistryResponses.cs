@@ -90,7 +90,13 @@ public sealed record BudgetResponse(
 
 public sealed record WorkingHoursResponse(string Start, string End);
 
-public sealed record SubscriptionResponse(string Event, string Within);
+public sealed record SubscriptionResponse(
+    string Event,
+    string? Within,
+    string? After = null,
+    int? ThresholdPercent = null,
+    bool Critical = false,
+    string Priority = "normal");
 
 public sealed record ToolResponse(string Connector, IReadOnlyList<string> Scope);
 

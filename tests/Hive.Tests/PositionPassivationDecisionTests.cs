@@ -75,7 +75,7 @@ public sealed class PositionPassivationDecisionTests
     {
         var decision = PositionState.Empty.EvaluatePassivation(RuntimeConfiguration(
             schedules: new[] { new PositionScheduleRuntimeConfiguration("daily-pulse", "0 8 * * *", "Send pulse") },
-            subscriptions: new[] { new SubscriptionConfiguration("deadline.near", "PT2H") }));
+            subscriptions: new[] { new SubscriptionConfiguration("directive-deadline-approaching", "PT2H") }));
 
         Assert.False(decision.IsAllowed);
         Assert.Equal(
@@ -103,7 +103,7 @@ public sealed class PositionPassivationDecisionTests
 
         var decision = state.EvaluatePassivation(RuntimeConfiguration(
             schedules: new[] { new PositionScheduleRuntimeConfiguration("daily-pulse", "0 8 * * *", "Send pulse") },
-            subscriptions: new[] { new SubscriptionConfiguration("deadline.near", "PT2H") }));
+            subscriptions: new[] { new SubscriptionConfiguration("directive-deadline-approaching", "PT2H") }));
 
         Assert.False(decision.IsAllowed);
         Assert.Equal(

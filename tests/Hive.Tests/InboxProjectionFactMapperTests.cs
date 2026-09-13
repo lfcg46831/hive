@@ -1,5 +1,6 @@
 using Hive.Actors.Inbox;
 using Hive.Domain.Directives;
+using Hive.Domain.Events;
 using Hive.Domain.Governance;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
@@ -514,6 +515,33 @@ public sealed class InboxProjectionFactMapperTests
             request.Id,
             approved,
             approved ? "Approved" : "Rejected");
+
+    [Fact]
+    public void Canonical_domain_event_payload_updates_the_existing_deadline_projection()
+    {
+        var mapper = new InboxProjectionFactMapper(new MutableTimeProvider(At));
+        var directive = DirectiveMessage(
+            Message("10000000-0000-0000-0000-000000000080"),
+            Thread("20000000-0000-0000-0000-000000000080"),
+            Directive("30000000-0000-0000-0000-000000000080"),
+            At.AddHours(1));
+        mapper.Apply(MessageFact(Engineer, directive));
+        var payload = new DirectiveDeadlineApproachingPayload(
+            new EventSourceCorrelation(directive.Id, directive.Thread, directive.DirectiveId),
+            directive.Deadline!.Value,
+            new DirectiveDeadlineParameters(TimeSpan.FromMinutes(30)),
+            At.AddMinutes(40));
+        var trigger = new EventTrigger(
+            Message("10000000-0000-0000-0000-000000000081"), Organization,
+            new SystemEndpointRef(SystemEndpointKind.DomainEvents), directive.To,
+            Thread("20000000-0000-0000-0000-000000000081"), Priority.Normal, 1,
+            payload.OccurredAtUtc, null, OrganizationEventTypeContract.ToWireValue(payload.EventType), payload.ToJson());
+
+        var item = Assert.Single(mapper.Apply(MessageFact(Engineer, trigger))).Item;
+
+        Assert.Equal(directive.Id, item.Key.MessageId);
+        Assert.Equal(payload.OccurredAtUtc, item.LastReminderAtUtc);
+    }
 
     private static EventTrigger DeadlineReminder(
         Directive source,

@@ -26,17 +26,20 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
     private readonly string _systemName;
     private readonly string? _persistenceConnectionString;
     private readonly TimeSpan _timeout;
+    private readonly Func<PositionShardingNode, string, Props>? _entityPropsFactory;
 
     private PositionShardingMultiNodeFixture(
         string systemName,
         IEnumerable<PositionShardingNode> nodes,
         TimeSpan timeout,
-        string? persistenceConnectionString)
+        string? persistenceConnectionString,
+        Func<PositionShardingNode, string, Props>? entityPropsFactory)
     {
         _systemName = systemName;
         _nodes = nodes.ToList();
         _timeout = timeout;
         _persistenceConnectionString = persistenceConnectionString;
+        _entityPropsFactory = entityPropsFactory;
     }
 
     public IReadOnlyList<PositionShardingNode> Nodes => _nodes.ToArray();
@@ -48,7 +51,8 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
 
     public static async Task<PositionShardingMultiNodeFixture> StartAsync(
         bool startAllAgentRegions = true,
-        string? persistenceConnectionString = null)
+        string? persistenceConnectionString = null,
+        Func<PositionShardingNode, string, Props>? entityPropsFactory = null)
     {
         var timeout = TimeSpan.FromSeconds(30);
         var systemName = $"hive-t14a-{Guid.NewGuid():N}";
@@ -70,7 +74,8 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             systemName,
             nodes,
             timeout,
-            persistenceConnectionString);
+            persistenceConnectionString,
+            entityPropsFactory);
 
         try
         {
@@ -132,7 +137,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             return;
         }
 
-        var region = AgentNodes.First().Region
+        var region = ActiveAgentNodesWithRegions().FirstOrDefault()?.Region
             ?? throw new InvalidOperationException("The agents shard region has not been started.");
 
         foreach (var entity in entities)
@@ -379,7 +384,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
             // Re-send the activation probe so entities dropped by a rebalance
             // handoff (remember-entities is disabled) are recreated on their
             // current shard owner before the location snapshot is taken.
-            var region = AgentNodes.First().Region
+            var region = ActiveAgentNodesWithRegions().FirstOrDefault()?.Region
                 ?? throw new InvalidOperationException("The agents shard region has not been started.");
             foreach (var entity in entities)
             {
@@ -455,7 +460,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         }
     }
 
-    private static async Task StartShardingAsync(PositionShardingNode node)
+    private async Task StartShardingAsync(PositionShardingNode node)
     {
         if (node.Region is not null)
         {
@@ -471,7 +476,7 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
         node.Region = await sharding
             .StartAsync(
                 typeName: PositionEntityId.EntityTypeName,
-                entityPropsFactory: entityId => Props.Create(() => new PositionActor(
+                entityPropsFactory: entityId => _entityPropsFactory?.Invoke(node, entityId) ?? Props.Create(() => new PositionActor(
                     entityId,
                     node.ConfigurationProvider,
                     node.Publisher,
@@ -512,10 +517,16 @@ internal sealed class PositionShardingMultiNodeFixture : IAsyncDisposable
                     "Hive.Domain.Positions.PositionCommand, Hive.Domain" = hive-position-protocol
                     "Hive.Domain.Positions.PositionEvent, Hive.Domain" = hive-position-protocol
                     "Hive.Domain.Positions.PositionSnapshot, Hive.Domain" = hive-position-protocol
+                    "Hive.Domain.Positions.AcceptMessageResult, Hive.Domain" = hive-position-protocol
+                    "Hive.Domain.Positions.PeerRequestLookupResult, Hive.Domain" = hive-position-protocol
+                    "Hive.Domain.Positions.OccupantReplyEmissionResult, Hive.Domain" = hive-position-protocol
                   }
                 }
                 """));
 
+        // Nodes awaiting their region still participate in coordinator handover on restart.
+        // Initialize the extension (and its serializers) before any cluster traffic arrives.
+        _ = ClusterSharding.Get(system);
         return new PositionShardingNode(name, roles, port, system, provider, publisher);
     }
 

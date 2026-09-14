@@ -11,12 +11,15 @@ using Hive.Actors.Scheduling;
 using Hive.Actors.Serialization;
 using Hive.Actors.Sharding;
 using Hive.Application.Directives;
+using Hive.Application.Events;
+using Hive.Domain.Events;
 using Hive.Domain.Auditing;
 using Hive.Domain.Ai;
 using Hive.Domain.Messaging;
 using Hive.Domain.OccupantChannels;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Events;
 using Hive.Infrastructure.Connectors;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
@@ -208,6 +211,8 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<SchedulerCoordinatorSingletonWorkload>());
 
+        builder.Services.AddSingleton<IDirectiveDeadlineSource, PostgreSqlDirectiveDeadlineSource>();
+        builder.Services.AddSingleton<IDomainEventDetector, DirectiveDeadlineApproachingDetector>();
         builder.Services.AddSingleton<DomainEventsCoordinatorSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<DomainEventsCoordinatorSingletonWorkload>());

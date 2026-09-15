@@ -1,6 +1,7 @@
 using System.Text;
 using Hive.Actors.Serialization;
 using Hive.Domain.Auditing;
+using Hive.Domain.Events;
 using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
@@ -24,6 +25,19 @@ internal sealed class PositionLiveStateFactMapper
         return _positions.TryGetValue(entityId.Value, out var indicators)
             ? indicators.Evaluate()
             : PositionLiveState.Idle;
+    }
+
+    public CurrentPositionBlockedPeriod? CurrentBlockedPeriod(PositionEntityId entityId)
+    {
+        ArgumentNullException.ThrowIfNull(entityId);
+        if (!_positions.TryGetValue(entityId.Value, out var indicators)
+            || indicators.Evaluate() != PositionLiveState.Blocked) return null;
+        var since = indicators.BlockedSinceUtc
+            ?? throw new InvalidOperationException("Blocked state has no continuous period start.");
+        return indicators.ConfigurationBlocked
+            ? new(entityId.Organization, entityId.Position, since, PositionBlockedCause.ConfigurationBlocked)
+            : new(entityId.Organization, entityId.Position, since, PositionBlockedCause.PendingEscalation,
+                indicators.UnresolvedEscalations.Values.MinBy(item => item.Order)!.Correlation);
     }
 
     public PositionLiveStateTransition? Apply(PositionLiveStateProjectionFact fact)
@@ -331,7 +345,8 @@ internal sealed class PositionLiveStateFactMapper
         var entityId = PositionEntityId.From(message.OrganizationId, source.PositionId);
         var indicators = Indicators(entityId);
         var previous = indicators.Evaluate();
-        if (!indicators.UnresolvedEscalations.Add(message.Thread))
+        if (!indicators.UnresolvedEscalations.TryAdd(message.Thread,
+                new PendingEscalation(indicators.NextEscalationOrder++, new(message.Id, message.Thread))))
         {
             return null;
         }
@@ -429,11 +444,17 @@ internal sealed class PositionLiveStateFactMapper
         string eventType,
         DateTimeOffset occurredAt,
         ThreadId? threadId,
-        PositionLiveState previousState) =>
-        new(
+        PositionLiveState previousState)
+    {
+        var state = indicators.Evaluate();
+        if (state != PositionLiveState.Blocked)
+            indicators.BlockedSinceUtc = null;
+        else if (previousState != PositionLiveState.Blocked)
+            indicators.BlockedSinceUtc = occurredAt.ToUniversalTime();
+        return new(
             entityId,
             previousState,
-            indicators.Evaluate(),
+            state,
             eventType,
             occurredAt.ToUniversalTime(),
             threadId is null
@@ -442,6 +463,7 @@ internal sealed class PositionLiveStateFactMapper
                     eventType,
                     threadId.Value,
                     occurredAt.ToUniversalTime()));
+    }
 
     private static bool Set(ref bool target, bool value)
     {
@@ -461,7 +483,9 @@ internal sealed class PositionLiveStateFactMapper
         public bool ConfigurationBlocked;
         public Dictionary<PositionTaskId, ThreadId> OpenTasks { get; } = [];
         public Dictionary<MessageId, ThreadId> ProcessingMessages { get; } = [];
-        public HashSet<ThreadId> UnresolvedEscalations { get; } = [];
+        public Dictionary<ThreadId, PendingEscalation> UnresolvedEscalations { get; } = [];
+        public long NextEscalationOrder;
+        public DateTimeOffset? BlockedSinceUtc;
         public Dictionary<MessageId, ThreadId> PendingApprovals { get; } = [];
         public Dictionary<RetainedActionId, ThreadId> RetainedActions { get; } = [];
 
@@ -487,6 +511,8 @@ internal sealed class PositionLiveStateFactMapper
                 : PositionLiveState.Idle;
         }
     }
+
+    private sealed record PendingEscalation(long Order, EventSourceCorrelation Correlation);
 }
 
 internal enum PositionLiveStateCondition

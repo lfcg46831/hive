@@ -20,6 +20,8 @@ using Hive.Domain.OccupantChannels;
 using Hive.Domain.Outcomes;
 using Hive.Infrastructure.Configuration;
 using Hive.Infrastructure.Events;
+using Hive.Infrastructure.Organization.ReadModels;
+using Hive.Infrastructure.Organization.ReadModels.PostgreSql;
 using Hive.Infrastructure.Connectors;
 using Hive.Infrastructure.Hosting;
 using Hive.Infrastructure.Governance;
@@ -213,6 +215,9 @@ public static class HiveActorSystemBootstrapExtensions
 
         builder.Services.AddSingleton<IDirectiveDeadlineSource, PostgreSqlDirectiveDeadlineSource>();
         builder.Services.AddSingleton<IDomainEventDetector, DirectiveDeadlineApproachingDetector>();
+        builder.Services.AddSingleton<IPositionLiveStateHistory, PostgreSqlPositionLiveStateHistory>();
+        builder.Services.AddSingleton<IPositionBlockedSource, PersistedPositionBlockedSource>();
+        builder.Services.AddSingleton<IDomainEventDetector, PositionBlockedProlongedDetector>();
         builder.Services.AddSingleton<DomainEventsCoordinatorSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<DomainEventsCoordinatorSingletonWorkload>());

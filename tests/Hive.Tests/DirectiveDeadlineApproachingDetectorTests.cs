@@ -130,7 +130,8 @@ public sealed class DirectiveDeadlineApproachingDetectorTests
         builder.AddHiveActorSystem();
         await using var services = builder.Services.BuildServiceProvider();
         Assert.IsType<PostgreSqlDirectiveDeadlineSource>(services.GetRequiredService<IDirectiveDeadlineSource>());
-        Assert.IsType<DirectiveDeadlineApproachingDetector>(Assert.Single(services.GetServices<IDomainEventDetector>()));
+        Assert.IsType<DirectiveDeadlineApproachingDetector>(Assert.Single(services.GetServices<IDomainEventDetector>(),
+            detector => detector.EventType == OrganizationEventType.DirectiveDeadlineApproaching));
     }
 
     private static OpenDirectiveDeadline Candidate() => new(Org, Position, Correlation, Deadline);

@@ -9,6 +9,7 @@ using Hive.Domain.Identity;
 using Hive.Domain.Messaging;
 using Hive.Domain.Positions;
 using Hive.Infrastructure.Configuration;
+using Hive.Infrastructure.Governance;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -130,6 +131,8 @@ public sealed class PostgreSqlPositionLiveStateProjectionSubscriptionTests(Postg
             ["ConnectionStrings:PostgreSql"] = fixture.ConnectionString,
         });
         builder.AddHiveBootstrap();
+        builder.Services.AddSingleton<IActionDomainContractSource>(
+            ExampleOrganizationConnectorContractSource.Instance);
         builder.AddHiveActorSystem();
         builder.AddHivePositionLiveStateProjection();
         return builder.Build();

@@ -218,6 +218,8 @@ public static class HiveActorSystemBootstrapExtensions
         builder.Services.AddSingleton<IPositionLiveStateHistory, PostgreSqlPositionLiveStateHistory>();
         builder.Services.AddSingleton<IPositionBlockedSource, PersistedPositionBlockedSource>();
         builder.Services.AddSingleton<IDomainEventDetector, PositionBlockedProlongedDetector>();
+        builder.Services.AddSingleton<IBudgetThresholdSource, PostgreSqlBudgetThresholdSource>();
+        builder.Services.AddSingleton<IDomainEventDetector, BudgetThresholdReachedDetector>();
         builder.Services.AddSingleton<DomainEventsCoordinatorSingletonWorkload>();
         builder.Services.AddSingleton<IRoleWorkload>(
             sp => sp.GetRequiredService<DomainEventsCoordinatorSingletonWorkload>());

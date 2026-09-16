@@ -134,7 +134,7 @@ public sealed class PositionBlockedProlongedDetectorTests
         Assert.IsType<PersistedPositionBlockedSource>(services.GetRequiredService<IPositionBlockedSource>());
         Assert.IsType<PositionBlockedProlongedDetector>(Assert.Single(services.GetServices<IDomainEventDetector>(),
             detector => detector.EventType == OrganizationEventType.PositionBlockedProlonged));
-        Assert.Equal(2, services.GetServices<IDomainEventDetector>().Count());
+        Assert.Equal(3, services.GetServices<IDomainEventDetector>().Count());
     }
 
     private static CurrentPositionBlockedPeriod Period() => new(Org, Position, Since, PositionBlockedCause.PendingEscalation, Correlation);

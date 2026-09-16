@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Numerics;
 using System.Text;
 using System.Text.Json;
 using System.Xml;
@@ -161,7 +160,7 @@ public sealed record BudgetThresholdReachedPayload : OrganizationEventPayload
         ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(limitEur, 0m);
         ArgumentOutOfRangeException.ThrowIfNegative(consumedEur);
         // Compare exact scaled integers: decimal multiplication can overflow or round tiny caps.
-        if (ScaledAmount(consumedEur) * 100 < ScaledAmount(limitEur) * parameters.ThresholdPercent)
+        if (!BudgetThreshold.IsReached(consumedEur, limitEur, parameters.ThresholdPercent))
             throw new ArgumentException("Observed consumption has not reached the threshold.", nameof(consumedEur));
         SourcePositionId = sourcePositionId;
         Budget = budget;
@@ -192,12 +191,4 @@ public sealed record BudgetThresholdReachedPayload : OrganizationEventPayload
 
     internal override IEnumerable<string> IdentityComponents() =>
         [SourcePositionId.Value, DailyBudgetKindContract.ToWireValue(Budget), TimeZone, Date(CivilDate), Parameters.IdentityValue];
-
-    private static BigInteger ScaledAmount(decimal amount)
-    {
-        var bits = decimal.GetBits(amount);
-        var coefficient = ((BigInteger)(uint)bits[2] << 64) | ((BigInteger)(uint)bits[1] << 32) | (uint)bits[0];
-        var scale = (bits[3] >> 16) & 0xff;
-        return coefficient * BigInteger.Pow(10, 28 - scale);
-    }
 }
